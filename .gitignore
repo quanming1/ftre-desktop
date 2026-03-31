@@ -4,6 +4,7 @@ out/
 .cache/
 backend/
 release/
+.ftre/snapshot/
 nul
 *.log
 .DS_Store
