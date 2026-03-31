@@ -1,0 +1,1 @@
+export { withMentions } from './withMentions';

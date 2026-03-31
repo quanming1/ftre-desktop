@@ -1,0 +1,45 @@
+{
+  "appId": "com.aibase.desktop",
+  "productName": "AI IDE",
+  "directories": {
+    "output": "release"
+  },
+  "files": [
+    "main.js",
+    "preload.js",
+    "ipc/**/*",
+    "dist/**/*",
+    "package.json"
+  ],
+  "extraResources": [
+    {
+      "from": "backend",
+      "to": "backend",
+      "filter": [
+        "**/*",
+        "!**/__pycache__/**",
+        "!**/*.pyc"
+      ]
+    }
+  ],
+  "asarUnpack": [
+    "node_modules/node-pty/**/*"
+  ],
+  "win": {
+    "target": [
+      {
+        "target": "nsis",
+        "arch": ["x64"]
+      }
+    ],
+    "icon": null
+  },
+  "nsis": {
+    "oneClick": false,
+    "allowToChangeInstallationDirectory": true,
+    "installerIcon": null,
+    "uninstallerIcon": null
+  },
+  "npmRebuild": false,
+  "electronDist": "node_modules/electron/dist"
+}

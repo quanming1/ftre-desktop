@@ -1,0 +1,79 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+
+/*
+ * 主题 — IDEA Darcula / VS Code Dark+ 风格 + 绿色点缀
+ * 背景从全黑提亮到深灰，提升文字可读性
+ */
+@theme {
+  /* 背景层级: 从深到浅 */
+  --color-base: #1e1e1e; /* 主背景 (VS Code Dark+) */
+  --color-surface: #252526; /* 侧边栏/面板 */
+  --color-elevated: #2d2d2d; /* 悬浮/弹窗 */
+  --color-panel: #333333; /* 输入框/卡片 */
+  --color-border: #3c3c3c; /* 主边框 */
+  --color-border-subtle: #454545; /* 次要边框 */
+
+  /* 绿色点缀 — 我们的特色 */
+  --color-neon: #00ff88;
+  --color-neon-dim: rgba(0, 255, 136, 0.12);
+  --color-neon-ghost: rgba(0, 255, 136, 0.06);
+
+  /* 文字层级: 大幅提亮，确保深色背景下清晰可读 */
+  --color-t-primary: #e8e8e8;
+  --color-t-secondary: #cccccc;
+  --color-t-muted: #aab0b8;
+  --color-t-dim: #969ca6;
+  --color-t-ghost: #888e98;
+  --color-t-faint: #7a8088;
+
+  --color-danger: #f85149;
+  --color-warning: #d29922;
+  --color-info: #58a6ff;
+
+  --font-mono: "JetBrains Mono", "Cascadia Code", "Fira Code", "Consolas", monospace;
+  --font-sans: "Inter", -apple-system, "Segoe UI", sans-serif;
+}
+
+/*
+ * CSS 变量向后兼容（Monaco 主题等仍在用）
+ */
+:root {
+  --bg-base: #1e1e1e;
+  --bg-surface: #252526;
+  --bg-elevated: #2d2d2d;
+  --bg-hover: #333333;
+  --bg-active: #3c3c3c;
+
+  --text-primary: #e8e8e8;
+  --text-secondary: #cccccc;
+  --text-muted: #aab0b8;
+
+  --accent: #00ff88;
+  --accent-hover: #00cc6e;
+  --accent-muted: rgba(0, 255, 136, 0.12);
+
+  --success: #00ff88;
+  --warning: #d29922;
+  --error: #f85149;
+  --info: #58a6ff;
+
+  --gap-xs: 4px;
+  --gap-sm: 8px;
+  --gap-md: 12px;
+  --gap-lg: 16px;
+  --gap-xl: 24px;
+
+  --font-mono: "JetBrains Mono", "Cascadia Code", "Fira Code", "Consolas", monospace;
+  --font-sans: "Inter", -apple-system, "Segoe UI", sans-serif;
+  --font-size-xs: 11px;
+  --font-size-sm: 12px;
+  --font-size-md: 13px;
+  --font-size-lg: 14px;
+
+  --radius-sm: 4px;
+  --radius-md: 6px;
+
+  --titlebar-height: 40px;
+  --statusbar-height: 32px;
+}

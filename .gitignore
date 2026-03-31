@@ -1,0 +1,16 @@
+node_modules/
+dist/
+out/
+.cache/
+backend/
+release/
+nul
+*.log
+.DS_Store
+.env
+.env.local
+*.local
+.idea/
+.vscode/
+*.swp
+*.swo
