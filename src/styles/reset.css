@@ -1,0 +1,67 @@
+/* 字体由系统/本地提供，不从网络加载（Electron 本地应用无需 Google Fonts CDN） */
+
+@layer base {
+  *,
+  *::before,
+  *::after {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+  }
+
+  html,
+  body,
+  #root {
+    height: 100%;
+    overflow: hidden;
+    background: #1e1e1e;
+    color: #ddd;
+    font-family:
+      "Inter",
+      -apple-system,
+      "Segoe UI",
+      sans-serif;
+    font-size: 13px;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  ::selection {
+    background: rgba(0, 255, 136, 0.15);
+    color: #fff;
+  }
+
+  ::-webkit-scrollbar {
+    width: 5px;
+    height: 5px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: #454545;
+    border-radius: 0;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: rgba(0, 255, 136, 0.3);
+  }
+
+  button {
+    color: inherit;
+    font: inherit;
+    cursor: pointer;
+  }
+
+  input,
+  textarea {
+    border: none;
+    background: none;
+    color: inherit;
+    font: inherit;
+    outline: none;
+  }
+
+  a {
+    color: #00ff88;
+    text-decoration: none;
+  }
+}
