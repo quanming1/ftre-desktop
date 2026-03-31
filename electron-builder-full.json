@@ -1,14 +1,12 @@
 {
-  "appId": "com.aibase.desktop",
+  "appId": "com.ftre.desktop",
   "productName": "AI IDE",
   "directories": {
     "output": "release"
   },
   "files": [
-    "main.js",
-    "preload.js",
-    "ipc/**/*",
-    "dist/**/*",
+    "packages/electron/dist/**/*",
+    "packages/renderer/dist/**/*",
     "package.json"
   ],
   "extraResources": [

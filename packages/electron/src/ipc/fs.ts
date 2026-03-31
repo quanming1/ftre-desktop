@@ -1,0 +1,135 @@
+import { ipcMain, dialog, shell } from 'electron';
+import * as path from 'path';
+import * as fs from 'fs';
+import { getMainWindow } from '../app-state';
+
+const TREE_SKIP_DIRS = new Set(['.git']);
+
+function extToLanguage(ext: string): string {
+  const map: Record<string, string> = {
+    js: 'javascript', jsx: 'javascript', ts: 'typescript', tsx: 'typescript',
+    py: 'python', rs: 'rust', go: 'go', java: 'java',
+    json: 'json', yaml: 'yaml', yml: 'yaml', toml: 'toml',
+    md: 'markdown', html: 'html', css: 'css', scss: 'scss',
+    sql: 'sql', sh: 'shell', bash: 'shell', zsh: 'shell',
+    xml: 'xml', svg: 'xml', c: 'c', cpp: 'cpp', h: 'c',
+    txt: 'plaintext', log: 'plaintext', env: 'plaintext',
+    gitignore: 'plaintext', dockerfile: 'dockerfile',
+  };
+  return map[ext.toLowerCase()] || 'plaintext';
+}
+
+export function registerFsIPC(): void {
+  ipcMain.handle('fs:readDir', async (_event, { dirPath }: { dirPath: string }) => {
+    try {
+      const items = fs.readdirSync(dirPath, { withFileTypes: true });
+      const entries = [];
+
+      for (const item of items) {
+        if (item.isDirectory() && TREE_SKIP_DIRS.has(item.name)) continue;
+
+        entries.push({
+          name: item.name,
+          path: path.join(dirPath, item.name).replace(/\\/g, '/'),
+          isDir: item.isDirectory(),
+          ext: item.isDirectory() ? null : path.extname(item.name).slice(1),
+        });
+      }
+
+      entries.sort((a: any, b: any) => {
+        if (a.isDir !== b.isDir) return a.isDir ? -1 : 1;
+        return a.name.toLowerCase().localeCompare(b.name.toLowerCase());
+      });
+
+      return { entries };
+    } catch (err: any) {
+      return { entries: [], error: err.message };
+    }
+  });
+
+  ipcMain.handle('fs:readFile', async (_event, { filePath }: { filePath: string }) => {
+    try {
+      const content = fs.readFileSync(filePath, 'utf-8');
+      const ext = path.extname(filePath).slice(1);
+      return { content, language: extToLanguage(ext) };
+    } catch (err: any) {
+      return { content: '', error: err.message };
+    }
+  });
+
+  ipcMain.handle('fs:writeFile', async (_event, { filePath, content }: { filePath: string; content: string }) => {
+    try {
+      fs.mkdirSync(path.dirname(filePath), { recursive: true });
+      fs.writeFileSync(filePath, content, 'utf-8');
+      return { success: true };
+    } catch (err: any) {
+      return { success: false, error: err.message };
+    }
+  });
+
+  ipcMain.handle('fs:selectFolder', async () => {
+    const mainWindow = getMainWindow();
+    const result = await dialog.showOpenDialog(mainWindow!, {
+      properties: ['openDirectory'],
+    });
+    if (result.canceled || result.filePaths.length === 0) return { path: null };
+    return { path: result.filePaths[0].replace(/\\/g, '/') };
+  });
+
+  ipcMain.handle('fs:showSaveDialog', async (_event, { defaultName }: { defaultName?: string } = {}) => {
+    const mainWindow = getMainWindow();
+    const result = await dialog.showSaveDialog(mainWindow!, {
+      defaultPath: defaultName || 'Untitled',
+    });
+    if (result.canceled || !result.filePath) return { path: null };
+    return { path: result.filePath.replace(/\\/g, '/') };
+  });
+
+  ipcMain.handle('fs:createFile', async (_event, { filePath }: { filePath: string }) => {
+    try {
+      if (fs.existsSync(filePath)) {
+        return { success: false, error: 'File already exists' };
+      }
+      fs.mkdirSync(path.dirname(filePath), { recursive: true });
+      fs.writeFileSync(filePath, '', 'utf-8');
+      return { success: true };
+    } catch (err: any) {
+      return { success: false, error: err.message };
+    }
+  });
+
+  ipcMain.handle('fs:createFolder', async (_event, { dirPath }: { dirPath: string }) => {
+    try {
+      fs.mkdirSync(dirPath, { recursive: true });
+      return { success: true };
+    } catch (err: any) {
+      return { success: false, error: err.message };
+    }
+  });
+
+  ipcMain.handle('fs:rename', async (_event, { oldPath, newPath }: { oldPath: string; newPath: string }) => {
+    try {
+      fs.renameSync(oldPath, newPath);
+      return { success: true };
+    } catch (err: any) {
+      return { success: false, error: err.message };
+    }
+  });
+
+  ipcMain.handle('fs:delete', async (_event, { targetPath, isDir }: { targetPath: string; isDir: boolean }) => {
+    try {
+      if (isDir) {
+        fs.rmSync(targetPath, { recursive: true, force: true });
+      } else {
+        fs.unlinkSync(targetPath);
+      }
+      return { success: true };
+    } catch (err: any) {
+      return { success: false, error: err.message };
+    }
+  });
+
+  ipcMain.handle('fs:revealInExplorer', async (_event, { targetPath }: { targetPath: string }) => {
+    shell.showItemInFolder(targetPath);
+  });
+}
