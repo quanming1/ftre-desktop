@@ -1,59 +1,34 @@
 {
-  "name": "ai-base-desktop",
+  "name": "ftre-desktop",
   "version": "0.1.0",
-  "description": "AI Agent Desktop Client",
-  "main": "main.js",
+  "description": "AI Agent Desktop Client - Monorepo",
+  "private": true,
   "scripts": {
-    "dev": "concurrently \"vite\" \"wait-on http://localhost:5173 && electron .\"",
-    "start": "electron .",
-    "clean": "node -e \"fs=require('fs');['dist','release','backend'].forEach(d=>fs.rmSync(d,{recursive:true,force:true}))\"",
-    "build": "vite build",
+    "dev": "concurrently \"pnpm --filter @ftre/shared dev\" \"pnpm --filter @ftre/electron dev\" \"pnpm --filter @ftre/renderer dev\" \"wait-on http://localhost:5173 && electron packages/electron/dist/main.js\"",
+    "build": "pnpm --filter @ftre/shared build && pnpm --filter @ftre/electron build && pnpm --filter @ftre/renderer build",
+    "clean": "pnpm --filter @ftre/shared clean && pnpm --filter @ftre/electron clean && pnpm --filter @ftre/renderer clean && rm -rf node_modules",
+    "pack": "npm run build && electron-builder --win --dir",
+    "pack:full": "npm run build && npm run bundle-backend && electron-builder --win --dir -c electron-builder-full.json",
+    "dist": "npm run build && electron-builder --win",
+    "dist:full": "npm run build && npm run bundle-backend && electron-builder --win -c electron-builder-full.json",
     "bundle-backend": "node scripts/bundle-backend.js",
-    "pack": "npm run clean && vite build && electron-builder --win --dir",
-    "pack:full": "npm run clean && npm run bundle-backend && vite build && electron-builder --win --dir -c electron-builder-full.json",
-    "dist": "npm run clean && vite build && electron-builder --win",
-    "dist:full": "npm run clean && npm run bundle-backend && vite build && electron-builder --win -c electron-builder-full.json",
-    "preview": "vite build && electron .",
-    "test": "vitest --run",
-    "test:watch": "vitest"
+    "test": "pnpm --filter @ftre/renderer test"
   },
-  "dependencies": {
-    "@monaco-editor/react": "^4.7.0",
-    "@xterm/addon-fit": "^0.11.0",
-    "@xterm/addon-search": "^0.16.0",
-    "@xterm/addon-unicode11": "^0.9.0",
-    "@xterm/addon-web-links": "^0.12.0",
-    "@xterm/xterm": "^6.0.0",
-    "clsx": "^2.1.1",
-    "lucide-react": "^0.577.0",
-    "minimatch": "^9.0.0",
-    "monaco-editor": "^0.55.1",
-    "node-pty": "^1.1.0",
-    "partial-json": "^0.1.7",
-    "react": "^19.2.4",
-    "react-dom": "^19.2.4",
-    "react-markdown": "^10.1.0",
-    "rehype-highlight": "^7.0.2",
-    "remark-gfm": "^4.0.1",
-    "slate": "^0.123.0",
-    "slate-history": "^0.113.1",
-    "slate-react": "^0.123.0",
-    "tailwind-merge": "^3.5.0",
-    "tw-animate-css": "^1.4.0",
-    "xterm": "^5.3.0",
-    "zustand": "^5.0.11"
+  "devDependencies": {
+    "concurrently": "^9.2.1",
+    "electron": "^33.0.0",
+    "electron-builder": "^25.0.0",
+    "wait-on": "^9.0.4"
   },
   "build": {
-    "appId": "com.aibase.desktop",
+    "appId": "com.ftre.desktop",
     "productName": "AI IDE",
     "directories": {
       "output": "release"
     },
     "files": [
-      "main.js",
-      "preload.js",
-      "ipc/**/*",
-      "dist/**/*",
+      "packages/electron/dist/**/*",
+      "packages/renderer/dist/**/*",
       "package.json"
     ],
     "asarUnpack": [
@@ -69,23 +44,5 @@
     },
     "npmRebuild": false,
     "electronDist": "node_modules/electron/dist"
-  },
-  "devDependencies": {
-    "@tailwindcss/vite": "^4.2.1",
-    "@testing-library/jest-dom": "^6.9.1",
-    "@testing-library/react": "^16.3.2",
-    "@types/react": "^19.2.14",
-    "@types/react-dom": "^19.2.3",
-    "@vitejs/plugin-react": "^5.1.4",
-    "concurrently": "^9.2.1",
-    "electron": "^33.0.0",
-    "electron-builder": "^25.0.0",
-    "fast-check": "^4.6.0",
-    "jsdom": "^28.1.0",
-    "tailwindcss": "^4.2.1",
-    "typescript": "^5.9.3",
-    "vite": "^7.3.1",
-    "vitest": "^4.0.18",
-    "wait-on": "^9.0.4"
   }
 }

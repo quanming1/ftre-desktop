@@ -1,0 +1,21 @@
+{
+  "name": "@ftre/electron",
+  "version": "0.1.0",
+  "description": "Electron main process and IPC handlers",
+  "main": "./dist/main.js",
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "@ftre/shared": "workspace:*",
+    "minimatch": "^9.0.0",
+    "node-pty": "^1.1.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "electron": "^33.0.0",
+    "typescript": "^5.9.3"
+  }
+}
