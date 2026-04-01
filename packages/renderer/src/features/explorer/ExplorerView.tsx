@@ -1,17 +1,39 @@
 import { useEffect, useState, useCallback, useMemo, useRef } from "react";
-import { FolderTree, GitBranch, FilePlus, FolderPlus, LocateFixed, ChevronsDownUp } from "lucide-react";
+import {
+  FolderTree,
+  GitBranch,
+  FilePlus,
+  FolderPlus,
+  LocateFixed,
+  ChevronsDownUp,
+} from "lucide-react";
 import { useWorkspace } from "@/stores/workspace";
 import { useNotification } from "@/stores/notification";
 import { useEditor } from "@/stores/editor";
 import { gitService, useGitService } from "@/services/git-service";
-import { workspaceHash, pathSep, pathJoin, pathParent } from "@/utils/pathUtils";
+import {
+  addFileToIndex,
+  removeFileFromIndex,
+  renamePathInIndex,
+} from "@/services/file-index-service";
+import { performanceMetrics } from "@/services/performance-metrics";
+import {
+  workspaceHash,
+  pathSep,
+  pathJoin,
+  pathParent,
+} from "@/utils/pathUtils";
 import { FileTreeItem } from "./FileTreeItem";
 import { InlineInput } from "./InlineInput";
 import { GitChangesView } from "./GitChangesView";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
-import { flattenVisibleEntries, getNextFocusPath, getParentPath } from "./tree-navigation";
+import {
+  flattenVisibleEntries,
+  getNextFocusPath,
+  getParentPath,
+} from "./tree-navigation";
 import { filterEntries } from "./file-filter";
-import type { TreeEntry } from "./tree-navigation";
+import type { FlatEntry, TreeEntry } from "./tree-navigation";
 import type { FileEntry } from "@/types";
 
 /** Pending inline creation state */
@@ -32,11 +54,13 @@ interface PendingDelete {
   isDir: boolean;
 }
 
-const TREE_KEY_PREFIX = 'ftre-tree-expanded';
+const TREE_KEY_PREFIX = "ftre-tree-expanded";
 
 /** 按工作区隔离的 localStorage key */
 function treeStorageKey(rootPath: string | null): string {
-  return rootPath ? `${TREE_KEY_PREFIX}:${workspaceHash(rootPath)}` : TREE_KEY_PREFIX;
+  return rootPath
+    ? `${TREE_KEY_PREFIX}:${workspaceHash(rootPath)}`
+    : TREE_KEY_PREFIX;
 }
 
 function loadExpandedPaths(rootPath: string | null): Set<string> {
@@ -46,7 +70,9 @@ function loadExpandedPaths(rootPath: string | null): Set<string> {
       const arr = JSON.parse(raw) as string[];
       return new Set(arr);
     }
-  } catch { /* ignore */ }
+  } catch {
+    /* ignore */
+  }
   return new Set();
 }
 
@@ -55,12 +81,20 @@ function saveExpandedPaths(paths: Set<string>, rootPath: string | null) {
   if (treePersistTimer) clearTimeout(treePersistTimer);
   treePersistTimer = setTimeout(() => {
     try {
-      localStorage.setItem(treeStorageKey(rootPath), JSON.stringify([...paths]));
-    } catch { /* ignore */ }
+      localStorage.setItem(
+        treeStorageKey(rootPath),
+        JSON.stringify([...paths]),
+      );
+    } catch {
+      /* ignore */
+    }
   }, 300);
 }
 
 type ViewMode = "files" | "git";
+
+const EXPLORER_ROW_HEIGHT = 32;
+const EXPLORER_OVERSCAN = 12;
 
 export function ExplorerView() {
   const { rootPath, setRootPath } = useWorkspace();
@@ -68,12 +102,22 @@ export function ExplorerView() {
   const gitChangeCount = useGitService((s) => s.getInfo().changedFiles);
 
   // gitService 跟随工作区切换
-  useEffect(() => { gitService.setRootPath(rootPath); }, [rootPath]);
+  useEffect(() => {
+    gitService.setRootPath(rootPath);
+  }, [rootPath]);
   const [entries, setEntries] = useState<FileEntry[]>([]);
-  const [pendingCreate, setPendingCreate] = useState<PendingCreate | null>(null);
-  const [pendingRename, setPendingRename] = useState<PendingRename | null>(null);
-  const [pendingDelete, setPendingDelete] = useState<PendingDelete | null>(null);
-  const [expandedPaths, setExpandedPaths] = useState<Set<string>>(() => loadExpandedPaths(rootPath));
+  const [pendingCreate, setPendingCreate] = useState<PendingCreate | null>(
+    null,
+  );
+  const [pendingRename, setPendingRename] = useState<PendingRename | null>(
+    null,
+  );
+  const [pendingDelete, setPendingDelete] = useState<PendingDelete | null>(
+    null,
+  );
+  const [expandedPaths, setExpandedPaths] = useState<Set<string>>(() =>
+    loadExpandedPaths(rootPath),
+  );
   const [focusedPath, setFocusedPath] = useState<string | null>(null);
   const [dragOverPath, setDragOverPath] = useState<string | null>(null);
   const treeContainerRef = useRef<HTMLDivElement>(null);
@@ -86,24 +130,30 @@ export function ExplorerView() {
     setChildrenMap(new Map());
   }, [rootPath]);
 
-
-
   // ── Children map for keyboard navigation tree ──────────────────────
-  const [childrenMap, setChildrenMap] = useState<Map<string, FileEntry[]>>(new Map());
+  const [childrenMap, setChildrenMap] = useState<Map<string, FileEntry[]>>(
+    new Map(),
+  );
   /** 正在加载中的文件夹路径，防止重复 readDir */
   const loadingDirs = useRef<Set<string>>(new Set());
 
   // Load children for expanded folders that aren't loaded yet
   useEffect(() => {
     for (const folderPath of expandedPaths) {
-      if (!childrenMap.has(folderPath) && !loadingDirs.current.has(folderPath)) {
+      if (
+        !childrenMap.has(folderPath) &&
+        !loadingDirs.current.has(folderPath)
+      ) {
         loadingDirs.current.add(folderPath);
         window.desktop.fs.readDir(folderPath).then((result) => {
           loadingDirs.current.delete(folderPath);
           setChildrenMap((prev) => {
             const next = new Map(prev);
             // 失败时写入空数组，防止无限重试
-            next.set(folderPath, result.error ? [] : filterEntries(result.entries));
+            next.set(
+              folderPath,
+              result.error ? [] : filterEntries(result.entries),
+            );
             return next;
           });
         });
@@ -116,36 +166,88 @@ export function ExplorerView() {
     const buildTree = (items: FileEntry[]): TreeEntry[] =>
       items.map((entry) => ({
         ...entry,
-        children: entry.isDir ? buildTree(childrenMap.get(entry.path) ?? []) : undefined,
+        children: entry.isDir
+          ? buildTree(childrenMap.get(entry.path) ?? [])
+          : undefined,
       }));
     return buildTree(entries);
   }, [entries, childrenMap]);
 
-  const toggleExpanded = useCallback((path: string) => {
-    setExpandedPaths((prev) => {
-      const next = new Set(prev);
-      if (next.has(path)) {
-        next.delete(path);
-        // 折叠时递归清理所有子孙文件夹路径
-        const prefixBack = path + "\\";
-        const prefixFwd = path + "/";
-        for (const p of prev) {
-          if (p.startsWith(prefixBack) || p.startsWith(prefixFwd)) {
-            next.delete(p);
-          }
-        }
-      } else {
-        next.add(path);
+  const flatEntries = useMemo(
+    () => flattenVisibleEntries(treeEntries, expandedPaths),
+    [treeEntries, expandedPaths],
+  );
+
+  const entryMap = useMemo(() => {
+    const map = new Map<string, FileEntry>();
+    const walk = (items: TreeEntry[]) => {
+      for (const item of items) {
+        map.set(item.path, item);
+        if (item.children) walk(item.children);
       }
-      saveExpandedPaths(next, rootPath);
-      return next;
-    });
-  }, [rootPath]);
+    };
+    walk(treeEntries);
+    return map;
+  }, [treeEntries]);
+
+  const canVirtualize =
+    !!rootPath && !pendingCreate && !pendingRename && !dragOverPath;
+
+  const [scrollTop, setScrollTop] = useState(0);
+  const [viewportHeight, setViewportHeight] = useState(0);
+
+  const totalRows = flatEntries.length;
+  const startIndex = canVirtualize
+    ? Math.max(
+        0,
+        Math.floor(scrollTop / EXPLORER_ROW_HEIGHT) - EXPLORER_OVERSCAN,
+      )
+    : 0;
+  const visibleCount = canVirtualize
+    ? Math.ceil(viewportHeight / EXPLORER_ROW_HEIGHT) + EXPLORER_OVERSCAN * 2
+    : totalRows;
+  const endIndex = canVirtualize
+    ? Math.min(totalRows, startIndex + visibleCount)
+    : totalRows;
+
+  const virtualEntries = useMemo(
+    () => flatEntries.slice(startIndex, endIndex),
+    [flatEntries, startIndex, endIndex],
+  );
+  const visibleEntries = canVirtualize ? virtualEntries : flatEntries;
+
+  const topSpacerHeight = canVirtualize ? startIndex * EXPLORER_ROW_HEIGHT : 0;
+  const bottomSpacerHeight = canVirtualize
+    ? Math.max(0, (totalRows - endIndex) * EXPLORER_ROW_HEIGHT)
+    : 0;
+
+  const toggleExpanded = useCallback(
+    (path: string) => {
+      setExpandedPaths((prev) => {
+        const next = new Set(prev);
+        if (next.has(path)) {
+          next.delete(path);
+          // 折叠时递归清理所有子孙文件夹路径
+          const prefixBack = path + "\\";
+          const prefixFwd = path + "/";
+          for (const p of prev) {
+            if (p.startsWith(prefixBack) || p.startsWith(prefixFwd)) {
+              next.delete(p);
+            }
+          }
+        } else {
+          next.add(path);
+        }
+        saveExpandedPaths(next, rootPath);
+        return next;
+      });
+    },
+    [rootPath],
+  );
 
   // ── Keyboard navigation handler ─────────────────────────────────────
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
-      const flatEntries = flattenVisibleEntries(treeEntries, expandedPaths);
       if (flatEntries.length === 0) return;
 
       switch (e.key) {
@@ -243,7 +345,16 @@ export function ExplorerView() {
         }
       }
     },
-    [treeEntries, expandedPaths, focusedPath, setFocusedPath, toggleExpanded, setPendingRename, setPendingCreate, setPendingDelete],
+    [
+      treeEntries,
+      expandedPaths,
+      focusedPath,
+      setFocusedPath,
+      toggleExpanded,
+      setPendingRename,
+      setPendingCreate,
+      setPendingDelete,
+    ],
   );
 
   // ── Load root entries ──────────────────────────────────────────────
@@ -254,12 +365,17 @@ export function ExplorerView() {
     const isNewRoot = prevRootRef.current !== rootPath;
     prevRootRef.current = rootPath;
 
+    const refreshStart = performanceMetrics.start();
     window.desktop.fs.readDir(rootPath).then((result) => {
       setEntries(filterEntries(result.entries));
+      performanceMetrics.count("tree.refresh.root");
+      performanceMetrics.end("tree.refresh.root.ms", refreshStart);
 
       // Spec: open_folder — 首次加载新文件夹时自动打开 README
       if (isNewRoot) {
-        const readme = result.entries.find((e) => !e.isDir && /^readme(\.\w+)?$/i.test(e.name));
+        const readme = result.entries.find(
+          (e) => !e.isDir && /^readme(\.\w+)?$/i.test(e.name),
+        );
         if (readme) {
           window.desktop.fs.readFile(readme.path).then((fileResult) => {
             if (!fileResult.error) {
@@ -291,12 +407,23 @@ export function ExplorerView() {
   useEffect(() => {
     if (!rootPath) return;
     const handler = (e: Event) => {
-      const { dirPath } = (e as CustomEvent).detail;
+      const { dirPath, changedPath } = (
+        e as CustomEvent<{ dirPath: string; changedPath?: string }>
+      ).detail;
+
+      if (changedPath && /[\\/]\.git([\\/]|$)/.test(changedPath)) return;
+
+      performanceMetrics.count("tree.refresh.events");
+
       if (dirPath === rootPath) {
         refreshRoot();
       }
       // 刷新 childrenMap 中对应路径的数据（如果已加载过）
-      if (childrenMapRef.current.has(dirPath) || expandedPathsRef.current.has(dirPath)) {
+      if (
+        childrenMapRef.current.has(dirPath) ||
+        expandedPathsRef.current.has(dirPath)
+      ) {
+        const refreshStart = performanceMetrics.start();
         window.desktop.fs.readDir(dirPath).then((result) => {
           if (!result.error) {
             setChildrenMap((prev) => {
@@ -304,6 +431,8 @@ export function ExplorerView() {
               next.set(dirPath, filterEntries(result.entries));
               return next;
             });
+            performanceMetrics.count("tree.refresh.child");
+            performanceMetrics.end("tree.refresh.dir.ms", refreshStart);
           }
         });
       }
@@ -383,7 +512,9 @@ export function ExplorerView() {
     (targetPath: string) => {
       if (!targetPath || !rootPath) return;
 
-      const relativePath = targetPath.startsWith(rootPath) ? targetPath.slice(rootPath.length) : targetPath;
+      const relativePath = targetPath.startsWith(rootPath)
+        ? targetPath.slice(rootPath.length)
+        : targetPath;
       const segments = relativePath.split(/[\\/]/).filter(Boolean);
 
       const pathsToExpand: string[] = [];
@@ -432,7 +563,9 @@ export function ExplorerView() {
   useEffect(() => {
     if (activeFile) {
       // diff 虚拟 tab 路径以 "diff:" 开头，提取真实文件路径
-      const realPath = activeFile.startsWith("diff:") ? activeFile.slice(5) : activeFile;
+      const realPath = activeFile.startsWith("diff:")
+        ? activeFile.slice(5)
+        : activeFile;
       revealPath(realPath);
     }
   }, [activeFile, revealPath]);
@@ -486,17 +619,23 @@ export function ExplorerView() {
       const { type, dirPath } = pendingCreate;
       const fullPath = pathJoin(dirPath, name);
 
-      const result = type === "file" ? await window.desktop.fs.createFile(fullPath) : await window.desktop.fs.createFolder(fullPath);
+      const result =
+        type === "file"
+          ? await window.desktop.fs.createFile(fullPath)
+          : await window.desktop.fs.createFolder(fullPath);
 
       if (!result.success) {
         addNotification({
           level: "error",
-          message: result.error || (type === "file" ? "创建文件失败" : "创建文件夹失败"),
+          message:
+            result.error ||
+            (type === "file" ? "创建文件失败" : "创建文件夹失败"),
         });
       }
 
       // Auto-open newly created files in the editor (not folders)
       if (type === "file" && result.success) {
+        addFileToIndex(fullPath);
         const fileResult = await window.desktop.fs.readFile(fullPath);
         if (!fileResult.error) {
           useEditor.getState().openFile({
@@ -509,11 +648,14 @@ export function ExplorerView() {
       }
 
       setPendingCreate(null);
-      // Refresh the tree — dispatch a refresh event so FileTreeItem can reload too
-      refreshRoot();
-      window.dispatchEvent(new CustomEvent("ftre:tree-refresh", { detail: { dirPath } }));
+      // Refresh via the centralized tree-refresh handler only
+      window.dispatchEvent(
+        new CustomEvent("ftre:tree-refresh", {
+          detail: { dirPath, changedPath: fullPath },
+        }),
+      );
     },
-    [pendingCreate, addNotification, refreshRoot],
+    [pendingCreate, addNotification],
   );
 
   // ── Handle rename ──────────────────────────────────────────────────
@@ -537,6 +679,7 @@ export function ExplorerView() {
           message: result.error || "重命名失败",
         });
       } else {
+        renamePathInIndex(oldPath, newPath, pendingRename.isDir);
         // Notify editor to update open tabs (task 2.4 handles this)
         window.dispatchEvent(
           new CustomEvent("ftre:file-renamed", {
@@ -546,10 +689,13 @@ export function ExplorerView() {
       }
 
       setPendingRename(null);
-      refreshRoot();
-      window.dispatchEvent(new CustomEvent("ftre:tree-refresh", { detail: { dirPath: parentDir } }));
+      window.dispatchEvent(
+        new CustomEvent("ftre:tree-refresh", {
+          detail: { dirPath: parentDir, changedPath: newPath },
+        }),
+      );
     },
-    [pendingRename, addNotification, refreshRoot],
+    [pendingRename, addNotification],
   );
 
   // ── Handle delete ──────────────────────────────────────────────────
@@ -562,9 +708,10 @@ export function ExplorerView() {
     if (!result.success) {
       addNotification({
         level: "error",
-          message: result.error || "删除失败",
+        message: result.error || "删除失败",
       });
     } else {
+      removeFileFromIndex(targetPath, isDir);
       // Notify editor to close open tabs (task 2.4 handles this)
       window.dispatchEvent(
         new CustomEvent("ftre:file-deleted", {
@@ -575,9 +722,12 @@ export function ExplorerView() {
 
     setPendingDelete(null);
     const parentDir = pathParent(targetPath);
-    refreshRoot();
-    window.dispatchEvent(new CustomEvent("ftre:tree-refresh", { detail: { dirPath: parentDir } }));
-  }, [pendingDelete, addNotification, refreshRoot]);
+    window.dispatchEvent(
+      new CustomEvent("ftre:tree-refresh", {
+        detail: { dirPath: parentDir, changedPath: targetPath },
+      }),
+    );
+  }, [pendingDelete, addNotification]);
 
   const handleOpenFolder = async () => {
     const result = await window.desktop.fs.selectFolder();
@@ -592,8 +742,69 @@ export function ExplorerView() {
     [childrenMap],
   );
 
+  const getSiblingNames = useCallback(
+    (flatEntry: FlatEntry): string[] => {
+      if (!(pendingCreate || pendingRename)) return [];
+      if (!flatEntry.parentPath) {
+        return entries
+          .map((entry) => entry.name)
+          .filter((name) => name !== flatEntry.name);
+      }
+      const siblings = childrenMap.get(flatEntry.parentPath) ?? [];
+      return siblings
+        .map((entry) => entry.name)
+        .filter((name) => name !== flatEntry.name);
+    },
+    [pendingCreate, pendingRename, entries, childrenMap],
+  );
+
+  useEffect(() => {
+    const el = treeContainerRef.current;
+    if (!el) return;
+
+    const syncViewport = () => {
+      setViewportHeight(el.clientHeight);
+      setScrollTop(el.scrollTop);
+    };
+
+    syncViewport();
+    el.addEventListener("scroll", syncViewport, { passive: true });
+
+    const ro = new ResizeObserver(() => syncViewport());
+    ro.observe(el);
+
+    return () => {
+      el.removeEventListener("scroll", syncViewport);
+      ro.disconnect();
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!canVirtualize) return;
+    if (!focusedPath) return;
+    const el = treeContainerRef.current;
+    if (!el) return;
+
+    const index = flatEntries.findIndex((entry) => entry.path === focusedPath);
+    if (index === -1) return;
+
+    const rowTop = index * EXPLORER_ROW_HEIGHT;
+    const rowBottom = rowTop + EXPLORER_ROW_HEIGHT;
+    const viewTop = el.scrollTop;
+    const viewBottom = viewTop + el.clientHeight;
+
+    if (rowTop >= viewTop && rowBottom <= viewBottom) return;
+
+    const targetScrollTop = Math.max(
+      0,
+      rowTop - Math.max(0, (el.clientHeight - EXPLORER_ROW_HEIGHT) / 2),
+    );
+    el.scrollTo({ top: targetScrollTop });
+  }, [canVirtualize, focusedPath, focusSeq, flatEntries]);
+
   // Check if the pending create is at the root level
-  const isRootCreate = pendingCreate && rootPath && pendingCreate.dirPath === rootPath;
+  const isRootCreate =
+    pendingCreate && rootPath && pendingCreate.dirPath === rootPath;
 
   return (
     <div className="h-full flex flex-col overflow-hidden">
@@ -603,7 +814,9 @@ export function ExplorerView() {
         <button
           onClick={() => setViewMode("files")}
           className={`flex items-center justify-center w-9 h-9 rounded-md ${
-            viewMode === "files" ? "bg-white/[0.08] text-t-primary" : "text-t-ghost hover:text-t-muted hover:bg-white/[0.04]"
+            viewMode === "files"
+              ? "bg-white/[0.08] text-t-primary"
+              : "text-t-ghost hover:text-t-muted hover:bg-white/[0.04]"
           }`}
           title="文件"
         >
@@ -614,7 +827,9 @@ export function ExplorerView() {
         <button
           onClick={() => setViewMode("git")}
           className={`relative flex items-center justify-center w-9 h-9 rounded-md ${
-            viewMode === "git" ? "bg-white/[0.08] text-t-primary" : "text-t-ghost hover:text-t-muted hover:bg-white/[0.04]"
+            viewMode === "git"
+              ? "bg-white/[0.08] text-t-primary"
+              : "text-t-ghost hover:text-t-muted hover:bg-white/[0.04]"
           }`}
           title="Git 变更"
         >
@@ -673,13 +888,19 @@ export function ExplorerView() {
       <div
         ref={treeContainerRef}
         className="flex-1 overflow-y-auto overflow-x-hidden py-1.5"
-        style={{ willChange: "transform", contain: "layout style", display: viewMode === "files" ? "block" : "none" }}
+        style={{
+          willChange: "transform",
+          contain: "layout style",
+          display: viewMode === "files" ? "block" : "none",
+        }}
         tabIndex={0}
         onKeyDown={handleKeyDown}
       >
         {!rootPath && (
           <div className="px-4 py-12 text-center flex flex-col items-center gap-5">
-            <span className="text-[13px] text-t-muted font-sans">未打开文件夹</span>
+            <span className="text-[13px] text-t-muted font-sans">
+              未打开文件夹
+            </span>
             <button
               onClick={handleOpenFolder}
               className="px-5 py-2 text-[13px] font-sans bg-neon-dim text-neon hover:bg-neon hover:text-base rounded-lg"
@@ -688,30 +909,41 @@ export function ExplorerView() {
             </button>
           </div>
         )}
-        {entries.map((entry) => (
-          <FileTreeItem
-            key={entry.path}
-            entry={entry}
-            depth={0}
-            expanded={expandedPaths.has(entry.path)}
-            focusedPath={focusedPath}
-            focusSeq={focusSeq}
-            expandedPaths={expandedPaths}
-            onToggle={toggleExpanded}
-            childEntries={childrenMap.get(entry.path) ?? []}
-            getChildren={getChildren}
-            pendingCreate={pendingCreate}
-            pendingRename={pendingRename}
-            onCreateSubmit={handleCreate}
-            onCreateCancel={() => setPendingCreate(null)}
-            onRenameSubmit={handleRename}
-            onRenameCancel={() => setPendingRename(null)}
-            onFocusChange={setFocusedPath}
-            siblingNames={pendingCreate || pendingRename ? entries.map((e) => e.name).filter((n) => n !== entry.name) : []}
-            dragOverPath={dragOverPath}
-            onDragOverChange={setDragOverPath}
-          />
-        ))}
+        {canVirtualize && topSpacerHeight > 0 && (
+          <div style={{ height: topSpacerHeight }} aria-hidden="true" />
+        )}
+        {visibleEntries.map((flatEntry) => {
+          const entry = entryMap.get(flatEntry.path);
+          if (!entry) return null;
+
+          return (
+            <FileTreeItem
+              key={entry.path}
+              entry={entry}
+              depth={flatEntry.depth}
+              expanded={flatEntry.expanded}
+              focusedPath={focusedPath}
+              focusSeq={focusSeq}
+              expandedPaths={canVirtualize ? new Set() : expandedPaths}
+              onToggle={toggleExpanded}
+              childEntries={canVirtualize ? [] : getChildren(entry.path)}
+              getChildren={canVirtualize ? () => [] : getChildren}
+              pendingCreate={canVirtualize ? null : pendingCreate}
+              pendingRename={pendingRename}
+              onCreateSubmit={handleCreate}
+              onCreateCancel={() => setPendingCreate(null)}
+              onRenameSubmit={handleRename}
+              onRenameCancel={() => setPendingRename(null)}
+              onFocusChange={setFocusedPath}
+              siblingNames={getSiblingNames(flatEntry)}
+              dragOverPath={dragOverPath}
+              onDragOverChange={setDragOverPath}
+            />
+          );
+        })}
+        {canVirtualize && bottomSpacerHeight > 0 && (
+          <div style={{ height: bottomSpacerHeight }} aria-hidden="true" />
+        )}
         {isRootCreate && (
           <InlineInput
             placeholder={pendingCreate.type === "file" ? "文件名" : "文件夹名"}

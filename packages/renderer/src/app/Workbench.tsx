@@ -1,7 +1,10 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { TitleBar } from "./TitleBar";
 import { StatusBar } from "./StatusBar";
-import { ActivityBar, ACTIVITY_BAR_WIDTH } from "@/features/activity-bar/ActivityBar";
+import {
+  ActivityBar,
+  ACTIVITY_BAR_WIDTH,
+} from "@/features/activity-bar/ActivityBar";
 import { Sidebar } from "@/features/explorer/Sidebar";
 import { EditorArea } from "@/features/editor/EditorArea";
 import { pathParent } from "@/utils/pathUtils";
@@ -20,6 +23,7 @@ import { useEditor } from "@/stores/editor";
 import { useGlobalShortcuts } from "@/lib/shortcuts";
 import { registerDefaultShortcuts } from "@/lib/default-shortcuts";
 import { globalEventStream } from "@/services/global-event-stream";
+import { performanceMetrics } from "@/services/performance-metrics";
 
 export function Workbench() {
   const [filePaletteOpen, setFilePaletteOpen] = useState(false);
@@ -73,16 +77,46 @@ export function Workbench() {
 
     window.desktop.fs.watch(rootPath);
 
-    const unsubscribe = window.desktop.fs.onFileChanged((changedPath: string) => {
-      // 刷新文件树（通知 ExplorerView 重新加载受影响的目录）
-      const parentDir = pathParent(changedPath) || rootPath;
-      window.dispatchEvent(new CustomEvent("ftre:tree-refresh", { detail: { dirPath: parentDir } }));
-      window.dispatchEvent(new CustomEvent("ftre:tree-refresh", { detail: { dirPath: rootPath } }));
+    let flushTimer: ReturnType<typeof setTimeout> | null = null;
+    const pendingRefreshes = new Map<string, string | undefined>();
 
-      // 编辑器内容刷新由 EditorArea.tsx 的 onFileChanged 处理，不在此重复
-    });
+    const flushPendingDirs = () => {
+      flushTimer = null;
+      for (const [dirPath, changedPath] of pendingRefreshes) {
+        window.dispatchEvent(
+          new CustomEvent("ftre:tree-refresh", {
+            detail: { dirPath, changedPath, source: "watcher" },
+          }),
+        );
+      }
+      pendingRefreshes.clear();
+    };
+
+    const unsubscribe = window.desktop.fs.onFileChanged(
+      (changedPath: string) => {
+        performanceMetrics.count("fs.fileChanged.events");
+
+        // `.git` 目录变化只影响 Git 状态，不触发 Explorer 树刷新
+        if (/[\\/]\.git([\\/]|$)/.test(changedPath)) {
+          return;
+        }
+
+        // 仅刷新受影响目录，避免每次文件变更都重新刷新整个 rootPath
+        const parentDir = pathParent(changedPath) || rootPath;
+        pendingRefreshes.set(parentDir, changedPath);
+
+        // 顶层目录本身发生变化时，parentDir 已等于 rootPath；不再额外重复派发
+        if (!flushTimer) {
+          flushTimer = setTimeout(flushPendingDirs, 120);
+        }
+
+        // 编辑器内容刷新由 EditorArea.tsx 的 onFileChanged 处理，不在此重复
+      },
+    );
 
     return () => {
+      if (flushTimer) clearTimeout(flushTimer);
+      pendingRefreshes.clear();
       window.desktop.fs.unwatch(rootPath);
       unsubscribe();
     };
@@ -99,11 +133,20 @@ export function Workbench() {
       }
     };
     window.addEventListener("ftre:toggle-file-palette", onToggleFilePalette);
-    window.addEventListener("ftre:toggle-command-palette", onToggleCommandPalette);
+    window.addEventListener(
+      "ftre:toggle-command-palette",
+      onToggleCommandPalette,
+    );
     window.addEventListener("keydown", onEscape);
     return () => {
-      window.removeEventListener("ftre:toggle-file-palette", onToggleFilePalette);
-      window.removeEventListener("ftre:toggle-command-palette", onToggleCommandPalette);
+      window.removeEventListener(
+        "ftre:toggle-file-palette",
+        onToggleFilePalette,
+      );
+      window.removeEventListener(
+        "ftre:toggle-command-palette",
+        onToggleCommandPalette,
+      );
       window.removeEventListener("keydown", onEscape);
     };
   }, []);
@@ -111,7 +154,9 @@ export function Workbench() {
   // ── Resize handlers ─────────────────────────────────────────────────
 
   // Filter visible panels (sidebar hidden when activeSidebarView is null)
-  const visiblePanels = panelOrder.filter((id) => id !== 'sidebar' || sidebarVisible);
+  const visiblePanels = panelOrder.filter(
+    (id) => id !== "sidebar" || sidebarVisible,
+  );
 
   // Calculate CSS order for each panel based on panelOrder
   const getOrder = (id: PanelId): number => {
@@ -129,18 +174,18 @@ export function Workbench() {
   // Compute flex style for each panel
   // Sidebar uses fixed width (shrink-0), editor and chat share remaining space using centerRatio
   const getPanelStyle = (id: PanelId): React.CSSProperties => {
-    if (id === 'sidebar') {
+    if (id === "sidebar") {
       return { width: sidebarWidth, flexShrink: 0, order: getOrder(id) };
     }
     // For editor and chat, use flex-grow with ratio
     // The first non-sidebar panel in visiblePanels gets centerRatio, second gets the rest
-    const nonSidebarPanels = visiblePanels.filter((p) => p !== 'sidebar');
+    const nonSidebarPanels = visiblePanels.filter((p) => p !== "sidebar");
     const nonSidebarIndex = nonSidebarPanels.indexOf(id);
     if (nonSidebarPanels.length === 1) {
       return { flex: 1, order: getOrder(id) };
     }
     // Use flex-grow to distribute remaining space proportionally
-    const flexGrow = nonSidebarIndex === 0 ? centerRatio : (100 - centerRatio);
+    const flexGrow = nonSidebarIndex === 0 ? centerRatio : 100 - centerRatio;
     return { flex: `${flexGrow} 1 0%`, order: getOrder(id) };
   };
 
@@ -154,12 +199,14 @@ export function Workbench() {
   // Delta direction depends on sidebar position relative to adjacent panel
   const onSidebarResize = useCallback(
     (delta: number) => {
-      const sidebarIndex = panelOrder.indexOf('sidebar');
+      const sidebarIndex = panelOrder.indexOf("sidebar");
       // If sidebar is not the last panel, dragging right increases width
       // If sidebar is the last panel, dragging left increases width (delta is negative)
       const isLast = sidebarIndex === panelOrder.length - 1;
       const adjustedDelta = isLast ? -delta : delta;
-      setSidebarWidth(Math.max(140, Math.min(400, sidebarWidth + adjustedDelta)));
+      setSidebarWidth(
+        Math.max(140, Math.min(400, sidebarWidth + adjustedDelta)),
+      );
     },
     [setSidebarWidth, sidebarWidth, panelOrder],
   );
@@ -173,24 +220,25 @@ export function Workbench() {
       // Available width = container width minus activitybar minus sidebar
       const activityBarWidth = ACTIVITY_BAR_WIDTH;
       const sidebarW = sidebarVisible ? sidebarWidth : 0;
-      const availableWidth = container.offsetWidth - activityBarWidth - sidebarW;
+      const availableWidth =
+        container.offsetWidth - activityBarWidth - sidebarW;
       if (availableWidth <= 0) return;
       // Convert pixel delta to ratio delta
       const ratioDelta = (delta / availableWidth) * 100;
-      
+
       // Find which panel is "first" (gets centerRatio) among editor/chat in current order
-      const nonSidebarPanels = visiblePanels.filter((p) => p !== 'sidebar');
+      const nonSidebarPanels = visiblePanels.filter((p) => p !== "sidebar");
       const firstPanel = nonSidebarPanels[0];
-      
+
       // If first panel is to the LEFT of the resize handle, dragging right increases its ratio
       // The resize handle is after the first panel, so positive delta = increase ratio
       // But we need to check if editor or chat is first and adjust accordingly
-      const editorIndex = panelOrder.indexOf('editor');
-      const chatIndex = panelOrder.indexOf('chat');
-      
+      const editorIndex = panelOrder.indexOf("editor");
+      const chatIndex = panelOrder.indexOf("chat");
+
       // If editor comes before chat, dragging right increases editor (centerRatio)
       // If chat comes before editor, dragging right increases chat, which means decreasing centerRatio
-      if (firstPanel === 'editor') {
+      if (firstPanel === "editor") {
         setCenterRatio(Math.max(10, Math.min(90, centerRatio + ratioDelta)));
       } else {
         // Chat is first, so centerRatio represents chat's width
@@ -198,14 +246,21 @@ export function Workbench() {
         setCenterRatio(Math.max(10, Math.min(90, centerRatio + ratioDelta)));
       }
     },
-    [setCenterRatio, centerRatio, sidebarVisible, sidebarWidth, visiblePanels, panelOrder],
+    [
+      setCenterRatio,
+      centerRatio,
+      sidebarVisible,
+      sidebarWidth,
+      visiblePanels,
+      panelOrder,
+    ],
   );
 
   // Determine which resize handler to use based on adjacent panels
   const getResizeHandler = (afterPanelId: PanelId) => {
     const index = panelOrder.indexOf(afterPanelId);
     const nextPanelId = panelOrder[index + 1];
-    if (afterPanelId === 'sidebar' || nextPanelId === 'sidebar') {
+    if (afterPanelId === "sidebar" || nextPanelId === "sidebar") {
       return onSidebarResize;
     }
     return onCenterResize;
@@ -224,42 +279,57 @@ export function Workbench() {
         {sidebarVisible && (
           <div
             className="h-full overflow-hidden"
-            style={getPanelStyle('sidebar')}
+            style={getPanelStyle("sidebar")}
           >
             <Sidebar />
           </div>
         )}
-        {sidebarVisible && isResizeHandleVisible('sidebar') && (
-          <div className="h-full" style={{ order: getResizeHandleOrder('sidebar') }}>
-            <ResizeHandle direction="horizontal" onResize={getResizeHandler('sidebar')} />
+        {sidebarVisible && isResizeHandleVisible("sidebar") && (
+          <div
+            className="h-full"
+            style={{ order: getResizeHandleOrder("sidebar") }}
+          >
+            <ResizeHandle
+              direction="horizontal"
+              onResize={getResizeHandler("sidebar")}
+            />
           </div>
         )}
 
         {/* Editor Panel - always mounted, never remounted on reorder */}
         <div
           className="h-full flex flex-col overflow-hidden"
-          style={getPanelStyle('editor')}
+          style={getPanelStyle("editor")}
         >
           <div className="flex-1 overflow-hidden">
             <EditorArea onToggleFiles={toggleSidebar} />
           </div>
         </div>
-        {isResizeHandleVisible('editor') && (
-          <div className="h-full" style={{ order: getResizeHandleOrder('editor') }}>
-            <ResizeHandle direction="horizontal" onResize={getResizeHandler('editor')} />
+        {isResizeHandleVisible("editor") && (
+          <div
+            className="h-full"
+            style={{ order: getResizeHandleOrder("editor") }}
+          >
+            <ResizeHandle
+              direction="horizontal"
+              onResize={getResizeHandler("editor")}
+            />
           </div>
         )}
 
         {/* Chat Panel - always mounted, never remounted on reorder */}
-        <div
-          className="h-full overflow-hidden"
-          style={getPanelStyle('chat')}
-        >
+        <div className="h-full overflow-hidden" style={getPanelStyle("chat")}>
           <ChatPanel key={rootPath} />
         </div>
-        {isResizeHandleVisible('chat') && (
-          <div className="h-full" style={{ order: getResizeHandleOrder('chat') }}>
-            <ResizeHandle direction="horizontal" onResize={getResizeHandler('chat')} />
+        {isResizeHandleVisible("chat") && (
+          <div
+            className="h-full"
+            style={{ order: getResizeHandleOrder("chat") }}
+          >
+            <ResizeHandle
+              direction="horizontal"
+              onResize={getResizeHandler("chat")}
+            />
           </div>
         )}
       </div>
@@ -275,8 +345,14 @@ export function Workbench() {
       {/* 任务监控弹窗 — 始终挂载，CSS 控制显隐 */}
       <TaskDropdown />
 
-      <FilePalette open={filePaletteOpen} onClose={() => setFilePaletteOpen(false)} />
-      <CommandPalette open={commandPaletteOpen} onClose={() => setCommandPaletteOpen(false)} />
+      <FilePalette
+        open={filePaletteOpen}
+        onClose={() => setFilePaletteOpen(false)}
+      />
+      <CommandPalette
+        open={commandPaletteOpen}
+        onClose={() => setCommandPaletteOpen(false)}
+      />
       <GlobalSearchPalette />
       <NotificationStack />
     </div>

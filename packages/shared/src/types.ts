@@ -7,15 +7,32 @@ export interface FileEntry {
 
 export interface DesktopFS {
   readDir(dirPath: string): Promise<{ entries: FileEntry[]; error?: string }>;
-  readFile(filePath: string): Promise<{ content: string; language: string; error?: string }>;
-  writeFile(filePath: string, content: string): Promise<{ success: boolean; error?: string }>;
+  readFile(
+    filePath: string,
+  ): Promise<{ content: string; language: string; error?: string }>;
+  writeFile(
+    filePath: string,
+    content: string,
+  ): Promise<{ success: boolean; error?: string }>;
   selectFolder(): Promise<{ path: string | null }>;
-  showSaveDialog(opts?: { defaultName?: string }): Promise<{ path: string | null }>;
-  search(rootPath: string, query: string, options: any): Promise<{ results: any[]; error?: string }>;
+  showSaveDialog(opts?: {
+    defaultName?: string;
+  }): Promise<{ path: string | null }>;
+  search(
+    rootPath: string,
+    query: string,
+    options: any,
+  ): Promise<{ results: any[]; error?: string }>;
   createFile(filePath: string): Promise<{ success: boolean; error?: string }>;
   createFolder(dirPath: string): Promise<{ success: boolean; error?: string }>;
-  rename(oldPath: string, newPath: string): Promise<{ success: boolean; error?: string }>;
-  delete(targetPath: string, isDir: boolean): Promise<{ success: boolean; error?: string }>;
+  rename(
+    oldPath: string,
+    newPath: string,
+  ): Promise<{ success: boolean; error?: string }>;
+  delete(
+    targetPath: string,
+    isDir: boolean,
+  ): Promise<{ success: boolean; error?: string }>;
   revealInExplorer(targetPath: string): Promise<void>;
   watch(filePath: string): Promise<void>;
   unwatch(filePath: string): Promise<void>;
@@ -33,7 +50,13 @@ export interface GitFileStatus {
   /** 重命名时的旧路径 */
   oldPath?: string;
   absolutePath: string;
-  status: 'modified' | 'untracked' | 'deleted' | 'added' | 'renamed' | 'conflict';
+  status:
+    | "modified"
+    | "untracked"
+    | "deleted"
+    | "added"
+    | "renamed"
+    | "conflict";
   staged: boolean;
   /** 是否为目录（未跟踪目录） */
   isDir: boolean;
@@ -42,15 +65,46 @@ export interface GitFileStatus {
 export interface DesktopGit {
   info(rootPath: string): Promise<GitInfo>;
   status(rootPath: string): Promise<{ files: GitFileStatus[]; error?: string }>;
-  stage(rootPath: string, filePath: string): Promise<{ success: boolean; error?: string }>;
-  unstage(rootPath: string, filePath: string): Promise<{ success: boolean; error?: string }>;
-  commit(rootPath: string, message: string): Promise<{ success: boolean; error?: string }>;
-  show(rootPath: string, filePath: string): Promise<{ content: string; error?: string }>;
-  diffFile(rootPath: string, filePath: string, status: string, staged: boolean, oldPath?: string): Promise<{ original: string; modified: string; error?: string }>;
+  stage(
+    rootPath: string,
+    filePath: string,
+  ): Promise<{ success: boolean; error?: string }>;
+  stageMany(
+    rootPath: string,
+    filePaths: string[],
+  ): Promise<{ success: boolean; error?: string }>;
+  unstage(
+    rootPath: string,
+    filePath: string,
+  ): Promise<{ success: boolean; error?: string }>;
+  unstageMany(
+    rootPath: string,
+    filePaths: string[],
+  ): Promise<{ success: boolean; error?: string }>;
+  commit(
+    rootPath: string,
+    message: string,
+  ): Promise<{ success: boolean; error?: string }>;
+  show(
+    rootPath: string,
+    filePath: string,
+  ): Promise<{ content: string; error?: string }>;
+  diffFile(
+    rootPath: string,
+    filePath: string,
+    status: string,
+    staged: boolean,
+    oldPath?: string,
+  ): Promise<{ original: string; modified: string; error?: string }>;
 }
 
 export interface DesktopTerminal {
-  create(opts?: { cols?: number; rows?: number; cwd?: string; shell?: string }): Promise<{ id: number }>;
+  create(opts?: {
+    cols?: number;
+    rows?: number;
+    cwd?: string;
+    shell?: string;
+  }): Promise<{ id: number }>;
   write(id: number, data: string): Promise<void>;
   resize(id: number, cols: number, rows: number): Promise<void>;
   kill(id: number): Promise<void>;
