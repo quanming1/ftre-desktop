@@ -1,11 +1,11 @@
-import { useEffect, useCallback, useRef, useState } from "react";
+import { useEffect, useCallback, useState } from "react";
 import { X, Code2, FileText } from "lucide-react";
 import { useEditor } from "@/stores/editor";
+import { useLayout } from "@/stores/layout";
 import { useNotification } from "@/stores/notification";
-import { MonacoEditor } from "./MonacoEditor";
-import { editorCore } from "./core/editor-core";
-import { MonacoDiffViewer } from "./MonacoDiffViewer";
-import { DiffBar } from "./DiffBar";
+import { editorCore } from "@ftre/editor/core";
+import { MonacoEditor, MonacoDiffViewer, DiffBar } from "@ftre/editor/ui";
+import { handleOpenFile } from "@/features/chat/toolActions";
 import { Breadcrumb } from "./Breadcrumb";
 import { TabBar } from "./TabBar";
 
@@ -17,6 +17,7 @@ export function EditorArea({ onToggleFiles }: EditorAreaProps) {
   const groups = useEditor((s) => s.groups);
   const activeGroupId = useEditor((s) => s.activeGroupId);
   const pendingDiffs = useEditor((s) => s.pendingDiffs);
+  const minimapEnabled = useLayout((s) => s.minimapEnabled);
   const [sideBySide, setSideBySide] = useState(true);
 
   // Listen for split-editor event (Ctrl+\ dispatches splitEditor via default-shortcuts)
@@ -150,6 +151,10 @@ export function EditorArea({ onToggleFiles }: EditorAreaProps) {
     useEditor.getState().closeGroup(groupId);
   }, []);
 
+  const handleOpenSourceFile = useCallback((filePath: string) => {
+    handleOpenFile(filePath);
+  }, []);
+
   return (
     <div className="h-full bg-surface flex flex-row overflow-hidden">
       {groups.map((group, index) => {
@@ -203,8 +208,10 @@ export function EditorArea({ onToggleFiles }: EditorAreaProps) {
                       return activeDiff ? (
                         <>
                           <DiffBar
+                            diff={activeDiff}
                             renderSideBySide={sideBySide}
                             onToggleMode={() => setSideBySide(!sideBySide)}
+                            onOpenSourceFile={handleOpenSourceFile}
                           />
                           <MonacoDiffViewer
                             diff={activeDiff}
@@ -213,7 +220,10 @@ export function EditorArea({ onToggleFiles }: EditorAreaProps) {
                           />
                         </>
                       ) : (
-                        <MonacoEditor file={currentFile} />
+                        <MonacoEditor
+                          file={currentFile}
+                          minimapEnabled={minimapEnabled}
+                        />
                       );
                     })()}
                   </div>

@@ -5,8 +5,8 @@ import { useLayout } from "@/stores/layout";
 import { getFileIcon } from "@/lib/file-icons";
 import { ContextMenu, type ContextMenuItem } from "@/components/ContextMenu";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
-import { saveFile } from "./core/editor-commands";
-import { editorCore } from "./core/editor-core";
+import { editorCore } from "@ftre/editor/core";
+import { saveFile } from "@ftre/editor/runtime";
 
 interface TabBarProps {
   groupId?: string;
@@ -14,7 +14,17 @@ interface TabBarProps {
 }
 
 export function TabBar({ groupId, onToggleFiles }: TabBarProps) {
-  const { groups, activeGroupId, setActive, closeFile, closeOtherFiles, closeFilesToRight, closeSavedFiles, pinFile, unpinFile } = useEditor();
+  const {
+    groups,
+    activeGroupId,
+    setActive,
+    closeFile,
+    closeOtherFiles,
+    closeFilesToRight,
+    closeSavedFiles,
+    pinFile,
+    unpinFile,
+  } = useEditor();
 
   // Resolve which group to display: explicit groupId prop, or fall back to active group
   const resolvedGroupId = groupId ?? activeGroupId;
@@ -43,10 +53,13 @@ export function TabBar({ groupId, onToggleFiles }: TabBarProps) {
     filePath: string;
   } | null>(null);
 
-  const handleContextMenu = useCallback((e: React.MouseEvent, filePath: string) => {
-    e.preventDefault();
-    setContextMenu({ position: { x: e.clientX, y: e.clientY }, filePath });
-  }, []);
+  const handleContextMenu = useCallback(
+    (e: React.MouseEvent, filePath: string) => {
+      e.preventDefault();
+      setContextMenu({ position: { x: e.clientX, y: e.clientY }, filePath });
+    },
+    [],
+  );
 
   const closeContextMenu = useCallback(() => {
     setContextMenu(null);
@@ -108,18 +121,32 @@ export function TabBar({ groupId, onToggleFiles }: TabBarProps) {
           label: "在侧边栏中定位",
           action: () => {
             useLayout.getState().setActiveSidebarView("explorer");
-            window.dispatchEvent(new CustomEvent("ftre:reveal-in-sidebar", { detail: { path: filePath } }));
+            window.dispatchEvent(
+              new CustomEvent("ftre:reveal-in-sidebar", {
+                detail: { path: filePath },
+              }),
+            );
           },
         },
       ];
     },
-    [openFiles, requestClose, closeOtherFiles, closeFilesToRight, closeSavedFiles, pinFile, unpinFile],
+    [
+      openFiles,
+      requestClose,
+      closeOtherFiles,
+      closeFilesToRight,
+      closeSavedFiles,
+      pinFile,
+      unpinFile,
+    ],
   );
 
   // Drag-and-drop state — use ref for dragIndex to avoid stale closures
   const dragIndexRef = useRef<number | null>(null);
   const [dragIndex, setDragIndex] = useState<number | null>(null);
-  const [dropIndicatorIndex, setDropIndicatorIndex] = useState<number | null>(null);
+  const [dropIndicatorIndex, setDropIndicatorIndex] = useState<number | null>(
+    null,
+  );
 
   // Overflow scroll state
   const tabsContainerRef = useRef<HTMLDivElement>(null);
@@ -166,12 +193,15 @@ export function TabBar({ groupId, onToggleFiles }: TabBarProps) {
     [requestClose],
   );
 
-  const handleDragStart = useCallback((e: React.DragEvent<HTMLButtonElement>, index: number) => {
-    dragIndexRef.current = index;
-    setDragIndex(index);
-    e.dataTransfer.effectAllowed = "move";
-    e.dataTransfer.setData("text/plain", String(index));
-  }, []);
+  const handleDragStart = useCallback(
+    (e: React.DragEvent<HTMLButtonElement>, index: number) => {
+      dragIndexRef.current = index;
+      setDragIndex(index);
+      e.dataTransfer.effectAllowed = "move";
+      e.dataTransfer.setData("text/plain", String(index));
+    },
+    [],
+  );
 
   const handleDragEnd = useCallback((e: React.DragEvent<HTMLButtonElement>) => {
     e.currentTarget.style.opacity = "";
@@ -180,14 +210,17 @@ export function TabBar({ groupId, onToggleFiles }: TabBarProps) {
     setDropIndicatorIndex(null);
   }, []);
 
-  const computeInsertIndex = useCallback((e: React.DragEvent<HTMLButtonElement>, index: number): number | null => {
-    const currentDragIndex = dragIndexRef.current;
-    if (currentDragIndex === null || currentDragIndex === index) return null;
+  const computeInsertIndex = useCallback(
+    (e: React.DragEvent<HTMLButtonElement>, index: number): number | null => {
+      const currentDragIndex = dragIndexRef.current;
+      if (currentDragIndex === null || currentDragIndex === index) return null;
 
-    const rect = e.currentTarget.getBoundingClientRect();
-    const midpoint = rect.left + rect.width / 2;
-    return e.clientX < midpoint ? index : index + 1;
-  }, []);
+      const rect = e.currentTarget.getBoundingClientRect();
+      const midpoint = rect.left + rect.width / 2;
+      return e.clientX < midpoint ? index : index + 1;
+    },
+    [],
+  );
 
   const handleDragOver = useCallback(
     (e: React.DragEvent<HTMLButtonElement>, index: number) => {
@@ -221,7 +254,9 @@ export function TabBar({ groupId, onToggleFiles }: TabBarProps) {
       }
 
       if (toIndex !== currentDragIndex) {
-        useEditor.getState().reorderTabs(resolvedGroupId, currentDragIndex, toIndex);
+        useEditor
+          .getState()
+          .reorderTabs(resolvedGroupId, currentDragIndex, toIndex);
       }
 
       dragIndexRef.current = null;
@@ -239,9 +274,12 @@ export function TabBar({ groupId, onToggleFiles }: TabBarProps) {
     }
   }, []);
 
-  const handleContainerDragOver = useCallback((e: React.DragEvent<HTMLDivElement>) => {
-    e.preventDefault();
-  }, []);
+  const handleContainerDragOver = useCallback(
+    (e: React.DragEvent<HTMLDivElement>) => {
+      e.preventDefault();
+    },
+    [],
+  );
 
   return (
     <div className="h-[38px] bg-base flex items-end shrink-0">
@@ -296,21 +334,38 @@ export function TabBar({ groupId, onToggleFiles }: TabBarProps) {
             >
               {/* Drop indicator line — left side */}
               {dropIndicatorIndex === index && (
-                <div className="absolute left-0 top-[4px] bottom-[4px] w-[2px] bg-neon z-10 pointer-events-none" data-testid="drop-indicator" />
+                <div
+                  className="absolute left-0 top-[4px] bottom-[4px] w-[2px] bg-neon z-10 pointer-events-none"
+                  data-testid="drop-indicator"
+                />
               )}
               {/* Drop indicator line — right side (for last tab) */}
-              {dropIndicatorIndex === index + 1 && index === openFiles.length - 1 && (
-                <div className="absolute right-0 top-[4px] bottom-[4px] w-[2px] bg-neon z-10 pointer-events-none" data-testid="drop-indicator" />
+              {dropIndicatorIndex === index + 1 &&
+                index === openFiles.length - 1 && (
+                  <div
+                    className="absolute right-0 top-[4px] bottom-[4px] w-[2px] bg-neon z-10 pointer-events-none"
+                    data-testid="drop-indicator"
+                  />
+                )}
+              {isActive && (
+                <div className="absolute bottom-0 left-0 right-0 h-[2px] bg-neon" />
               )}
-              {isActive && <div className="absolute bottom-0 left-0 right-0 h-[2px] bg-neon" />}
               {(() => {
                 const { icon: FileIcon, color } = getFileIcon(file.name, false);
-                return <FileIcon size={15} className="shrink-0" style={{ color }} />;
+                return (
+                  <FileIcon size={15} className="shrink-0" style={{ color }} />
+                );
               })()}
               {!file.pinned && file.name}
-              {file.modified && <div className="w-[6px] h-[6px] rounded-full bg-t-primary shrink-0" />}
+              {file.modified && (
+                <div className="w-[6px] h-[6px] rounded-full bg-t-primary shrink-0" />
+              )}
               {file.pinned ? (
-                <Pin size={10} className="text-t-dim shrink-0" strokeWidth={1.5} />
+                <Pin
+                  size={10}
+                  className="text-t-dim shrink-0"
+                  strokeWidth={1.5}
+                />
               ) : (
                 <span
                   onClick={(e) => {
@@ -318,7 +373,9 @@ export function TabBar({ groupId, onToggleFiles }: TabBarProps) {
                     requestClose(file.path);
                   }}
                   className={`ml-1 p-0.5 rounded transition-all cursor-pointer ${
-                    isActive || isHovered ? "text-t-muted hover:text-t-primary hover:bg-white/[0.1] opacity-100" : "opacity-0"
+                    isActive || isHovered
+                      ? "text-t-muted hover:text-t-primary hover:bg-white/[0.1] opacity-100"
+                      : "opacity-0"
                   }`}
                 >
                   <X size={12} strokeWidth={1.5} />
@@ -342,34 +399,64 @@ export function TabBar({ groupId, onToggleFiles }: TabBarProps) {
       )}
 
       {/* Tab context menu */}
-      {contextMenu && <ContextMenu items={getContextMenuItems(contextMenu.filePath)} position={contextMenu.position} onClose={closeContextMenu} />}
+      {contextMenu && (
+        <ContextMenu
+          items={getContextMenuItems(contextMenu.filePath)}
+          position={contextMenu.position}
+          onClose={closeContextMenu}
+        />
+      )}
 
       {/* 未保存文件关闭确认 */}
-      {pendingClose && (() => {
-        const file = openFiles.find((f) => f.path === pendingClose);
-        // 文件已被其他机制关闭，自动清除
-        if (!file) { queueMicrotask(() => setPendingClose(null)); return null; }
-        const fileName = file.name ?? pendingClose.split(/[\\/]/).pop() ?? "文件";
-        const handleSaveAndClose = () => {
-          saveFile(file.path, file.name, () => editorCore.resolveContent(file.path))
-            .then(() => closeFile(file.path))
-            .catch(() => { /* saveFile 内部已通知用户 */ })
-            .finally(() => setPendingClose(null));
-        };
-        return (
-          <ConfirmDialog
-            title="未保存的更改"
-            message={`"${fileName}" 有未保存的更改，是否保存？`}
-            onConfirm={handleSaveAndClose}
-            onCancel={() => setPendingClose(null)}
-            buttons={[
-              { label: "不保存", variant: "danger", action: () => { closeFile(pendingClose); setPendingClose(null); } },
-              { label: "取消", variant: "default", action: () => setPendingClose(null) },
-              { label: "保存", variant: "primary", action: handleSaveAndClose },
-            ]}
-          />
-        );
-      })()}
+      {pendingClose &&
+        (() => {
+          const file = openFiles.find((f) => f.path === pendingClose);
+          // 文件已被其他机制关闭，自动清除
+          if (!file) {
+            queueMicrotask(() => setPendingClose(null));
+            return null;
+          }
+          const fileName =
+            file.name ?? pendingClose.split(/[\\/]/).pop() ?? "文件";
+          const handleSaveAndClose = () => {
+            saveFile(file.path, file.name, () =>
+              editorCore.resolveContent(file.path),
+            )
+              .then(() => closeFile(file.path))
+              .catch(() => {
+                /* saveFile 内部已通知用户 */
+              })
+              .finally(() => setPendingClose(null));
+          };
+          return (
+            <ConfirmDialog
+              title="未保存的更改"
+              message={`"${fileName}" 有未保存的更改，是否保存？`}
+              onConfirm={handleSaveAndClose}
+              onCancel={() => setPendingClose(null)}
+              buttons={[
+                {
+                  label: "不保存",
+                  variant: "danger",
+                  action: () => {
+                    closeFile(pendingClose);
+                    setPendingClose(null);
+                  },
+                },
+                {
+                  label: "取消",
+                  variant: "default",
+                  action: () => setPendingClose(null),
+                },
+                {
+                  label: "保存",
+                  variant: "primary",
+                  action: handleSaveAndClose,
+                },
+              ]}
+            />
+          );
+        })()}
     </div>
   );
 }
