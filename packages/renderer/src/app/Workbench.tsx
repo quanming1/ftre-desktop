@@ -126,23 +126,22 @@ export function Workbench() {
     return index * 2 + 1;
   };
 
-  // Compute width for each panel
-  // Sidebar uses fixed width, editor and chat share remaining space using centerRatio
-  const getPanelWidth = (id: PanelId): string => {
+  // Compute flex style for each panel
+  // Sidebar uses fixed width (shrink-0), editor and chat share remaining space using centerRatio
+  const getPanelStyle = (id: PanelId): React.CSSProperties => {
     if (id === 'sidebar') {
-      return `${sidebarWidth}px`;
+      return { width: sidebarWidth, flexShrink: 0, order: getOrder(id) };
     }
-    // For editor and chat, use flex percentages
-    // The first non-sidebar panel gets centerRatio%, second gets the rest
+    // For editor and chat, use flex-grow with ratio
+    // The first non-sidebar panel in visiblePanels gets centerRatio, second gets the rest
     const nonSidebarPanels = visiblePanels.filter((p) => p !== 'sidebar');
     const nonSidebarIndex = nonSidebarPanels.indexOf(id);
     if (nonSidebarPanels.length === 1) {
-      return '100%';
+      return { flex: 1, order: getOrder(id) };
     }
-    if (nonSidebarIndex === 0) {
-      return `${centerRatio}%`;
-    }
-    return `${100 - centerRatio}%`;
+    // Use flex-grow to distribute remaining space proportionally
+    const flexGrow = nonSidebarIndex === 0 ? centerRatio : (100 - centerRatio);
+    return { flex: `${flexGrow} 1 0%`, order: getOrder(id) };
   };
 
   // Check if a resize handle should be visible
@@ -152,14 +151,21 @@ export function Workbench() {
   };
 
   // Resize handler for sidebar
+  // Delta direction depends on sidebar position relative to adjacent panel
   const onSidebarResize = useCallback(
     (delta: number) => {
-      setSidebarWidth(Math.max(140, Math.min(400, sidebarWidth + delta)));
+      const sidebarIndex = panelOrder.indexOf('sidebar');
+      // If sidebar is not the last panel, dragging right increases width
+      // If sidebar is the last panel, dragging left increases width (delta is negative)
+      const isLast = sidebarIndex === panelOrder.length - 1;
+      const adjustedDelta = isLast ? -delta : delta;
+      setSidebarWidth(Math.max(140, Math.min(400, sidebarWidth + adjustedDelta)));
     },
-    [setSidebarWidth, sidebarWidth],
+    [setSidebarWidth, sidebarWidth, panelOrder],
   );
 
   // Resize handler for editor/chat divider
+  // The first non-sidebar panel gets centerRatio, so dragging affects it
   const onCenterResize = useCallback(
     (delta: number) => {
       const container = containerRef.current;
@@ -171,9 +177,28 @@ export function Workbench() {
       if (availableWidth <= 0) return;
       // Convert pixel delta to ratio delta
       const ratioDelta = (delta / availableWidth) * 100;
-      setCenterRatio(centerRatio + ratioDelta);
+      
+      // Find which panel is "first" (gets centerRatio) among editor/chat in current order
+      const nonSidebarPanels = visiblePanels.filter((p) => p !== 'sidebar');
+      const firstPanel = nonSidebarPanels[0];
+      
+      // If first panel is to the LEFT of the resize handle, dragging right increases its ratio
+      // The resize handle is after the first panel, so positive delta = increase ratio
+      // But we need to check if editor or chat is first and adjust accordingly
+      const editorIndex = panelOrder.indexOf('editor');
+      const chatIndex = panelOrder.indexOf('chat');
+      
+      // If editor comes before chat, dragging right increases editor (centerRatio)
+      // If chat comes before editor, dragging right increases chat, which means decreasing centerRatio
+      if (firstPanel === 'editor') {
+        setCenterRatio(Math.max(10, Math.min(90, centerRatio + ratioDelta)));
+      } else {
+        // Chat is first, so centerRatio represents chat's width
+        // Dragging right increases chat = increases centerRatio
+        setCenterRatio(Math.max(10, Math.min(90, centerRatio + ratioDelta)));
+      }
     },
-    [setCenterRatio, centerRatio, sidebarVisible, sidebarWidth],
+    [setCenterRatio, centerRatio, sidebarVisible, sidebarWidth, visiblePanels, panelOrder],
   );
 
   // Determine which resize handler to use based on adjacent panels
@@ -198,8 +223,8 @@ export function Workbench() {
         {/* Sidebar Panel */}
         {sidebarVisible && (
           <div
-            className="shrink-0 h-full overflow-hidden"
-            style={{ width: getPanelWidth('sidebar'), order: getOrder('sidebar') }}
+            className="h-full overflow-hidden"
+            style={getPanelStyle('sidebar')}
           >
             <Sidebar />
           </div>
@@ -213,7 +238,7 @@ export function Workbench() {
         {/* Editor Panel - always mounted, never remounted on reorder */}
         <div
           className="h-full flex flex-col overflow-hidden"
-          style={{ width: getPanelWidth('editor'), order: getOrder('editor') }}
+          style={getPanelStyle('editor')}
         >
           <div className="flex-1 overflow-hidden">
             <EditorArea onToggleFiles={toggleSidebar} />
@@ -228,7 +253,7 @@ export function Workbench() {
         {/* Chat Panel - always mounted, never remounted on reorder */}
         <div
           className="h-full overflow-hidden"
-          style={{ width: getPanelWidth('chat'), order: getOrder('chat') }}
+          style={getPanelStyle('chat')}
         >
           <ChatPanel key={rootPath} />
         </div>
