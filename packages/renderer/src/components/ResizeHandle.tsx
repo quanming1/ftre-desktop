@@ -48,7 +48,7 @@ export function ResizeHandle({ direction = "horizontal", onResize }: ResizeHandl
     <div
       onMouseDown={onMouseDown}
       className={`shrink-0 relative group ${
-        isH ? "w-[3px] cursor-col-resize hover:bg-neon/20" : "h-[3px] cursor-row-resize hover:bg-neon/20"
+        isH ? "w-[3px] h-full cursor-col-resize hover:bg-neon/20" : "w-full h-[3px] cursor-row-resize hover:bg-neon/20"
       } ${dragging ? "bg-neon/30" : "bg-transparent"} transition-colors`}
     >
       {/* 扩大点击区域 */}
