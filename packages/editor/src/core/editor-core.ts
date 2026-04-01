@@ -7,7 +7,18 @@
  * 3. 视图状态：scroll/cursor/selections（切换文件时保存/恢复）
  */
 
-import type { editor } from 'monaco-editor';
+import type { editor } from "monaco-editor";
+
+/**
+ * 规范化行尾符为 LF（\n）
+ *
+ * Monaco Editor 内部会将所有行尾符统一为 LF，
+ * 但从磁盘读取的文件可能包含 CRLF（\r\n）。
+ * 为了避免 isDirty() 误报，需要在存储时统一规范化。
+ */
+function normalizeLineEndings(content: string): string {
+  return content.replace(/\r\n/g, "\n");
+}
 
 // ── 存储 ──
 
@@ -27,23 +38,34 @@ const workspaceSnapshots = new Map<string, ContentSnapshot>();
 
 export const editorCore = {
   // 内容
-  getContent: (path: string) => contents.get(path) ?? '',
-  setContent: (path: string, value: string) => { contents.set(path, value); },
-  getDiskContent: (path: string) => diskContents.get(path) ?? '',
-  setDiskContent: (path: string, value: string) => { diskContents.set(path, value); },
-  removeContent: (path: string) => { contents.delete(path); diskContents.delete(path); },
+  getContent: (path: string) => contents.get(path) ?? "",
+  setContent: (path: string, value: string) => {
+    contents.set(path, normalizeLineEndings(value));
+  },
+  getDiskContent: (path: string) => diskContents.get(path) ?? "",
+  setDiskContent: (path: string, value: string) => {
+    diskContents.set(path, normalizeLineEndings(value));
+  },
+  removeContent: (path: string) => {
+    contents.delete(path);
+    diskContents.delete(path);
+  },
   isDirty: (path: string) => contents.get(path) !== diskContents.get(path),
 
   // 实例
-  registerInstance: (path: string, ed: editor.IStandaloneCodeEditor) => { instances.set(path, ed); },
-  unregisterInstance: (path: string) => { instances.delete(path); },
+  registerInstance: (path: string, ed: editor.IStandaloneCodeEditor) => {
+    instances.set(path, ed);
+  },
+  unregisterInstance: (path: string) => {
+    instances.delete(path);
+  },
   getInstance: (path: string) => instances.get(path) ?? null,
 
   /** 优先从 Monaco 实例取内容（最准确），回退到 Map */
   resolveContent: (path: string): string => {
     const inst = instances.get(path);
     if (inst) return inst.getValue();
-    return contents.get(path) ?? '';
+    return contents.get(path) ?? "";
   },
 
   /** 直接更新 Monaco 实例内容（用于外部文件变更/SSE refresh） */
@@ -56,9 +78,13 @@ export const editorCore = {
   },
 
   // 视图状态
-  saveViewState: (path: string, state: editor.ICodeEditorViewState) => { viewStates.set(path, state); },
+  saveViewState: (path: string, state: editor.ICodeEditorViewState) => {
+    viewStates.set(path, state);
+  },
   getViewState: (path: string) => viewStates.get(path) ?? null,
-  removeViewState: (path: string) => { viewStates.delete(path); },
+  removeViewState: (path: string) => {
+    viewStates.delete(path);
+  },
 
   /** 检查某路径是否有内容缓存 */
   hasContent: (path: string): boolean => contents.has(path),
@@ -83,10 +109,16 @@ export const editorCore = {
 
   /** 批量迁移前缀（用于文件夹重命名） */
   migratePrefix: (oldPrefix: string, newPrefix: string): void => {
-    for (const map of [contents, diskContents, viewStates] as Map<string, unknown>[]) {
+    for (const map of [contents, diskContents, viewStates] as Map<
+      string,
+      unknown
+    >[]) {
       const toMigrate: [string, string][] = [];
       for (const key of map.keys()) {
-        if (key.startsWith(oldPrefix + '/') || key.startsWith(oldPrefix + '\\')) {
+        if (
+          key.startsWith(oldPrefix + "/") ||
+          key.startsWith(oldPrefix + "\\")
+        ) {
           toMigrate.push([key, newPrefix + key.slice(oldPrefix.length)]);
         }
       }
@@ -97,7 +129,7 @@ export const editorCore = {
     }
     // 清理 instances 中的旧引用（不迁移值，重命名后会重新 mount）
     for (const key of [...instances.keys()]) {
-      if (key.startsWith(oldPrefix + '/') || key.startsWith(oldPrefix + '\\')) {
+      if (key.startsWith(oldPrefix + "/") || key.startsWith(oldPrefix + "\\")) {
         instances.delete(key);
       }
     }
@@ -114,12 +146,18 @@ export const editorCore = {
   restoreFromWorkspace: (workspace: string): boolean => {
     const snap = workspaceSnapshots.get(workspace);
     if (!snap) return false;
-    contents.clear(); snap.contents.forEach((v, k) => contents.set(k, v));
-    diskContents.clear(); snap.diskContents.forEach((v, k) => diskContents.set(k, v));
-    viewStates.clear(); snap.viewStates.forEach((v, k) => viewStates.set(k, v));
+    contents.clear();
+    snap.contents.forEach((v, k) => contents.set(k, v));
+    diskContents.clear();
+    snap.diskContents.forEach((v, k) => diskContents.set(k, v));
+    viewStates.clear();
+    snap.viewStates.forEach((v, k) => viewStates.set(k, v));
     return true;
   },
   clearAll: () => {
-    contents.clear(); diskContents.clear(); instances.clear(); viewStates.clear();
+    contents.clear();
+    diskContents.clear();
+    instances.clear();
+    viewStates.clear();
   },
 };
