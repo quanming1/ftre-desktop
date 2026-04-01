@@ -1,6 +1,6 @@
 import { useRef, useCallback, useState, type ReactNode } from "react";
 import { Minus, Square, X, Copy } from "lucide-react";
-import { motion, AnimatePresence } from "framer-motion";
+import { motion } from "framer-motion";
 
 /**
  * 通用浮动子窗口组件。
@@ -177,23 +177,26 @@ export function FloatingWindow({
   const edgeClass = "absolute z-10";
 
   return (
-    <AnimatePresence>
-      {visible && (
-        <motion.div
-          ref={windowRef}
-          initial={{ opacity: 0, scale: 0.95, y: -10 }}
-          animate={{ opacity: 1, scale: 1, y: 0 }}
-          exit={{ opacity: 0, scale: 0.95, y: -10 }}
-          transition={{ duration: 0.15, ease: "easeOut" }}
-          className="fixed flex flex-col bg-[#1a1a1a] border border-white/[0.08] rounded-xl shadow-2xl shadow-black/60 overflow-hidden"
-          style={{
-            left: initRect.x,
-            top: initRect.y,
-            width: initRect.width,
-            height: initRect.height,
-            zIndex,
-          }}
-        >
+    <motion.div
+      ref={windowRef}
+      initial={false}
+      animate={{
+        opacity: visible ? 1 : 0,
+        scale: visible ? 1 : 0.95,
+        y: visible ? 0 : -10,
+      }}
+      transition={{ duration: 0.15, ease: "easeOut" }}
+      className="fixed flex flex-col bg-[#1a1a1a] border border-white/[0.08] rounded-xl shadow-2xl shadow-black/60 overflow-hidden"
+      style={{
+        left: initRect.x,
+        top: initRect.y,
+        width: initRect.width,
+        height: initRect.height,
+        zIndex,
+        pointerEvents: visible ? "auto" : "none",
+        visibility: visible ? "visible" : "hidden",
+      }}
+    >
       {/* ── 缩放手柄（8 个方向）── */}
       {!maximized && (
         <>
@@ -249,7 +252,5 @@ export function FloatingWindow({
         {children}
       </div>
     </motion.div>
-      )}
-    </AnimatePresence>
   );
 }
