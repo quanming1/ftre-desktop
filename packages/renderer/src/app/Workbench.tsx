@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef, Fragment } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { TitleBar } from "./TitleBar";
 import { StatusBar } from "./StatusBar";
 import { ActivityBar, ACTIVITY_BAR_WIDTH } from "@/features/activity-bar/ActivityBar";
@@ -113,9 +113,22 @@ export function Workbench() {
   // Filter visible panels (sidebar hidden when activeSidebarView is null)
   const visiblePanels = panelOrder.filter((id) => id !== 'sidebar' || sidebarVisible);
 
+  // Calculate CSS order for each panel based on panelOrder
+  const getOrder = (id: PanelId): number => {
+    const index = panelOrder.indexOf(id);
+    // Each panel + its resize handle = 2 slots, sidebar has no trailing handle when last
+    return index * 2;
+  };
+
+  // Get resize handle order (between panels)
+  const getResizeHandleOrder = (afterPanelId: PanelId): number => {
+    const index = panelOrder.indexOf(afterPanelId);
+    return index * 2 + 1;
+  };
+
   // Compute width for each panel
   // Sidebar uses fixed width, editor and chat share remaining space using centerRatio
-  const getPanelWidth = (id: PanelId, index: number): string => {
+  const getPanelWidth = (id: PanelId): string => {
     if (id === 'sidebar') {
       return `${sidebarWidth}px`;
     }
@@ -130,6 +143,12 @@ export function Workbench() {
       return `${centerRatio}%`;
     }
     return `${100 - centerRatio}%`;
+  };
+
+  // Check if a resize handle should be visible
+  const isResizeHandleVisible = (afterPanelId: PanelId): boolean => {
+    const index = visiblePanels.indexOf(afterPanelId);
+    return index >= 0 && index < visiblePanels.length - 1;
   };
 
   // Resize handler for sidebar
@@ -157,68 +176,67 @@ export function Workbench() {
     [setCenterRatio, centerRatio, sidebarVisible, sidebarWidth],
   );
 
-  // Determine which resize handler to use based on panels
-  const getResizeHandler = (leftPanelId: PanelId, rightPanelId: PanelId) => {
-    if (leftPanelId === 'sidebar' || rightPanelId === 'sidebar') {
+  // Determine which resize handler to use based on adjacent panels
+  const getResizeHandler = (afterPanelId: PanelId) => {
+    const index = panelOrder.indexOf(afterPanelId);
+    const nextPanelId = panelOrder[index + 1];
+    if (afterPanelId === 'sidebar' || nextPanelId === 'sidebar') {
       return onSidebarResize;
     }
     return onCenterResize;
-  };
-
-  // ── Panel rendering ─────────────────────────────────────────────────
-
-  const renderPanel = (id: PanelId, width: string) => {
-    switch (id) {
-      case 'sidebar':
-        return (
-          <div className="shrink-0 h-full overflow-hidden" style={{ width }}>
-            <Sidebar />
-          </div>
-        );
-      case 'editor':
-        return (
-          <div className="h-full flex flex-col overflow-hidden" style={{ width }}>
-            <div className="flex-1 overflow-hidden">
-              <EditorArea onToggleFiles={toggleSidebar} />
-            </div>
-          </div>
-        );
-      case 'chat':
-        return (
-          <div className="h-full overflow-hidden" style={{ width }}>
-            <ChatPanel key={rootPath} />
-          </div>
-        );
-    }
   };
 
   return (
     <div className="h-screen w-screen flex flex-col bg-base overflow-hidden">
       <TitleBar />
 
-      {/* Main area */}
+      {/* Main area - use CSS order to control panel arrangement without remounting */}
       <div className="flex-1 flex overflow-hidden" ref={containerRef}>
-        {/* Activity Bar */}
+        {/* Activity Bar - always first */}
         <ActivityBar />
 
-        {/* Panels rendered in order */}
-        {visiblePanels.map((id, index) => {
-          const width = getPanelWidth(id, index);
-          const isLast = index === visiblePanels.length - 1;
-          const nextPanelId = visiblePanels[index + 1];
+        {/* Sidebar Panel */}
+        {sidebarVisible && (
+          <div
+            className="shrink-0 h-full overflow-hidden"
+            style={{ width: getPanelWidth('sidebar'), order: getOrder('sidebar') }}
+          >
+            <Sidebar />
+          </div>
+        )}
+        {sidebarVisible && isResizeHandleVisible('sidebar') && (
+          <div style={{ order: getResizeHandleOrder('sidebar') }}>
+            <ResizeHandle direction="horizontal" onResize={getResizeHandler('sidebar')} />
+          </div>
+        )}
 
-          return (
-            <Fragment key={id}>
-              {renderPanel(id, width)}
-              {!isLast && (
-                <ResizeHandle
-                  direction="horizontal"
-                  onResize={getResizeHandler(id, nextPanelId)}
-                />
-              )}
-            </Fragment>
-          );
-        })}
+        {/* Editor Panel - always mounted, never remounted on reorder */}
+        <div
+          className="h-full flex flex-col overflow-hidden"
+          style={{ width: getPanelWidth('editor'), order: getOrder('editor') }}
+        >
+          <div className="flex-1 overflow-hidden">
+            <EditorArea onToggleFiles={toggleSidebar} />
+          </div>
+        </div>
+        {isResizeHandleVisible('editor') && (
+          <div style={{ order: getResizeHandleOrder('editor') }}>
+            <ResizeHandle direction="horizontal" onResize={getResizeHandler('editor')} />
+          </div>
+        )}
+
+        {/* Chat Panel - always mounted, never remounted on reorder */}
+        <div
+          className="h-full overflow-hidden"
+          style={{ width: getPanelWidth('chat'), order: getOrder('chat') }}
+        >
+          <ChatPanel key={rootPath} />
+        </div>
+        {isResizeHandleVisible('chat') && (
+          <div style={{ order: getResizeHandleOrder('chat') }}>
+            <ResizeHandle direction="horizontal" onResize={getResizeHandler('chat')} />
+          </div>
+        )}
       </div>
 
       <StatusBar />
