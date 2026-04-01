@@ -1,6 +1,17 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { CaseSensitive, WholeWord, Regex, ChevronRight, ChevronDown, Loader2 } from "lucide-react";
-import { useSearch, type SearchFileResult, type SearchMatch } from "@/stores/search";
+import {
+  CaseSensitive,
+  WholeWord,
+  Regex,
+  ChevronRight,
+  ChevronDown,
+  Loader2,
+} from "lucide-react";
+import {
+  useSearch,
+  type SearchFileResult,
+  type SearchMatch,
+} from "@/stores/search";
 import { useEditor } from "@/stores/editor";
 
 export function SearchPanel() {
@@ -56,7 +67,10 @@ export function SearchPanel() {
   const totalMatches = results.reduce((sum, r) => sum + r.matches.length, 0);
 
   return (
-    <div className="flex flex-col gap-2.5 p-3 h-full" data-testid="search-panel">
+    <div
+      className="flex flex-col gap-2.5 p-3 h-full"
+      data-testid="search-panel"
+    >
       {/* Search input row */}
       <div className="flex items-center gap-1">
         <input
@@ -131,7 +145,10 @@ export function SearchPanel() {
       {/* Search results */}
       <div className="flex-1 overflow-y-auto" data-testid="search-results">
         {isSearching && (
-          <div className="flex items-center gap-2.5 px-2.5 py-3 text-[13px] text-t-muted" data-testid="search-loading">
+          <div
+            className="flex items-center gap-2.5 px-2.5 py-3 text-[13px] text-t-muted"
+            data-testid="search-loading"
+          >
             <Loader2 size={15} className="animate-spin" />
             <span>搜索中...</span>
           </div>
@@ -139,17 +156,27 @@ export function SearchPanel() {
 
         {!isSearching && results.length > 0 && (
           <>
-            <div className="px-2.5 py-1.5 text-[13px] text-t-muted" data-testid="search-summary">
+            <div
+              className="px-2.5 py-1.5 text-[13px] text-t-muted"
+              data-testid="search-summary"
+            >
               {totalMatches} 个结果，位于 {results.length} 个文件中
             </div>
             {results.map((fileResult) => (
-              <SearchFileGroup key={fileResult.filePath} fileResult={fileResult} query={query} />
+              <SearchFileGroup
+                key={fileResult.filePath}
+                fileResult={fileResult}
+                query={query}
+              />
             ))}
           </>
         )}
 
         {!isSearching && query.trim() !== "" && results.length === 0 && (
-          <div className="px-2.5 py-3 text-[13px] text-t-muted" data-testid="search-no-results">
+          <div
+            className="px-2.5 py-3 text-[13px] text-t-muted"
+            data-testid="search-no-results"
+          >
             未找到结果。
           </div>
         )}
@@ -159,7 +186,13 @@ export function SearchPanel() {
 }
 
 /** Collapsible file group showing matches for a single file */
-function SearchFileGroup({ fileResult, query }: { fileResult: SearchFileResult; query: string }) {
+function SearchFileGroup({
+  fileResult,
+  query,
+}: {
+  fileResult: SearchFileResult;
+  query: string;
+}) {
   const [expanded, setExpanded] = useState(true);
   const openFile = useEditor((s) => s.openFile);
 
@@ -171,6 +204,7 @@ function SearchFileGroup({ fileResult, query }: { fileResult: SearchFileResult; 
         name: fileResult.fileName,
         language: "",
         content: "",
+        loaded: false,
       });
       // Dispatch event to jump to the matching line
       window.dispatchEvent(
@@ -193,15 +227,26 @@ function SearchFileGroup({ fileResult, query }: { fileResult: SearchFileResult; 
         data-testid={`search-file-header-${fileResult.filePath}`}
         aria-expanded={expanded}
       >
-        {expanded ? <ChevronDown size={12} className="shrink-0" /> : <ChevronRight size={12} className="shrink-0" />}
+        {expanded ? (
+          <ChevronDown size={12} className="shrink-0" />
+        ) : (
+          <ChevronRight size={12} className="shrink-0" />
+        )}
         <span className="truncate font-medium">{fileResult.fileName}</span>
-        <span className="ml-auto shrink-0 text-t-dim">{fileResult.matches.length}</span>
+        <span className="ml-auto shrink-0 text-t-dim">
+          {fileResult.matches.length}
+        </span>
       </button>
 
       {expanded && (
         <div>
           {fileResult.matches.map((match, idx) => (
-            <SearchMatchItem key={`${match.lineNumber}-${idx}`} match={match} query={query} onClick={() => handleMatchClick(match)} />
+            <SearchMatchItem
+              key={`${match.lineNumber}-${idx}`}
+              match={match}
+              query={query}
+              onClick={() => handleMatchClick(match)}
+            />
           ))}
         </div>
       )}
@@ -210,7 +255,15 @@ function SearchFileGroup({ fileResult, query }: { fileResult: SearchFileResult; 
 }
 
 /** Single match result line with highlighted match text */
-function SearchMatchItem({ match, query, onClick }: { match: SearchMatch; query: string; onClick: () => void }) {
+function SearchMatchItem({
+  match,
+  query,
+  onClick,
+}: {
+  match: SearchMatch;
+  query: string;
+  onClick: () => void;
+}) {
   const { lineNumber, lineContent, matchStart, matchEnd } = match;
 
   const before = lineContent.slice(0, matchStart);
@@ -224,12 +277,18 @@ function SearchMatchItem({ match, query, onClick }: { match: SearchMatch; query:
       data-testid={`search-match-${lineNumber}`}
       aria-label={`Line ${lineNumber}: ${lineContent.trim()}`}
     >
-      <span className="shrink-0 text-t-dim w-8 text-right" data-testid="match-line-number">
+      <span
+        className="shrink-0 text-t-dim w-8 text-right"
+        data-testid="match-line-number"
+      >
         {lineNumber}
       </span>
       <span className="truncate text-t-muted" data-testid="match-line-content">
         {before}
-        <span className="bg-accent/30 text-accent font-medium" data-testid="match-highlight">
+        <span
+          className="bg-accent/30 text-accent font-medium"
+          data-testid="match-highlight"
+        >
           {highlighted}
         </span>
         {after}

@@ -25,7 +25,8 @@ export function EditorArea({ onToggleFiles }: EditorAreaProps) {
       useEditor.getState().splitEditor();
     };
     window.addEventListener("ftre:split-editor", handleSplitEditor);
-    return () => window.removeEventListener("ftre:split-editor", handleSplitEditor);
+    return () =>
+      window.removeEventListener("ftre:split-editor", handleSplitEditor);
   }, []);
 
   // Listen for file-renamed event — update open tabs across all groups
@@ -71,111 +72,70 @@ export function EditorArea({ onToggleFiles }: EditorAreaProps) {
   }, []);
 
   // ── File change watching ──────────────────────────────────────────
-  // Track watched file paths so we can diff on changes
-  const watchedPathsRef = useRef<Set<string>>(new Set());
-
-  // Collect all unique open file paths across all groups
-  const allOpenPaths = new Set<string>();
-  for (const group of groups) {
-    for (const file of group.openFiles) {
-      allOpenPaths.add(file.path);
-    }
-  }
-
-  // Incremental watch/unwatch effect — diff logic handles adds/removes
-  useEffect(() => {
-    const prev = watchedPathsRef.current;
-    const next = allOpenPaths;
-
-    // Watch newly opened files
-    for (const p of next) {
-      if (!prev.has(p)) {
-        window.desktop?.fs.watch(p).catch(() => {});
-      }
-    }
-
-    // Unwatch closed files
-    for (const p of prev) {
-      if (!next.has(p)) {
-        window.desktop?.fs.unwatch(p).catch(() => {});
-      }
-    }
-
-    watchedPathsRef.current = new Set(next);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [
-    // Serialize the set to a stable string so React can diff
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [...allOpenPaths].sort().join("\0"),
-  ]);
-
-  // Unmount-only cleanup: unwatch all watched files when component unmounts
-  useEffect(() => {
-    return () => {
-      for (const p of watchedPathsRef.current) {
-        window.desktop?.fs.unwatch(p).catch(() => {});
-      }
-      watchedPathsRef.current = new Set();
-    };
-  }, []);
+  // Windows 下 Workbench 已对 rootPath 建立 recursive watcher，这里不再为每个打开文件重复建 watcher，
+  // 避免同一文件变化被 root watcher 和 file watcher 同时上报。
 
   // Listen for external file changes and auto-refresh or notify
   useEffect(() => {
-    const cleanup = window.desktop?.fs.onFileChanged(async (filePath: string) => {
-      const state = useEditor.getState();
+    const cleanup = window.desktop?.fs.onFileChanged(
+      async (filePath: string) => {
+        const state = useEditor.getState();
 
-      // Find the file across all groups
-      let fileEntry: { modified: boolean } | undefined;
-      for (const group of state.groups) {
-        const found = group.openFiles.find((f) => f.path === filePath);
-        if (found) {
-          fileEntry = found;
-          break;
-        }
-      }
-
-      if (!fileEntry) return;
-
-      if (!fileEntry.modified) {
-        // Auto-refresh: read new content and update store
-        try {
-          const result = await window.desktop.fs.readFile(filePath);
-          if (!result.error) {
-            useEditor.getState().refreshFile(filePath, result.content);
+        // Find the file across all groups
+        let fileEntry: { modified: boolean } | undefined;
+        for (const group of state.groups) {
+          const found = group.openFiles.find((f) => f.path === filePath);
+          if (found) {
+            fileEntry = found;
+            break;
           }
-        } catch {
-          // Silently ignore read errors for watcher refreshes
         }
-      } else {
-        // File has unsaved modifications — ask the user
-        const fileName = filePath.split(/[\\/]/).pop() ?? filePath;
-        useNotification.getState().addNotification({
-          level: "warning",
-          message: `"${fileName}" 已被外部修改。是否重新加载？未保存的更改将丢失。`,
-          actions: [
-            {
-              label: "重新加载",
-              onClick: async () => {
-                try {
-                  const result = await window.desktop.fs.readFile(filePath);
-                  if (!result.error) {
-                    useEditor.getState().refreshFile(filePath, result.content);
+
+        if (!fileEntry) return;
+
+        if (!fileEntry.modified) {
+          // Auto-refresh: read new content and update store
+          try {
+            const result = await window.desktop.fs.readFile(filePath);
+            if (!result.error) {
+              useEditor.getState().refreshFile(filePath, result.content);
+            }
+          } catch {
+            // Silently ignore read errors for watcher refreshes
+          }
+        } else {
+          // File has unsaved modifications — ask the user
+          const fileName = filePath.split(/[\\/]/).pop() ?? filePath;
+          useNotification.getState().addNotification({
+            level: "warning",
+            message: `"${fileName}" 已被外部修改。是否重新加载？未保存的更改将丢失。`,
+            actions: [
+              {
+                label: "重新加载",
+                onClick: async () => {
+                  try {
+                    const result = await window.desktop.fs.readFile(filePath);
+                    if (!result.error) {
+                      useEditor
+                        .getState()
+                        .refreshFile(filePath, result.content);
+                    }
+                  } catch {
+                    // ignore
                   }
-                } catch {
-                  // ignore
-                }
+                },
               },
-            },
-            {
-              label: "保留本地",
-              onClick: () => {
-                // No-op: user keeps their local changes
+              {
+                label: "保留本地",
+                onClick: () => {
+                  // No-op: user keeps their local changes
+                },
               },
-            },
-          ],
-        });
-      }
-    });
+            ],
+          });
+        }
+      },
+    );
 
     return () => {
       cleanup?.();
@@ -194,7 +154,9 @@ export function EditorArea({ onToggleFiles }: EditorAreaProps) {
     <div className="h-full bg-surface flex flex-row overflow-hidden">
       {groups.map((group, index) => {
         const isActive = group.id === activeGroupId;
-        const currentFile = group.openFiles.find((f) => f.path === group.activeFile);
+        const currentFile = group.openFiles.find(
+          (f) => f.path === group.activeFile,
+        );
         const showCloseButton = groups.length > 1;
 
         return (
@@ -208,7 +170,10 @@ export function EditorArea({ onToggleFiles }: EditorAreaProps) {
             {/* Group header: TabBar + optional close button */}
             <div className="flex items-stretch shrink-0">
               <div className="flex-1 min-w-0">
-                <TabBar groupId={group.id} onToggleFiles={index === 0 ? onToggleFiles : undefined} />
+                <TabBar
+                  groupId={group.id}
+                  onToggleFiles={index === 0 ? onToggleFiles : undefined}
+                />
               </div>
               {showCloseButton && (
                 <button
@@ -232,11 +197,20 @@ export function EditorArea({ onToggleFiles }: EditorAreaProps) {
                   <Breadcrumb groupId={group.id} />
                   <div className="flex-1 overflow-hidden">
                     {(() => {
-                      const activeDiff = pendingDiffs.find((d) => d.tabPath === currentFile.path);
+                      const activeDiff = pendingDiffs.find(
+                        (d) => d.tabPath === currentFile.path,
+                      );
                       return activeDiff ? (
                         <>
-                          <DiffBar renderSideBySide={sideBySide} onToggleMode={() => setSideBySide(!sideBySide)} />
-                          <MonacoDiffViewer diff={activeDiff} language={currentFile.language} renderSideBySide={sideBySide} />
+                          <DiffBar
+                            renderSideBySide={sideBySide}
+                            onToggleMode={() => setSideBySide(!sideBySide)}
+                          />
+                          <MonacoDiffViewer
+                            diff={activeDiff}
+                            language={currentFile.language}
+                            renderSideBySide={sideBySide}
+                          />
                         </>
                       ) : (
                         <MonacoEditor file={currentFile} />
@@ -303,18 +277,30 @@ function WelcomePlaceholder() {
   ];
 
   return (
-    <div className="h-full flex items-center justify-center flex-col gap-6" data-testid="welcome-placeholder">
+    <div
+      className="h-full flex items-center justify-center flex-col gap-6"
+      data-testid="welcome-placeholder"
+    >
       {/* App Logo */}
       <div className="flex flex-col items-center gap-2">
         <Code2 size={48} className="text-t-muted" strokeWidth={1} />
-        <div className="text-[24px] text-t-secondary font-mono tracking-wider">Ftre</div>
-        <div className="text-[13px] text-t-muted font-mono">AI 原生代码编辑器</div>
+        <div className="text-[24px] text-t-secondary font-mono tracking-wider">
+          Ftre
+        </div>
+        <div className="text-[13px] text-t-muted font-mono">
+          AI 原生代码编辑器
+        </div>
       </div>
 
       {/* Recent Files */}
       {recentFiles.length > 0 && (
-        <div className="flex flex-col gap-1.5 mt-2 w-72" data-testid="recent-files-section">
-          <div className="text-[12px] text-t-muted font-mono uppercase tracking-wider mb-1.5">最近的文件</div>
+        <div
+          className="flex flex-col gap-1.5 mt-2 w-72"
+          data-testid="recent-files-section"
+        >
+          <div className="text-[12px] text-t-muted font-mono uppercase tracking-wider mb-1.5">
+            最近的文件
+          </div>
           {recentFiles.slice(0, 8).map((filePath) => (
             <button
               key={filePath}
@@ -326,17 +312,24 @@ function WelcomePlaceholder() {
             >
               <FileText size={14} className="shrink-0 text-t-muted" />
               <span className="truncate">{filePath.split("/").pop()}</span>
-              <span className="text-[11px] text-t-dim truncate ml-auto">{filePath}</span>
+              <span className="text-[11px] text-t-dim truncate ml-auto">
+                {filePath}
+              </span>
             </button>
           ))}
         </div>
       )}
 
       {/* Keyboard Shortcuts */}
-      <div className="flex flex-col gap-2.5 mt-2 text-[12px] text-t-muted font-mono" data-testid="shortcuts-section">
+      <div
+        className="flex flex-col gap-2.5 mt-2 text-[12px] text-t-muted font-mono"
+        data-testid="shortcuts-section"
+      >
         {shortcuts.map((s) => (
           <div key={s.keys} className="flex items-center gap-3.5">
-            <span className="text-t-muted bg-panel px-2 py-1 rounded-md text-[11px] min-w-[110px] text-right">{s.keys}</span>
+            <span className="text-t-muted bg-panel px-2 py-1 rounded-md text-[11px] min-w-[110px] text-right">
+              {s.keys}
+            </span>
             <span>{s.description}</span>
           </div>
         ))}
