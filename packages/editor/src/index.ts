@@ -1,5 +1,12 @@
 export { editorCore } from "./core/editor-core";
 export {
+  editorManager,
+  createEditorManager,
+  type EditorManager,
+  type EditorManagerConfig,
+  type AttachOptions,
+} from "./core/editor-manager";
+export {
   saveFile,
   registerHostBridge,
   getHostBridge,
