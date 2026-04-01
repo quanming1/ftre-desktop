@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { render, screen, fireEvent } from "@testing-library/react";
-import { computeDiffStats, DiffBar } from "./DiffBar";
-import { useEditor } from "@/stores/editor";
+import { computeDiffStats, DiffBar } from "@ftre/editor/ui";
+import type { DiffEntry } from "@ftre/editor/store";
 
 // Mock window.desktop.fs so acceptDiff/rejectDiff don't throw
 beforeEach(() => {
@@ -79,38 +79,20 @@ describe("computeDiffStats", () => {
 
 // ── DiffBar component tests ─────────────────────────────────────────
 
-function resetStore() {
-  useEditor.setState({
-    groups: [{ id: "default", openFiles: [], activeFile: null }],
-    activeGroupId: "default",
-    recentFiles: [],
-    openFiles: [],
-    activeFile: null,
-    pendingDiffs: [],
-  });
-}
-
-function setupDiff(
+function createDiff(
   options: {
     filePath?: string;
     isApproximate?: boolean;
     originalContent?: string;
     newContent?: string;
   } = {},
-) {
+): DiffEntry {
   const filePath = options.filePath ?? "/src/test.ts";
   const tabPath = `diff:${filePath}`;
   const originalContent = options.originalContent ?? "line1\nline2";
   const newContent = options.newContent ?? "line1\nline2\nline3";
 
-  useEditor.getState().openFile({
-    path: tabPath,
-    name: "test.ts (Diff)",
-    language: "typescript",
-    content: newContent,
-  });
-
-  useEditor.getState().addDiff({
+  return {
     id: `tool1:${filePath}`,
     filePath,
     tabPath,
@@ -118,65 +100,72 @@ function setupDiff(
     newContent,
     toolName: "edit",
     isApproximate: options.isApproximate ?? false,
-  });
+  };
 }
 
 describe("DiffBar component", () => {
-  beforeEach(() => {
-    resetStore();
-  });
-
-  it("renders nothing when there is no active diff", () => {
-    const { container } = render(<DiffBar />);
-    expect(container.innerHTML).toBe("");
-  });
-
-  it("renders diff bar when there is an active diff", () => {
-    setupDiff();
-    render(<DiffBar />);
+  it("renders diff bar with diff prop", () => {
+    const diff = createDiff();
+    render(<DiffBar diff={diff} />);
     expect(screen.getByTestId("diff-bar")).toBeTruthy();
   });
 
   it("displays diff stats with additions and deletions", () => {
-    setupDiff({ originalContent: "a\nb", newContent: "a\nb\nc" });
-    render(<DiffBar />);
+    const diff = createDiff({ originalContent: "a\nb", newContent: "a\nb\nc" });
+    render(<DiffBar diff={diff} />);
     expect(screen.getByTestId("diff-additions").textContent).toBe("+1");
     expect(screen.getByTestId("diff-deletions").textContent).toBe("-0");
   });
 
   it("displays correct stats for changed lines", () => {
-    setupDiff({ originalContent: "old", newContent: "new" });
-    render(<DiffBar />);
+    const diff = createDiff({ originalContent: "old", newContent: "new" });
+    render(<DiffBar diff={diff} />);
     expect(screen.getByTestId("diff-additions").textContent).toBe("+1");
     expect(screen.getByTestId("diff-deletions").textContent).toBe("-1");
   });
 
   it("shows mode toggle button", () => {
-    setupDiff();
-    render(<DiffBar />);
+    const diff = createDiff();
+    render(<DiffBar diff={diff} />);
     expect(screen.getByTestId("diff-toggle-mode")).toBeTruthy();
   });
 
   it("calls onToggleMode when mode toggle is clicked", () => {
-    setupDiff();
+    const diff = createDiff();
     const onToggle = vi.fn();
-    render(<DiffBar renderSideBySide={true} onToggleMode={onToggle} />);
+    render(
+      <DiffBar diff={diff} renderSideBySide={true} onToggleMode={onToggle} />,
+    );
     fireEvent.click(screen.getByTestId("diff-toggle-mode"));
     expect(onToggle).toHaveBeenCalledTimes(1);
   });
 
+  it("calls onOpenSourceFile when open file button is clicked", () => {
+    const diff = createDiff({ filePath: "/src/myfile.ts" });
+    const onOpenSourceFile = vi.fn();
+    render(<DiffBar diff={diff} onOpenSourceFile={onOpenSourceFile} />);
+    fireEvent.click(screen.getByTestId("diff-open-file"));
+    expect(onOpenSourceFile).toHaveBeenCalledTimes(1);
+    expect(onOpenSourceFile).toHaveBeenCalledWith("/src/myfile.ts");
+  });
+
   it("does NOT show approximate warning when isApproximate is false", () => {
-    setupDiff({ isApproximate: false });
-    render(<DiffBar />);
+    const diff = createDiff({ isApproximate: false });
+    render(<DiffBar diff={diff} />);
     expect(screen.queryByTestId("diff-approximate-warning")).toBeNull();
   });
 
   it("shows yellow warning when isApproximate is true", () => {
-    setupDiff({ isApproximate: true });
-    render(<DiffBar />);
+    const diff = createDiff({ isApproximate: true });
+    render(<DiffBar diff={diff} />);
     const warning = screen.getByTestId("diff-approximate-warning");
     expect(warning).toBeTruthy();
     expect(warning.className).toContain("text-yellow-400");
   });
 
+  it("displays tool name", () => {
+    const diff = createDiff();
+    render(<DiffBar diff={diff} />);
+    expect(screen.getByText("edit")).toBeTruthy();
+  });
 });
