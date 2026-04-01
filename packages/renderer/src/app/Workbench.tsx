@@ -205,7 +205,7 @@ export function Workbench() {
           </div>
         )}
         {sidebarVisible && isResizeHandleVisible('sidebar') && (
-          <div style={{ order: getResizeHandleOrder('sidebar') }}>
+          <div className="h-full" style={{ order: getResizeHandleOrder('sidebar') }}>
             <ResizeHandle direction="horizontal" onResize={getResizeHandler('sidebar')} />
           </div>
         )}
@@ -220,7 +220,7 @@ export function Workbench() {
           </div>
         </div>
         {isResizeHandleVisible('editor') && (
-          <div style={{ order: getResizeHandleOrder('editor') }}>
+          <div className="h-full" style={{ order: getResizeHandleOrder('editor') }}>
             <ResizeHandle direction="horizontal" onResize={getResizeHandler('editor')} />
           </div>
         )}
@@ -233,7 +233,7 @@ export function Workbench() {
           <ChatPanel key={rootPath} />
         </div>
         {isResizeHandleVisible('chat') && (
-          <div style={{ order: getResizeHandleOrder('chat') }}>
+          <div className="h-full" style={{ order: getResizeHandleOrder('chat') }}>
             <ResizeHandle direction="horizontal" onResize={getResizeHandler('chat')} />
           </div>
         )}
