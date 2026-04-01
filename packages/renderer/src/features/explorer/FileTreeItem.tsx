@@ -1,5 +1,16 @@
 import { useState, useCallback, useEffect, useRef, memo } from "react";
-import { FilePlus, FolderPlus, Pencil, Trash2, Copy, ClipboardCopy, FileText, Terminal, FolderOpen } from "lucide-react";
+import {
+  FilePlus,
+  FolderPlus,
+  Pencil,
+  Trash2,
+  Copy,
+  ClipboardCopy,
+  FileText,
+  Terminal,
+  FolderOpen,
+} from "lucide-react";
+import { editorCore } from "@ftre/editor/core";
 import { useEditor } from "@/stores/editor";
 import { useWorkspace } from "@/stores/workspace";
 import { useNotification } from "@/stores/notification";
@@ -11,6 +22,41 @@ import { canDrop, resolveDropTarget } from "./drag-drop-utils";
 import { pathSep, pathJoin, pathParent } from "@/utils/pathUtils";
 import { treeIndent } from "./tree-constants";
 import type { FileEntry } from "@/types";
+
+// 简单的扩展名到语言映射（与 electron/src/ipc/fs.ts 保持一致）
+const EXT_LANGUAGE_MAP: Record<string, string> = {
+  ts: "typescript",
+  tsx: "typescriptreact",
+  js: "javascript",
+  jsx: "javascriptreact",
+  json: "json",
+  md: "markdown",
+  css: "css",
+  scss: "scss",
+  less: "less",
+  html: "html",
+  vue: "vue",
+  py: "python",
+  rs: "rust",
+  go: "go",
+  java: "java",
+  c: "c",
+  cpp: "cpp",
+  h: "c",
+  hpp: "cpp",
+  yaml: "yaml",
+  yml: "yaml",
+  xml: "xml",
+  sql: "sql",
+  sh: "shell",
+  bash: "shell",
+  zsh: "shell",
+  txt: "plaintext",
+};
+
+function extToLanguage(ext: string): string {
+  return EXT_LANGUAGE_MAP[ext.toLowerCase()] || "plaintext";
+}
 
 /**
  * Module-level variable to hold drag data during a drag operation.
@@ -83,7 +129,10 @@ export const FileTreeItem = memo(function FileTreeItem({
   dragOverPath,
   onDragOverChange,
 }: FileTreeItemProps) {
-  const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null);
+  const [contextMenu, setContextMenu] = useState<{
+    x: number;
+    y: number;
+  } | null>(null);
   const openFile = useEditor((s) => s.openFile);
   const activeFile = useEditor((s) => s.activeFile);
   const rootPath = useWorkspace((s) => s.rootPath);
@@ -102,7 +151,9 @@ export const FileTreeItem = memo(function FileTreeItem({
     [rootPath],
   );
 
-  const realActiveFile = activeFile?.startsWith("diff:") ? activeFile.slice(5) : activeFile;
+  const realActiveFile = activeFile?.startsWith("diff:")
+    ? activeFile.slice(5)
+    : activeFile;
   const isActive = realActiveFile === entry.path;
   const isFocused = focusedPath === entry.path;
   const isRenaming = pendingRename?.path === entry.path;
@@ -125,11 +176,20 @@ export const FileTreeItem = memo(function FileTreeItem({
   });
 
   const GIT_COLORS: Record<string, string> = {
-    modified: "#e2c08d", untracked: "#73c991", deleted: "#c74e39",
-    added: "#73c991", renamed: "#73c991", conflict: "#e4676b",
+    modified: "#e2c08d",
+    untracked: "#73c991",
+    deleted: "#c74e39",
+    added: "#73c991",
+    renamed: "#73c991",
+    conflict: "#e4676b",
   };
   const GIT_LABELS: Record<string, string> = {
-    modified: "M", untracked: "U", deleted: "D", added: "A", renamed: "R", conflict: "C",
+    modified: "M",
+    untracked: "U",
+    deleted: "D",
+    added: "A",
+    renamed: "R",
+    conflict: "C",
   };
   const gitColor = gitStatus ? GIT_COLORS[gitStatus] : undefined;
   const gitLabel = gitStatus ? GIT_LABELS[gitStatus] : undefined;
@@ -156,7 +216,12 @@ export const FileTreeItem = memo(function FileTreeItem({
 
   // Auto-expand folder when a create operation targets it
   useEffect(() => {
-    if (pendingCreate && pendingCreate.dirPath === entry.path && entry.isDir && !expanded) {
+    if (
+      pendingCreate &&
+      pendingCreate.dirPath === entry.path &&
+      entry.isDir &&
+      !expanded
+    ) {
       onToggle(entry.path);
     }
   }, [pendingCreate, entry.isDir, entry.path, expanded, onToggle]);
@@ -166,12 +231,66 @@ export const FileTreeItem = memo(function FileTreeItem({
     onToggle(entry.path);
   }, [entry.isDir, entry.path, onToggle]);
 
+  // 预读取：鼠标悬停文件时提前加载内容到缓存（减少点击时的等待）
+  const prefetchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const prefetchedRef = useRef(false);
+
+  const handleMouseEnter = useCallback(() => {
+    // 只对文件生效，跳过目录
+    if (entry.isDir) return;
+    // 已经缓存过则跳过
+    if (editorCore.hasContent(entry.path)) return;
+    // 已经预读取过则跳过
+    if (prefetchedRef.current) return;
+
+    // 延迟 150ms 再预读取，避免快速划过时的无效请求
+    prefetchTimerRef.current = setTimeout(async () => {
+      if (editorCore.hasContent(entry.path)) return;
+      try {
+        const result = await window.desktop.fs.readFile(entry.path);
+        if (!result.error) {
+          // 预存到 editorCore 缓存，打开时直接使用
+          editorCore.setContent(entry.path, result.content);
+          editorCore.setDiskContent(entry.path, result.content);
+          prefetchedRef.current = true;
+        }
+      } catch {
+        // 预读取失败静默忽略，不影响正常流程
+      }
+    }, 150);
+  }, [entry.path, entry.isDir]);
+
+  const handleMouseLeave = useCallback(() => {
+    // 取消未完成的预读取
+    if (prefetchTimerRef.current) {
+      clearTimeout(prefetchTimerRef.current);
+      prefetchTimerRef.current = null;
+    }
+  }, []);
+
   const handleClick = useCallback(async () => {
     onFocusChange?.(entry.path);
     if (entry.isDir) {
       toggle();
       return;
     }
+
+    // 优先使用预读取的缓存内容
+    if (editorCore.hasContent(entry.path)) {
+      const cachedContent = editorCore.getContent(entry.path);
+      // 还需要获取 language，从文件扩展名推断
+      const ext = entry.name.split(".").pop() || "";
+      const language = extToLanguage(ext);
+      openFile({
+        path: entry.path,
+        name: entry.name,
+        language,
+        content: cachedContent,
+      });
+      return;
+    }
+
+    // 没有缓存则正常读取
     const result = await window.desktop.fs.readFile(entry.path);
     if (!result.error) {
       openFile({
@@ -272,13 +391,17 @@ export const FileTreeItem = memo(function FileTreeItem({
       if (!canDrop(dragData.sourcePath, targetDir)) return;
 
       // Build the new path: targetDir + source file/folder name
-      const sourceName = dragData.sourcePath.split(/[\\/]/).pop() ?? dragData.sourcePath;
+      const sourceName =
+        dragData.sourcePath.split(/[\\/]/).pop() ?? dragData.sourcePath;
       const newPath = pathJoin(targetDir, sourceName);
 
       // Same destination — no-op
       if (newPath === dragData.sourcePath) return;
 
-      const result = await window.desktop.fs.rename(dragData.sourcePath, newPath);
+      const result = await window.desktop.fs.rename(
+        dragData.sourcePath,
+        newPath,
+      );
 
       if (!result.success) {
         useNotification.getState().addNotification({
@@ -289,15 +412,27 @@ export const FileTreeItem = memo(function FileTreeItem({
         // Notify editor about the move so open tabs update
         window.dispatchEvent(
           new CustomEvent("ftre:file-renamed", {
-            detail: { oldPath: dragData.sourcePath, newPath, isDir: dragData.isDir },
+            detail: {
+              oldPath: dragData.sourcePath,
+              newPath,
+              isDir: dragData.isDir,
+            },
           }),
         );
       }
 
       // Refresh affected directories
       const sourceParent = pathParent(dragData.sourcePath);
-      window.dispatchEvent(new CustomEvent("ftre:tree-refresh", { detail: { dirPath: sourceParent } }));
-      window.dispatchEvent(new CustomEvent("ftre:tree-refresh", { detail: { dirPath: targetDir } }));
+      window.dispatchEvent(
+        new CustomEvent("ftre:tree-refresh", {
+          detail: { dirPath: sourceParent },
+        }),
+      );
+      window.dispatchEvent(
+        new CustomEvent("ftre:tree-refresh", {
+          detail: { dirPath: targetDir },
+        }),
+      );
 
       // 清理拖拽数据，防止残留
       currentDragData = null;
@@ -317,13 +452,23 @@ export const FileTreeItem = memo(function FileTreeItem({
           id: "new-file",
           label: "新建文件",
           icon: FilePlus,
-          action: () => window.dispatchEvent(new CustomEvent("ftre:new-file", { detail: { dirPath: entry.path } })),
+          action: () =>
+            window.dispatchEvent(
+              new CustomEvent("ftre:new-file", {
+                detail: { dirPath: entry.path },
+              }),
+            ),
         },
         {
           id: "new-folder",
           label: "新建文件夹",
           icon: FolderPlus,
-          action: () => window.dispatchEvent(new CustomEvent("ftre:new-folder", { detail: { dirPath: entry.path } })),
+          action: () =>
+            window.dispatchEvent(
+              new CustomEvent("ftre:new-folder", {
+                detail: { dirPath: entry.path },
+              }),
+            ),
         },
         { id: "sep1", label: "", separator: true, action: () => {} },
         {
@@ -331,14 +476,24 @@ export const FileTreeItem = memo(function FileTreeItem({
           label: "重命名",
           icon: Pencil,
           shortcut: "F2",
-          action: () => window.dispatchEvent(new CustomEvent("ftre:file-rename", { detail: { path: entry.path, isDir: true } })),
+          action: () =>
+            window.dispatchEvent(
+              new CustomEvent("ftre:file-rename", {
+                detail: { path: entry.path, isDir: true },
+              }),
+            ),
         },
         {
           id: "delete",
           label: "删除",
           icon: Trash2,
           shortcut: "Delete",
-          action: () => window.dispatchEvent(new CustomEvent("ftre:file-delete", { detail: { path: entry.path, isDir: true } })),
+          action: () =>
+            window.dispatchEvent(
+              new CustomEvent("ftre:file-delete", {
+                detail: { path: entry.path, isDir: true },
+              }),
+            ),
         },
         { id: "sep2", label: "", separator: true, action: () => {} },
         {
@@ -352,7 +507,8 @@ export const FileTreeItem = memo(function FileTreeItem({
           id: "copy-relative-path",
           label: "复制相对路径",
           icon: ClipboardCopy,
-          action: () => navigator.clipboard.writeText(getRelativePath(entry.path)),
+          action: () =>
+            navigator.clipboard.writeText(getRelativePath(entry.path)),
         },
         { id: "sep3", label: "", separator: true, action: () => {} },
         {
@@ -365,7 +521,12 @@ export const FileTreeItem = memo(function FileTreeItem({
           id: "open-terminal",
           label: "在终端中打开",
           icon: Terminal,
-          action: () => window.dispatchEvent(new CustomEvent("ftre:open-terminal-at", { detail: { dirPath: entry.path } })),
+          action: () =>
+            window.dispatchEvent(
+              new CustomEvent("ftre:open-terminal-at", {
+                detail: { dirPath: entry.path },
+              }),
+            ),
         },
       ];
     }
@@ -383,14 +544,24 @@ export const FileTreeItem = memo(function FileTreeItem({
         label: "重命名",
         icon: Pencil,
         shortcut: "F2",
-        action: () => window.dispatchEvent(new CustomEvent("ftre:file-rename", { detail: { path: entry.path, isDir: false } })),
+        action: () =>
+          window.dispatchEvent(
+            new CustomEvent("ftre:file-rename", {
+              detail: { path: entry.path, isDir: false },
+            }),
+          ),
       },
       {
         id: "delete",
         label: "删除",
         icon: Trash2,
         shortcut: "Delete",
-        action: () => window.dispatchEvent(new CustomEvent("ftre:file-delete", { detail: { path: entry.path, isDir: false } })),
+        action: () =>
+          window.dispatchEvent(
+            new CustomEvent("ftre:file-delete", {
+              detail: { path: entry.path, isDir: false },
+            }),
+          ),
       },
       { id: "sep2", label: "", separator: true, action: () => {} },
       {
@@ -404,7 +575,8 @@ export const FileTreeItem = memo(function FileTreeItem({
         id: "copy-relative-path",
         label: "复制相对路径",
         icon: ClipboardCopy,
-        action: () => navigator.clipboard.writeText(getRelativePath(entry.path)),
+        action: () =>
+          navigator.clipboard.writeText(getRelativePath(entry.path)),
       },
       { id: "sep3", label: "", separator: true, action: () => {} },
       {
@@ -413,7 +585,9 @@ export const FileTreeItem = memo(function FileTreeItem({
         icon: Terminal,
         action: () => {
           const dirPath = pathParent(entry.path);
-          window.dispatchEvent(new CustomEvent("ftre:open-terminal-at", { detail: { dirPath } }));
+          window.dispatchEvent(
+            new CustomEvent("ftre:open-terminal-at", { detail: { dirPath } }),
+          );
         },
       },
       {
@@ -432,12 +606,18 @@ export const FileTreeItem = memo(function FileTreeItem({
         draggable
         onClick={handleClick}
         onContextMenu={handleContextMenu}
+        onMouseEnter={handleMouseEnter}
+        onMouseLeave={handleMouseLeave}
         onDragStart={handleDragStart}
         onDragOver={handleDragOver}
         onDragLeave={handleDragLeave}
         onDrop={handleDrop}
         onDragEnd={handleDragEnd}
-        style={{ paddingLeft, contentVisibility: "auto", containIntrinsicSize: "auto 32px" }}
+        style={{
+          paddingLeft,
+          contentVisibility: "auto",
+          containIntrinsicSize: "auto 32px",
+        }}
         className={`flex items-center gap-2 pr-3 h-[32px] cursor-pointer text-[15px] select-none rounded-[4px] mx-0.5 font-sans ${
           isActive
             ? "bg-white/[0.1] text-white"
@@ -453,7 +633,14 @@ export const FileTreeItem = memo(function FileTreeItem({
             viewBox="0 0 10 10"
             className={`shrink-0 text-t-muted ${expanded ? "rotate-90" : ""}`}
           >
-            <path d="M3 1.5L7.5 5L3 8.5" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+            <path
+              d="M3 1.5L7.5 5L3 8.5"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.5"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
           </svg>
         )}
         <Icon size={16} className="shrink-0" style={{ color }} />
@@ -472,7 +659,13 @@ export const FileTreeItem = memo(function FileTreeItem({
           </span>
         )}
       </div>
-      {contextMenu && <ContextMenu items={getContextMenuItems()} position={contextMenu} onClose={closeContextMenu} />}
+      {contextMenu && (
+        <ContextMenu
+          items={getContextMenuItems()}
+          position={contextMenu}
+          onClose={closeContextMenu}
+        />
+      )}
       {expanded &&
         childEntries.map((child) => (
           <FileTreeItem
@@ -493,21 +686,31 @@ export const FileTreeItem = memo(function FileTreeItem({
             onRenameSubmit={onRenameSubmit}
             onRenameCancel={onRenameCancel}
             onFocusChange={onFocusChange}
-            siblingNames={pendingCreate || pendingRename ? childEntries.map((c) => c.name).filter((n) => n !== child.name) : []}
+            siblingNames={
+              pendingCreate || pendingRename
+                ? childEntries
+                    .map((c) => c.name)
+                    .filter((n) => n !== child.name)
+                : []
+            }
             dragOverPath={dragOverPath}
             onDragOverChange={onDragOverChange}
           />
         ))}
       {/* Inline input for creating inside this folder */}
-      {pendingCreate && pendingCreate.dirPath === entry.path && expanded && onCreateSubmit && onCreateCancel && (
-        <InlineInput
-          placeholder={pendingCreate.type === "file" ? "文件名" : "文件夹名"}
-          depth={depth + 1}
-          siblingNames={childEntries.map((c) => c.name)}
-          onSubmit={onCreateSubmit}
-          onCancel={onCreateCancel}
-        />
-      )}
+      {pendingCreate &&
+        pendingCreate.dirPath === entry.path &&
+        expanded &&
+        onCreateSubmit &&
+        onCreateCancel && (
+          <InlineInput
+            placeholder={pendingCreate.type === "file" ? "文件名" : "文件夹名"}
+            depth={depth + 1}
+            siblingNames={childEntries.map((c) => c.name)}
+            onSubmit={onCreateSubmit}
+            onCancel={onCreateCancel}
+          />
+        )}
     </>
   );
 });
