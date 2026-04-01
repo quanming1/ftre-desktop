@@ -1,7 +1,3 @@
-export { editorCore } from './editor-core';
-export {
-  refreshFileContent,
-  openFileWithContent,
-  closeFileAndCleanup,
-  getFileContentForSave,
-} from './editor-commands';
+// Re-export from @ftre/editor
+export { editorCore } from "@ftre/editor/core";
+export { saveFile } from "@ftre/editor/runtime";
