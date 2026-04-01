@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useRef, Fragment } from "react";
 import { TitleBar } from "./TitleBar";
 import { StatusBar } from "./StatusBar";
 import { ActivityBar, ACTIVITY_BAR_WIDTH } from "@/features/activity-bar/ActivityBar";
@@ -14,10 +14,9 @@ import { CommandPalette } from "@/components/CommandPalette";
 import { GlobalSearchPalette } from "@/features/global-search/GlobalSearchPalette";
 import { NotificationStack } from "@/components/NotificationStack";
 import { ResizeHandle } from "@/components/ResizeHandle";
-import { useLayout } from "@/stores/layout";
+import { useLayout, type PanelId } from "@/stores/layout";
 import { useWorkspace } from "@/stores/workspace";
 import { useEditor } from "@/stores/editor";
-import { useSession } from "@/stores/session";
 import { useGlobalShortcuts } from "@/lib/shortcuts";
 import { registerDefaultShortcuts } from "@/lib/default-shortcuts";
 import { globalEventStream } from "@/services/global-event-stream";
@@ -27,13 +26,13 @@ export function Workbench() {
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
 
   // Layout store state
-  const splitMode = useLayout((s) => s.splitMode);
   const sidebarWidth = useLayout((s) => s.sidebarWidth);
   const setSidebarWidth = useLayout((s) => s.setSidebarWidth);
   const centerRatio = useLayout((s) => s.centerRatio);
   const setCenterRatio = useLayout((s) => s.setCenterRatio);
   const activeSidebarView = useLayout((s) => s.activeSidebarView);
   const toggleSidebar = useLayout((s) => s.toggleSidebar);
+  const panelOrder = useLayout((s) => s.panelOrder);
 
   const sidebarVisible = activeSidebarView !== null;
 
@@ -109,6 +108,31 @@ export function Workbench() {
     };
   }, []);
 
+  // ── Resize handlers ─────────────────────────────────────────────────
+
+  // Filter visible panels (sidebar hidden when activeSidebarView is null)
+  const visiblePanels = panelOrder.filter((id) => id !== 'sidebar' || sidebarVisible);
+
+  // Compute width for each panel
+  // Sidebar uses fixed width, editor and chat share remaining space using centerRatio
+  const getPanelWidth = (id: PanelId, index: number): string => {
+    if (id === 'sidebar') {
+      return `${sidebarWidth}px`;
+    }
+    // For editor and chat, use flex percentages
+    // The first non-sidebar panel gets centerRatio%, second gets the rest
+    const nonSidebarPanels = visiblePanels.filter((p) => p !== 'sidebar');
+    const nonSidebarIndex = nonSidebarPanels.indexOf(id);
+    if (nonSidebarPanels.length === 1) {
+      return '100%';
+    }
+    if (nonSidebarIndex === 0) {
+      return `${centerRatio}%`;
+    }
+    return `${100 - centerRatio}%`;
+  };
+
+  // Resize handler for sidebar
   const onSidebarResize = useCallback(
     (delta: number) => {
       setSidebarWidth(Math.max(140, Math.min(400, sidebarWidth + delta)));
@@ -116,7 +140,7 @@ export function Workbench() {
     [setSidebarWidth, sidebarWidth],
   );
 
-  // Drag the divider between center and side panel to adjust centerRatio
+  // Resize handler for editor/chat divider
   const onCenterResize = useCallback(
     (delta: number) => {
       const container = containerRef.current;
@@ -133,29 +157,40 @@ export function Workbench() {
     [setCenterRatio, centerRatio, sidebarVisible, sidebarWidth],
   );
 
-  const sideRatio = 100 - centerRatio;
+  // Determine which resize handler to use based on panels
+  const getResizeHandler = (leftPanelId: PanelId, rightPanelId: PanelId) => {
+    if (leftPanelId === 'sidebar' || rightPanelId === 'sidebar') {
+      return onSidebarResize;
+    }
+    return onCenterResize;
+  };
 
-  // Editor block — 终端已移至顶部 dropdown
-  const editorBlock = (isCenter: boolean) => (
-    <div
-      className="h-full flex flex-col overflow-hidden"
-      style={{ width: `${isCenter ? centerRatio : sideRatio}%` }}
-    >
-      <div className="flex-1 overflow-hidden">
-        <EditorArea onToggleFiles={toggleSidebar} />
-      </div>
-    </div>
-  );
+  // ── Panel rendering ─────────────────────────────────────────────────
 
-  // Shared AI chat block
-  const chatBlock = (isCenter: boolean) => (
-    <div
-      className="h-full overflow-hidden"
-      style={{ width: `${isCenter ? centerRatio : sideRatio}%` }}
-    >
-      <ChatPanel key={rootPath} />
-    </div>
-  );
+  const renderPanel = (id: PanelId, width: string) => {
+    switch (id) {
+      case 'sidebar':
+        return (
+          <div className="shrink-0 h-full overflow-hidden" style={{ width }}>
+            <Sidebar />
+          </div>
+        );
+      case 'editor':
+        return (
+          <div className="h-full flex flex-col overflow-hidden" style={{ width }}>
+            <div className="flex-1 overflow-hidden">
+              <EditorArea onToggleFiles={toggleSidebar} />
+            </div>
+          </div>
+        );
+      case 'chat':
+        return (
+          <div className="h-full overflow-hidden" style={{ width }}>
+            <ChatPanel key={rootPath} />
+          </div>
+        );
+    }
+  };
 
   return (
     <div className="h-screen w-screen flex flex-col bg-base overflow-hidden">
@@ -166,33 +201,24 @@ export function Workbench() {
         {/* Activity Bar */}
         <ActivityBar />
 
-        {/* Sidebar */}
-        {sidebarVisible && (
-          <>
-            <div className="shrink-0 h-full overflow-hidden" style={{ width: sidebarWidth }}>
-              <Sidebar />
-            </div>
-            <ResizeHandle direction="horizontal" onResize={onSidebarResize} />
-          </>
-        )}
+        {/* Panels rendered in order */}
+        {visiblePanels.map((id, index) => {
+          const width = getPanelWidth(id, index);
+          const isLast = index === visiblePanels.length - 1;
+          const nextPanelId = visiblePanels[index + 1];
 
-        {/* Main content: order depends on splitMode */}
-        {/* center panel gets centerRatio%, side panel gets the rest */}
-        {splitMode === "ai-center" ? (
-          <>
-            {/* AI Mode: ChatPanel (center 70%) | ResizeHandle | EditorArea (side 30%) */}
-            {chatBlock(true)}
-            <ResizeHandle direction="horizontal" onResize={onCenterResize} />
-            {editorBlock(false)}
-          </>
-        ) : (
-          <>
-            {/* VSCode Mode: EditorArea (center 70%) | ResizeHandle | ChatPanel (side 30%) */}
-            {editorBlock(true)}
-            <ResizeHandle direction="horizontal" onResize={onCenterResize} />
-            {chatBlock(false)}
-          </>
-        )}
+          return (
+            <Fragment key={id}>
+              {renderPanel(id, width)}
+              {!isLast && (
+                <ResizeHandle
+                  direction="horizontal"
+                  onResize={getResizeHandler(id, nextPanelId)}
+                />
+              )}
+            </Fragment>
+          );
+        })}
       </div>
 
       <StatusBar />

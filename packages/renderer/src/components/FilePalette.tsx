@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { Search, Clock, Star, X } from "lucide-react";
+import { motion, AnimatePresence } from "framer-motion";
 import { useWorkspace } from "@/stores/workspace";
 import { useEditor } from "@/stores/editor";
 import { getFileIcon } from "@/lib/file-icons";
@@ -44,8 +45,6 @@ export function FilePalette({ open, onClose }: { open: boolean; onClose: () => v
     }
   }, [open, rootPath, collectFiles]);
 
-  if (!open) return null;
-
   const filtered = allFiles.filter((f) => f.name.toLowerCase().includes(query.toLowerCase()) || f.path.toLowerCase().includes(query.toLowerCase()));
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -74,12 +73,27 @@ export function FilePalette({ open, onClose }: { open: boolean; onClose: () => v
   };
 
   return (
-    <>
-      {/* Backdrop */}
-      <div className="fixed inset-0 bg-black/50 z-40 backdrop-blur-sm" onClick={onClose} />
+    <AnimatePresence>
+      {open && (
+        <>
+          {/* Backdrop */}
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.15 }}
+            className="fixed inset-0 bg-black/50 z-40 backdrop-blur-sm"
+            onClick={onClose}
+          />
 
-      {/* Palette */}
-      <div className="fixed top-[15%] left-1/2 -translate-x-1/2 w-full max-w-lg bg-elevated border border-border-subtle rounded-xl shadow-2xl z-50 overflow-hidden">
+          {/* Palette */}
+          <motion.div
+            initial={{ opacity: 0, scale: 0.95, y: -20 }}
+            animate={{ opacity: 1, scale: 1, y: 0 }}
+            exit={{ opacity: 0, scale: 0.95, y: -20 }}
+            transition={{ duration: 0.15, ease: "easeOut" }}
+            className="fixed top-[15%] left-1/2 -translate-x-1/2 w-full max-w-lg bg-elevated border border-border-subtle rounded-xl shadow-2xl z-50 overflow-hidden"
+          >
         {/* Search input */}
         <div className="flex items-center gap-2 px-4 py-3 border-b border-border">
           <Search size={14} className="text-t-ghost shrink-0" />
@@ -133,7 +147,9 @@ export function FilePalette({ open, onClose }: { open: boolean; onClose: () => v
           <span>回车 打开</span>
           <span>Esc 关闭</span>
         </div>
-      </div>
-    </>
+          </motion.div>
+        </>
+      )}
+    </AnimatePresence>
   );
 }
