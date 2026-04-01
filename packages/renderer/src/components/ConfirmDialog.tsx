@@ -1,5 +1,6 @@
 import { useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
+import { motion } from "framer-motion";
 
 export interface DialogButton {
   label: string;
@@ -58,10 +59,20 @@ export function ConfirmDialog({ title, message, confirmLabel = "删除", cancelL
   }, []);
 
   return createPortal(
-    <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/50">
-      <div
+    <motion.div
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      transition={{ duration: 0.15 }}
+      className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/50"
+    >
+      <motion.div
         ref={dialogRef}
         tabIndex={-1}
+        initial={{ opacity: 0, scale: 0.95, y: -10 }}
+        animate={{ opacity: 1, scale: 1, y: 0 }}
+        exit={{ opacity: 0, scale: 0.95, y: -10 }}
+        transition={{ duration: 0.15, ease: "easeOut" }}
         className="bg-elevated border border-border-subtle rounded-xl shadow-2xl p-6 min-w-[340px] max-w-[440px] outline-none"
       >
         <h3 className="text-[14px] font-semibold text-t-primary font-mono mb-2.5">{title}</h3>
@@ -78,8 +89,8 @@ export function ConfirmDialog({ title, message, confirmLabel = "删除", cancelL
             </button>
           ))}
         </div>
-      </div>
-    </div>,
+      </motion.div>
+    </motion.div>,
     document.body,
   );
 }

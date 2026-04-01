@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect, useLayoutEffect, useCallback } from "react";
 import { createPortal } from "react-dom";
 import type { LucideIcon } from "lucide-react";
+import { motion } from "framer-motion";
 import { adjustMenuPosition } from "./menu-position";
 
 export interface ContextMenuItem {
@@ -117,10 +118,13 @@ export function ContextMenu({ items, position, onClose }: ContextMenuProps) {
   };
 
   return createPortal(
-    <div
+    <motion.div
       ref={menuRef}
       role="menu"
       tabIndex={-1}
+      initial={{ opacity: 0, scale: 0.95, y: -5 }}
+      animate={{ opacity: 1, scale: 1, y: 0 }}
+      transition={{ duration: 0.12, ease: "easeOut" }}
       className="fixed z-[9999] min-w-[200px] bg-elevated border border-border-subtle rounded-lg shadow-2xl py-1.5 outline-none"
       style={{ left: adjustedPosition.x, top: adjustedPosition.y }}
     >
@@ -155,7 +159,7 @@ export function ContextMenu({ items, position, onClose }: ContextMenuProps) {
           </button>
         );
       })}
-    </div>,
+    </motion.div>,
     document.body,
   );
 }

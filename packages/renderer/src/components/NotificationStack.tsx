@@ -1,5 +1,6 @@
 import { useEffect, useRef, useCallback } from "react";
 import { Info, AlertTriangle, XCircle, X } from "lucide-react";
+import { motion, AnimatePresence } from "framer-motion";
 import { useNotification, type NotificationItem } from "../stores/notification";
 
 const AUTO_DISMISS_MS = 5000;
@@ -49,10 +50,15 @@ function NotificationCard({ notification }: { notification: NotificationItem }) 
   const Icon = config.icon;
 
   return (
-    <div
+    <motion.div
+      layout
+      initial={{ opacity: 0, x: 50, scale: 0.95 }}
+      animate={{ opacity: 1, x: 0, scale: 1 }}
+      exit={{ opacity: 0, x: 50, scale: 0.95 }}
+      transition={{ duration: 0.2, ease: "easeOut" }}
       role="alert"
       data-level={notification.level}
-      className={`flex flex-col gap-2 w-80 rounded-lg border p-3 shadow-lg animate-slide-in-right ${config.containerClass}`}
+      className={`flex flex-col gap-2 w-80 rounded-lg border p-3 shadow-lg ${config.containerClass}`}
     >
       <div className="flex items-start gap-2">
         <Icon size={18} className={`shrink-0 mt-0.5 ${config.iconClass}`} aria-label={config.label} />
@@ -81,20 +87,20 @@ function NotificationCard({ notification }: { notification: NotificationItem }) 
           ))}
         </div>
       )}
-    </div>
+    </motion.div>
   );
 }
 
 export function NotificationStack() {
   const notifications = useNotification((s) => s.notifications);
 
-  if (notifications.length === 0) return null;
-
   return (
     <div className="fixed bottom-10 right-4 z-[9998] flex flex-col gap-2 pointer-events-auto">
-      {notifications.map((notification) => (
-        <NotificationCard key={notification.id} notification={notification} />
-      ))}
+      <AnimatePresence mode="popLayout">
+        {notifications.map((notification) => (
+          <NotificationCard key={notification.id} notification={notification} />
+        ))}
+      </AnimatePresence>
     </div>
   );
 }

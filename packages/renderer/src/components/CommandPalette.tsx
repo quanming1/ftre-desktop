@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect, useMemo } from "react";
 import { Search, X } from "lucide-react";
+import { motion, AnimatePresence } from "framer-motion";
 import { useShortcut, type ShortcutBinding } from "@/stores/shortcut";
 
 interface CommandPaletteProps {
@@ -49,8 +50,6 @@ export function CommandPalette({ open, onClose }: CommandPaletteProps) {
     item?.scrollIntoView({ block: "nearest" });
   }, [selectedIndex]);
 
-  if (!open) return null;
-
   const handleSelect = (binding: ShortcutBinding) => {
     binding.execute();
     onClose();
@@ -75,12 +74,27 @@ export function CommandPalette({ open, onClose }: CommandPaletteProps) {
   };
 
   return (
-    <>
-      {/* Backdrop */}
-      <div className="fixed inset-0 bg-black/50 z-40 backdrop-blur-sm" onClick={onClose} />
+    <AnimatePresence>
+      {open && (
+        <>
+          {/* Backdrop */}
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.15 }}
+            className="fixed inset-0 bg-black/50 z-40 backdrop-blur-sm"
+            onClick={onClose}
+          />
 
-      {/* Palette */}
-      <div className="fixed top-[12%] left-1/2 -translate-x-1/2 w-full max-w-lg bg-elevated border border-border-subtle rounded-xl shadow-2xl z-50 overflow-hidden">
+          {/* Palette */}
+          <motion.div
+            initial={{ opacity: 0, scale: 0.95, y: -20 }}
+            animate={{ opacity: 1, scale: 1, y: 0 }}
+            exit={{ opacity: 0, scale: 0.95, y: -20 }}
+            transition={{ duration: 0.15, ease: "easeOut" }}
+            className="fixed top-[12%] left-1/2 -translate-x-1/2 w-full max-w-lg bg-elevated border border-border-subtle rounded-xl shadow-2xl z-50 overflow-hidden"
+          >
         {/* Search input */}
         <div className="flex items-center gap-2 px-4 py-3 border-b border-border">
           <Search size={14} className="text-t-ghost shrink-0" />
@@ -130,7 +144,9 @@ export function CommandPalette({ open, onClose }: CommandPaletteProps) {
           <span>回车 执行</span>
           <span>Esc 关闭</span>
         </div>
-      </div>
-    </>
+          </motion.div>
+        </>
+      )}
+    </AnimatePresence>
   );
 }

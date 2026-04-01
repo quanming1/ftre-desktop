@@ -4,6 +4,7 @@ export type SidebarView = 'explorer' | 'git' | 'extensions';
 export type BottomTab = 'terminal' | 'problems' | 'output';
 
 export type SplitMode = 'ai-center' | 'code-center';
+export type PanelId = 'sidebar' | 'editor' | 'chat';
 
 const STORAGE_KEY = 'ftre-layout-state';
 
@@ -29,7 +30,8 @@ interface PersistedLayoutData {
     bottomPanelVisible: boolean;
     activeBottomTab: BottomTab;
     minimapEnabled: boolean;
-    splitMode: SplitMode;
+    splitMode: SplitMode;       // deprecated, kept for migration
+    panelOrder: PanelId[];      // panel arrangement from left to right
     autoFollowFiles: boolean;
 }
 
@@ -46,6 +48,7 @@ export interface LayoutState extends PersistedLayoutData {
     setActiveBottomTab: (tab: BottomTab) => void;
     toggleMinimap: () => void;
     setSplitMode: (mode: SplitMode) => void;
+    setPanelOrder: (order: PanelId[]) => void;
     toggleAutoFollowFiles: () => void;
 
     /** 终端浮动窗口（运行时状态，不持久化） */
@@ -61,6 +64,8 @@ export interface LayoutState extends PersistedLayoutData {
     toggleTaskPanel: () => void;
 }
 
+const DEFAULT_PANEL_ORDER: PanelId[] = ['sidebar', 'editor', 'chat'];
+
 const defaults: PersistedLayoutData = {
     activeSidebarView: 'explorer',
     sidebarWidth: 220,
@@ -71,6 +76,7 @@ const defaults: PersistedLayoutData = {
     activeBottomTab: 'terminal',
     minimapEnabled: false,
     splitMode: 'ai-center',
+    panelOrder: DEFAULT_PANEL_ORDER,
     autoFollowFiles: true,
 };
 
@@ -85,6 +91,7 @@ function getPersistedData(state: LayoutState): PersistedLayoutData {
         activeBottomTab: state.activeBottomTab,
         minimapEnabled: state.minimapEnabled,
         splitMode: state.splitMode,
+        panelOrder: state.panelOrder,
         autoFollowFiles: state.autoFollowFiles,
     };
 }
@@ -116,6 +123,18 @@ export const useLayout = create<LayoutState>((set, get) => ({
                 // Migrate old aiPanelWidth to centerRatio (drop it, use default)
                 if ((parsed as any).aiPanelWidth !== undefined && parsed.centerRatio === undefined) {
                     parsed.centerRatio = CENTER_RATIO_DEFAULT;
+                }
+                // Migrate splitMode to panelOrder if panelOrder doesn't exist
+                if (!parsed.panelOrder && parsed.splitMode) {
+                    if (parsed.splitMode === 'ai-center') {
+                        parsed.panelOrder = ['sidebar', 'chat', 'editor'];
+                    } else {
+                        parsed.panelOrder = ['sidebar', 'editor', 'chat'];
+                    }
+                }
+                // Validate panelOrder has all 3 panels
+                if (parsed.panelOrder && parsed.panelOrder.length !== 3) {
+                    parsed.panelOrder = DEFAULT_PANEL_ORDER;
                 }
                 set({ ...defaults, ...parsed });
             }
@@ -177,6 +196,11 @@ export const useLayout = create<LayoutState>((set, get) => ({
 
     setSplitMode: (mode) => {
         set({ splitMode: mode });
+        get().persist();
+    },
+
+    setPanelOrder: (order) => {
+        set({ panelOrder: order });
         get().persist();
     },
 
