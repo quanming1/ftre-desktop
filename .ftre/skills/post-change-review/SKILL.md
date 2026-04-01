@@ -11,139 +11,91 @@ description: |
 
 # Post-Change Review
 
-完成代码变更后，按以下清单排查潜在问题。
+代码变更后的系统化排查方向。
 
-## 检查清单
+## 排查方向
 
-### 1. 构建验证
+### 1. 构建与类型
 
-```bash
-pnpm build 2>&1 | tail -10   # 检查构建错误
-npx tsc --noEmit 2>&1 | grep -E "(error|新增文件名)" | head -20  # 类型检查
-```
+- 能否正常构建
+- 有无新增类型错误
+- 有无 lint 警告
 
-### 2. React 组件生命周期问题
+### 2. 组件生命周期
 
-**症状**：组件被意外 unmount/remount，导致状态丢失或重复初始化
+**方向**：组件是否被意外销毁/重建
 
-**检查点**：
-- 条件渲染 `{condition && <Component />}` 是否会导致不必要的 unmount
-- `key` 属性变化是否会导致组件重建
-- 列表 `map()` 渲染顺序变化是否影响组件身份
+- 条件渲染 `{x && <C/>}` 会导致 mount/unmount
+- `key` 变化会导致组件重建
+- 列表顺序变化可能影响组件身份
+- 需要保持挂载时，用 CSS 控制显隐而非条件渲染
 
-**修复模式**：
-```tsx
-// ❌ 条件渲染会 unmount
-{visible && <ExpensiveComponent />}
+### 3. 副作用执行
 
-// ✅ CSS 控制显隐，保持挂载
-<div style={{ display: visible ? 'block' : 'none' }}>
-  <ExpensiveComponent />
-</div>
+**方向**：useEffect 是否按预期执行
 
-// ✅ 或用 visibility + pointerEvents
-<div style={{ 
-  visibility: visible ? 'visible' : 'hidden',
-  pointerEvents: visible ? 'auto' : 'none' 
-}}>
-  <ExpensiveComponent />
-</div>
-```
+- 依赖数组是否正确
+- 组件 remount 是否导致重复执行
+- 清理函数是否正确释放资源
+- 异步操作完成时组件是否已卸载
 
-### 3. CSS 布局问题
+### 4. 布局与样式
 
-**检查点**：
-- flex 子元素是否正确设置 `flex-shrink: 0` 或 `flex: 1`
-- 百分比宽度是否相对于正确的父容器
-- `order` 属性配合 flex 时，元素高度是否正确
+**方向**：CSS 是否按预期工作
 
-**常见问题**：
-```tsx
-// ❌ 包裹元素没有高度，子元素塌陷
-<div style={{ order: 1 }}>
-  <ResizeHandle />  // 高度为 0
-</div>
+- 新增包裹元素是否破坏了高度/宽度继承
+- flex/grid 子元素的 shrink/grow 是否正确
+- 百分比尺寸的参照容器是否正确
+- z-index 层级是否冲突
 
-// ✅ 包裹元素继承高度
-<div className="h-full" style={{ order: 1 }}>
-  <ResizeHandle />
-</div>
-```
+### 5. 交互方向
 
-### 4. 拖拽/缩放方向问题
+**方向**：拖拽/滚动/点击是否符合直觉
 
-**检查点**：
-- 元素位置改变后，拖拽 delta 的正负方向是否仍然正确
-- resize handler 是否考虑了元素在不同位置时的方向
+- 元素位置改变后，拖拽方向是否需要调整
+- 点击区域是否被遮挡
+- 滚动容器是否正确
 
-**修复模式**：
-```tsx
-// 根据元素位置调整 delta 方向
-const adjustedDelta = isElementOnRight ? -delta : delta;
-```
+### 6. 状态管理
 
-### 5. useEffect 依赖与重复执行
+**方向**：状态读写是否正确
 
-**检查点**：
-- 组件重新挂载是否触发了不应重复执行的 effect
-- effect 内的条件判断是否足以防止重复操作
+- 新增状态字段是否有默认值
+- 持久化数据是否需要迁移逻辑
+- 状态更新是否触发了预期的 re-render
+- 多处读取同一状态是否同步
 
-**常见问题**：
-```tsx
-// ❌ 每次 mount 都创建
-useEffect(() => {
-  createTerminal();
-}, [rootPath]);
+### 7. 异步与竞态
 
-// ✅ 检查是否已存在
-useEffect(() => {
-  if (terminalManager.hasTerminals(rootPath)) return;
-  createTerminal();
-}, [rootPath]);
-```
+**方向**：异步操作是否安全
 
-### 6. 第三方库集成问题
+- 请求返回时组件/状态是否仍有效
+- 多次快速操作是否产生竞态
+- 错误处理是否完善
 
-**Monaco Editor**：
-- 实例被 dispose 后是否还有异步回调访问它
-- 组件 unmount 时是否正确清理
+### 8. 第三方库集成
 
-**xterm.js**：
-- 终端容器 DOM 变化后是否需要 refit
-- PTY 进程退出后是否正确清理监听器
+**方向**：库的生命周期是否与组件匹配
 
-**framer-motion**：
-- `AnimatePresence` + 条件渲染会 unmount children
-- 需要保持 children 挂载时，用 `animate` 控制可见性而非条件渲染
+- 实例销毁后是否还有回调访问它
+- DOM 变化后是否需要通知库更新
+- 库的内部状态是否与 React 状态同步
 
-### 7. 状态持久化问题
+## 快速诊断
 
-**检查点**：
-- localStorage 读取时是否有迁移逻辑
-- 新增字段是否有默认值
-- 字段类型变更是否兼容旧数据
+1. **控制台** — 红色错误、警告
+2. **网络面板** — 失败请求、重复请求
+3. **React DevTools** — 组件树变化、re-render 频率
+4. **二分法** — 回滚部分改动定位问题
 
-```tsx
-// 迁移示例
-if (!parsed.newField && parsed.oldField) {
-  parsed.newField = convertOldToNew(parsed.oldField);
-}
-```
+## 症状速查
 
-## 快速诊断流程
-
-1. **看控制台**：有无红色错误、警告
-2. **看网络**：有无失败请求（后端未启动？）
-3. **看 React DevTools**：组件是否频繁 unmount/remount
-4. **二分法**：回滚部分改动定位问题代码
-
-## 常见错误模式速查
-
-| 症状 | 可能原因 | 检查方向 |
-|------|----------|----------|
-| 组件状态丢失 | unmount/remount | 条件渲染、key 变化 |
-| 元素高度为 0 | CSS 继承问题 | 父元素是否设置高度 |
-| 拖拽方向反了 | delta 方向 | 元素位置 vs delta 计算 |
-| 功能重复执行 | effect 触发 | mount 次数、依赖数组 |
-| 第三方库报错 | 生命周期 | dispose 时机、异步回调 |
-| 动画后消失 | AnimatePresence | 是否需要保持挂载 |
+| 症状 | 排查方向 |
+|------|----------|
+| 状态丢失/重置 | 组件生命周期 |
+| 功能重复执行 | 副作用执行 |
+| 元素不可见/尺寸异常 | 布局与样式 |
+| 操作方向反了 | 交互方向 |
+| 数据不同步 | 状态管理 |
+| 偶发性错误 | 异步与竞态 |
+| 库报 disposed/destroyed | 第三方库集成 |
