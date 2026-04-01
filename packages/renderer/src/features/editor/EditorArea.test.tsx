@@ -3,22 +3,29 @@ import { render, screen, fireEvent } from "@testing-library/react";
 import { EditorArea } from "./EditorArea";
 import { useEditor, _resetGroupCounter } from "@/stores/editor";
 import type { OpenFile } from "@/stores/editor";
+import { FileCode } from "lucide-react";
 
 // ── Mocks ────────────────────────────────────────────────────────────
 
-// Mock MonacoEditor — heavy dependency, not needed for layout tests
-vi.mock("./MonacoEditor", () => ({
-  MonacoEditor: ({ file }: { file: OpenFile }) => <div data-testid={`monaco-${file.path}`}>{file.name}</div>,
+// Mock MonacoEditor, MonacoDiffViewer, DiffBar from @ftre/editor/ui — heavy dependencies, not needed for layout tests
+vi.mock("@ftre/editor/ui", () => ({
+  MonacoEditor: ({ file }: { file: OpenFile }) => (
+    <div data-testid={`monaco-${file.path}`}>{file.name}</div>
+  ),
+  MonacoDiffViewer: () => <div data-testid="monaco-diff-viewer" />,
+  DiffBar: () => <div data-testid="diff-bar" />,
 }));
 
-// Mock DiffBar
-vi.mock("./DiffBar", () => ({
-  DiffBar: () => <div data-testid="diff-bar" />,
+// Mock file-icons
+vi.mock("@/lib/file-icons", () => ({
+  getFileIcon: () => ({ icon: FileCode, color: "#3178c6" }),
 }));
 
 // Mock Breadcrumb
 vi.mock("./Breadcrumb", () => ({
-  Breadcrumb: ({ groupId }: { groupId?: string }) => <div data-testid={`breadcrumb-${groupId ?? "default"}`} />,
+  Breadcrumb: ({ groupId }: { groupId?: string }) => (
+    <div data-testid={`breadcrumb-${groupId ?? "default"}`} />
+  ),
 }));
 
 // ResizeObserver polyfill for jsdom
@@ -31,7 +38,8 @@ class ResizeObserverMock {
   unobserve() {}
   disconnect() {}
 }
-globalThis.ResizeObserver = ResizeObserverMock as unknown as typeof ResizeObserver;
+globalThis.ResizeObserver =
+  ResizeObserverMock as unknown as typeof ResizeObserver;
 
 // ── Helpers ──────────────────────────────────────────────────────────
 
@@ -82,7 +90,7 @@ describe("EditorArea — single group", () => {
 
     expect(screen.getByTestId("welcome-placeholder")).toBeTruthy();
     expect(screen.getByText("Ftre")).toBeTruthy();
-    expect(screen.getByText("AI-native code editor")).toBeTruthy();
+    expect(screen.getByText("AI 原生代码编辑器")).toBeTruthy();
   });
 
   it("does not show close button when only one group exists", () => {
@@ -225,7 +233,11 @@ describe("EditorArea — split editor", () => {
 
     // The FolderOpen button should only appear in the first group's TabBar
     // We can verify by checking the folder icon buttons
-    const folderButtons = screen.getAllByRole("button").filter((btn) => btn.querySelector("svg") && btn.className.includes("w-[35px]"));
+    const folderButtons = screen
+      .getAllByRole("button")
+      .filter(
+        (btn) => btn.querySelector("svg") && btn.className.includes("w-[35px]"),
+      );
     // There should be folder button(s) in the first group + close buttons
     // This is a structural test — the key point is it doesn't crash
     expect(folderButtons.length).toBeGreaterThan(0);
