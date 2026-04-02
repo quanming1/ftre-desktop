@@ -3,8 +3,8 @@ import { X, Code2, FileText } from "lucide-react";
 import { useEditor } from "@/stores/editor";
 import { useLayout } from "@/stores/layout";
 import { useNotification } from "@/stores/notification";
-import { editorCore } from "@ftre/editor/core";
-import { MonacoEditor, MonacoDiffViewer, DiffBar } from "@ftre/editor/ui";
+import { editorCore, editorManager } from "@ftre/editor/core";
+import { ManagedEditor, MonacoDiffViewer, DiffBar } from "@ftre/editor/ui";
 import { handleOpenFile } from "@/features/chat/toolActions";
 import { Breadcrumb } from "./Breadcrumb";
 import { TabBar } from "./TabBar";
@@ -30,21 +30,47 @@ export function EditorArea({ onToggleFiles }: EditorAreaProps) {
       window.removeEventListener("ftre:split-editor", handleSplitEditor);
   }, []);
 
-  // Listen for file-renamed event — update open tabs across all groups
+  // Listen for file-renamed event — update open tabs across all groups + EditorManager slot pool
   useEffect(() => {
     const handler = (e: Event) => {
       const { oldPath, newPath, isDir } = (e as CustomEvent).detail;
       useEditor.getState().handleFileRenamed(oldPath, newPath, isDir);
+      // 同步更新 EditorManager 的 slot/model/viewState 映射
+      if (isDir) {
+        // 目录重命名：EditorManager 没有批量 rename，逐个处理 slot 内命中的路径
+        const slotPaths = editorManager.getSlotPaths();
+        const oldPrefix =
+          oldPath.endsWith("/") || oldPath.endsWith("\\")
+            ? oldPath
+            : oldPath + "/";
+        for (const p of slotPaths) {
+          if (
+            p.startsWith(oldPrefix) ||
+            p.replace(/\\/g, "/").startsWith(oldPrefix.replace(/\\/g, "/"))
+          ) {
+            const newFilePath = newPath + p.slice(oldPath.length);
+            editorManager.handleFileRenamed(p, newFilePath);
+          }
+        }
+      } else {
+        editorManager.handleFileRenamed(oldPath, newPath);
+      }
     };
     window.addEventListener("ftre:file-renamed", handler);
     return () => window.removeEventListener("ftre:file-renamed", handler);
   }, []);
 
-  // Listen for file-deleted event — close tabs for deleted files across all groups
+  // Listen for file-deleted event — close tabs for deleted files across all groups + EditorManager slot pool
   useEffect(() => {
     const handler = (e: Event) => {
       const { path, isDir } = (e as CustomEvent).detail;
       useEditor.getState().handleFileDeleted(path, isDir);
+      // 同步清理 EditorManager 中对应的 slot/model/viewState
+      if (isDir) {
+        editorManager.handleDirectoryDeleted(path);
+      } else {
+        editorManager.handleFileDeleted(path);
+      }
     };
     window.addEventListener("ftre:file-deleted", handler);
     return () => window.removeEventListener("ftre:file-deleted", handler);
@@ -220,7 +246,7 @@ export function EditorArea({ onToggleFiles }: EditorAreaProps) {
                           />
                         </>
                       ) : (
-                        <MonacoEditor
+                        <ManagedEditor
                           file={currentFile}
                           minimapEnabled={minimapEnabled}
                         />

@@ -1,5 +1,6 @@
 export { registerFtreTheme, _resetThemeRegistration } from "./theme-registry";
 export { MonacoEditor } from "./MonacoEditor";
+export { ManagedEditor } from "./ManagedEditor";
 export { MonacoDiffViewer } from "./MonacoDiffViewer";
 export { DiffBar, computeDiffStats } from "./DiffBar";
 

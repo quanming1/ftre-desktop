@@ -10,7 +10,7 @@ import {
   Terminal,
   FolderOpen,
 } from "lucide-react";
-import { editorCore } from "@ftre/editor/core";
+import { editorCore, editorManager } from "@ftre/editor/core";
 import { useEditor } from "@/stores/editor";
 import { useWorkspace } from "@/stores/workspace";
 import { useNotification } from "@/stores/notification";
@@ -252,6 +252,10 @@ export const FileTreeItem = memo(function FileTreeItem({
           // 预存到 editorCore 缓存，打开时直接使用
           editorCore.setContent(entry.path, result.content);
           editorCore.setDiskContent(entry.path, result.content);
+          // 预加载 Monaco model（跳过 model 创建开销，打开时直接复用）
+          const ext = entry.path.split(".").pop() ?? "";
+          const lang = extToLanguage(ext);
+          editorManager.preloadModel(entry.path, result.content, lang);
           prefetchedRef.current = true;
         }
       } catch {
