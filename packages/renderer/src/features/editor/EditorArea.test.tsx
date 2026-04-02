@@ -49,6 +49,7 @@ function makeFile(path: string): Omit<OpenFile, "modified" | "pinned"> {
     name: path.split("/").pop()!,
     language: "typescript",
     content: `// ${path}`,
+    loaded: true,
   };
 }
 

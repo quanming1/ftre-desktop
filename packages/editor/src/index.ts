@@ -16,6 +16,7 @@ export {
   registerFtreTheme,
   _resetThemeRegistration,
   MonacoEditor,
+  ManagedEditor,
   MonacoDiffViewer,
   DiffBar,
   computeDiffStats,
