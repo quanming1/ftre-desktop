@@ -38,12 +38,16 @@ function saveTabsToStorage(tabs: string[]): void {
 
 interface SessionState {
     sessions: SessionSummary[];
+    /** 所有工作区的会话列表（用于 SessionPanel 展示所有工作区） */
+    allSessions: SessionSummary[];
     /** 当前打开的 tab 列表（session_id 数组），本地持久化 */
     openTabs: string[];
     loading: boolean;
     /** 加载当前 workspace 的会话列表 */
     loadSessions: (workspace?: string | null) => Promise<void>;
-    /** 切换到指定会话（同时加入 openTabs） */
+    /** 加载所有工作区的会话列表 */
+    loadAllSessions: () => Promise<void>;
+    /** 切换到指定会话（同时加入 openTabs，如果是其他工作区会自动切换） */
     switchSession: (sessionId: string) => Promise<void>;
     /** 打开 tab（加入 openTabs，如果不存在的话） */
     openTab: (sessionId: string) => void;
@@ -51,8 +55,8 @@ interface SessionState {
     closeTab: (sessionId: string) => void;
     /** 删除会话（真正从后端删除，用于 SessionList） */
     deleteSession: (sessionId: string) => Promise<void>;
-    /** 新建会话（清空当前聊天） */
-    newSession: () => void;
+    /** 新建会话（在指定工作区，默认当前工作区） */
+    newSession: (workspace?: string) => void;
     /** 加载会话列表并恢复上次活跃的会话（或最新的） */
     restoreLatest: (workspace?: string | null) => Promise<void>;
     /** 立即更新本地 sessions 数组中指定 session 的 meta/agent_id（发送消息后调用） */
@@ -61,6 +65,7 @@ interface SessionState {
 
 export const useSession = create<SessionState>((set, get) => ({
     sessions: [],
+    allSessions: [],
     openTabs: [],
     loading: false,
 
@@ -74,21 +79,42 @@ export const useSession = create<SessionState>((set, get) => ({
         }
     },
 
+    loadAllSessions: async () => {
+        set({ loading: true });
+        try {
+            const allSessions = await fetchSessions();
+            set({ allSessions });
+        } finally {
+            set({ loading: false });
+        }
+    },
+
     switchSession: async (sessionId: string) => {
         const existing = streamManager.getOrCreate(sessionId);
 
         // 加入 openTabs（如果不在的话）
-        const { openTabs, sessions } = get();
+        const { openTabs, sessions, allSessions } = get();
         if (!openTabs.includes(sessionId)) {
             const newTabs = [...openTabs, sessionId];
             set({ openTabs: newTabs });
             saveTabsToStorage(newTabs);
         }
 
+        // 查找 session（先从当前 workspace 的 sessions 找，再从 allSessions 找）
+        let target = sessions.find((s) => s.session_id === sessionId);
+        if (!target) {
+            target = allSessions.find((s) => s.session_id === sessionId);
+        }
+
+        // 如果 session 属于其他工作区，先切换工作区
+        const currentWorkspace = useWorkspace.getState().rootPath;
+        if (target && target.workspace && target.workspace !== currentWorkspace) {
+            useWorkspace.getState().setRootPath(target.workspace);
+        }
+
         streamManager.switchTo(sessionId);
 
         // 从 session 恢复 model（meta.model）和 agent（agent_id 字段）
-        const target = sessions.find((s) => s.session_id === sessionId);
         const chatStore = useChat.getState();
         // 恢复 model：有 meta.model 则用之，否则默认
         if (target?.meta && 'model' in target.meta) {
@@ -155,11 +181,19 @@ export const useSession = create<SessionState>((set, get) => ({
         // 真正删除：先关闭 tab，再调后端 API
         get().closeTab(sessionId);
         await apiDeleteSession(sessionId);
-        // 刷新列表
-        set({ sessions: get().sessions.filter((s) => s.session_id !== sessionId) });
+        // 刷新列表（同时更新 sessions 和 allSessions）
+        set({
+            sessions: get().sessions.filter((s) => s.session_id !== sessionId),
+            allSessions: get().allSessions.filter((s) => s.session_id !== sessionId),
+        });
     },
 
-    newSession: () => {
+    newSession: (workspace?: string) => {
+        // 如果指定了工作区且不是当前工作区，先切换
+        const currentWorkspace = useWorkspace.getState().rootPath;
+        if (workspace && workspace !== currentWorkspace) {
+            useWorkspace.getState().setRootPath(workspace);
+        }
         streamManager.newSession();
         // 重置 agent 为默认值（Ftre）、model 为默认
         const chatStore = useChat.getState();

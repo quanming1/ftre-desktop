@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from "react";
-import { Minus, Square, X, Copy, Terminal, GitBranch, ChevronRight, MessageSquare, ClipboardList, LayoutGrid } from "lucide-react";
+import { Minus, Square, X, Copy, Terminal, GitBranch, ChevronRight, MessageSquare, ClipboardList } from "lucide-react";
 import { PixelLogo } from "@/components/PixelLogo";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { LayoutSwitcher } from "@/components/LayoutSwitcher";
@@ -28,9 +28,9 @@ export function TitleBar() {
   const toggleTaskPanel = useLayout((s) => s.toggleTaskPanel);
   const panelOrder = useLayout((s) => s.panelOrder);
   const setPanelOrder = useLayout((s) => s.setPanelOrder);
+  const panelVisible = useLayout((s) => s.panelVisible);
+  const togglePanelVisible = useLayout((s) => s.togglePanelVisible);
   const gitInfo = useGitService((s) => s.getInfo());
-
-  const [layoutSwitcherOpen, setLayoutSwitcherOpen] = useState(false);
 
   const projectName = rootPath ? rootPath.split("/").pop() || rootPath.split("\\").pop() : "Ftre";
   const fileName = activeFile ? activeFile.split("/").pop() || activeFile.split("\\").pop() : null;
@@ -148,27 +148,16 @@ export function TitleBar() {
       </div>
 
       {/* ── 右侧: 布局切换 + 悬浮窗 + 窗口控制 ── */}
-      <div className="flex items-center shrink-0 h-full" style={noDrag}>
-        {/* 布局切换按钮 */}
-        <div className="relative h-full">
-          <button
-            onClick={() => setLayoutSwitcherOpen((v) => !v)}
-            className={`h-full px-3 flex items-center gap-1.5 text-[12px] font-mono transition-colors ${
-              layoutSwitcherOpen ? "text-t-primary bg-white/[0.06]" : "text-t-dim hover:bg-white/[0.06] hover:text-t-muted"
-            }`}
-            title="调整面板布局"
-          >
-            <LayoutGrid size={14} strokeWidth={1.5} />
-          </button>
-          <LayoutSwitcher
-            open={layoutSwitcherOpen}
-            onClose={() => setLayoutSwitcherOpen(false)}
-            panelOrder={panelOrder}
-            onChange={setPanelOrder}
-          />
-        </div>
+      <div className="flex items-center shrink-0 h-full gap-2" style={noDrag}>
+        {/* 布局切换器（内联） */}
+        <LayoutSwitcher
+          panelOrder={panelOrder}
+          panelVisible={panelVisible}
+          onOrderChange={setPanelOrder}
+          onToggleVisible={togglePanelVisible}
+        />
 
-        <div className="w-[1px] h-[14px] bg-border mx-1" />
+        <div className="w-[1px] h-[14px] bg-border" />
 
         {/* 悬浮窗按钮组 */}
         <button

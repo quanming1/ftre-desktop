@@ -4,7 +4,7 @@ export type SidebarView = 'explorer' | 'git' | 'extensions';
 export type BottomTab = 'terminal' | 'problems' | 'output';
 
 export type SplitMode = 'ai-center' | 'code-center';
-export type PanelId = 'sidebar' | 'editor' | 'chat';
+export type PanelId = 'sessions' | 'sidebar' | 'editor' | 'chat';
 
 const STORAGE_KEY = 'ftre-layout-state';
 
@@ -24,6 +24,7 @@ let persistTimer: ReturnType<typeof setTimeout> | null = null;
 interface PersistedLayoutData {
     activeSidebarView: SidebarView | null;
     sidebarWidth: number;
+    sessionsWidth: number;      // sessions panel width
     centerRatio: number;        // percentage (0-100) of center panel width
     bottomPanelHeight: number;
     sidebarVisible: boolean;
@@ -32,6 +33,7 @@ interface PersistedLayoutData {
     minimapEnabled: boolean;
     splitMode: SplitMode;       // deprecated, kept for migration
     panelOrder: PanelId[];      // panel arrangement from left to right
+    panelVisible: Record<PanelId, boolean>;  // visibility of each panel
     autoFollowFiles: boolean;
 }
 
@@ -42,6 +44,7 @@ export interface LayoutState extends PersistedLayoutData {
     setActiveSidebarView: (view: SidebarView | null) => void;
     toggleSidebar: () => void;
     setSidebarWidth: (w: number) => void;
+    setSessionsWidth: (w: number) => void;
     setCenterRatio: (ratio: number) => void;
     setBottomPanelHeight: (h: number) => void;
     toggleBottomPanel: () => void;
@@ -49,6 +52,7 @@ export interface LayoutState extends PersistedLayoutData {
     toggleMinimap: () => void;
     setSplitMode: (mode: SplitMode) => void;
     setPanelOrder: (order: PanelId[]) => void;
+    togglePanelVisible: (panel: PanelId) => void;
     toggleAutoFollowFiles: () => void;
 
     /** 终端浮动窗口（运行时状态，不持久化） */
@@ -64,11 +68,18 @@ export interface LayoutState extends PersistedLayoutData {
     toggleTaskPanel: () => void;
 }
 
-const DEFAULT_PANEL_ORDER: PanelId[] = ['sidebar', 'editor', 'chat'];
+const DEFAULT_PANEL_ORDER: PanelId[] = ['sessions', 'sidebar', 'editor', 'chat'];
+const DEFAULT_PANEL_VISIBLE: Record<PanelId, boolean> = {
+    sessions: true,
+    sidebar: true,
+    editor: true,
+    chat: true,
+};
 
 const defaults: PersistedLayoutData = {
     activeSidebarView: 'explorer',
     sidebarWidth: 220,
+    sessionsWidth: 240,
     centerRatio: CENTER_RATIO_DEFAULT,
     bottomPanelHeight: 200,
     sidebarVisible: true,
@@ -77,6 +88,7 @@ const defaults: PersistedLayoutData = {
     minimapEnabled: false,
     splitMode: 'ai-center',
     panelOrder: DEFAULT_PANEL_ORDER,
+    panelVisible: DEFAULT_PANEL_VISIBLE,
     autoFollowFiles: true,
 };
 
@@ -84,6 +96,7 @@ function getPersistedData(state: LayoutState): PersistedLayoutData {
     return {
         activeSidebarView: state.activeSidebarView,
         sidebarWidth: state.sidebarWidth,
+        sessionsWidth: state.sessionsWidth,
         centerRatio: state.centerRatio,
         bottomPanelHeight: state.bottomPanelHeight,
         sidebarVisible: state.sidebarVisible,
@@ -92,6 +105,7 @@ function getPersistedData(state: LayoutState): PersistedLayoutData {
         minimapEnabled: state.minimapEnabled,
         splitMode: state.splitMode,
         panelOrder: state.panelOrder,
+        panelVisible: state.panelVisible,
         autoFollowFiles: state.autoFollowFiles,
     };
 }
@@ -127,14 +141,18 @@ export const useLayout = create<LayoutState>((set, get) => ({
                 // Migrate splitMode to panelOrder if panelOrder doesn't exist
                 if (!parsed.panelOrder && parsed.splitMode) {
                     if (parsed.splitMode === 'ai-center') {
-                        parsed.panelOrder = ['sidebar', 'chat', 'editor'];
+                        parsed.panelOrder = ['sessions', 'sidebar', 'chat', 'editor'];
                     } else {
-                        parsed.panelOrder = ['sidebar', 'editor', 'chat'];
+                        parsed.panelOrder = ['sessions', 'sidebar', 'editor', 'chat'];
                     }
                 }
-                // Validate panelOrder has all 3 panels
-                if (parsed.panelOrder && parsed.panelOrder.length !== 3) {
+                // Validate panelOrder has all 4 panels
+                if (parsed.panelOrder && parsed.panelOrder.length !== 4) {
                     parsed.panelOrder = DEFAULT_PANEL_ORDER;
+                }
+                // Migrate panelVisible if not present
+                if (!parsed.panelVisible) {
+                    parsed.panelVisible = DEFAULT_PANEL_VISIBLE;
                 }
                 set({ ...defaults, ...parsed });
             }
@@ -165,6 +183,11 @@ export const useLayout = create<LayoutState>((set, get) => ({
 
     setSidebarWidth: (w) => {
         set({ sidebarWidth: Math.max(SIDEBAR_WIDTH_MIN, Math.min(SIDEBAR_WIDTH_MAX, w)) });
+        get().persist();
+    },
+
+    setSessionsWidth: (w) => {
+        set({ sessionsWidth: Math.max(SIDEBAR_WIDTH_MIN, Math.min(SIDEBAR_WIDTH_MAX, w)) });
         get().persist();
     },
 
@@ -201,6 +224,12 @@ export const useLayout = create<LayoutState>((set, get) => ({
 
     setPanelOrder: (order) => {
         set({ panelOrder: order });
+        get().persist();
+    },
+
+    togglePanelVisible: (panel) => {
+        const { panelVisible } = get();
+        set({ panelVisible: { ...panelVisible, [panel]: !panelVisible[panel] } });
         get().persist();
     },
 
