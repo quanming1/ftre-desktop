@@ -240,6 +240,7 @@ export function EditorArea({ onToggleFiles }: EditorAreaProps) {
                             onOpenSourceFile={handleOpenSourceFile}
                           />
                           <MonacoDiffViewer
+                            key={activeDiff.id}
                             diff={activeDiff}
                             language={currentFile.language}
                             renderSideBySide={sideBySide}

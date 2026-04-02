@@ -4,6 +4,17 @@ export { ManagedEditor } from "./ManagedEditor";
 export { MonacoDiffViewer } from "./MonacoDiffViewer";
 export { DiffBar, computeDiffStats } from "./DiffBar";
 
+// Themes
+export {
+  getTheme,
+  getActiveThemeId,
+  setActiveThemeId,
+  registerTheme,
+  getAvailableThemes,
+  type FtreThemeDefinition,
+  type FtreThemeTokenRule,
+} from "./themes";
+
 // File icons
 export {
   getFileIcon,

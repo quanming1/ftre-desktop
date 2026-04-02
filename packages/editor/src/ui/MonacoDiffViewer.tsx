@@ -4,6 +4,7 @@ import type { editor } from "monaco-editor";
 import type * as Monaco from "monaco-editor";
 import { editorCore } from "../core";
 import { registerFtreTheme } from "./theme-registry";
+import { getActiveThemeId } from "./themes";
 import type { DiffEntry } from "../store/types";
 
 const MONACO_LANG_MAP: Record<string, string> = {
@@ -46,7 +47,7 @@ export function MonacoDiffViewer({
       };
 
       registerFtreTheme(monaco);
-      monaco.editor.setTheme("ftre-dark");
+      monaco.editor.setTheme(getActiveThemeId());
 
       // DiffEditor 的 language prop 有时不生效，手动设置 model 语言
       const origModel = diffEditor.getOriginalEditor().getModel();

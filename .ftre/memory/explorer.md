@@ -23,6 +23,12 @@
 ### 文件拖拽移动
 用户拖拽 → `drag-drop-utils:canDrop` 验证 → `drag-drop-utils:resolveDropTarget` 解析 → 执行移动操作
 
+### 文件重命名
+1. **触发**: `FileTreeItem` 右键菜单点击"重命名" → dispatch `ftre:file-rename` CustomEvent
+2. **状态管理**: `ExplorerView` 监听事件 → `setPendingRename({path, isDir})`
+3. **虚拟化处理**: `pendingTargetIndex` 确保重命名目标在可视范围内
+4. **渲染**: `FileTreeItem` 检测 `isRenaming` → 渲染 `InlineInput` 替换原行
+5. **提交/取消**: `InlineInput` 处理 Enter/Esc/blur → 调用 `onRenameSubmit`/`onRenameCancel`
 ### Git 变更显示
 `gitService` 单例获取数据 → `useGitService` hook 订阅变更 → `GitChangesView` 渲染
 
@@ -32,6 +38,7 @@
 - **拖拽安全限制**：禁止拖到自身或子目录，防止循环引用和意外覆盖
 - **Git 集成方式**：通过 `gitService` 单例管理数据，`useGitService` hook 处理状态订阅和防闪烁
 - **模块拆分决策**：explorer 不适合拆分为独立 monorepo 包，因其重度依赖应用层核心模块（stores/workspace, stores/editor, services/git-service 等），且无跨项目复用场景
+- **重命名架构**：采用事件驱动（CustomEvent）解耦右键菜单和状态管理，支持键盘快捷键（F2）复用相同逻辑
 
 ## 注意事项
 
@@ -39,3 +46,4 @@
 - 内联编辑时会自动选中文件名部分（不含扩展名）
 - `Sidebar` 组件使用 `rootPath` 作为 key 实现工作区切换时的重新挂载
 - explorer 直接 import 应用层几乎所有核心模块，包括 stores、services、lib、components 和 utils，拆包会导致大量胶水代码
+- 虚拟化渲染模式下，pending 操作（重命名/新建）的目标项必须通过 `pendingTargetIndex` 确保在可视范围内11

@@ -22,6 +22,7 @@ import type * as Monaco from "monaco-editor";
 import { editorManager, editorCore } from "../core";
 import { saveFile, getHostBridge } from "../runtime";
 import { registerFtreTheme } from "./theme-registry";
+import { getActiveThemeId } from "./themes";
 import type { OpenFile } from "../store/types";
 
 // ── 类型定义 ──
@@ -54,7 +55,7 @@ function setupEditorActions(
 
   // ── 主题注册 ──
   registerFtreTheme(monaco);
-  monaco.editor.setTheme("ftre-dark");
+  monaco.editor.setTheme(getActiveThemeId());
 
   // ── Ctrl+S — 统一保存逻辑 ──
   // addCommand 返回 string | null，不是 IDisposable，改用 addAction
@@ -182,7 +183,8 @@ export const ManagedEditor = memo(
     /** 当前 editor 实例引用（attach 返回） */
     const editorRef = useRef<editor.IStandaloneCodeEditor | null>(null);
     /** 上一次 dirty 状态（用于避免重复通知 HostBridge） */
-    const lastDirtyRef = useRef(false);
+    // 初始化为 null，表示尚未同步过，首次 attach 时会强制同步
+    const lastDirtyRef = useRef<boolean | null>(null);
 
     // ── 初始化 editorCore 内容（如果还没有的话） ──
     if (!editorCore.hasContent(file.path) && file.loaded) {
@@ -237,6 +239,18 @@ export const ManagedEditor = memo(
 
         // 注册到 editorCore 实例表（向后兼容：外部代码可能通过 editorCore.getInstance 获取）
         editorCore.registerInstance(file.path, ed);
+
+        // ── 立即同步 dirty 状态（修复复用 slot 时状态不同步的 bug） ──
+        // 当 attach 时，无论是新建还是复用 slot，都需要确保 dirty 状态与 store 一致
+        const currentDirty = editorCore.isDirty(file.path);
+        if (lastDirtyRef.current !== currentDirty) {
+          lastDirtyRef.current = currentDirty;
+          try {
+            getHostBridge().setModified(file.path, currentDirty);
+          } catch {
+            // HostBridge 未注册时静默忽略
+          }
+        }
 
         // 派发初始光标位置到 StatusBar
         const pos = ed.getPosition();
@@ -441,7 +455,13 @@ export const ManagedEditor = memo(
           file.name,
           () => ed.getValue(),
           () => {
+            // 保存成功后重置 dirty 状态
             lastDirtyRef.current = false;
+            // 同时同步 diskContent，确保 isDirty 判断正确
+            editorCore.setDiskContent(
+              file.path,
+              editorCore.getContent(file.path),
+            );
           },
         );
       };

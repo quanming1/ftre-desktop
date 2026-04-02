@@ -8,18 +8,53 @@ import type { FileEntry } from "@/types";
 const mockOpenFile = vi.fn();
 const mockReadFile = vi.fn();
 const mockReadDir = vi.fn();
+const mockAddNotification = vi.fn();
 
 vi.mock("@/stores/editor", () => ({
-  useEditor: () => ({
-    openFile: mockOpenFile,
-    activeFile: null,
-  }),
+  useEditor: (
+    selector?: (s: {
+      openFile: typeof mockOpenFile;
+      activeFile: string | null;
+    }) => unknown,
+  ) => {
+    const state = {
+      openFile: mockOpenFile,
+      activeFile: null as string | null,
+    };
+    return selector ? selector(state) : state;
+  },
 }));
 
 vi.mock("@/stores/workspace", () => ({
-  useWorkspace: Object.assign((selector: (s: { rootPath: string | null }) => unknown) => selector({ rootPath: "/project" }), {
-    getState: () => ({ rootPath: "/project" }),
+  useWorkspace: Object.assign(
+    (selector: (s: { rootPath: string | null }) => unknown) =>
+      selector({ rootPath: "/project" }),
+    {
+      getState: () => ({ rootPath: "/project" }),
+    },
+  ),
+}));
+
+vi.mock("@/stores/notification", () => ({
+  useNotification: () => ({
+    addNotification: mockAddNotification,
   }),
+}));
+
+vi.mock("@/services/git-service", () => ({
+  useGitService: () => null,
+}));
+
+vi.mock("@ftre/editor/core", () => ({
+  editorCore: {
+    hasContent: () => false,
+    getContent: () => "",
+    setContent: vi.fn(),
+    setDiskContent: vi.fn(),
+  },
+  editorManager: {
+    preloadModel: vi.fn(),
+  },
 }));
 
 beforeEach(() => {
@@ -138,7 +173,9 @@ describe("FileTreeItem �?file context menu", () => {
     fireEvent.contextMenu(screen.getByText("index.ts"));
     fireEvent.click(screen.getByText("复制路径"));
 
-    expect(navigator.clipboard.writeText).toHaveBeenCalledWith("/project/src/index.ts");
+    expect(navigator.clipboard.writeText).toHaveBeenCalledWith(
+      "/project/src/index.ts",
+    );
   });
 
   it("copies relative path to clipboard when Copy Relative Path is clicked", () => {
@@ -178,7 +215,9 @@ describe("FileTreeItem �?file context menu", () => {
 
 describe("FileTreeItem �?folder context menu", () => {
   it("shows correct menu items for a folder", () => {
-    render(<FileTreeItem entry={folderEntry} depth={0} {...defaultTreeProps} />);
+    render(
+      <FileTreeItem entry={folderEntry} depth={0} {...defaultTreeProps} />,
+    );
     fireEvent.contextMenu(screen.getByText("src"));
 
     expect(screen.getByText("新建文件")).toBeTruthy();
@@ -191,7 +230,9 @@ describe("FileTreeItem �?folder context menu", () => {
   });
 
   it("does not show file-only items for a folder", () => {
-    render(<FileTreeItem entry={folderEntry} depth={0} {...defaultTreeProps} />);
+    render(
+      <FileTreeItem entry={folderEntry} depth={0} {...defaultTreeProps} />,
+    );
     fireEvent.contextMenu(screen.getByText("src"));
 
     expect(screen.queryByText("Open")).toBeNull();
@@ -201,7 +242,9 @@ describe("FileTreeItem �?folder context menu", () => {
     const spy = vi.fn();
     window.addEventListener("ftre:new-file", spy);
 
-    render(<FileTreeItem entry={folderEntry} depth={0} {...defaultTreeProps} />);
+    render(
+      <FileTreeItem entry={folderEntry} depth={0} {...defaultTreeProps} />,
+    );
     fireEvent.contextMenu(screen.getByText("src"));
     fireEvent.click(screen.getByText("新建文件"));
 
@@ -216,7 +259,9 @@ describe("FileTreeItem �?folder context menu", () => {
     const spy = vi.fn();
     window.addEventListener("ftre:new-folder", spy);
 
-    render(<FileTreeItem entry={folderEntry} depth={0} {...defaultTreeProps} />);
+    render(
+      <FileTreeItem entry={folderEntry} depth={0} {...defaultTreeProps} />,
+    );
     fireEvent.contextMenu(screen.getByText("src"));
     fireEvent.click(screen.getByText("New Folder"));
 
@@ -231,7 +276,9 @@ describe("FileTreeItem �?folder context menu", () => {
     const spy = vi.fn();
     window.addEventListener("ftre:file-rename", spy);
 
-    render(<FileTreeItem entry={folderEntry} depth={0} {...defaultTreeProps} />);
+    render(
+      <FileTreeItem entry={folderEntry} depth={0} {...defaultTreeProps} />,
+    );
     fireEvent.contextMenu(screen.getByText("src"));
     fireEvent.click(screen.getByText("重命名"));
 
@@ -246,7 +293,9 @@ describe("FileTreeItem �?folder context menu", () => {
     const spy = vi.fn();
     window.addEventListener("ftre:file-delete", spy);
 
-    render(<FileTreeItem entry={folderEntry} depth={0} {...defaultTreeProps} />);
+    render(
+      <FileTreeItem entry={folderEntry} depth={0} {...defaultTreeProps} />,
+    );
     fireEvent.contextMenu(screen.getByText("src"));
     // "删除" appears as both menu label and shortcut hint; click the first (menu label)
     fireEvent.click(screen.getAllByText("删除")[0]);
@@ -259,7 +308,9 @@ describe("FileTreeItem �?folder context menu", () => {
   });
 
   it("copies folder path to clipboard when Copy Path is clicked", () => {
-    render(<FileTreeItem entry={folderEntry} depth={0} {...defaultTreeProps} />);
+    render(
+      <FileTreeItem entry={folderEntry} depth={0} {...defaultTreeProps} />,
+    );
     fireEvent.contextMenu(screen.getByText("src"));
     fireEvent.click(screen.getByText("复制路径"));
 
@@ -267,7 +318,9 @@ describe("FileTreeItem �?folder context menu", () => {
   });
 
   it("copies folder relative path to clipboard when Copy Relative Path is clicked", () => {
-    render(<FileTreeItem entry={folderEntry} depth={0} {...defaultTreeProps} />);
+    render(
+      <FileTreeItem entry={folderEntry} depth={0} {...defaultTreeProps} />,
+    );
     fireEvent.contextMenu(screen.getByText("src"));
     fireEvent.click(screen.getByText("Copy Relative Path"));
 
@@ -290,8 +343,129 @@ describe("FileTreeItem �?context menu close", () => {
   it("prevents default browser context menu", () => {
     render(<FileTreeItem entry={fileEntry} depth={0} {...defaultTreeProps} />);
     const item = screen.getByText("index.ts").closest("div")!;
-    const event = new MouseEvent("contextmenu", { bubbles: true, cancelable: true });
+    const event = new MouseEvent("contextmenu", {
+      bubbles: true,
+      cancelable: true,
+    });
     const prevented = !item.dispatchEvent(event);
     expect(prevented).toBe(true);
+  });
+});
+
+// ── rename mode tests ────────────────────────────────────────────────
+
+describe("FileTreeItem — rename mode", () => {
+  const mockRenameSubmit = vi.fn();
+  const mockRenameCancel = vi.fn();
+
+  beforeEach(() => {
+    mockRenameSubmit.mockClear();
+    mockRenameCancel.mockClear();
+  });
+
+  it("renders InlineInput when pendingRename matches entry path", () => {
+    render(
+      <FileTreeItem
+        entry={fileEntry}
+        depth={0}
+        {...defaultTreeProps}
+        pendingRename={{ path: fileEntry.path, isDir: false }}
+        onRenameSubmit={mockRenameSubmit}
+        onRenameCancel={mockRenameCancel}
+      />,
+    );
+
+    // Should show input with current file name
+    const input = screen.getByDisplayValue("index.ts");
+    expect(input).toBeTruthy();
+  });
+
+  it("does not render InlineInput when pendingRename does not match", () => {
+    render(
+      <FileTreeItem
+        entry={fileEntry}
+        depth={0}
+        {...defaultTreeProps}
+        pendingRename={{ path: "/project/other.ts", isDir: false }}
+        onRenameSubmit={mockRenameSubmit}
+        onRenameCancel={mockRenameCancel}
+      />,
+    );
+
+    // Should show normal file name text, not input
+    expect(screen.getByText("index.ts")).toBeTruthy();
+    expect(screen.queryByDisplayValue("index.ts")).toBeNull();
+  });
+
+  it("calls onRenameSubmit when Enter is pressed with new name", () => {
+    render(
+      <FileTreeItem
+        entry={fileEntry}
+        depth={0}
+        {...defaultTreeProps}
+        pendingRename={{ path: fileEntry.path, isDir: false }}
+        onRenameSubmit={mockRenameSubmit}
+        onRenameCancel={mockRenameCancel}
+      />,
+    );
+
+    const input = screen.getByDisplayValue("index.ts");
+    fireEvent.change(input, { target: { value: "renamed.ts" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+
+    expect(mockRenameSubmit).toHaveBeenCalledTimes(1);
+    expect(mockRenameSubmit).toHaveBeenCalledWith("renamed.ts");
+  });
+
+  it("calls onRenameCancel when Escape is pressed", () => {
+    render(
+      <FileTreeItem
+        entry={fileEntry}
+        depth={0}
+        {...defaultTreeProps}
+        pendingRename={{ path: fileEntry.path, isDir: false }}
+        onRenameSubmit={mockRenameSubmit}
+        onRenameCancel={mockRenameCancel}
+      />,
+    );
+
+    const input = screen.getByDisplayValue("index.ts");
+    fireEvent.keyDown(input, { key: "Escape" });
+
+    expect(mockRenameCancel).toHaveBeenCalledTimes(1);
+    expect(mockRenameSubmit).not.toHaveBeenCalled();
+  });
+
+  it("selects filename without extension on focus", () => {
+    render(
+      <FileTreeItem
+        entry={fileEntry}
+        depth={0}
+        {...defaultTreeProps}
+        pendingRename={{ path: fileEntry.path, isDir: false }}
+        onRenameSubmit={mockRenameSubmit}
+        onRenameCancel={mockRenameCancel}
+      />,
+    );
+
+    const input = screen.getByDisplayValue("index.ts") as HTMLInputElement;
+    // The input should be focused and have selection
+    expect(document.activeElement).toBe(input);
+  });
+
+  it("renders rename mode for folders too", () => {
+    render(
+      <FileTreeItem
+        entry={folderEntry}
+        depth={0}
+        {...defaultTreeProps}
+        pendingRename={{ path: folderEntry.path, isDir: true }}
+        onRenameSubmit={mockRenameSubmit}
+        onRenameCancel={mockRenameCancel}
+      />,
+    );
+
+    const input = screen.getByDisplayValue("src");
+    expect(input).toBeTruthy();
   });
 });

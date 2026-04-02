@@ -5,6 +5,7 @@ import type * as Monaco from "monaco-editor";
 import { editorCore } from "../core";
 import { saveFile, getHostBridge } from "../runtime";
 import { registerFtreTheme } from "./theme-registry";
+import { getActiveThemeId } from "./themes";
 import type { OpenFile } from "../store/types";
 
 interface MonacoEditorProps {
@@ -104,7 +105,7 @@ export const MonacoEditor = memo(
 
         // Register theme via shared themeRegistry (Req 5.3)
         registerFtreTheme(monaco);
-        monaco.editor.setTheme("ftre-dark");
+        monaco.editor.setTheme(getActiveThemeId());
 
         // Ctrl+S — 统一保存逻辑
         editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, () => {
