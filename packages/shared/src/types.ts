@@ -126,6 +126,38 @@ export interface DesktopWindow {
   isMaximized(): Promise<boolean>;
 }
 
+/** 内存使用信息 */
+export interface MemoryUsage {
+  timestamp: number;
+  main: {
+    rss: number;
+    heapUsed: number;
+    heapTotal: number;
+    external: number;
+    arrayBuffers: number;
+  };
+  processes: Array<{
+    type: string;
+    pid: number;
+    memory: {
+      /** 工作集大小（KB） */
+      workingSetSize: number;
+      /** 峰值工作集大小（KB） */
+      peakWorkingSetSize: number;
+      /** 私有字节（KB） */
+      privateBytes: number;
+    };
+    cpu: {
+      percentCPUUsage: number;
+    };
+  }>;
+}
+
+/** 内存监控 API */
+export interface DesktopMemory {
+  getUsage(): Promise<MemoryUsage>;
+}
+
 export interface DesktopAPI {
   platform: string;
   isElectron: boolean;
@@ -135,6 +167,7 @@ export interface DesktopAPI {
   store: DesktopStore;
   window: DesktopWindow;
   terminal: DesktopTerminal;
+  memory: DesktopMemory;
 }
 
 declare global {
