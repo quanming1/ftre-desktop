@@ -1,8 +1,9 @@
 import { useState, useMemo, useCallback, useEffect, useRef } from "react";
-import { ChevronDown, ChevronRight, Plus, MoreHorizontal, FolderOpen, LocateFixed } from "lucide-react";
+import { ChevronDown, ChevronRight, Plus, MoreHorizontal, FolderOpen, LocateFixed, Search, Loader2 } from "lucide-react";
 import { useSession } from "@/stores/session";
 import { useChat } from "@/stores/chat";
 import { useWorkspace } from "@/stores/workspace";
+import { streamManager } from "@/services/stream-manager";
 import { ContextMenu, type ContextMenuItem } from "@/components/ContextMenu";
 import type { SessionSummary } from "@/services/api";
 
@@ -37,13 +38,29 @@ function getWorkspaceColor(path: string): string {
 
 // ─── 工具函数 ──────────────────────────────────────────────────────
 
-function timeAgo(ts: number): string {
+function timeAgo(ts: number): { text: string; opacity: number } {
   const diff = Date.now() / 1000 - ts;
-  if (diff < 60) return "now";
-  if (diff < 3600) return `${Math.floor(diff / 60)}m`;
-  if (diff < 86400) return `${Math.floor(diff / 3600)}h`;
-  if (diff < 604800) return `${Math.floor(diff / 86400)}d`;
-  return `${Math.floor(diff / 604800)}w`;
+  let text: string;
+  let opacity: number;
+  
+  if (diff < 60) {
+    text = "now";
+    opacity = 1;
+  } else if (diff < 3600) {
+    text = `${Math.floor(diff / 60)}m`;
+    opacity = 0.9;
+  } else if (diff < 86400) {
+    text = `${Math.floor(diff / 3600)}h`;
+    opacity = 0.7;
+  } else if (diff < 604800) {
+    text = `${Math.floor(diff / 86400)}d`;
+    opacity = 0.5;
+  } else {
+    text = `${Math.floor(diff / 604800)}w`;
+    opacity = 0.4;
+  }
+  
+  return { text, opacity };
 }
 
 function folderName(fullPath: string): string {
@@ -133,6 +150,9 @@ export function SessionPanel() {
   );
   const [expandedSources, setExpandedSources] = useState<Set<string>>(new Set());
   const [expandedFullSources, setExpandedFullSources] = useState<Set<string>>(new Set());
+  const [searchQuery, setSearchQuery] = useState("");
+  const [searchOpen, setSearchOpen] = useState(false);
+  const searchInputRef = useRef<HTMLInputElement>(null);
   const [contextMenu, setContextMenu] = useState<{
     position: { x: number; y: number };
     items: ContextMenuItem[];
@@ -153,7 +173,7 @@ export function SessionPanel() {
       setExpandedWorkspaces((prev) => new Set([...prev, norm]));
       setExpandedSources((prev) => {
         const next = new Set(prev);
-        SOURCE_ORDER.forEach((s) => next.add(`${norm}:${s}`));
+        next.add(`${norm}:user`);
         return next;
       });
       loadAllSessions();
@@ -203,6 +223,22 @@ export function SessionPanel() {
     return groups;
   }, [allSessions, recentFolders]);
 
+  // 搜索过滤
+  const filteredWorkspaceGroups = useMemo(() => {
+    if (!searchQuery.trim()) return workspaceGroups;
+    
+    const query = searchQuery.toLowerCase();
+    return workspaceGroups.map((ws) => ({
+      ...ws,
+      sourceGroups: ws.sourceGroups.map((sg) => ({
+        ...sg,
+        sessions: sg.sessions.filter((s) =>
+          (s.title || "").toLowerCase().includes(query)
+        ),
+      })).filter((sg) => sg.sessions.length > 0),
+    })).filter((ws) => ws.sourceGroups.length > 0);
+  }, [workspaceGroups, searchQuery]);
+
   const toggleWorkspace = useCallback((normalizedPath: string) => {
     setExpandedWorkspaces((prev) => {
       const next = new Set(prev);
@@ -210,6 +246,11 @@ export function SessionPanel() {
         next.delete(normalizedPath);
       } else {
         next.add(normalizedPath);
+        setExpandedSources((prevSources) => {
+          const nextSources = new Set(prevSources);
+          nextSources.add(`${normalizedPath}:user`);
+          return nextSources;
+        });
       }
       return next;
     });
@@ -310,10 +351,21 @@ export function SessionPanel() {
 
   const currentNormalized = normalizePath(rootPath || "");
 
+  const handleSearchToggle = useCallback(() => {
+    setSearchOpen((prev) => {
+      if (!prev) {
+        setTimeout(() => searchInputRef.current?.focus(), 0);
+      } else {
+        setSearchQuery("");
+      }
+      return !prev;
+    });
+  }, []);
+
   return (
     <div className="h-full flex flex-col bg-surface text-[13px]">
       {/* 顶部按钮区 */}
-      <div className="shrink-0 px-2.5 py-2 border-b border-border flex items-center gap-2">
+      <div className="shrink-0 px-2.5 py-2 border-b border-border flex items-center gap-1.5">
         <button
           onClick={handleOpenFolder}
           className="flex-1 flex items-center justify-center gap-1.5 h-7 rounded text-[12px] text-t-secondary bg-elevated hover:bg-panel hover:text-neon transition-colors"
@@ -324,20 +376,43 @@ export function SessionPanel() {
         </button>
         <button
           onClick={handleLocateCurrentSession}
-          className="flex items-center justify-center gap-1.5 h-7 px-2.5 rounded text-[12px] text-t-secondary bg-elevated hover:bg-panel hover:text-neon transition-colors"
+          className="flex items-center justify-center h-7 w-7 rounded text-t-secondary bg-elevated hover:bg-panel hover:text-neon transition-colors"
           title="Locate Current Session"
         >
           <LocateFixed size={14} />
         </button>
+        <button
+          onClick={handleSearchToggle}
+          className={`flex items-center justify-center h-7 w-7 rounded transition-colors ${
+            searchOpen ? "text-neon bg-neon/10" : "text-t-secondary bg-elevated hover:bg-panel hover:text-neon"
+          }`}
+          title="Search Sessions"
+        >
+          <Search size={14} />
+        </button>
       </div>
 
+      {/* 搜索框（展开时显示） */}
+      {searchOpen && (
+        <div className="shrink-0 px-2.5 py-1.5 border-b border-border">
+          <input
+            ref={searchInputRef}
+            type="text"
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            placeholder="Search sessions..."
+            className="w-full h-7 px-3 rounded bg-elevated border border-neon/30 focus:border-neon/50 text-[12px] text-t-primary placeholder:text-t-ghost outline-none transition-colors"
+          />
+        </div>
+      )}
+
       <div ref={scrollContainerRef} className="flex-1 overflow-y-auto scrollbar-thin">
-        {workspaceGroups.length === 0 ? (
-          <div className="text-t-ghost px-4 py-12 text-center font-mono">
-            No workspaces
+        {filteredWorkspaceGroups.length === 0 ? (
+          <div className="text-t-ghost px-4 py-12 text-center">
+            {searchQuery ? "No matching sessions" : "No workspaces"}
           </div>
         ) : (
-          workspaceGroups.map((ws) => {
+          filteredWorkspaceGroups.map((ws) => {
             const isActive = ws.normalizedPath === currentNormalized;
             const isExpanded = expandedWorkspaces.has(ws.normalizedPath);
             const isHovered = hoveredWorkspace === ws.normalizedPath;
@@ -346,7 +421,13 @@ export function SessionPanel() {
             return (
               <div
                 key={ws.normalizedPath}
-                className="mx-2 mt-2"
+                className="mx-2 mt-2 rounded-lg"
+                style={isExpanded ? {
+                  border: `1px solid ${wsColor}50`,
+                  boxShadow: `inset 0 1px 4px ${wsColor}12`,
+                } : {
+                  border: '1px solid transparent',
+                }}
               >
                 {/* Workspace Header — sticky */}
                 <div
@@ -354,93 +435,76 @@ export function SessionPanel() {
                   onMouseEnter={() => setHoveredWorkspace(ws.normalizedPath)}
                   onMouseLeave={() => setHoveredWorkspace(null)}
                   className={`
-                    sticky top-0 z-10 cursor-pointer select-none px-3 py-2.5
-                    bg-surface
+                    sticky top-0 z-10 cursor-pointer select-none px-3
+                    rounded-t-lg
                     ${isActive ? "bg-white/[0.08]" : "hover:bg-white/[0.05]"}
+                    ${isExpanded ? "py-2.5" : "py-1.5 rounded-b-lg"}
+                    transition-all
                   `}
-                  style={{
-                    border: `1px solid ${isExpanded ? wsColor + '50' : 'transparent'}`,
-                    borderBottom: isExpanded ? 'none' : undefined,
-                    borderRadius: isExpanded ? '8px 8px 0 0' : '8px',
-                    transition: 'border-color 0.15s, border-radius 0.15s',
-                  }}
                 >
                   <div className="flex items-center gap-2">
                     <span className="shrink-0 text-t-muted">
-                      {isExpanded ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
+                      {isExpanded ? <ChevronDown size={16} /> : <ChevronRight size={14} />}
                     </span>
-                    <span className={`flex-1 truncate text-[15px] font-semibold ${isActive ? "text-t-primary" : "text-t-primary"}`}>
+                    <span className={`flex-1 truncate font-semibold ${isExpanded ? "text-[15px]" : "text-[13px]"} ${isActive ? "text-t-primary" : "text-t-primary"}`}>
                       {folderName(ws.displayPath)}
                     </span>
-                    {isHovered && (
-                      <div className="flex items-center gap-0.5">
-                        <button
-                          onClick={(e) => handleNewSession(e, ws.displayPath)}
-                          className="p-1 rounded text-t-dim hover:text-neon hover:bg-white/[0.08] transition-colors"
-                          title="New Session"
-                        >
-                          <Plus size={15} />
-                        </button>
-                        <button
-                          onClick={(e) => showWorkspaceMenu(e, ws.displayPath)}
-                          className="p-1 rounded text-t-dim hover:text-t-primary hover:bg-white/[0.08] transition-colors"
-                        >
-                          <MoreHorizontal size={15} />
-                        </button>
-                      </div>
-                    )}
+                    <div className={`flex items-center gap-0.5 ${isHovered ? "opacity-100" : "opacity-0"}`}>
+                      <button
+                        onClick={(e) => handleNewSession(e, ws.displayPath)}
+                        className="p-1 rounded text-t-dim hover:text-neon hover:bg-white/[0.08] transition-colors"
+                        title="New Session"
+                      >
+                        <Plus size={15} />
+                      </button>
+                      <button
+                        onClick={(e) => showWorkspaceMenu(e, ws.displayPath)}
+                        className="p-1 rounded text-t-dim hover:text-t-primary hover:bg-white/[0.08] transition-colors"
+                      >
+                        <MoreHorizontal size={15} />
+                      </button>
+                    </div>
                   </div>
-                  <div className="text-[11px] text-t-dim truncate mt-1 ml-[24px]">
-                    {ws.displayPath}
-                  </div>
+                  {isExpanded && (
+                    <div className="text-[11px] text-t-dim truncate mt-1 ml-[24px]">
+                      {ws.displayPath}
+                    </div>
+                  )}
                 </div>
 
                 {/* Source 分组 + Sessions */}
                 {isExpanded && (
-                  <div
-                    style={{
-                      borderLeft: `1px solid ${wsColor}50`,
-                      borderRight: `1px solid ${wsColor}50`,
-                      borderBottom: `1px solid ${wsColor}50`,
-                      borderRadius: '0 0 8px 8px',
-                      boxShadow: `inset 0 1px 4px ${wsColor}12`,
-                    }}
-                  >
-                    {ws.sourceGroups.map((sg, sgIndex) => {
+                  <div className="rounded-b-lg overflow-hidden">
+                    {ws.sourceGroups.map((sg) => {
                       const sourceKey = `${ws.normalizedPath}:${sg.source}`;
                       const isSourceExpanded = expandedSources.has(sourceKey);
-                      const isLastSource = sgIndex === ws.sourceGroups.length - 1;
                       const showAll = expandedFullSources.has(sourceKey);
                       const maxVisible = 5;
                       const visibleSessions = showAll ? sg.sessions : sg.sessions.slice(0, maxVisible);
                       const hasMore = sg.sessions.length > maxVisible;
 
                       return (
-                        <div key={sourceKey} className="relative">
-                          {/* 第一级缩进线 */}
-                          <div
-                            className="absolute left-[18px] top-0 w-px bg-border"
-                            style={{ height: isLastSource && !isSourceExpanded ? '16px' : '100%' }}
-                          />
-                          {/* Source Header — sticky */}
+                        <div key={sourceKey}>
+                          {/* Source 分割线 */}
                           <div
                             onClick={() => toggleSource(ws.normalizedPath, sg.source)}
-                            className="sticky top-[52px] z-[5] relative flex items-center gap-2 px-3 py-1.5 pl-8 cursor-pointer select-none bg-surface hover:bg-white/[0.02] text-t-muted transition-colors"
+                            className="flex items-center gap-2 px-3 py-1 cursor-pointer select-none hover:bg-white/[0.02] transition-colors"
                           >
-                            <span className="shrink-0">
-                              {isSourceExpanded ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
+                            <div className="flex-1 h-px bg-border" />
+                            <span className="text-[10px] text-t-ghost px-1.5">
+                              {sg.label}{!isSourceExpanded && ` (${sg.sessions.length})`}
                             </span>
-                            <span className="flex-1 text-[11px]">{sg.label}</span>
+                            <div className="flex-1 h-px bg-border" />
                           </div>
 
                           {/* Sessions */}
                           {isSourceExpanded && (
                             <>
-                              {visibleSessions.map((session, sessionIndex) => {
+                              {visibleSessions.map((session) => {
                                 const isSessionActive = session.session_id === currentSessionId;
                                 const isSessionHovered = hoveredSession === session.session_id;
-                                const isLastVisible = sessionIndex === visibleSessions.length - 1;
-                                const isLastSession = isLastVisible && (showAll || !hasMore);
+                                const isStreaming = streamManager.isSessionStreaming(session.session_id);
+                                const time = timeAgo(session.updated_at);
 
                                 return (
                                   <div
@@ -448,58 +512,51 @@ export function SessionPanel() {
                                     ref={(el) => {
                                       if (el) sessionRefs.current.set(session.session_id, el);
                                     }}
-                                    className="relative"
+                                    onClick={() => handleSwitchSession(session.session_id)}
+                                    onMouseEnter={() => setHoveredSession(session.session_id)}
+                                    onMouseLeave={() => setHoveredSession(null)}
+                                    className={`
+                                      flex items-center gap-2 px-3 py-2 cursor-pointer select-none transition-colors
+                                      ${isSessionActive
+                                        ? "bg-white/[0.06]"
+                                        : "hover:bg-white/[0.03]"}
+                                    `}
                                   >
-                                    {/* 第二级缩进线 */}
-                                    <div
-                                      className="absolute left-[34px] top-0 w-px bg-border"
-                                      style={{ height: isLastSession ? '20px' : '100%' }}
-                                    />
-                                    <div
-                                      onClick={() => handleSwitchSession(session.session_id)}
-                                      onMouseEnter={() => setHoveredSession(session.session_id)}
-                                      onMouseLeave={() => setHoveredSession(null)}
-                                      className={`
-                                        relative flex items-center gap-2 px-3 py-2 pl-12 cursor-pointer select-none transition-colors
-                                        ${isSessionActive
-                                          ? "bg-neon/10"
-                                          : "hover:bg-white/[0.03]"}
-                                      `}
-                                    >
-                                      <div className="flex-1 min-w-0">
-                                        <div className={`truncate text-[12px] ${isSessionActive ? "text-t-primary" : "text-t-secondary"}`}>
-                                          {session.title || "New Session"}
-                                        </div>
-                                        <div className="text-[10px] text-t-dim mt-0.5">
-                                          {timeAgo(session.updated_at)}
-                                        </div>
+                                    <div className="flex-1 min-w-0">
+                                      <div className={`truncate text-[12px] ${isSessionActive ? "text-t-primary" : "text-t-secondary"}`}>
+                                        {session.title || "New Session"}
                                       </div>
-                                      {isSessionHovered && (
-                                        <button
-                                          onClick={(e) => showSessionMenu(e, session)}
-                                          className="shrink-0 p-1 rounded text-t-dim hover:text-t-primary hover:bg-white/[0.08] transition-colors"
+                                      <div className="flex items-center gap-1.5 mt-0.5">
+                                        <span
+                                          className="text-[10px]"
+                                          style={{ opacity: time.opacity, color: 'var(--color-t-dim)' }}
                                         >
-                                          <MoreHorizontal size={14} />
-                                        </button>
-                                      )}
+                                          {time.text}
+                                        </span>
+                                        {isStreaming && (
+                                          <Loader2 size={10} className="text-neon animate-spin" />
+                                        )}
+                                      </div>
                                     </div>
+                                    {isSessionHovered && (
+                                      <button
+                                        onClick={(e) => showSessionMenu(e, session)}
+                                        className="shrink-0 p-1 rounded text-t-dim hover:text-t-primary hover:bg-white/[0.08] transition-colors"
+                                      >
+                                        <MoreHorizontal size={14} />
+                                      </button>
+                                    )}
                                   </div>
                                 );
                               })}
                               {/* Show all / Show less */}
                               {hasMore && (
-                                <div className="relative">
-                                  <div
-                                    className="absolute left-[34px] top-0 w-px bg-border"
-                                    style={{ height: '16px' }}
-                                  />
-                                  <button
-                                    onClick={() => toggleShowAllSessions(sourceKey)}
-                                    className="w-full text-left pl-12 pr-3 py-1.5 text-[11px] text-t-dim hover:text-neon transition-colors"
-                                  >
-                                    {showAll ? 'Show less' : `Show all (${sg.sessions.length})`}
-                                  </button>
-                                </div>
+                                <button
+                                  onClick={() => toggleShowAllSessions(sourceKey)}
+                                  className="w-full text-center py-1.5 text-[10px] text-t-ghost hover:text-neon transition-colors"
+                                >
+                                  {showAll ? 'Show less' : `Show all ${sg.sessions.length}`}
+                                </button>
                               )}
                             </>
                           )}
