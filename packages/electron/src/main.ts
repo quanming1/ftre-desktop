@@ -1,42 +1,57 @@
-import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron';
-import { isDev, setMainWindow, getMainWindow } from './app-state';
-import { createWindow } from './window';
-import { startPythonBackend, stopPythonBackend, waitForBackend } from './backend';
-import { registerFsIPC } from './ipc/fs';
-import { registerGitIPC } from './ipc/git';
-import { registerTerminalIPC } from './ipc/terminal';
-import { registerStoreIPC } from './ipc/store';
-import { registerSearchIPC } from './ipc/search';
-import { registerWatcherIPC } from './ipc/watcher';
-import { WorkerManager } from './ipc/worker-manager';
+import { app, BrowserWindow, dialog, ipcMain, shell } from "electron";
+import { isDev, setMainWindow, getMainWindow } from "./app-state";
+import { createWindow } from "./window";
+import {
+  startPythonBackend,
+  stopPythonBackend,
+  waitForBackend,
+} from "./backend";
+import { registerFsIPC } from "./ipc/fs";
+import { registerGitIPC } from "./ipc/git";
+import { registerTerminalIPC } from "./ipc/terminal";
+import { registerStoreIPC } from "./ipc/store";
+import { registerSearchIPC } from "./ipc/search";
+import { registerWatcherIPC } from "./ipc/watcher";
+import { registerMemoryIPC } from "./ipc/memory";
+import { WorkerManager } from "./ipc/worker-manager";
 
 // GPU 加速 + 滚动性能优化
-app.commandLine.appendSwitch('enable-gpu-rasterization');
-app.commandLine.appendSwitch('enable-zero-copy');
-app.commandLine.appendSwitch('enable-features', 'CanvasOopRasterization');
+app.commandLine.appendSwitch("enable-gpu-rasterization");
+app.commandLine.appendSwitch("enable-zero-copy");
+app.commandLine.appendSwitch("enable-features", "CanvasOopRasterization");
 
 // Worker 线程管理
 const workerManager = new WorkerManager();
 
 // --- 窗口控制 IPC ---
-ipcMain.handle('window:minimize', () => { getMainWindow()?.minimize(); });
-ipcMain.handle('window:maximize', () => {
+ipcMain.handle("window:minimize", () => {
+  getMainWindow()?.minimize();
+});
+ipcMain.handle("window:maximize", () => {
   const win = getMainWindow();
   if (win?.isMaximized()) win.unmaximize();
   else win?.maximize();
 });
-ipcMain.handle('window:close', () => { getMainWindow()?.close(); });
-ipcMain.handle('window:getPosition', () => {
+ipcMain.handle("window:close", () => {
+  getMainWindow()?.close();
+});
+ipcMain.handle("window:getPosition", () => {
   const win = getMainWindow();
   return win ? win.getPosition() : [0, 0];
 });
-ipcMain.handle('window:setPosition', (_event, { x, y }: { x: number; y: number }) => {
-  getMainWindow()?.setPosition(x, y);
-});
-ipcMain.handle('window:isMaximized', () => getMainWindow()?.isMaximized() ?? false);
+ipcMain.handle(
+  "window:setPosition",
+  (_event, { x, y }: { x: number; y: number }) => {
+    getMainWindow()?.setPosition(x, y);
+  },
+);
+ipcMain.handle(
+  "window:isMaximized",
+  () => getMainWindow()?.isMaximized() ?? false,
+);
 
 // --- Shell ---
-ipcMain.handle('shell:openExternal', (_event, url: string) => {
+ipcMain.handle("shell:openExternal", (_event, url: string) => {
   return shell.openExternal(url);
 });
 
@@ -49,9 +64,10 @@ app.whenReady().then(async () => {
     try {
       await waitForBackend();
     } catch (err: any) {
-      dialog.showErrorBox('启动失败',
+      dialog.showErrorBox(
+        "启动失败",
         `Python 后端未能启动：\n${err.message}\n\n` +
-        '请确认打包是否完整，或手动启动后端后重试。'
+          "请确认打包是否完整，或手动启动后端后重试。",
       );
       app.quit();
       return;
@@ -66,12 +82,13 @@ app.whenReady().then(async () => {
   registerStoreIPC();
   registerSearchIPC(workerManager);
   registerWatcherIPC();
+  registerMemoryIPC();
 
   // 创建窗口
   const win = createWindow();
   setMainWindow(win);
 
-  app.on('activate', () => {
+  app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) {
       const newWin = createWindow();
       setMainWindow(newWin);
@@ -79,12 +96,12 @@ app.whenReady().then(async () => {
   });
 });
 
-app.on('window-all-closed', () => {
+app.on("window-all-closed", () => {
   stopPythonBackend();
-  if (process.platform !== 'darwin') app.quit();
+  if (process.platform !== "darwin") app.quit();
 });
 
-app.on('before-quit', () => {
+app.on("before-quit", () => {
   stopPythonBackend();
   workerManager.dispose();
 });

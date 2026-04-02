@@ -86,6 +86,10 @@ const api: DesktopAPI = {
       ipcRenderer.invoke("store:set", { key, value }),
   },
 
+  memory: {
+    getUsage: () => ipcRenderer.invoke("memory:getUsage"),
+  },
+
   terminal: {
     create: (opts?: {
       cols?: number;

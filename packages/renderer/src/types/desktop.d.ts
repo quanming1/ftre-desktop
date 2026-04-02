@@ -112,6 +112,38 @@ interface DesktopTerminal {
   onExit(callback: (id: number, exitCode: number) => void): () => void;
 }
 
+/** 内存使用信息 */
+interface MemoryUsage {
+  timestamp: number;
+  main: {
+    rss: number;
+    heapUsed: number;
+    heapTotal: number;
+    external: number;
+    arrayBuffers: number;
+  };
+  processes: Array<{
+    type: string;
+    pid: number;
+    memory: {
+      /** 工作集大小（KB） */
+      workingSetSize: number;
+      /** 峰值工作集大小（KB） */
+      peakWorkingSetSize: number;
+      /** 私有字节（KB） */
+      privateBytes: number;
+    };
+    cpu: {
+      percentCPUUsage: number;
+    };
+  }>;
+}
+
+/** 内存监控 API */
+interface DesktopMemory {
+  getUsage(): Promise<MemoryUsage>;
+}
+
 interface DesktopStore {
   get(key: string): Promise<{ value: unknown }>;
   set(key: string, value: unknown): Promise<{ success: boolean }>;
@@ -133,6 +165,7 @@ interface DesktopAPI {
     isMaximized(): Promise<boolean>;
   };
   terminal: DesktopTerminal;
+  memory: DesktopMemory;
 }
 
 declare global {

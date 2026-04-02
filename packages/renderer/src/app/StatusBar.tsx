@@ -1,8 +1,10 @@
 import { useState, useCallback, useEffect, useRef } from "react";
-import { AlertTriangle, XCircle } from "lucide-react";
+import { AlertTriangle, XCircle, MemoryStick } from "lucide-react";
 import { useEditor } from "@/stores/editor";
 import { useWorkspace } from "@/stores/workspace";
 import { useDiagnostics } from "@/stores/diagnostics";
+import { useMemoryMonitor, formatBytes } from "@/services/memory-monitor";
+import { MemoryMonitorPanel } from "@/features/memory/MemoryMonitorPanel";
 
 /** Format cursor position as "Ln {line}, Col {col}" */
 export function formatCursorPosition(line: number, col: number): string {
@@ -33,7 +35,9 @@ export const SUPPORTED_LANGUAGES: { id: string; label: string }[] = [
   { id: "csharp", label: "C#" },
 ];
 
-const LANGUAGE_LABEL_MAP: Record<string, string> = Object.fromEntries(SUPPORTED_LANGUAGES.map((l) => [l.id, l.label]));
+const LANGUAGE_LABEL_MAP: Record<string, string> = Object.fromEntries(
+  SUPPORTED_LANGUAGES.map((l) => [l.id, l.label]),
+);
 
 /** Derive a display-friendly language label from the language id */
 export function getLanguageLabel(language: string): string {
@@ -54,7 +58,9 @@ function LanguageSelector({
   const containerRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  const filtered = SUPPORTED_LANGUAGES.filter((lang) => lang.label.toLowerCase().includes(filter.toLowerCase()));
+  const filtered = SUPPORTED_LANGUAGES.filter((lang) =>
+    lang.label.toLowerCase().includes(filter.toLowerCase()),
+  );
 
   // Focus input on mount
   useEffect(() => {
@@ -64,7 +70,10 @@ function LanguageSelector({
   // Close on click outside
   useEffect(() => {
     function handleClickOutside(e: MouseEvent) {
-      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
+      if (
+        containerRef.current &&
+        !containerRef.current.contains(e.target as Node)
+      ) {
         onClose();
       }
     }
@@ -98,7 +107,11 @@ function LanguageSelector({
           onChange={(e) => setFilter(e.target.value)}
         />
       </div>
-      <ul data-testid="language-list" className="max-h-56 overflow-y-auto" role="listbox">
+      <ul
+        data-testid="language-list"
+        className="max-h-56 overflow-y-auto"
+        role="listbox"
+      >
         {filtered.map((lang) => (
           <li
             key={lang.id}
@@ -106,7 +119,9 @@ function LanguageSelector({
             aria-selected={lang.id === currentLanguage}
             data-testid={`language-option-${lang.id}`}
             className={`px-3.5 py-1.5 text-[13px] cursor-pointer hover:bg-elevated transition-colors ${
-              lang.id === currentLanguage ? "text-accent font-semibold" : "text-t-dim"
+              lang.id === currentLanguage
+                ? "text-accent font-semibold"
+                : "text-t-dim"
             }`}
             onClick={() => onSelect(lang.id)}
           >
@@ -114,7 +129,10 @@ function LanguageSelector({
           </li>
         ))}
         {filtered.length === 0 && (
-          <li className="px-3.5 py-1.5 text-[13px] text-t-dim" data-testid="language-no-results">
+          <li
+            className="px-3.5 py-1.5 text-[13px] text-t-dim"
+            data-testid="language-no-results"
+          >
             未找到匹配的语言
           </li>
         )}
@@ -127,6 +145,7 @@ export function StatusBar() {
   const [cursorLine, setCursorLine] = useState(1);
   const [cursorCol, setCursorCol] = useState(1);
   const [languageSelectorOpen, setLanguageSelectorOpen] = useState(false);
+  const [memoryPanelOpen, setMemoryPanelOpen] = useState(false);
 
   const activeFile = useEditor((s) => s.activeFile);
   const openFiles = useEditor((s) => s.openFiles);
@@ -134,6 +153,21 @@ export function StatusBar() {
   const errorCount = useDiagnostics((s) => s.errorCount());
   const warningCount = useDiagnostics((s) => s.warningCount());
   const currentFile = openFiles.find((f) => f.path === activeFile);
+
+  // 内存监控：组件挂载时启动采集，卸载时停止
+  const memoryStart = useMemoryMonitor((s) => s.start);
+  const memoryStop = useMemoryMonitor((s) => s.stop);
+  const memoryLatest = useMemoryMonitor((s) => s.latest);
+
+  useEffect(() => {
+    memoryStart();
+    return () => memoryStop();
+  }, [memoryStart, memoryStop]);
+
+  // 格式化当前 JS 堆内存用量（简短显示在 StatusBar 上）
+  const heapDisplay = memoryLatest
+    ? formatBytes(memoryLatest.jsHeapUsed, 0)
+    : "—";
 
   // Listen for cursor position updates from Monaco editor
   const handleCursorChange = useCallback((e: Event) => {
@@ -146,12 +180,17 @@ export function StatusBar() {
 
   useEffect(() => {
     window.addEventListener("ftre:cursor-change", handleCursorChange);
-    return () => window.removeEventListener("ftre:cursor-change", handleCursorChange);
+    return () =>
+      window.removeEventListener("ftre:cursor-change", handleCursorChange);
   }, [handleCursorChange]);
 
   const handleLanguageSelect = useCallback((languageId: string) => {
     setLanguageSelectorOpen(false);
-    window.dispatchEvent(new CustomEvent("ftre:change-language", { detail: { language: languageId } }));
+    window.dispatchEvent(
+      new CustomEvent("ftre:change-language", {
+        detail: { language: languageId },
+      }),
+    );
   }, []);
 
   return (
@@ -173,9 +212,29 @@ export function StatusBar() {
         </span>
       </div>
 
-      {/* Right side: cursor position, indent, encoding, EOL, language */}
+      {/* Right side: memory indicator, cursor position, indent, encoding, EOL, language */}
       <div className="flex items-center gap-3.5 text-t-dim">
-        <span data-testid="cursor-position">{formatCursorPosition(cursorLine, cursorCol)}</span>
+        {/* 内存用量指示器 — 点击展开详情面板 */}
+        <span className="relative">
+          <span
+            data-testid="memory-indicator"
+            className="cursor-pointer hover:text-t-primary transition-colors"
+            onClick={() => setMemoryPanelOpen((prev) => !prev)}
+            title="内存监控"
+          >
+            <MemoryStick
+              size={14}
+              className="inline-block mr-1 align-text-bottom"
+            />
+            {heapDisplay}
+          </span>
+          {memoryPanelOpen && (
+            <MemoryMonitorPanel onClose={() => setMemoryPanelOpen(false)} />
+          )}
+        </span>
+        <span data-testid="cursor-position">
+          {formatCursorPosition(cursorLine, cursorCol)}
+        </span>
         <span data-testid="indent-setting">空格: 2</span>
         <span data-testid="encoding">UTF-8</span>
         <span data-testid="eol">LF</span>
