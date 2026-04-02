@@ -68,7 +68,6 @@ export const AssistantMessage = memo(
     return (
       <div className="flex justify-start">
         <div className="max-w-[90%]">
-          <div className="text-[12px] mb-1.5 text-neon/60 font-mono">ftre</div>
           <div className="text-[14px] leading-relaxed text-t-primary font-sans break-words">
             <div className="markdown-body" ref={mdRef}>
               <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>

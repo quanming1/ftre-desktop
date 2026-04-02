@@ -65,7 +65,6 @@ export const UserMessage = memo(
     return (
       <div className="flex justify-end">
         <div className="max-w-[90%]">
-          <div className="text-[12px] mb-1.5 text-right text-t-dim font-mono">你</div>
           <div className="text-[14px] leading-relaxed text-t-primary bg-panel px-4 py-3 rounded-xl rounded-br-sm whitespace-pre-wrap break-words font-sans">
             {hasParts ? <PartsContent parts={message.parts!} /> : message.content}
           </div>

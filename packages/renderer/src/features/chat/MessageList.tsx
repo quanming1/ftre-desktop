@@ -6,6 +6,7 @@ import type { AnyMessage, DiffMeta, ChatMessage } from "@/types/chat";
 import { isGroupableTool, getGroupKey } from "./toolClassification";
 import { UserMessage } from "./UserMessage";
 import { AssistantMessage } from "./AssistantMessage";
+import { PixelLogo } from "@/components/PixelLogo";
 import { ToolCallCard, ToolCallGroup } from "./ToolCallCard";
 import { ActionButton } from "./ActionButton";
 import { DiffSummaryCard } from "./DiffSummaryCard";
@@ -19,11 +20,12 @@ const MSG_ITEM_STYLE: React.CSSProperties = {
 // 消息分组逻辑
 // ═══════════════════════════════════════════════════════════════════════
 
-/** 渲染单元：单条消息 / 一组连续同类型工具调用 / diff 摘要卡片 */
+/** 渲染单元：单条消息 / 一组连续同类型工具调用 / diff 摘要卡片 / AI回复开始标记 */
 type RenderUnit =
   | { type: "single"; id: string }
   | { type: "group"; toolName: string; ids: string[]; key: string }
-  | { type: "diff_summary"; diffMeta: DiffMeta; key: string };
+  | { type: "diff_summary"; diffMeta: DiffMeta; key: string }
+  | { type: "ai_turn_start"; key: string };
 
 /**
  * 将消息列表分组：连续相同名称的可分组工具调用合并为一个 RenderUnit。
@@ -35,11 +37,14 @@ function groupMessages(messages: AnyMessage[]): RenderUnit[] {
   // 追踪上一条 user 消息的 diffMeta，在本轮结束时（下一个 user 之前或列表末尾）插入
   let pendingDiffMeta: DiffMeta | null = null;
   let pendingDiffKey = "";
+  // 追踪本轮是否需要插入 AI turn start 标记
+  let needAiTurnStart = false;
+  let lastUserId = "";
 
   while (i < messages.length) {
     const msg = messages[i];
 
-    // 遇到新的 user 消息 → 先把上一轮的 diffMeta 插入（如果有）
+    // 遇到新的 user 消息 → 先把上一轮的 diffMeta 插入（如果有），并标记需要插入 AI turn start
     if ("role" in msg && msg.role === "user") {
       if (pendingDiffMeta) {
         units.push({ type: "diff_summary", diffMeta: pendingDiffMeta, key: pendingDiffKey });
@@ -51,6 +56,18 @@ function groupMessages(messages: AnyMessage[]): RenderUnit[] {
         pendingDiffMeta = chatMsg.diffMeta;
         pendingDiffKey = `diff-${msg.id}`;
       }
+      needAiTurnStart = true;
+      lastUserId = msg.id;
+    }
+
+    // user 消息之后、AI 开始回复前，插入 AI turn start 标记
+    if (needAiTurnStart && "role" in msg && msg.role !== "user") {
+      units.push({ type: "ai_turn_start", key: `ai-start-${lastUserId}` });
+      needAiTurnStart = false;
+    }
+    if (needAiTurnStart && isToolCall(msg)) {
+      units.push({ type: "ai_turn_start", key: `ai-start-${lastUserId}` });
+      needAiTurnStart = false;
     }
 
     // 检查是否是可分组的工具调用（read/glob/grep 统一归入 explore 组）
@@ -215,7 +232,11 @@ export function MessageList() {
       )}
       {renderUnits.map((unit) => (
         <div key={unit.type === "single" ? unit.id : unit.key} style={MSG_ITEM_STYLE}>
-          {unit.type === "group" ? (
+          {unit.type === "ai_turn_start" ? (
+            <div className="mt-4 mb-1 flex items-center h-[20px]">
+              <PixelLogo size={2} />
+            </div>
+          ) : unit.type === "group" ? (
             <GroupedToolCalls toolName={unit.toolName} messageIds={unit.ids} />
           ) : unit.type === "diff_summary" ? (
             <DiffSummaryCard diffMeta={unit.diffMeta} />
@@ -255,7 +276,7 @@ const MessageItem = memo(function MessageItem({ messageId }: { messageId: string
     return <UserMessage message={message as ChatMessage} />;
   }
   if (message.role === "assistant") {
-    return <AssistantMessage message={message} />;
+    return <AssistantMessage message={message as ChatMessage} />;
   }
   if (message.role === "system") {
     return <div className="text-[13px] text-danger p-3 bg-danger/[0.08] rounded-lg font-mono">{message.content}</div>;
