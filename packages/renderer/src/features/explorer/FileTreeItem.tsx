@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect, useRef, memo } from "react";
+import { useState, useCallback, useEffect, useRef, memo, useMemo } from "react";
 import {
   FilePlus,
   FolderPlus,
@@ -160,10 +160,11 @@ export const FileTreeItem = memo(function FileTreeItem({
   const itemRef = useRef<HTMLDivElement>(null);
   const autoExpandTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // 卸载时清理自动展开定时器
+  // 卸载时清理所有定时器
   useEffect(() => {
     return () => {
       if (autoExpandTimerRef.current) clearTimeout(autoExpandTimerRef.current);
+      if (prefetchTimerRef.current) clearTimeout(prefetchTimerRef.current);
     };
   }, []);
 
@@ -198,9 +199,12 @@ export const FileTreeItem = memo(function FileTreeItem({
   const paddingLeft = treeIndent(depth);
   const { icon: Icon, color } = getFileIcon(entry.name, entry.isDir, expanded);
 
-  // Auto-scroll into view when this item becomes active or focused
+  // Auto-scroll into view when this item is focused (via keyboard nav or locate button)
+  // 注意：移除了 isActive 触发滚动的逻辑
+  // 原因：isActive 表示编辑器当前打开的文件，不应该触发文件树滚动
+  // 只有 isFocused（用户主动定位或键盘导航）才应该滚动
   useEffect(() => {
-    if ((isActive || isFocused) && itemRef.current) {
+    if (isFocused && itemRef.current) {
       const el = itemRef.current;
       const container = el.closest('[class*="overflow-y-auto"]');
       if (!container) return;
@@ -212,7 +216,7 @@ export const FileTreeItem = memo(function FileTreeItem({
       }
     }
     // focusSeq: 即使 isFocused 值不变，seq 递增也能重新触发 scroll
-  }, [isActive, isFocused, focusSeq]);
+  }, [isFocused, focusSeq]);
 
   // Auto-expand folder when a create operation targets it
   useEffect(() => {
@@ -345,8 +349,9 @@ export const FileTreeItem = memo(function FileTreeItem({
       e.dataTransfer.dropEffect = "move";
       e.stopPropagation();
       // Notify parent of the drag-over target for visual feedback
-      const displayTarget = entry.isDir ? entry.path : targetDir;
-      onDragOverChange?.(displayTarget);
+      // 始终高亮当前悬停的项（无论是文件还是目录），让用户清楚知道鼠标在哪
+      // 实际 drop 时会根据 resolveDropTarget 计算目标目录
+      onDragOverChange?.(entry.path);
 
       // 拖拽悬停在折叠文件夹上 800ms 后自动展开
       if (entry.isDir && !expanded && !autoExpandTimerRef.current) {
@@ -602,6 +607,75 @@ export const FileTreeItem = memo(function FileTreeItem({
       },
     ];
   }, [entry, handleClick]);
+
+  // 计算重命名时的 siblingNames（排除自身）
+  const renameSiblingNames = useMemo(() => {
+    if (!isRenaming) return [];
+    return siblingNames;
+  }, [isRenaming, siblingNames]);
+
+  // 重命名模式：渲染 InlineInput 替换整个行
+  if (isRenaming && onRenameSubmit && onRenameCancel) {
+    return (
+      <>
+        <InlineInput
+          initialValue={entry.name}
+          placeholder="文件名"
+          depth={depth}
+          siblingNames={renameSiblingNames}
+          onSubmit={onRenameSubmit}
+          onCancel={onRenameCancel}
+        />
+        {/* 重命名时仍需渲染子项和 pendingCreate 的 InlineInput */}
+        {expanded &&
+          childEntries.map((child) => (
+            <FileTreeItem
+              key={child.path}
+              entry={child}
+              depth={depth + 1}
+              expanded={expandedPaths.has(child.path)}
+              focusedPath={focusedPath}
+              focusSeq={focusSeq}
+              expandedPaths={expandedPaths}
+              onToggle={onToggle}
+              childEntries={getChildren(child.path)}
+              getChildren={getChildren}
+              pendingCreate={pendingCreate}
+              pendingRename={pendingRename}
+              onCreateSubmit={onCreateSubmit}
+              onCreateCancel={onCreateCancel}
+              onRenameSubmit={onRenameSubmit}
+              onRenameCancel={onRenameCancel}
+              onFocusChange={onFocusChange}
+              siblingNames={
+                pendingCreate || pendingRename
+                  ? childEntries
+                      .map((c) => c.name)
+                      .filter((n) => n !== child.name)
+                  : []
+              }
+              dragOverPath={dragOverPath}
+              onDragOverChange={onDragOverChange}
+            />
+          ))}
+        {pendingCreate &&
+          pendingCreate.dirPath === entry.path &&
+          expanded &&
+          onCreateSubmit &&
+          onCreateCancel && (
+            <InlineInput
+              placeholder={
+                pendingCreate.type === "file" ? "文件名" : "文件夹名"
+              }
+              depth={depth + 1}
+              siblingNames={childEntries.map((c) => c.name)}
+              onSubmit={onCreateSubmit}
+              onCancel={onCreateCancel}
+            />
+          )}
+      </>
+    );
+  }
 
   return (
     <>

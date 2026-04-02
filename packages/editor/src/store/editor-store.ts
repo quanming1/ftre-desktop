@@ -28,9 +28,14 @@ const EDITOR_PERSIST_DEBOUNCE_MS = 500;
  */
 export interface EditorStoreHost {
   /** 读取文件内容 */
-  readFile(path: string): Promise<{ content: string; language: string; error?: string }>;
+  readFile(
+    path: string,
+  ): Promise<{ content: string; language: string; error?: string }>;
   /** 写入文件内容 */
-  writeFile(path: string, content: string): Promise<{ success: boolean; error?: string }>;
+  writeFile(
+    path: string,
+    content: string,
+  ): Promise<{ success: boolean; error?: string }>;
   /** 获取 localStorage 值 */
   storageGet(key: string): string | null;
   /** 设置 localStorage 值 */
@@ -45,7 +50,9 @@ export function registerEditorStoreHost(host: EditorStoreHost): void {
 
 function getHost(): EditorStoreHost {
   if (!storeHost) {
-    throw new Error("[editor-store] Host not registered. Call registerEditorStoreHost() first.");
+    throw new Error(
+      "[editor-store] Host not registered. Call registerEditorStoreHost() first.",
+    );
   }
   return storeHost;
 }
@@ -77,7 +84,9 @@ const workspaceSnapshots = new Map<string, EditorSnapshot>();
 
 function editorStorageKey(ws?: string | null): string {
   const root = ws ?? currentPersistWorkspace;
-  return root ? `${EDITOR_KEY_PREFIX}:${workspaceHash(root)}` : EDITOR_KEY_PREFIX;
+  return root
+    ? `${EDITOR_KEY_PREFIX}:${workspaceHash(root)}`
+    : EDITOR_KEY_PREFIX;
 }
 
 // ── State Interface ──────────────────────────────────────────────────
@@ -96,14 +105,22 @@ export interface EditorState {
 
 export interface EditorActions {
   // File operations
-  openFile: (file: Omit<OpenFile, "modified" | "pinned" | "loaded"> & { loaded?: boolean }) => void;
+  openFile: (
+    file: Omit<OpenFile, "modified" | "pinned" | "loaded"> & {
+      loaded?: boolean;
+    },
+  ) => void;
   closeFile: (path: string) => void;
   setActive: (path: string) => void;
   updateContent: (path: string, content: string) => void;
   markSaved: (path: string) => void;
   setModified: (path: string, modified: boolean) => void;
   refreshFile: (path: string, newContent: string) => void;
-  hydrateFileContent: (path: string, newContent: string, language?: string) => void;
+  hydrateFileContent: (
+    path: string,
+    newContent: string,
+    language?: string,
+  ) => void;
   setFileLanguage: (path: string, language: string) => void;
 
   // Diff operations
@@ -115,7 +132,11 @@ export interface EditorActions {
   splitEditor: () => void;
   closeGroup: (groupId: string) => void;
   setActiveGroup: (groupId: string) => void;
-  moveTabToGroup: (filePath: string, fromGroupId: string, toGroupId: string) => void;
+  moveTabToGroup: (
+    filePath: string,
+    fromGroupId: string,
+    toGroupId: string,
+  ) => void;
   reorderTabs: (groupId: string, fromIndex: number, toIndex: number) => void;
 
   // Tab operations
@@ -166,13 +187,15 @@ export function _resetGroupCounter(): void {
 }
 
 function getActiveGroup(state: EditorState): EditorGroup {
-  return state.groups.find((g) => g.id === state.activeGroupId) ?? state.groups[0];
+  return (
+    state.groups.find((g) => g.id === state.activeGroupId) ?? state.groups[0]
+  );
 }
 
 function updateGroup(
   groups: EditorGroup[],
   groupId: string,
-  updater: (g: EditorGroup) => EditorGroup
+  updater: (g: EditorGroup) => EditorGroup,
 ): EditorGroup[] {
   return groups.map((g) => (g.id === groupId ? updater(g) : g));
 }
@@ -184,14 +207,21 @@ function syncTopLevel(groups: EditorGroup[], activeGroupId: string) {
 
 // ── Store Factory ────────────────────────────────────────────────────
 
-export type SetState = (partial: Partial<EditorState> | ((state: EditorState) => Partial<EditorState>)) => void;
+export type SetState = (
+  partial:
+    | Partial<EditorState>
+    | ((state: EditorState) => Partial<EditorState>),
+) => void;
 export type GetState = () => EditorStore;
 
 /**
  * 创建 Editor Store 的 actions
  * 这个工厂函数允许与任何状态管理库集成 (Zustand, Redux, etc.)
  */
-export function createEditorActions(set: SetState, get: GetState): EditorActions {
+export function createEditorActions(
+  set: SetState,
+  get: GetState,
+): EditorActions {
   return {
     // ── File Operations ──────────────────────────────────────────────
 
@@ -243,12 +273,14 @@ export function createEditorActions(set: SetState, get: GetState): EditorActions
         groups,
         ...syncTopLevel(groups, state.activeGroupId),
         pendingDiffs: state.pendingDiffs.filter(
-          (d) => d.filePath !== path && d.tabPath !== path
+          (d) => d.filePath !== path && d.tabPath !== path,
         ),
       });
 
       // Clean up editorCore if no other group has this file open
-      const stillOpen = groups.some((g) => g.openFiles.some((f) => f.path === path));
+      const stillOpen = groups.some((g) =>
+        g.openFiles.some((f) => f.path === path),
+      );
       if (!stillOpen) {
         editorCore.removeContent(path);
         editorCore.removeViewState(path);
@@ -271,7 +303,7 @@ export function createEditorActions(set: SetState, get: GetState): EditorActions
       const groups = updateGroup(state.groups, group.id, (g) => ({
         ...g,
         openFiles: g.openFiles.map((f) =>
-          f.path === path ? { ...f, content, modified: true } : f
+          f.path === path ? { ...f, content, modified: true } : f,
         ),
       }));
       set({ groups, ...syncTopLevel(groups, state.activeGroupId) });
@@ -279,14 +311,23 @@ export function createEditorActions(set: SetState, get: GetState): EditorActions
 
     markSaved: (path) => {
       const state = get();
-      const group = getActiveGroup(state);
-      const file = group.openFiles.find((f) => f.path === path);
-      if (!file || !file.modified) return;
 
-      const groups = updateGroup(state.groups, group.id, (g) => ({
+      // 在所有组中查找文件（文件可能在非活跃组中）
+      let foundModified = false;
+      for (const group of state.groups) {
+        const file = group.openFiles.find((f) => f.path === path);
+        if (file?.modified) {
+          foundModified = true;
+          break;
+        }
+      }
+      if (!foundModified) return;
+
+      // 更新所有组中该文件的 modified 状态
+      const groups = state.groups.map((g) => ({
         ...g,
         openFiles: g.openFiles.map((f) =>
-          f.path === path ? { ...f, modified: false } : f
+          f.path === path ? { ...f, modified: false } : f,
         ),
       }));
       set({ groups, ...syncTopLevel(groups, state.activeGroupId) });
@@ -294,14 +335,23 @@ export function createEditorActions(set: SetState, get: GetState): EditorActions
 
     setModified: (path, modified) => {
       const state = get();
-      const group = getActiveGroup(state);
-      const file = group.openFiles.find((f) => f.path === path);
-      if (!file || file.modified === modified) return;
 
-      const groups = updateGroup(state.groups, group.id, (g) => ({
+      // 在所有组中查找文件（文件可能在非活跃组中被修改）
+      let foundInAnyGroup = false;
+      for (const group of state.groups) {
+        const file = group.openFiles.find((f) => f.path === path);
+        if (file && file.modified !== modified) {
+          foundInAnyGroup = true;
+          break;
+        }
+      }
+      if (!foundInAnyGroup) return;
+
+      // 更新所有组中该文件的 modified 状态
+      const groups = state.groups.map((g) => ({
         ...g,
         openFiles: g.openFiles.map((f) =>
-          f.path === path ? { ...f, modified } : f
+          f.path === path ? { ...f, modified } : f,
         ),
       }));
       set({ groups, ...syncTopLevel(groups, state.activeGroupId) });
@@ -309,7 +359,9 @@ export function createEditorActions(set: SetState, get: GetState): EditorActions
 
     refreshFile: (path, newContent) => {
       const state = get();
-      const exists = state.groups.some((g) => g.openFiles.some((f) => f.path === path));
+      const exists = state.groups.some((g) =>
+        g.openFiles.some((f) => f.path === path),
+      );
       if (!exists) return;
 
       editorCore.setContent(path, newContent);
@@ -321,7 +373,7 @@ export function createEditorActions(set: SetState, get: GetState): EditorActions
         openFiles: g.openFiles.map((f) =>
           f.path === path
             ? { ...f, content: newContent, modified: false, loaded: true }
-            : f
+            : f,
         ),
       }));
       set({ groups, ...syncTopLevel(groups, state.activeGroupId) });
@@ -329,7 +381,9 @@ export function createEditorActions(set: SetState, get: GetState): EditorActions
 
     hydrateFileContent: (path, newContent, language) => {
       const state = get();
-      const exists = state.groups.some((g) => g.openFiles.some((f) => f.path === path));
+      const exists = state.groups.some((g) =>
+        g.openFiles.some((f) => f.path === path),
+      );
       if (!exists) return;
 
       editorCore.setContent(path, newContent);
@@ -347,7 +401,7 @@ export function createEditorActions(set: SetState, get: GetState): EditorActions
                 modified: false,
                 loaded: true,
               }
-            : f
+            : f,
         ),
       }));
       set({ groups, ...syncTopLevel(groups, state.activeGroupId) });
@@ -358,17 +412,22 @@ export function createEditorActions(set: SetState, get: GetState): EditorActions
       const newGroups = state.groups.map((g) => ({
         ...g,
         openFiles: g.openFiles.map((f) =>
-          f.path === path ? { ...f, language } : f
+          f.path === path ? { ...f, language } : f,
         ),
       }));
-      set({ groups: newGroups, ...syncTopLevel(newGroups, state.activeGroupId) });
+      set({
+        groups: newGroups,
+        ...syncTopLevel(newGroups, state.activeGroupId),
+      });
     },
 
     // ── Diff Operations ──────────────────────────────────────────────
 
     addDiff: (diff) => {
       const { pendingDiffs } = get();
-      const existingIdx = pendingDiffs.findIndex((d) => d.filePath === diff.filePath);
+      const existingIdx = pendingDiffs.findIndex(
+        (d) => d.filePath === diff.filePath,
+      );
 
       if (existingIdx !== -1) {
         const updated = [...pendingDiffs];
@@ -417,7 +476,7 @@ export function createEditorActions(set: SetState, get: GetState): EditorActions
           ? filtered.map((f) =>
               f.path === filePath
                 ? { ...f, content: diff.newContent, modified: false }
-                : f
+                : f,
             )
           : filtered;
 
@@ -427,7 +486,9 @@ export function createEditorActions(set: SetState, get: GetState): EditorActions
             newActive = filePath;
           } else {
             const idx = g.openFiles.findIndex((f) => f.path === diff.tabPath);
-            newActive = updatedFiles[Math.min(idx, updatedFiles.length - 1)]?.path ?? null;
+            newActive =
+              updatedFiles[Math.min(idx, updatedFiles.length - 1)]?.path ??
+              null;
           }
         }
 
@@ -454,7 +515,8 @@ export function createEditorActions(set: SetState, get: GetState): EditorActions
         let newActive = g.activeFile;
         if (g.activeFile === diff.tabPath) {
           const idx = g.openFiles.findIndex((f) => f.path === diff.tabPath);
-          newActive = filtered[Math.min(idx, filtered.length - 1)]?.path ?? null;
+          newActive =
+            filtered[Math.min(idx, filtered.length - 1)]?.path ?? null;
         }
         return { ...g, openFiles: filtered, activeFile: newActive };
       });
@@ -483,7 +545,9 @@ export function createEditorActions(set: SetState, get: GetState): EditorActions
       const group = getActiveGroup(state);
       if (!group.activeFile) return;
 
-      const activeOpenFile = group.openFiles.find((f) => f.path === group.activeFile);
+      const activeOpenFile = group.openFiles.find(
+        (f) => f.path === group.activeFile,
+      );
       if (!activeOpenFile) return;
 
       const newGroup: EditorGroup = {
@@ -533,7 +597,8 @@ export function createEditorActions(set: SetState, get: GetState): EditorActions
         let newActive = g.activeFile;
         if (g.activeFile === filePath) {
           const idx = g.openFiles.findIndex((f) => f.path === filePath);
-          newActive = newFiles[Math.min(idx, newFiles.length - 1)]?.path ?? null;
+          newActive =
+            newFiles[Math.min(idx, newFiles.length - 1)]?.path ?? null;
         }
         return { ...g, openFiles: newFiles, activeFile: newActive };
       });
@@ -581,7 +646,9 @@ export function createEditorActions(set: SetState, get: GetState): EditorActions
       const group = getActiveGroup(state);
       const kept = group.openFiles.filter((f) => f.path === path || f.pinned);
       const removedPaths = new Set(
-        group.openFiles.filter((f) => f.path !== path && !f.pinned).map((f) => f.path)
+        group.openFiles
+          .filter((f) => f.path !== path && !f.pinned)
+          .map((f) => f.path),
       );
 
       const groups = updateGroup(state.groups, group.id, (g) => ({
@@ -594,13 +661,15 @@ export function createEditorActions(set: SetState, get: GetState): EditorActions
         groups,
         ...syncTopLevel(groups, state.activeGroupId),
         pendingDiffs: state.pendingDiffs.filter(
-          (d) => !removedPaths.has(d.filePath) && !removedPaths.has(d.tabPath)
+          (d) => !removedPaths.has(d.filePath) && !removedPaths.has(d.tabPath),
         ),
       });
 
       // Clean up editorCore
       for (const removedPath of removedPaths) {
-        const stillOpen = groups.some((g) => g.openFiles.some((f) => f.path === removedPath));
+        const stillOpen = groups.some((g) =>
+          g.openFiles.some((f) => f.path === removedPath),
+        );
         if (!stillOpen) {
           editorCore.removeContent(removedPath);
           editorCore.removeViewState(removedPath);
@@ -616,7 +685,9 @@ export function createEditorActions(set: SetState, get: GetState): EditorActions
 
       const kept = group.openFiles.filter((f, i) => i <= idx || f.pinned);
       const removedPaths = new Set(
-        group.openFiles.filter((f, i) => i > idx && !f.pinned).map((f) => f.path)
+        group.openFiles
+          .filter((f, i) => i > idx && !f.pinned)
+          .map((f) => f.path),
       );
 
       let newActive = group.activeFile;
@@ -634,13 +705,15 @@ export function createEditorActions(set: SetState, get: GetState): EditorActions
         groups,
         ...syncTopLevel(groups, state.activeGroupId),
         pendingDiffs: state.pendingDiffs.filter(
-          (d) => !removedPaths.has(d.filePath) && !removedPaths.has(d.tabPath)
+          (d) => !removedPaths.has(d.filePath) && !removedPaths.has(d.tabPath),
         ),
       });
 
       // Clean up editorCore
       for (const removedPath of removedPaths) {
-        const stillOpen = groups.some((g) => g.openFiles.some((f) => f.path === removedPath));
+        const stillOpen = groups.some((g) =>
+          g.openFiles.some((f) => f.path === removedPath),
+        );
         if (!stillOpen) {
           editorCore.removeContent(removedPath);
           editorCore.removeViewState(removedPath);
@@ -653,7 +726,9 @@ export function createEditorActions(set: SetState, get: GetState): EditorActions
       const group = getActiveGroup(state);
       const kept = group.openFiles.filter((f) => f.modified || f.pinned);
       const removedPaths = new Set(
-        group.openFiles.filter((f) => !f.modified && !f.pinned).map((f) => f.path)
+        group.openFiles
+          .filter((f) => !f.modified && !f.pinned)
+          .map((f) => f.path),
       );
 
       let newActive = group.activeFile;
@@ -672,13 +747,15 @@ export function createEditorActions(set: SetState, get: GetState): EditorActions
         groups,
         ...syncTopLevel(groups, state.activeGroupId),
         pendingDiffs: state.pendingDiffs.filter(
-          (d) => !removedPaths.has(d.filePath) && !removedPaths.has(d.tabPath)
+          (d) => !removedPaths.has(d.filePath) && !removedPaths.has(d.tabPath),
         ),
       });
 
       // Clean up editorCore
       for (const removedPath of removedPaths) {
-        const stillOpen = groups.some((g) => g.openFiles.some((f) => f.path === removedPath));
+        const stillOpen = groups.some((g) =>
+          g.openFiles.some((f) => f.path === removedPath),
+        );
         if (!stillOpen) {
           editorCore.removeContent(removedPath);
           editorCore.removeViewState(removedPath);
@@ -694,7 +771,10 @@ export function createEditorActions(set: SetState, get: GetState): EditorActions
 
       const file = { ...group.openFiles[idx], pinned: true };
       const others = group.openFiles.filter((_, i) => i !== idx);
-      const lastPinnedIdx = others.reduce((acc, f, i) => (f.pinned ? i : acc), -1);
+      const lastPinnedIdx = others.reduce(
+        (acc, f, i) => (f.pinned ? i : acc),
+        -1,
+      );
       const newFiles = [...others];
       newFiles.splice(lastPinnedIdx + 1, 0, file);
 
@@ -711,7 +791,7 @@ export function createEditorActions(set: SetState, get: GetState): EditorActions
       const groups = updateGroup(state.groups, group.id, (g) => ({
         ...g,
         openFiles: g.openFiles.map((f) =>
-          f.path === path ? { ...f, pinned: false } : f
+          f.path === path ? { ...f, pinned: false } : f,
         ),
       }));
       set({ groups, ...syncTopLevel(groups, state.activeGroupId) });
@@ -741,7 +821,8 @@ export function createEditorActions(set: SetState, get: GetState): EditorActions
 
       const matchesPath = (filePath: string) =>
         isDir
-          ? filePath.startsWith(oldPath + "/") || filePath.startsWith(oldPath + "\\")
+          ? filePath.startsWith(oldPath + "/") ||
+            filePath.startsWith(oldPath + "\\")
           : filePath === oldPath;
 
       const updateFilePath = (filePath: string) =>
@@ -776,10 +857,14 @@ export function createEditorActions(set: SetState, get: GetState): EditorActions
               filePath: updateFilePath(d.filePath),
               tabPath: buildDiffTabPath(updateFilePath(d.filePath)),
             }
-          : d
+          : d,
       );
 
-      set({ groups, pendingDiffs, ...syncTopLevel(groups, state.activeGroupId) });
+      set({
+        groups,
+        pendingDiffs,
+        ...syncTopLevel(groups, state.activeGroupId),
+      });
 
       // Migrate editorCore paths
       if (isDir) {
@@ -815,22 +900,27 @@ export function createEditorActions(set: SetState, get: GetState): EditorActions
         let newActive = g.activeFile;
         if (g.activeFile && matchesPath(g.activeFile)) {
           const idx = g.openFiles.findIndex((f) => f.path === g.activeFile);
-          newActive = filtered[Math.min(idx, filtered.length - 1)]?.path ?? null;
+          newActive =
+            filtered[Math.min(idx, filtered.length - 1)]?.path ?? null;
         }
 
         return { ...g, openFiles: filtered, activeFile: newActive };
       });
 
       const pendingDiffs = state.pendingDiffs.filter(
-        (d) => !matchesPath(d.filePath) && !matchesPath(d.tabPath)
+        (d) => !matchesPath(d.filePath) && !matchesPath(d.tabPath),
       );
 
-      set({ groups, pendingDiffs, ...syncTopLevel(groups, state.activeGroupId) });
+      set({
+        groups,
+        pendingDiffs,
+        ...syncTopLevel(groups, state.activeGroupId),
+      });
 
       // Clean up editorCore
       for (const deletedFilePath of deletedFilePaths) {
         const stillOpen = groups.some((g) =>
-          g.openFiles.some((f) => f.path === deletedFilePath)
+          g.openFiles.some((f) => f.path === deletedFilePath),
         );
         if (!stillOpen) {
           editorCore.removeContent(deletedFilePath);
@@ -910,7 +1000,8 @@ export function createEditorActions(set: SetState, get: GetState): EditorActions
               openFiles: g.openFiles
                 .filter(
                   (f) =>
-                    !f.path.startsWith("diff:") && !f.path.startsWith("untitled:")
+                    !f.path.startsWith("diff:") &&
+                    !f.path.startsWith("untitled:"),
                 )
                 .map((f) => ({
                   path: f.path,
@@ -963,8 +1054,11 @@ export function createEditorActions(set: SetState, get: GetState): EditorActions
         });
 
         const nonEmpty = restoredGroups.filter((g) => g.openFiles.length > 0);
-        const finalGroups = nonEmpty.length > 0 ? nonEmpty : [createDefaultGroup()];
-        const activeGroupId = finalGroups.some((g) => g.id === data.activeGroupId)
+        const finalGroups =
+          nonEmpty.length > 0 ? nonEmpty : [createDefaultGroup()];
+        const activeGroupId = finalGroups.some(
+          (g) => g.id === data.activeGroupId,
+        )
           ? data.activeGroupId
           : finalGroups[0].id;
 
@@ -981,7 +1075,9 @@ export function createEditorActions(set: SetState, get: GetState): EditorActions
         await Promise.allSettled(
           finalGroups.map(async (group) => {
             if (!group.activeFile) return;
-            const activeMeta = group.openFiles.find((f) => f.path === group.activeFile);
+            const activeMeta = group.openFiles.find(
+              (f) => f.path === group.activeFile,
+            );
             if (!activeMeta) return;
             try {
               const result = await host.readFile(activeMeta.path);
@@ -989,13 +1085,13 @@ export function createEditorActions(set: SetState, get: GetState): EditorActions
                 get().hydrateFileContent(
                   activeMeta.path,
                   result.content,
-                  result.language || activeMeta.language
+                  result.language || activeMeta.language,
                 );
               }
             } catch {
               // Lazy hydration failure handled when user focuses tab
             }
-          })
+          }),
         );
       } catch {
         console.warn("Failed to restore editor state");

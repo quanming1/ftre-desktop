@@ -1,12 +1,6 @@
 import { useState, useRef, memo, useCallback, useMemo } from "react";
 import { createPortal } from "react-dom";
-import {
-  FolderOpen,
-  Folder,
-  Trash2,
-  FolderSync,
-  GripVertical,
-} from "lucide-react";
+import { FolderOpen, Folder, Trash2, FolderSync, GripVertical } from "lucide-react";
 import { useWorkspace } from "@/stores/workspace";
 
 /** Activity Bar 宽度常量，Workbench 布局计算需要引用 */
@@ -132,9 +126,7 @@ function Tooltip({
             {name}
           </span>
           {isActive && (
-            <span className="text-[10px] font-mono text-neon/70 leading-none">
-              current
-            </span>
+            <span className="text-[10px] font-mono text-neon/70 leading-none">current</span>
           )}
         </div>
         <div className="text-[11px] font-mono text-t-dim mt-1.5 whitespace-nowrap leading-none max-w-[320px] truncate">
@@ -168,14 +160,7 @@ function ContextMenu({
   return createPortal(
     <>
       {/* 透明遮罩捕获点击关闭 */}
-      <div
-        className="fixed inset-0 z-[9998]"
-        onClick={onClose}
-        onContextMenu={(e) => {
-          e.preventDefault();
-          onClose();
-        }}
-      />
+      <div className="fixed inset-0 z-[9998]" onClick={onClose} onContextMenu={(e) => { e.preventDefault(); onClose(); }} />
       <div
         className="fixed z-[9999]"
         style={{
@@ -185,10 +170,7 @@ function ContextMenu({
       >
         <div className="py-1 rounded-lg bg-elevated border border-border-subtle shadow-xl shadow-black/50 min-w-[160px]">
           <button
-            onClick={() => {
-              onRemove();
-              onClose();
-            }}
+            onClick={() => { onRemove(); onClose(); }}
             className="
               w-full flex items-center gap-2.5 px-3 py-1.5
               text-[12px] font-mono text-t-muted
@@ -220,30 +202,22 @@ function ContextMenu({
 
 // ─── 拖拽指示线 ────────────────────────────────────────────────────
 
-function DropIndicator({
-  anchorRef,
-  position,
-}: {
-  anchorRef: React.RefObject<HTMLDivElement | null>;
-  position: "before" | "after";
-}) {
+function DropIndicator({ anchorRef, position }: { anchorRef: React.RefObject<HTMLDivElement | null>; position: "before" | "after" }) {
   if (!anchorRef.current) return null;
   const rect = anchorRef.current.getBoundingClientRect();
-  const y = position === "before" ? rect.top - 6 : rect.bottom + 2;
+  const y = position === "before" ? rect.top - 2 : rect.bottom + 2;
 
   return createPortal(
     <div
       className="fixed pointer-events-none z-[9997]"
       style={{
-        left: rect.left - 3,
+        left: rect.left + 4,
         top: y,
-        width: rect.width + 6,
-        height: 6,
-        borderRadius: 999,
-        background:
-          "linear-gradient(90deg, rgba(0,255,136,0.18), rgba(0,255,136,0.95), rgba(0,255,136,0.18))",
-        boxShadow:
-          "0 0 0 1px rgba(0,255,136,0.18), 0 0 14px rgba(0,255,136,0.35)",
+        width: rect.width - 8,
+        height: 2,
+        borderRadius: 1,
+        background: "#00ff88",
+        boxShadow: "0 0 6px rgba(0,255,136,0.5)",
       }}
     />,
     document.body,
@@ -256,7 +230,6 @@ const FolderButton = memo(function FolderButton({
   path,
   index,
   isActive,
-  isDragging,
   onClick,
   onRemove,
   onDragStart,
@@ -269,7 +242,6 @@ const FolderButton = memo(function FolderButton({
   path: string;
   index: number;
   isActive: boolean;
-  isDragging: boolean;
   onClick: () => void;
   onRemove: () => void;
   onDragStart: (index: number) => void;
@@ -281,7 +253,6 @@ const FolderButton = memo(function FolderButton({
 }) {
   const [hovered, setHovered] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
-  const [dragArmed, setDragArmed] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
   const abbrev = useMemo(() => folderAbbrev(path), [path]);
   const name = folderName(path);
@@ -293,176 +264,100 @@ const FolderButton = memo(function FolderButton({
     setMenuOpen(true);
   }, []);
 
-  const armDrag = useCallback((e: React.MouseEvent | React.PointerEvent) => {
-    e.stopPropagation();
-    setDragArmed(true);
-  }, []);
+  const handleDragStart = useCallback((e: React.DragEvent) => {
+    e.dataTransfer.effectAllowed = "move";
+    e.dataTransfer.setData("text/plain", String(index));
+    onDragStart(index);
+  }, [index, onDragStart]);
 
-  const clearDragArm = useCallback(() => {
-    setDragArmed(false);
-  }, []);
+  const handleDragOver = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = "move";
+    onDragOver(index, e);
+  }, [index, onDragOver]);
 
-  const handleDragStart = useCallback(
-    (e: React.DragEvent) => {
-      if (!dragArmed) {
-        e.preventDefault();
-        return;
-      }
-      e.dataTransfer.effectAllowed = "move";
-      e.dataTransfer.setData("text/plain", String(index));
-      onDragStart(index);
-    },
-    [dragArmed, index, onDragStart],
-  );
+  const handleDrop = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    onDrop(index);
+  }, [index, onDrop]);
 
-  const handleDragOver = useCallback(
-    (e: React.DragEvent) => {
-      e.preventDefault();
-      e.dataTransfer.dropEffect = "move";
-      onDragOver(index, e);
-    },
-    [index, onDragOver],
-  );
-
-  const handleDrop = useCallback(
-    (e: React.DragEvent) => {
-      e.preventDefault();
-      onDrop(index);
-    },
-    [index, onDrop],
-  );
-
-  const activeOpacity = 0.34;
+  // active: 渐变明亮 + 四边边框  inactive: 渐变极淡
+  const activeOpacity = 0.3;
   const inactiveOpacity = 0.08;
-  const hoverOpacity = 0.16;
-  const opacity = isActive
-    ? activeOpacity
-    : hovered
-      ? hoverOpacity
-      : inactiveOpacity;
+  const hoverOpacity = 0.14;
+  const opacity = isActive ? activeOpacity : hovered ? hoverOpacity : inactiveOpacity;
 
   return (
     <div
       ref={ref}
-      className={`group relative shrink-0 transition-transform duration-150 ${
-        isDragging ? "scale-[0.94] opacity-55" : "opacity-100"
-      }`}
-      draggable={dragArmed}
+      className="relative shrink-0"
+      draggable
       onDragStart={handleDragStart}
       onDragOver={handleDragOver}
-      onDragEnd={() => {
-        clearDragArm();
-        onDragEnd();
-      }}
+      onDragEnd={onDragEnd}
       onDrop={handleDrop}
       onMouseEnter={() => setHovered(true)}
-      onMouseLeave={() => {
-        setHovered(false);
-        clearDragArm();
-      }}
+      onMouseLeave={() => { setHovered(false); }}
     >
+      {/* 拖拽指示线 */}
       {isDragOver && dropPosition && (
         <DropIndicator anchorRef={ref} position={dropPosition} />
       )}
 
-      <div
+      <button
+        onClick={onClick}
+        onContextMenu={handleContextMenu}
+        aria-label={name}
         className={`
           relative flex items-center justify-center
-          w-[46px] h-[46px] rounded-xl overflow-hidden
-          border transition-all duration-180 cursor-pointer
-          ${isActive ? "shadow-[0_0_0_1px_rgba(255,255,255,0.04)]" : ""}
-          ${isDragOver ? "translate-y-0" : ""}
+          w-[46px] h-[46px] rounded-lg overflow-hidden
+          transition-all duration-200 cursor-pointer
+          ${isActive ? "" : "hover:shadow-sm"}
         `}
-        style={{
-          borderColor: isActive
-            ? `${color.from}66`
-            : hovered
-              ? "rgba(255,255,255,0.09)"
-              : "rgba(255,255,255,0.05)",
-          boxShadow: isActive
-            ? `0 0 0 1px ${color.from}22, 0 8px 22px ${color.from}18`
-            : hovered
-              ? "0 8px 20px rgba(0,0,0,0.18)"
-              : "none",
-          background: "rgba(255,255,255,0.02)",
-        }}
+        style={isActive ? {
+          border: `1.5px solid ${color.from}bb`,
+          boxShadow: `0 0 12px ${color.from}30`,
+        } : undefined}
       >
-        <button
-          onClick={onClick}
-          onContextMenu={handleContextMenu}
-          aria-label={name}
-          className="
-            absolute inset-0 flex items-center justify-center
-            rounded-xl overflow-hidden
-            transition-all duration-180
-          "
-        >
-          <div
-            className="absolute inset-0 rounded-xl transition-opacity duration-180"
-            style={{
-              background: `linear-gradient(145deg, ${color.from}, ${color.to})`,
-              opacity,
-            }}
-          />
-          <div className="absolute inset-0 rounded-xl bg-[radial-gradient(circle_at_30%_20%,rgba(255,255,255,0.22),transparent_42%)] opacity-70" />
-          <span
-            className="relative z-10 font-mono font-bold leading-none select-none transition-all duration-180"
-            style={{
-              fontSize: abbrev.length >= 3 ? "11px" : "13px",
-              color: isActive ? "#ffffff" : color.from,
-              opacity: isActive ? 1 : hovered ? 0.86 : 0.58,
-              textShadow: isActive ? `0 0 12px ${color.from}60` : "none",
-              letterSpacing: abbrev.length >= 3 ? "0.5px" : "0.8px",
-            }}
-          >
-            {abbrev}
-          </span>
-        </button>
-
-        <button
-          type="button"
-          aria-label={`拖动排序 ${name}`}
-          title="拖动排序"
-          onMouseDown={armDrag}
-          onPointerDown={armDrag}
-          onMouseUp={clearDragArm}
-          onPointerUp={clearDragArm}
-          onClick={(e) => e.stopPropagation()}
-          className={`
-            absolute right-0.5 top-0.5 z-20
-            w-4.5 h-4.5 rounded-md
-            flex items-center justify-center
-            transition-all duration-150
-            ${dragArmed || hovered ? "opacity-100" : "opacity-0 group-hover:opacity-100"}
-          `}
+        {/* 渐变背景层 */}
+        <div
+          className="absolute inset-0 rounded-lg transition-opacity duration-200"
           style={{
-            background: dragArmed
-              ? "rgba(255,255,255,0.14)"
-              : "rgba(0,0,0,0.18)",
-            color: dragArmed ? "#ffffff" : "rgba(255,255,255,0.6)",
-            boxShadow: dragArmed ? `0 0 0 1px ${color.from}55` : "none",
+            background: `linear-gradient(135deg, ${color.from}, ${color.to})`,
+            opacity,
+          }}
+        />
+
+        {/* 缩写文字 */}
+        <span
+          className="relative z-10 font-mono font-bold leading-none select-none transition-opacity duration-200"
+          style={{
+            fontSize: abbrev.length >= 3 ? "11px" : "13px",
+            color: color.from,
+            opacity: isActive ? 1 : hovered ? 0.75 : 0.5,
+            textShadow: isActive ? `0 0 8px ${color.from}50` : "none",
+            letterSpacing: abbrev.length >= 3 ? "0.5px" : "0.8px",
           }}
         >
-          <GripVertical size={11} />
-        </button>
-      </div>
+          {abbrev}
+        </span>
+      </button>
 
+      {/* 拖拽把手指示 — hover 时在按钮底部显示 */}
       {hovered && !menuOpen && (
-        <Tooltip
-          anchorRef={ref}
-          name={name}
-          shortPath={shortPath}
-          isActive={isActive}
-          color={color}
-        />
+        <div className="absolute -bottom-0.5 left-1/2 -translate-x-1/2 pointer-events-none opacity-30">
+          <GripVertical size={10} className="text-t-ghost" />
+        </div>
       )}
 
+      {/* Tooltip */}
+      {hovered && !menuOpen && (
+        <Tooltip anchorRef={ref} name={name} shortPath={shortPath} isActive={isActive} color={color} />
+      )}
+
+      {/* 右键菜单 */}
       {menuOpen && (
-        <ContextMenu
-          anchorRef={ref}
-          onRemove={onRemove}
-          onClose={() => setMenuOpen(false)}
-        />
+        <ContextMenu anchorRef={ref} onRemove={onRemove} onClose={() => setMenuOpen(false)} />
       )}
     </div>
   );
@@ -477,39 +372,28 @@ export function ActivityBar() {
   const removeRecentFolder = useWorkspace((s) => s.removeRecentFolder);
   const reorderFolders = useWorkspace((s) => s.reorderFolders);
 
+  // ── 拖拽状态 ──
   const [dragIndex, setDragIndex] = useState<number | null>(null);
   const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
-  const [dropPosition, setDropPosition] = useState<"before" | "after" | null>(
-    null,
-  );
+  const [dropPosition, setDropPosition] = useState<"before" | "after" | null>(null);
 
   const handleDragStart = useCallback((index: number) => {
     setDragIndex(index);
   }, []);
 
-  const handleDragOver = useCallback(
-    (index: number, e: React.DragEvent) => {
-      if (dragIndex === null || dragIndex === index) {
-        setDragOverIndex(null);
-        setDropPosition(null);
-        return;
-      }
-
-      setDragOverIndex(index);
-
-      const target = e.currentTarget as HTMLElement;
-      const rect = target.getBoundingClientRect();
-      const upperZone = rect.top + rect.height * 0.42;
-      const lowerZone = rect.bottom - rect.height * 0.42;
-
-      if (e.clientY <= upperZone) {
-        setDropPosition("before");
-      } else if (e.clientY >= lowerZone) {
-        setDropPosition("after");
-      }
-    },
-    [dragIndex],
-  );
+  const handleDragOver = useCallback((index: number, e: React.DragEvent) => {
+    if (dragIndex === null || dragIndex === index) {
+      setDragOverIndex(null);
+      setDropPosition(null);
+      return;
+    }
+    setDragOverIndex(index);
+    // 根据鼠标位置决定是放在目标的上面还是下面
+    const target = e.currentTarget as HTMLElement;
+    const rect = target.getBoundingClientRect();
+    const midY = rect.top + rect.height / 2;
+    setDropPosition(e.clientY < midY ? "before" : "after");
+  }, [dragIndex]);
 
   const handleDragEnd = useCallback(() => {
     setDragIndex(null);
@@ -517,36 +401,23 @@ export function ActivityBar() {
     setDropPosition(null);
   }, []);
 
-  const handleDrop = useCallback(
-    (targetIndex: number) => {
-      if (
-        dragIndex === null ||
-        dragIndex === targetIndex ||
-        dropPosition === null
-      ) {
-        handleDragEnd();
-        return;
-      }
-
-      let toIndex = targetIndex;
-      if (dropPosition === "after") {
-        toIndex = targetIndex + (dragIndex < targetIndex ? 0 : 1);
-      } else {
-        toIndex = targetIndex - (dragIndex < targetIndex ? 1 : 0);
-      }
-
-      toIndex = Math.max(0, Math.min(toIndex, recentFolders.length - 1));
-      reorderFolders(dragIndex, toIndex);
+  const handleDrop = useCallback((targetIndex: number) => {
+    if (dragIndex === null || dragIndex === targetIndex) {
       handleDragEnd();
-    },
-    [
-      dragIndex,
-      dropPosition,
-      recentFolders.length,
-      reorderFolders,
-      handleDragEnd,
-    ],
-  );
+      return;
+    }
+    // 计算实际插入位置
+    let toIndex = targetIndex;
+    if (dropPosition === "after") {
+      toIndex = targetIndex + (dragIndex < targetIndex ? 0 : 1);
+    } else {
+      toIndex = targetIndex - (dragIndex < targetIndex ? 1 : 0);
+    }
+    // 边界保护
+    toIndex = Math.max(0, Math.min(toIndex, recentFolders.length - 1));
+    reorderFolders(dragIndex, toIndex);
+    handleDragEnd();
+  }, [dragIndex, dropPosition, recentFolders.length, reorderFolders, handleDragEnd]);
 
   const handleOpenFolder = useCallback(async () => {
     try {
@@ -554,9 +425,7 @@ export function ActivityBar() {
       if (result?.path) {
         setRootPath(result.path);
       }
-    } catch {
-      /* ignore */
-    }
+    } catch { /* ignore */ }
   }, [setRootPath]);
 
   return (
@@ -564,17 +433,12 @@ export function ActivityBar() {
       className="h-full bg-surface flex flex-col items-center py-3 gap-2 border-r border-border shrink-0 overflow-y-auto overflow-x-hidden scrollbar-none"
       style={{ width: ACTIVITY_BAR_WIDTH }}
     >
-      <div className="mb-1 text-[9px] font-mono uppercase tracking-[0.18em] text-t-faint">
-        Workspaces
-      </div>
-
       {recentFolders.map((folder, index) => (
         <FolderButton
           key={folder}
           path={folder}
           index={index}
           isActive={rootPath === folder}
-          isDragging={dragIndex === index}
           onClick={() => setRootPath(folder)}
           onRemove={() => removeRecentFolder(folder)}
           onDragStart={handleDragStart}
@@ -586,10 +450,7 @@ export function ActivityBar() {
         />
       ))}
 
-      <div className="mt-1 text-[9px] font-mono text-t-faint text-center leading-tight px-2">
-        拖右上角把手排序
-      </div>
-
+      {/* 底部：打开新文件夹 */}
       <div className="flex-1" />
       <button
         onClick={handleOpenFolder}
@@ -597,7 +458,7 @@ export function ActivityBar() {
         aria-label="打开文件夹"
         className="
           flex items-center justify-center
-          w-[46px] h-[46px] rounded-xl shrink-0
+          w-[46px] h-[46px] rounded-lg shrink-0
           text-t-ghost hover:text-t-muted hover:bg-white/[0.05]
           border border-dashed border-border/50 hover:border-border-subtle
           transition-all duration-200

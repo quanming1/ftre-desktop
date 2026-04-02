@@ -1,52 +1,45 @@
 /**
  * Monaco 主题注册
  *
- * 定义 ftre-dark 主题，从 CSS 变量读取颜色配置。
+ * 从 themes 模块读取主题配置并注册到 Monaco。
+ * 部分编辑器颜色仍从 CSS 变量读取，确保与应用外壳保持一致。
  */
 
 import type * as Monaco from "monaco-editor";
+import { getTheme } from "./themes";
 
-let themeRegistered = false;
+let registeredThemeId: string | null = null;
 
-export function registerFtreTheme(monaco: typeof Monaco): void {
-  if (themeRegistered) return;
+export function registerFtreTheme(
+  monaco: typeof Monaco,
+  themeId?: string,
+): void {
+  const theme = getTheme(themeId);
+  if (registeredThemeId === theme.id) return;
 
   const style = getComputedStyle(document.documentElement);
-  const cssVar = (name: string) => style.getPropertyValue(name).trim();
+  const cssVar = (name: string, fallback: string) =>
+    style.getPropertyValue(name).trim() || fallback;
 
-  monaco.editor.defineTheme("ftre-dark", {
-    base: "vs-dark",
-    inherit: true,
-    rules: [
-      { token: "comment", foreground: "555555" },
-      { token: "keyword", foreground: "c586c0" },
-      { token: "string", foreground: "ce9178" },
-      { token: "number", foreground: "b5cea8" },
-      { token: "type", foreground: "4ec9b0" },
-    ],
-    colors: {
-      "editor.background": cssVar("--color-base"),
-      "editor.foreground": cssVar("--color-t-primary"),
-      "editorLineNumber.foreground": cssVar("--color-t-ghost"),
-      "editorLineNumber.activeForeground": cssVar("--color-t-secondary"),
-      "editor.selectionBackground": cssVar("--color-neon") + "33",
-      "editor.lineHighlightBackground": "#ffffff08",
-      "editorCursor.foreground": cssVar("--color-neon"),
-      "editorWidget.background": cssVar("--color-surface"),
-      "editorWidget.border": cssVar("--color-border"),
-      "input.background": cssVar("--color-panel"),
-      "dropdown.background": cssVar("--color-surface"),
-      "list.hoverBackground": "#ffffff0a",
-      "list.activeSelectionBackground": cssVar("--color-neon") + "18",
-      "editorIndentGuide.background": cssVar("--color-border"),
-      "editorIndentGuide.activeBackground": cssVar("--color-t-faint"),
-    },
+  const cssOverrides: Record<string, string> = {
+    "editor.background": cssVar("--color-base", "#1e1e1e"),
+  };
+
+  monaco.editor.defineTheme(theme.id, {
+    base: theme.base,
+    inherit: theme.inherit,
+    rules: theme.tokenRules.map((r) => ({
+      token: r.token,
+      foreground: r.foreground,
+      fontStyle: r.fontStyle,
+    })),
+    colors: { ...theme.editorColors, ...cssOverrides },
   });
 
-  themeRegistered = true;
+  registeredThemeId = theme.id;
 }
 
 /** Reset registration state — exposed only for testing. */
 export function _resetThemeRegistration(): void {
-  themeRegistered = false;
+  registeredThemeId = null;
 }

@@ -1,4 +1,10 @@
-import { useEffect, useState, useCallback, useMemo, useRef } from "react";
+import React, {
+  useEffect,
+  useState,
+  useCallback,
+  useMemo,
+  useRef,
+} from "react";
 import {
   FolderTree,
   GitBranch,
@@ -120,14 +126,24 @@ export function ExplorerView() {
   );
   const [focusedPath, setFocusedPath] = useState<string | null>(null);
   const [dragOverPath, setDragOverPath] = useState<string | null>(null);
+  // 等待 reveal 的目标路径（当目录异步加载完成后设置焦点）
+  const [pendingRevealPath, setPendingRevealPath] = useState<string | null>(
+    null,
+  );
   const treeContainerRef = useRef<HTMLDivElement>(null);
 
   const { addNotification } = useNotification();
 
-  // 工作区切换时，重新加载该工作区的文件树展开状态
+  // 工作区切换时，重新加载该工作区的文件树展开状态，并清理所有临时状态
   useEffect(() => {
     setExpandedPaths(loadExpandedPaths(rootPath));
     setChildrenMap(new Map());
+    setFocusedPath(null);
+    setPendingRevealPath(null);
+    // 清除所有 pending 状态，避免旧工作区的操作状态残留
+    setPendingCreate(null);
+    setPendingRename(null);
+    setPendingDelete(null);
   }, [rootPath]);
 
   // ── Children map for keyboard navigation tree ──────────────────────
@@ -190,36 +206,65 @@ export function ExplorerView() {
     return map;
   }, [treeEntries]);
 
-  const canVirtualize =
-    !!rootPath && !pendingCreate && !pendingRename && !dragOverPath;
+  // 虚拟化策略：始终启用虚拟化，但在 pending 状态时扩展可见范围以包含目标行
+  // 这样既保持大型项目的性能，又确保 InlineInput 能正确渲染
+  const canVirtualize = !!rootPath;
+
+  // 计算 pending 操作的目标行索引，用于扩展可见范围
+  const pendingTargetIndex = useMemo(() => {
+    if (pendingCreate) {
+      // 新建时目标是父目录的最后一个子项位置
+      return flatEntries.findIndex((e) => e.path === pendingCreate.dirPath);
+    }
+    if (pendingRename) {
+      return flatEntries.findIndex((e) => e.path === pendingRename.path);
+    }
+    if (dragOverPath) {
+      return flatEntries.findIndex((e) => e.path === dragOverPath);
+    }
+    return -1;
+  }, [flatEntries, pendingCreate, pendingRename, dragOverPath]);
 
   const [scrollTop, setScrollTop] = useState(0);
   const [viewportHeight, setViewportHeight] = useState(0);
 
   const totalRows = flatEntries.length;
-  const startIndex = canVirtualize
-    ? Math.max(
-        0,
-        Math.floor(scrollTop / EXPLORER_ROW_HEIGHT) - EXPLORER_OVERSCAN,
-      )
-    : 0;
-  const visibleCount = canVirtualize
-    ? Math.ceil(viewportHeight / EXPLORER_ROW_HEIGHT) + EXPLORER_OVERSCAN * 2
-    : totalRows;
-  const endIndex = canVirtualize
-    ? Math.min(totalRows, startIndex + visibleCount)
-    : totalRows;
+
+  // 基础可见范围计算
+  const baseStartIndex = Math.max(
+    0,
+    Math.floor(scrollTop / EXPLORER_ROW_HEIGHT) - EXPLORER_OVERSCAN,
+  );
+  const baseVisibleCount =
+    Math.ceil(viewportHeight / EXPLORER_ROW_HEIGHT) + EXPLORER_OVERSCAN * 2;
+  const baseEndIndex = Math.min(totalRows, baseStartIndex + baseVisibleCount);
+
+  // 如果有 pending 操作，扩展范围以包含目标行（前后各 5 行缓冲）
+  const PENDING_BUFFER = 5;
+  let startIndex = baseStartIndex;
+  let endIndex = baseEndIndex;
+
+  if (pendingTargetIndex >= 0) {
+    const targetStart = Math.max(0, pendingTargetIndex - PENDING_BUFFER);
+    const targetEnd = Math.min(
+      totalRows,
+      pendingTargetIndex + PENDING_BUFFER + 1,
+    );
+    startIndex = Math.min(startIndex, targetStart);
+    endIndex = Math.max(endIndex, targetEnd);
+  }
 
   const virtualEntries = useMemo(
     () => flatEntries.slice(startIndex, endIndex),
     [flatEntries, startIndex, endIndex],
   );
-  const visibleEntries = canVirtualize ? virtualEntries : flatEntries;
+  const visibleEntries = virtualEntries;
 
-  const topSpacerHeight = canVirtualize ? startIndex * EXPLORER_ROW_HEIGHT : 0;
-  const bottomSpacerHeight = canVirtualize
-    ? Math.max(0, (totalRows - endIndex) * EXPLORER_ROW_HEIGHT)
-    : 0;
+  const topSpacerHeight = startIndex * EXPLORER_ROW_HEIGHT;
+  const bottomSpacerHeight = Math.max(
+    0,
+    (totalRows - endIndex) * EXPLORER_ROW_HEIGHT,
+  );
 
   const toggleExpanded = useCallback(
     (path: string) => {
@@ -264,7 +309,8 @@ export function ExplorerView() {
         case "ArrowUp": {
           e.preventDefault();
           if (!focusedPath) {
-            setFocusedPath(flatEntries[0].path);
+            // 无焦点时按 ArrowUp 应聚焦最后一项（与 ArrowDown 聚焦第一项对称）
+            setFocusedPath(flatEntries[flatEntries.length - 1].path);
           } else {
             const prev = getNextFocusPath(flatEntries, focusedPath, "up");
             if (prev) setFocusedPath(prev);
@@ -404,6 +450,10 @@ export function ExplorerView() {
   const expandedPathsRef = useRef(expandedPaths);
   expandedPathsRef.current = expandedPaths;
 
+  // 用 ref 引用 focusedPath，用于在 tree-refresh 时检查是否需要清理
+  const focusedPathRef = useRef(focusedPath);
+  focusedPathRef.current = focusedPath;
+
   useEffect(() => {
     if (!rootPath) return;
     const handler = (e: Event) => {
@@ -426,13 +476,26 @@ export function ExplorerView() {
         const refreshStart = performanceMetrics.start();
         window.desktop.fs.readDir(dirPath).then((result) => {
           if (!result.error) {
+            const newEntries = filterEntries(result.entries);
             setChildrenMap((prev) => {
               const next = new Map(prev);
-              next.set(dirPath, filterEntries(result.entries));
+              next.set(dirPath, newEntries);
               return next;
             });
             performanceMetrics.count("tree.refresh.child");
             performanceMetrics.end("tree.refresh.dir.ms", refreshStart);
+
+            // 检查 focusedPath 是否仍然存在
+            // 如果 focusedPath 的父目录是当前刷新的目录，检查它是否还在新的条目列表中
+            const currentFocused = focusedPathRef.current;
+            if (currentFocused && pathParent(currentFocused) === dirPath) {
+              const stillExists = newEntries.some(
+                (e) => e.path === currentFocused,
+              );
+              if (!stillExists) {
+                setFocusedPath(null);
+              }
+            }
           }
         });
       }
@@ -540,11 +603,33 @@ export function ExplorerView() {
         });
       }
 
-      setFocusedPath(targetPath);
-      setFocusSeq((s) => s + 1);
+      // 检查目标路径是否已在 flatEntries 中
+      // 如果是，直接设置焦点；否则等待目录加载完成
+      const isTargetVisible = flatEntries.some((e) => e.path === targetPath);
+      if (isTargetVisible) {
+        setFocusedPath(targetPath);
+        setFocusSeq((s) => s + 1);
+        setPendingRevealPath(null);
+      } else {
+        // 目录还在异步加载中，记录待 reveal 的路径
+        setPendingRevealPath(targetPath);
+      }
     },
-    [rootPath],
+    [rootPath, flatEntries],
   );
+
+  // 当 flatEntries 变化时，检查 pendingRevealPath 是否已可见
+  useEffect(() => {
+    if (!pendingRevealPath) return;
+    const isTargetVisible = flatEntries.some(
+      (e) => e.path === pendingRevealPath,
+    );
+    if (isTargetVisible) {
+      setFocusedPath(pendingRevealPath);
+      setFocusSeq((s) => s + 1);
+      setPendingRevealPath(null);
+    }
+  }, [flatEntries, pendingRevealPath]);
 
   // ── Event: ftre:reveal-in-sidebar ──────────────────────────────────
   useEffect(() => {
@@ -558,19 +643,10 @@ export function ExplorerView() {
     return () => window.removeEventListener("ftre:reveal-in-sidebar", handler);
   }, [revealPath]);
 
-  // ── Auto-reveal active file in tree ────────────────────────────────
-  const activeFile = useEditor((s) => s.activeFile);
-  useEffect(() => {
-    if (activeFile) {
-      // diff 虚拟 tab 路径以 "diff:" 开头，提取真实文件路径
-      const realPath = activeFile.startsWith("diff:")
-        ? activeFile.slice(5)
-        : activeFile;
-      revealPath(realPath);
-    }
-  }, [activeFile, revealPath]);
-
   // ── 定位当前文件（按钮用） ─────────────────────────────────────────
+  // 注意：移除了自动定位逻辑（activeFile 变化时自动 revealPath）
+  // 原因：自动定位会打断用户在文件树中的浏览，破坏用户上下文
+  // 现在用户需要手动点击"定位"按钮来定位当前文件
   const hasActiveFile = useEditor((s) => s.activeFile !== null);
 
   const handleLocateFile = useCallback(() => {
@@ -584,6 +660,7 @@ export function ExplorerView() {
   // ── 收齐所有文件夹 ────────────────────────────────────────────────
   const collapseAll = useCallback(() => {
     setExpandedPaths(new Set());
+    setFocusedPath(null); // 清理 focusedPath，因为被聚焦的项可能不可见了
     saveExpandedPaths(new Set(), rootPath);
   }, [rootPath]);
 
@@ -647,6 +724,11 @@ export function ExplorerView() {
         }
       }
 
+      // 创建成功后自动聚焦到新项目，方便用户立即操作（如重命名、删除等）
+      if (result.success) {
+        setFocusedPath(fullPath);
+      }
+
       setPendingCreate(null);
       // Refresh via the centralized tree-refresh handler only
       window.dispatchEvent(
@@ -680,6 +762,17 @@ export function ExplorerView() {
         });
       } else {
         renamePathInIndex(oldPath, newPath, pendingRename.isDir);
+        // 如果重命名的是当前聚焦的项，更新 focusedPath 到新路径
+        if (focusedPath === oldPath) {
+          setFocusedPath(newPath);
+        } else if (
+          focusedPath?.startsWith(oldPath + "/") ||
+          focusedPath?.startsWith(oldPath + "\\")
+        ) {
+          // 如果聚焦的是被重命名目录的子项，也需要更新路径
+          const relativePath = focusedPath.slice(oldPath.length);
+          setFocusedPath(newPath + relativePath);
+        }
         // Notify editor to update open tabs (task 2.4 handles this)
         window.dispatchEvent(
           new CustomEvent("ftre:file-renamed", {
@@ -695,13 +788,45 @@ export function ExplorerView() {
         }),
       );
     },
-    [pendingRename, addNotification],
+    [pendingRename, addNotification, focusedPath],
+  );
+
+  // ── 检查路径下是否有未保存的更改 ────────────────────────────────────
+  const hasUnsavedChanges = useCallback(
+    (targetPath: string, isDir: boolean): boolean => {
+      const openFiles = useEditor.getState().openFiles;
+      return openFiles.some((f) => {
+        if (!f.modified) return false;
+        if (isDir) {
+          // 检查是否是目标目录下的文件
+          return (
+            f.path === targetPath ||
+            f.path.startsWith(targetPath + "/") ||
+            f.path.startsWith(targetPath + "\\")
+          );
+        }
+        return f.path === targetPath;
+      });
+    },
+    [],
   );
 
   // ── Handle delete ──────────────────────────────────────────────────
   const handleDelete = useCallback(async () => {
     if (!pendingDelete) return;
     const { path: targetPath, isDir } = pendingDelete;
+
+    // 检查是否有未保存的更改
+    if (hasUnsavedChanges(targetPath, isDir)) {
+      const fileName = targetPath.split(/[\\/]/).pop();
+      const confirmDelete = window.confirm(
+        `"${fileName}" 有未保存的更改，确定要删除吗？`,
+      );
+      if (!confirmDelete) {
+        setPendingDelete(null);
+        return;
+      }
+    }
 
     const result = await window.desktop.fs.delete(targetPath, isDir);
 
@@ -712,6 +837,14 @@ export function ExplorerView() {
       });
     } else {
       removeFileFromIndex(targetPath, isDir);
+      // 如果删除的是当前聚焦的项，清理 focusedPath
+      if (
+        focusedPath === targetPath ||
+        focusedPath?.startsWith(targetPath + "/") ||
+        focusedPath?.startsWith(targetPath + "\\")
+      ) {
+        setFocusedPath(null);
+      }
       // Notify editor to close open tabs (task 2.4 handles this)
       window.dispatchEvent(
         new CustomEvent("ftre:file-deleted", {
@@ -727,7 +860,7 @@ export function ExplorerView() {
         detail: { dirPath: parentDir, changedPath: targetPath },
       }),
     );
-  }, [pendingDelete, addNotification]);
+  }, [pendingDelete, addNotification, focusedPath, hasUnsavedChanges]);
 
   const handleOpenFolder = async () => {
     const result = await window.desktop.fs.selectFolder();
@@ -762,20 +895,32 @@ export function ExplorerView() {
     const el = treeContainerRef.current;
     if (!el) return;
 
+    let rafId: number | null = null;
+
     const syncViewport = () => {
       setViewportHeight(el.clientHeight);
       setScrollTop(el.scrollTop);
     };
 
+    // 使用 requestAnimationFrame 节流滚动事件，避免频繁渲染
+    const handleScroll = () => {
+      if (rafId !== null) return; // 已有待处理的帧，跳过
+      rafId = requestAnimationFrame(() => {
+        rafId = null;
+        syncViewport();
+      });
+    };
+
     syncViewport();
-    el.addEventListener("scroll", syncViewport, { passive: true });
+    el.addEventListener("scroll", handleScroll, { passive: true });
 
     const ro = new ResizeObserver(() => syncViewport());
     ro.observe(el);
 
     return () => {
-      el.removeEventListener("scroll", syncViewport);
+      el.removeEventListener("scroll", handleScroll);
       ro.disconnect();
+      if (rafId !== null) cancelAnimationFrame(rafId);
     };
   }, []);
 
@@ -805,6 +950,44 @@ export function ExplorerView() {
   // Check if the pending create is at the root level
   const isRootCreate =
     pendingCreate && rootPath && pendingCreate.dirPath === rootPath;
+
+  // 自动展开 pendingCreate 的目标目录（虚拟化模式下 FileTreeItem 收不到 pendingCreate，需要在这里处理）
+  useEffect(() => {
+    if (pendingCreate && !isRootCreate) {
+      const dirPath = pendingCreate.dirPath;
+      if (!expandedPaths.has(dirPath)) {
+        setExpandedPaths((prev) => {
+          const next = new Set(prev);
+          next.add(dirPath);
+          saveExpandedPaths(next, rootPath);
+          return next;
+        });
+      }
+    }
+  }, [pendingCreate, isRootCreate, expandedPaths, rootPath]);
+
+  // 计算非根目录的 pendingCreate 需要渲染的位置和 depth
+  const pendingCreateInfo = useMemo(() => {
+    if (!pendingCreate || isRootCreate) return null;
+    // 找到目标目录在 flatEntries 中的位置
+    const dirIndex = flatEntries.findIndex(
+      (e) => e.path === pendingCreate.dirPath,
+    );
+    if (dirIndex === -1) return null;
+    const dirEntry = flatEntries[dirIndex];
+    // InlineInput 应该在目标目录的所有子项之后
+    // 找到最后一个属于该目录的子项
+    let insertAfterIndex = dirIndex;
+    for (let i = dirIndex + 1; i < flatEntries.length; i++) {
+      if (flatEntries[i].depth <= dirEntry.depth) break;
+      insertAfterIndex = i;
+    }
+    return {
+      insertAfterIndex,
+      depth: dirEntry.depth + 1,
+      siblingNames: getChildren(pendingCreate.dirPath).map((c) => c.name),
+    };
+  }, [pendingCreate, isRootCreate, flatEntries, getChildren]);
 
   return (
     <div className="h-full flex flex-col overflow-hidden">
@@ -912,38 +1095,60 @@ export function ExplorerView() {
         {canVirtualize && topSpacerHeight > 0 && (
           <div style={{ height: topSpacerHeight }} aria-hidden="true" />
         )}
-        {visibleEntries.map((flatEntry) => {
+        {visibleEntries.map((flatEntry, idx) => {
           const entry = entryMap.get(flatEntry.path);
           if (!entry) return null;
 
+          // 计算当前条目在 flatEntries 中的真实索引
+          const realIndex = startIndex + idx;
+
+          // 检查是否需要在此条目之后渲染 InlineInput
+          const shouldRenderInlineInput =
+            pendingCreateInfo &&
+            realIndex === pendingCreateInfo.insertAfterIndex;
+
           return (
-            <FileTreeItem
-              key={entry.path}
-              entry={entry}
-              depth={flatEntry.depth}
-              expanded={flatEntry.expanded}
-              focusedPath={focusedPath}
-              focusSeq={focusSeq}
-              expandedPaths={canVirtualize ? new Set() : expandedPaths}
-              onToggle={toggleExpanded}
-              childEntries={canVirtualize ? [] : getChildren(entry.path)}
-              getChildren={canVirtualize ? () => [] : getChildren}
-              pendingCreate={canVirtualize ? null : pendingCreate}
-              pendingRename={pendingRename}
-              onCreateSubmit={handleCreate}
-              onCreateCancel={() => setPendingCreate(null)}
-              onRenameSubmit={handleRename}
-              onRenameCancel={() => setPendingRename(null)}
-              onFocusChange={setFocusedPath}
-              siblingNames={getSiblingNames(flatEntry)}
-              dragOverPath={dragOverPath}
-              onDragOverChange={setDragOverPath}
-            />
+            <React.Fragment key={entry.path}>
+              <FileTreeItem
+                key={entry.path}
+                entry={entry}
+                depth={flatEntry.depth}
+                expanded={flatEntry.expanded}
+                focusedPath={focusedPath}
+                focusSeq={focusSeq}
+                expandedPaths={canVirtualize ? new Set() : expandedPaths}
+                onToggle={toggleExpanded}
+                childEntries={[]}
+                getChildren={() => []}
+                pendingCreate={null}
+                pendingRename={pendingRename}
+                onCreateSubmit={handleCreate}
+                onCreateCancel={() => setPendingCreate(null)}
+                onRenameSubmit={handleRename}
+                onRenameCancel={() => setPendingRename(null)}
+                onFocusChange={setFocusedPath}
+                siblingNames={getSiblingNames(flatEntry)}
+                dragOverPath={dragOverPath}
+                onDragOverChange={setDragOverPath}
+              />
+              {shouldRenderInlineInput && (
+                <InlineInput
+                  placeholder={
+                    pendingCreate!.type === "file" ? "文件名" : "文件夹名"
+                  }
+                  depth={pendingCreateInfo.depth}
+                  siblingNames={pendingCreateInfo.siblingNames}
+                  onSubmit={handleCreate}
+                  onCancel={() => setPendingCreate(null)}
+                />
+              )}
+            </React.Fragment>
           );
         })}
-        {canVirtualize && bottomSpacerHeight > 0 && (
+        {bottomSpacerHeight > 0 && (
           <div style={{ height: bottomSpacerHeight }} aria-hidden="true" />
         )}
+        {/* 根目录的 InlineInput：在底部渲染 */}
         {isRootCreate && (
           <InlineInput
             placeholder={pendingCreate.type === "file" ? "文件名" : "文件夹名"}
