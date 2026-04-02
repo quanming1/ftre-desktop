@@ -5,7 +5,7 @@ import { useLayout } from "@/stores/layout";
 // Mock heavy child components to keep the test focused on Workbench mount behavior
 vi.mock("./TitleBar", () => ({ TitleBar: () => <div data-testid="title-bar" /> }));
 vi.mock("./StatusBar", () => ({ StatusBar: () => <div data-testid="status-bar" /> }));
-vi.mock("@/features/activity-bar/ActivityBar", () => ({ ActivityBar: () => <div data-testid="activity-bar" /> }));
+vi.mock("@/features/session/SessionPanel", () => ({ SessionPanel: () => <div data-testid="session-panel" /> }));
 vi.mock("@/features/explorer/Sidebar", () => ({ Sidebar: () => <div data-testid="sidebar" /> }));
 vi.mock("@/features/editor/EditorArea", () => ({ EditorArea: () => <div data-testid="editor-area" /> }));
 vi.mock("@/features/chat/ChatPanel", () => ({ ChatPanel: () => <div data-testid="chat-panel" /> }));
@@ -16,6 +16,12 @@ vi.mock("@/components/NotificationStack", () => ({ NotificationStack: () => null
 vi.mock("@/components/ResizeHandle", () => ({ ResizeHandle: () => <div /> }));
 vi.mock("@/lib/shortcuts", () => ({ useGlobalShortcuts: () => {} }));
 vi.mock("@/lib/default-shortcuts", () => ({ registerDefaultShortcuts: () => {} }));
+vi.mock("@/services/global-event-stream", () => ({
+  globalEventStream: { connect: () => {}, disconnect: () => {} },
+}));
+vi.mock("@/services/performance-metrics", () => ({
+  performanceMetrics: { count: () => {} },
+}));
 
 // Import Workbench after mocks are set up
 import { Workbench } from "./Workbench";

@@ -32,6 +32,7 @@
 - 复用 slot 时组件 ref 的初始值可能与实际状态不符
 - 同一文件在多个 group 打开时，slot 是共享的
 - cleanup 函数执行时 slot 可能已被其他 tab 复用
+- **Monaco 初始化时可能修改内容**（如行尾符规范化），导致 contents/diskContents 不一致
 
 ## 必须遵守的规则
 
@@ -40,6 +41,7 @@
 3. **复用 Monaco 组件必须加 `key`**，如 `<MonacoDiffViewer key={diff.id} />`
 4. **attach 后必须同步状态**，不能依赖 ref 初始值
 5. **onDidCreate 只在新建 slot 时触发**，初始化逻辑要考虑复用场景
+6. **首次 attach 后必须强制同步 Monaco 实际内容到 editorCore**，确保 contents/diskContents 一致
 
 ## 检查清单
 
@@ -49,3 +51,4 @@
 - 复用 slot 时闭包引用是否正确？
 - React 组件是否需要 `key` 强制重建？
 - 初始化逻辑是否兼容 slot 复用场景？
+- **首次 attach 后是否同步了 Monaco 实际内容？**
