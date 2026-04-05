@@ -4,7 +4,7 @@ import {
   formatBytes,
   formatKB,
 } from "@/services/memory-monitor";
-import { editorManager } from "@ftre/editor/core";
+import { getSlotPool, getDocumentManager } from "@ftre/editor/core";
 
 // ══════════════════════════════════════════════════
 //  类型定义
@@ -38,15 +38,31 @@ interface EditorStats {
 
 function getEditorStats(): EditorStats | null {
   try {
-    const stats = editorManager.getStats();
+    const slotPool = getSlotPool();
+    if (!slotPool.isInitialized()) return null;
+
+    const stats = slotPool.getStats();
+
+    // 从 DocumentManager 获取真实数据
+    let preloadedModelCount = 0;
+    let viewStateCount = 0;
+    try {
+      const docManager = getDocumentManager();
+      const allDocs = docManager.getAll();
+      preloadedModelCount = allDocs.length;
+      viewStateCount = allDocs.filter((d) => d.getViewState() !== null).length;
+    } catch {
+      // DocumentManager 可能尚未初始化
+    }
+
     return {
       slotCount: stats.slotCount,
-      preloadedModelCount: stats.preloadedModelCount,
-      viewStateCount: stats.viewStateCount,
-      activeSlotPath: stats.activeSlotPath,
+      preloadedModelCount,
+      viewStateCount,
+      activeSlotPath: slotPool.getActivePath(),
     };
   } catch {
-    // editorManager 可能尚未初始化
+    // slotPool 可能尚未初始化
     return null;
   }
 }
@@ -65,7 +81,7 @@ export function MemoryMonitorPanel({ onClose }: MemoryMonitorPanelProps) {
   const collectNow = useMemoryMonitor((s) => s.collectNow);
   const clearHistory = useMemoryMonitor((s) => s.clearHistory);
 
-  // 直接从 editorManager 获取编辑器实时统计
+  // 直接从 SlotPool 获取编辑器实时统计
   const editorStats = getEditorStats();
 
   // ── 点击面板外部关闭 ──
