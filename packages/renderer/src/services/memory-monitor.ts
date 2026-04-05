@@ -1,5 +1,5 @@
-import { create } from 'zustand';
-import { editorManager } from '@ftre/editor/core';
+import { create } from "zustand";
+import { getSlotPool, getDocumentManager } from "@ftre/editor/core";
 
 // ══════════════════════════════════════════════════
 //  类型定义
@@ -9,13 +9,13 @@ import { editorManager } from '@ftre/editor/core';
 export interface MemorySample {
   timestamp: number;
   // 渲染进程 JS 堆（来自 performance.memory）
-  jsHeapUsed: number;      // bytes
-  jsHeapTotal: number;     // bytes
-  jsHeapLimit: number;     // bytes
+  jsHeapUsed: number; // bytes
+  jsHeapTotal: number; // bytes
+  jsHeapLimit: number; // bytes
   // 主进程内存（来自 IPC）
-  mainRss: number;         // bytes
-  mainHeapUsed: number;    // bytes
-  mainHeapTotal: number;   // bytes
+  mainRss: number; // bytes
+  mainHeapUsed: number; // bytes
+  mainHeapTotal: number; // bytes
   // 所有 Electron 进程的工作集总和（来自 app.getAppMetrics）
   totalWorkingSet: number; // KB
   // 编辑器相关
@@ -113,13 +113,27 @@ async function collectSample(): Promise<MemorySample> {
   let editorActiveSlot: string | null = null;
 
   try {
-    const stats = editorManager.getStats();
-    editorSlotCount = stats.slotCount;
-    editorPreloadedModelCount = stats.preloadedModelCount;
-    editorViewStateCount = stats.viewStateCount;
-    editorActiveSlot = stats.activeSlotPath;
+    const slotPool = getSlotPool();
+    if (slotPool.isInitialized()) {
+      const stats = slotPool.getStats();
+      editorSlotCount = stats.slotCount;
+      editorActiveSlot = slotPool.getActivePath();
+    }
   } catch {
-    // editorManager 可能尚未初始化
+    // slotPool 可能尚未初始化
+  }
+
+  try {
+    const docManager = getDocumentManager();
+    if (docManager.isInitialized()) {
+      const allDocs = docManager.getAll();
+      editorPreloadedModelCount = allDocs.length;
+      editorViewStateCount = allDocs.filter(
+        (d) => d.getViewState() !== null,
+      ).length;
+    }
+  } catch {
+    // DocumentManager 可能尚未初始化
   }
 
   return {
@@ -219,9 +233,9 @@ export const useMemoryMonitor = create<MemoryMonitorState>((set, get) => ({
 
 /** 将字节数格式化为可读字符串（如 "12.3 MB"） */
 export function formatBytes(bytes: number, decimals = 1): string {
-  if (bytes === 0) return '0 B';
+  if (bytes === 0) return "0 B";
   const k = 1024;
-  const sizes = ['B', 'KB', 'MB', 'GB'];
+  const sizes = ["B", "KB", "MB", "GB"];
   const i = Math.floor(Math.log(bytes) / Math.log(k));
   const index = Math.min(i, sizes.length - 1);
   return `${(bytes / Math.pow(k, index)).toFixed(decimals)} ${sizes[index]}`;
