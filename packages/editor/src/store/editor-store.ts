@@ -8,7 +8,8 @@
  * 3. 实现 EditorStoreHost 接口并注册
  */
 
-import { editorCore } from "../core/editor-core";
+// editorCore 已被 DocumentManager 替代，保留 import 以便后续完全移除
+import { getDocumentManager } from "../core/document-manager";
 import { workspaceHash } from "../utils/path-utils";
 import type { OpenFile, DiffEntry, EditorGroup, EditorSnapshot } from "./types";
 import { buildDiffTabPath } from "./types";
@@ -277,13 +278,13 @@ export function createEditorActions(
         ),
       });
 
-      // Clean up editorCore if no other group has this file open
+      // 清理：如果没有其他 group 打开此文件
       const stillOpen = groups.some((g) =>
         g.openFiles.some((f) => f.path === path),
       );
       if (!stillOpen) {
-        editorCore.removeContent(path);
-        editorCore.removeViewState(path);
+        const docManager = getDocumentManager();
+        docManager.close(path);
       }
     },
 
@@ -312,18 +313,14 @@ export function createEditorActions(
     markSaved: (path) => {
       const state = get();
 
-      // 在所有组中查找文件（文件可能在非活跃组中）
-      let foundModified = false;
-      for (const group of state.groups) {
-        const file = group.openFiles.find((f) => f.path === path);
-        if (file?.modified) {
-          foundModified = true;
-          break;
-        }
+      // 标记 Document 为已保存
+      const docManager = getDocumentManager();
+      const doc = docManager.get(path);
+      if (doc) {
+        doc.markSaved();
       }
-      if (!foundModified) return;
 
-      // 更新所有组中该文件的 modified 状态
+      // 更新所有组中该文件的 modified 状态（UI 需要）
       const groups = state.groups.map((g) => ({
         ...g,
         openFiles: g.openFiles.map((f) =>
@@ -364,9 +361,13 @@ export function createEditorActions(
       );
       if (!exists) return;
 
-      editorCore.setContent(path, newContent);
-      editorCore.setDiskContent(path, newContent);
-      editorCore.pushContentToEditor(path, newContent);
+      // 刷新 Document
+      const docManager = getDocumentManager();
+      const doc = docManager.get(path);
+      if (doc) {
+        doc.refresh(newContent);
+        doc.markSaved();
+      }
 
       const groups = state.groups.map((g) => ({
         ...g,
@@ -386,9 +387,12 @@ export function createEditorActions(
       );
       if (!exists) return;
 
-      editorCore.setContent(path, newContent);
-      editorCore.setDiskContent(path, newContent);
-      editorCore.pushContentToEditor(path, newContent);
+      // 加载 Document
+      const docManager = getDocumentManager();
+      const doc = docManager.get(path);
+      if (doc && doc.state === "idle") {
+        doc.load(newContent);
+      }
 
       const groups = state.groups.map((g) => ({
         ...g,
@@ -665,14 +669,14 @@ export function createEditorActions(
         ),
       });
 
-      // Clean up editorCore
+      // 清理不再打开的文件
+      const docManager = getDocumentManager();
       for (const removedPath of removedPaths) {
         const stillOpen = groups.some((g) =>
           g.openFiles.some((f) => f.path === removedPath),
         );
         if (!stillOpen) {
-          editorCore.removeContent(removedPath);
-          editorCore.removeViewState(removedPath);
+          docManager.close(removedPath);
         }
       }
     },
@@ -709,14 +713,14 @@ export function createEditorActions(
         ),
       });
 
-      // Clean up editorCore
+      // 清理不再打开的文件
+      const docManager = getDocumentManager();
       for (const removedPath of removedPaths) {
         const stillOpen = groups.some((g) =>
           g.openFiles.some((f) => f.path === removedPath),
         );
         if (!stillOpen) {
-          editorCore.removeContent(removedPath);
-          editorCore.removeViewState(removedPath);
+          docManager.close(removedPath);
         }
       }
     },
@@ -751,14 +755,14 @@ export function createEditorActions(
         ),
       });
 
-      // Clean up editorCore
+      // 清理不再打开的文件
+      const docManager = getDocumentManager();
       for (const removedPath of removedPaths) {
         const stillOpen = groups.some((g) =>
           g.openFiles.some((f) => f.path === removedPath),
         );
         if (!stillOpen) {
-          editorCore.removeContent(removedPath);
-          editorCore.removeViewState(removedPath);
+          docManager.close(removedPath);
         }
       }
     },
@@ -866,11 +870,12 @@ export function createEditorActions(
         ...syncTopLevel(groups, state.activeGroupId),
       });
 
-      // Migrate editorCore paths
+      // 迁移 Document
+      const docManager = getDocumentManager();
       if (isDir) {
-        editorCore.migratePrefix(oldPath, newPath);
+        docManager.handleDirectoryRenamed(oldPath, newPath);
       } else {
-        editorCore.migrateKey(oldPath, newPath);
+        docManager.handleFileRenamed(oldPath, newPath);
       }
     },
 
@@ -884,7 +889,7 @@ export function createEditorActions(
             filePath.startsWith(deletedPath + "\\")
           : filePath === deletedPath;
 
-      // Collect deleted file paths for editorCore cleanup
+      // 收集被删除的文件路径
       const deletedFilePaths = new Set<string>();
       for (const g of state.groups) {
         for (const f of g.openFiles) {
@@ -917,14 +922,14 @@ export function createEditorActions(
         ...syncTopLevel(groups, state.activeGroupId),
       });
 
-      // Clean up editorCore
+      // 删除 Document（仅当文件不在任何 group 中打开时）
+      const docManager = getDocumentManager();
       for (const deletedFilePath of deletedFilePaths) {
         const stillOpen = groups.some((g) =>
           g.openFiles.some((f) => f.path === deletedFilePath),
         );
         if (!stillOpen) {
-          editorCore.removeContent(deletedFilePath);
-          editorCore.removeViewState(deletedFilePath);
+          docManager.close(deletedFilePath);
         }
       }
     },
@@ -974,17 +979,15 @@ export function createEditorActions(
         activeFile: null,
         pendingDiffs: [],
       });
-      editorCore.clearAll();
+
+      // 销毁所有 Document
+      const docManager = getDocumentManager();
+      docManager.dispose();
     },
 
     hasUnsavedChanges: () => {
-      const state = get();
-      for (const group of state.groups) {
-        for (const f of group.openFiles) {
-          if (f.modified) return true;
-        }
-      }
-      return false;
+      const docManager = getDocumentManager();
+      return docManager.hasUnsavedChanges();
     },
 
     // ── Persistence ──────────────────────────────────────────────────
@@ -1107,12 +1110,18 @@ export function createEditorActions(
         pendingDiffs: state.pendingDiffs,
       });
       currentPersistWorkspace = workspace;
+
+      // 新架构：休眠非当前工作区的文档
+      const docManager = getDocumentManager();
+      docManager.hibernateOthers(workspace);
+
       get().persist();
     },
 
     resumeForWorkspace: async (workspace) => {
       currentPersistWorkspace = workspace;
       const snapshot = workspaceSnapshots.get(workspace);
+
       if (snapshot) {
         set({
           groups: snapshot.groups,
