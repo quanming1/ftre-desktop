@@ -7,7 +7,7 @@
 | 文件 | 职责 |
 |------|------|
 | `packages/renderer/src/features/session/SessionPanel.tsx` | 独立面板组件，两级分组展示 |
-| `packages/renderer/src/stores/session.ts` | Session store，`loadAllSessions`/`switchSession` |
+| `packages/renderer/src/stores/session.ts` | Session store，`loadAllSessions`/`switchSession`/`loadWorkspaceSessions` |
 | `packages/renderer/src/stores/workspace.ts` | Workspace store，`recentFolders`/`rootPath` |
 | `packages/renderer/src/stores/layout.ts` | PanelId 包含 `sessions`，`panelOrder` 控制布局 |
 | `packages/renderer/src/stores/stream.ts` | Stream store，`isSessionStreaming()` 检测流式状态 |
@@ -32,7 +32,7 @@ Session 面板是最左侧的顶层面板，和 sidebar/editor/chat 同级：
 │ [🔍] [Open] [📍]                       │  ← 顶部按钮区（搜索框+打开+定位）
 ├────────────────────────────────────────┤
 │ ╭────────────────────────────────────╮ │
-│ │ ▼ ftre-desktop              [+] ⋯ │ │  ← Workspace 分组，展开时彩色边框
+│ │ ▼ ftre-desktop         🔄 [+] ⋯  │ │  ← Workspace 分组，展开时彩色边框
 │ │ E:/projects/ftre-desktop          │ │     header 粘性定位，吸顶效果
 │ ├────────────────────────────────────┤ │
 │ │ ── User ───────────────────────   │ │  ← Source 分割线（小字居中）
@@ -46,9 +46,9 @@ Session 面板是最左侧的顶层面板，和 sidebar/editor/chat 同级：
 ### Workspace 分组样式
 
 **展开状态**（彩色边框卡片 + 粘性定位）：
-- 外层容器：`mx-2 mt-2`，**无边框**（边框移到 header 和 content）
-- Header：`sticky top-0 z-10 backdrop-blur-sm`，吸顶跟随滚动
-- Content：左右下三边框，与 header 无缝拼接
+- 外层容器：`mx-2 mt-2` + `rounded-lg border`，**统一处理边框和圆角**
+- Header：`sticky top-0 z-10 backdrop-blur-sm` + `rounded-t-lg`，吸顶跟随滚动
+- Content：`rounded-b-lg overflow-hidden`，确保内容不溢出圆角
 - 颜色分配：12 种颜色循环，根据路径 hash 固定分配
 
 **折叠状态**（精简列表项）：
@@ -61,13 +61,14 @@ Session 面板是最左侧的顶层面板，和 sidebar/editor/chat 同级：
 
 ### Workspace 分组头
 
-- **展开时第一行**: ▼/▶ + 工作区名称 + (数量)，hover 时显示 `[+]` `⋯`
+- **展开时第一行**: ▼/▶ + 工作区名称 + (数量)，hover 时显示 `🔄` `[+]` `⋯`
 - **展开时第二行**: 完整路径，灰色小字
 - **折叠时**: 单行显示，字号缩小，无路径
 - **交互**: 点击整行折叠/展开，当前工作区背景高亮
 - **粘性定位**: `position: sticky; top: 0`，滚动时吸顶
-- **[+]**: 在该工作区新建会话（hover 显示）
-- **⋯**: 删除工作区（hover 显示）
+- **`🔄`**: 刷新该工作区的会话列表（hover 显示）
+- **`[+]`**: 在该工作区新建会话（hover 显示）
+- **`⋯`**: 删除工作区（hover 显示）
 
 ### Source 分组
 
@@ -99,8 +100,8 @@ Session 面板是最左侧的顶层面板，和 sidebar/editor/chat 同级：
 
 - **搜索框**: 🔍 图标 + 输入框，实时过滤 session title
 - **Open**: 打开工作区选择器（缩小版按钮 h-7）
-- **📍**: 定位当前活跃 session（LocateFixed 图标）
-- 定位逻辑：`sessionRefs.current.get(sessionId)?.scrollIntoView()`
+- **`📍`**: 定位当前活跃 session（LocateFixed 图标）
+- 定位逻辑：先展开 session 所在的工作区和 source，延迟滚动到对应 DOM 元素
 
 ## 颜色系统
 
@@ -164,12 +165,69 @@ function timeAgo(ts: number): { text: string; opacity: number } {
 点击底部 `[Open]` → `window.desktop.fs.selectFolder()` → 添加到工作区列表
 
 ### 定位当前 Session
-点击 `[📍]` → `handleLocateCurrentSession` → 滚动到 `currentSessionId` 对应的 DOM 元素
+点击 `[📍]` → `handleLocateCurrentSession` → 从 `allSessions` 找到当前 session → 展开对应工作区和 source → `setTimeout(..., 50)` → 滚动到 `currentSessionId` 对应的 DOM 元素
 
 ### 搜索过滤
 输入搜索词 → `filteredWorkspaceGroups` computed → 按 session.title 过滤 → 实时更新列表
 
-## 关键数据结构
+### 展开工作区
+点击工作区行 → `toggleWorkspace(normalizedPath, displayPath)` → 
+- 切换展开状态
+- 展开时自动展开 `user` source
+- **展开时强制异步刷新该工作区的会话列表** → `loadWorkspaceSessions(displayPath)`
+
+### 刷新工作区会话列表
+点击工作区行的 `🔄` → `handleRefreshWorkspace` → `loadWorkspaceSessions(displayPath)` → 异步请求该工作区的会话 → 合并到 `allSessions` 中
+
+## Session 列表刷新机制
+
+**全局刷新**（`loadAllSessions`）
+- 触发条件：`recentFolders.length` 变化时（打开新工作区）
+- 获取所有工作区的会话列表
+
+**按需刷新**（`loadWorkspaceSessions`）
+- 触发条件：展开工作区时自动触发，或手动点击刷新按钮
+- 只请求指定工作区的会话列表
+- 合并策略：从 `allSessions` 中移除该工作区的旧会话，添加新会话
+
+```typescript
+// SessionPanel.tsx
+const recentFoldersCount = recentFolders.length;
+useEffect(() => {
+  loadAllSessions();
+}, [loadAllSessions, recentFoldersCount]);
+
+// 展开时触发刷新
+const toggleWorkspace = useCallback((normalizedPath: string, displayPath: string) => {
+  const wasExpanded = expandedWorkspaces.has(normalizedPath);
+  setExpandedWorkspaces((prev) => {
+    const next = new Set(prev);
+    if (next.has(normalizedPath)) {
+      next.delete(normalizedPath);
+    } else {
+      next.add(normalizedPath);
+    }
+    return next;
+  });
+  // 展开时：设置默认展开的 source，并刷新该工作区的会话列表
+  if (!wasExpanded) {
+    setExpandedSources((prev) => {
+      const next = new Set(prev);
+      next.add(`${normalizedPath}:user`);
+      return next;
+    });
+    loadWorkspaceSessions(displayPath);
+  }
+}, [expandedWorkspaces, loadWorkspaceSessions]);
+```
+
+**为什么要监听 length 而不是数组本身**？
+- `loadAllSessions` 是 store 提供的函数，引用稳定
+- `recentFolders` 是数组，每次渲染都是新引用
+- 直接依赖 `recentFolders` 会导致无限循环刷新
+- 依赖 `recentFolders.length` 只在数量变化（打开/关闭工作区）时触发
+
+**核心数据结构**
 
 ```typescript
 // SessionSummary
@@ -222,16 +280,18 @@ type PanelId = 'sessions' | 'sidebar' | 'editor' | 'chat'
 - **实现**: `bg-surface backdrop-blur-sm`，滚动时半透明覆盖下方内容
 - **行为**: 多个展开时自然堆叠，后面的 header 把前面的顶掉
 
-### 边框设计
-- **Header**: 始终有 `border: 1px solid`，展开时 `${color}50` + `borderBottom: none`，折叠时 `transparent`，`transition` 平滑过渡
-- **Content**: 只保留左右下三边框 `borderRadius: '0 0 8px 8px'`，`boxShadow` 内阴影
-- **外层容器**: 无边框，纯布局
+### 边框设计：外层容器统一处理圆角
+- **外层容器**: `rounded-lg border` 统一处理边框和圆角，避免内容遮挡
+- **Header**: `rounded-t-lg`（折叠时加 `rounded-b-lg`）
+- **Content**: `rounded-b-lg overflow-hidden` 确保内容不溢出圆角
+- **颜色**: 边框使用 `${color}50`（50% 透明度），柔和不刺眼
 
 ### 功能架构
 - **融合 Activity Bar**: 工作区切换整合到 SessionPanel，消除左侧多余栏位
 - **两级分组**: Workspace 为一级，Source 为二级，清晰组织跨工作区会话
 - **点击自动切换工作区**: 点击其他工作区的会话时，自动激活该工作区
 - **分层操作**:
+  - `🔄` 在工作区行 → 刷新该工作区的会话列表
   - `[+]` 在工作区行 → 新建该工作区的会话
   - `[Open]` 在顶部 → 添加新工作区
   - `[📍]` → 定位当前活跃 session
@@ -257,14 +317,24 @@ type PanelId = 'sessions' | 'sidebar' | 'editor' | 'chat'
 - **分割线样式**: Source 分组不再占用过多视觉层级
 - **渐进式披露**: 信息按需展示，而非一次性暴露所有内容
 
+### 按需刷新策略
+- **展开时刷新**: 展开工作区时自动异步请求该工作区的最新会话列表
+- **避免全量刷新**: `loadWorkspaceSessions` 只请求单个工作区，而不是所有工作区
+- **合并更新**: 将新数据合并到 `allSessions` 中，而不是完全替换
+
 ## 注意事项
 
-- **overflow-hidden 与 sticky 冲突**: 父级设置 `overflow: hidden` 会导致 `position: sticky` 失效，解决方案是将边框移到 sticky header 和内容区，外层容器不设 `overflow-hidden`
-- **边框闪烁问题**: 折叠时外层边框瞬间消失会产生视觉跳动，解决方案是边框统一放 header，用 `transition: border-color` 平滑过渡（展开 `${color}50`，折叠 `transparent`）
+- **圆角边框遮挡问题**: 内层元素（如 Source 分组）会遮挡外层容器的圆角边框，解决方案是将边框统一移到外层容器 `rounded-lg border`，header 用 `rounded-t-lg`，content 用 `rounded-b-lg overflow-hidden` 确保内容不溢出
+- **overflow-hidden 与 sticky 冲突**: 父级设置 `overflow: hidden` 会导致 `position: sticky` 失效，边框移到外层容器后可避免此问题
 - **多级 sticky 堆叠**: Workspace Header 和 Source Header 都需要 sticky，通过 `top` 值区分层级（0 vs 52px）
 - **Source 分组**: 如果只有 User 分类但后端返回了其他 source，需要动态处理所有 source 值
 - **颜色分配**: 基于路径 hash 计算，确保同一路径始终分配相同颜色
 - **吸顶视觉**: sticky header 加 `backdrop-blur-sm`，滚动时不完全遮挡下方内容
-- **session 定位**: 使用 `Map<string, HTMLElement>` 存储 ref，而非数组索引，避免排序变化导致错位
+- **session 定位**: 使用 `Map<string, HTMLElement>` 存储 ref，而非数组索引，避免排序变化导致错位；需要处理元素不存在的情况（延迟滚动）
 - **搜索性能**: session 数量大时考虑防抖，当前实现直接过滤无性能问题
 - **时间计算**: `timeAgo` 返回对象 `{text, opacity}`，渲染时内联 style 设置 opacity
+- **刷新机制依赖陷阱**: `loadAllSessions` 是引用稳定的函数，`recentFolders` 是数组每次渲染都是新引用，必须用 `recentFolders.length` 作为 effect 依赖才能正确监听打开新工作区的事件
+- **路径规范化不一致问题**: store 中的路径规范化**不要**将路径全部转小写，只对盘符开头的路径转小写；组件中 `normalizePath` 和 store 中的逻辑必须保持一致，否则导致路径比对失败
+- **sessionRefs 内存泄漏**: ref 回调需要处理 `el === null` 的情况，及时调用 `delete` 清理已移除的 session 引用
+- **setState 反模式**: 不要在 `setState((prev) => { ... })` 的回调内部调用另一个 `setState`，这样会导致不可预期的重渲染行为；应使用闭包变量记录状态变化，在 setState 外部处理副作用
+- **定位功能实现**: `handleLocateCurrentSession` 需要先展开 session 所在的工作区和 source，等待 DOM 更新后再滚动；使用 `setTimeout(..., 50)` 确保展开状态已应用
