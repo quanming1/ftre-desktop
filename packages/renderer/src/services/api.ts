@@ -127,6 +127,20 @@ export interface ArchiveEntry {
     updated_at?: number | null;
   };
   created_at: number;
+  folder_ids: string[];
+}
+
+/** 归档文件夹 */
+export interface ArchiveFolder {
+  id: string;
+  workspace: string;
+  name: string;
+  description: string;
+  sort_order: number;
+  meta: Record<string, unknown>;
+  archive_count?: number;
+  created_at: number;
+  updated_at: number;
 }
 
 /** 获取工作区归档列表（每个会话只返回最新一份） */
@@ -191,6 +205,181 @@ export async function deleteArchive(
         method: "DELETE",
       },
     );
+    if (!res.ok) return null;
+    return res.json();
+  } catch {
+    return null;
+  }
+}
+
+// ─── Archive Folder API ─────────────────────────────────────────
+
+/** 创建归档文件夹 */
+export async function createArchiveFolder(params: {
+  workspace: string;
+  name: string;
+  description?: string;
+  sort_order?: number;
+}): Promise<
+  | ArchiveFolder
+  | { error: "folder_name_conflict"; existing_id: string }
+  | null
+> {
+  try {
+    const res = await fetch(`${BACKEND_URL}/session/archive-folders`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(params),
+    });
+    if (res.status === 409) {
+      return res.json();
+    }
+    if (!res.ok) return null;
+    return res.json();
+  } catch {
+    return null;
+  }
+}
+
+/** 获取工作区的归档文件夹列表 */
+export async function fetchArchiveFolders(
+  workspace: string,
+): Promise<{ workspace: string; folders: ArchiveFolder[] }> {
+  try {
+    const res = await fetch(
+      `${BACKEND_URL}/session/archive-folders?workspace=${encodeURIComponent(workspace)}`,
+    );
+    if (!res.ok) return { workspace, folders: [] };
+    return res.json();
+  } catch {
+    return { workspace, folders: [] };
+  }
+}
+
+/** 更新归档文件夹 */
+export async function updateArchiveFolder(
+  folderId: string,
+  data: { name?: string; description?: string; sort_order?: number },
+): Promise<
+  | ArchiveFolder
+  | { error: "folder_not_found" }
+  | { error: "folder_name_conflict"; existing_id: string }
+  | null
+> {
+  try {
+    const res = await fetch(
+      `${BACKEND_URL}/session/archive-folders/${encodeURIComponent(folderId)}`,
+      {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(data),
+      },
+    );
+    if (res.status === 404 || res.status === 409) {
+      return res.json();
+    }
+    if (!res.ok) return null;
+    return res.json();
+  } catch {
+    return null;
+  }
+}
+
+/** 删除归档文件夹（只删文件夹和关联，归档不删） */
+export async function deleteArchiveFolder(
+  folderId: string,
+): Promise<
+  | { status: "deleted"; folder_id: string; removed_links: number }
+  | { error: "folder_not_found" }
+  | null
+> {
+  try {
+    const res = await fetch(
+      `${BACKEND_URL}/session/archive-folders/${encodeURIComponent(folderId)}`,
+      {
+        method: "DELETE",
+      },
+    );
+    if (res.status === 404) {
+      return res.json();
+    }
+    if (!res.ok) return null;
+    return res.json();
+  } catch {
+    return null;
+  }
+}
+
+/** 将归档加入文件夹 */
+export async function linkArchiveToFolder(
+  folderId: string,
+  archiveId: string,
+): Promise<
+  | { status: "linked"; link_id: string; archive_id: string; folder_id: string }
+  | { error: "folder_not_found" }
+  | { error: "archive_not_found" }
+  | null
+> {
+  try {
+    const res = await fetch(
+      `${BACKEND_URL}/session/archive-folders/${encodeURIComponent(folderId)}/archives`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ archive_id: archiveId }),
+      },
+    );
+    if (res.status === 404) {
+      return res.json();
+    }
+    if (!res.ok) return null;
+    return res.json();
+  } catch {
+    return null;
+  }
+}
+
+/** 将归档从文件夹移出 */
+export async function unlinkArchiveFromFolder(
+  folderId: string,
+  archiveId: string,
+): Promise<
+  | { status: "unlinked"; archive_id: string; folder_id: string }
+  | { error: "link_not_found" }
+  | null
+> {
+  try {
+    const res = await fetch(
+      `${BACKEND_URL}/session/archive-folders/${encodeURIComponent(folderId)}/archives/${encodeURIComponent(archiveId)}`,
+      {
+        method: "DELETE",
+      },
+    );
+    if (res.status === 404) {
+      return res.json();
+    }
+    if (!res.ok) return null;
+    return res.json();
+  } catch {
+    return null;
+  }
+}
+
+/** 获取文件夹下的归档列表 */
+export async function fetchFolderArchives(
+  folderId: string,
+): Promise<
+  | { folder_id: string; folder_name: string; archives: ArchiveEntry[] }
+  | { error: "folder_not_found" }
+  | null
+> {
+  try {
+    const res = await fetch(
+      `${BACKEND_URL}/session/archive-folders/${encodeURIComponent(folderId)}/archives`,
+    );
+    if (res.status === 404) {
+      return res.json();
+    }
     if (!res.ok) return null;
     return res.json();
   } catch {
