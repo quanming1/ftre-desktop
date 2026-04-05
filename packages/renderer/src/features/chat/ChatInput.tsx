@@ -4,7 +4,7 @@
  * 职责：纯 UI 壳 + 事件绑定
  * - 渲染 Slate 编辑器（通过 ChatInputEditor 实例）
  * - 绑定发送/取消/快捷键
- * - 监听外部事件（ftre:insert-code-ref）
+ * - 监听外部事件（ftre:insert-code-ref、ftre:insert-archive-ref）
  * - 不直接操作 Slate API，全部委托给 ChatInputEditor
  * - 发送/取消流全部委托给 streamManager
  */
@@ -19,7 +19,7 @@ import { AgentSelector } from "./AgentSelector";
 import { ModelSelector } from "./ModelSelector";
 import { TokenRing } from "./TokenRing";
 import { ChatInputEditor, renderElement } from "./slate";
-import type { CodeRef } from "./slate";
+import type { CodeRef, ArchiveRef } from "./slate";
 
 export function ChatInput() {
   const inputEditor = useMemo(() => new ChatInputEditor(), []);
@@ -34,8 +34,8 @@ export function ChatInput() {
   const handleSend = useCallback(async () => {
     const state = useChat.getState();
     if (state.isStreaming) return;
-    const { text, codeRefs, parts } = inputEditor.serialize();
-    if (!text && codeRefs.length === 0) return;
+    const { text, codeRefs, archiveRefs, parts } = inputEditor.serialize();
+    if (!text && codeRefs.length === 0 && archiveRefs.length === 0) return;
 
     inputEditor.clear();
 
@@ -81,12 +81,28 @@ export function ChatInput() {
     return () => window.removeEventListener("ftre:insert-code-ref", handler);
   }, [inputEditor]);
 
+  // ── 外部事件：插入归档引用 ──
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const ref = (e as CustomEvent).detail as ArchiveRef;
+      if (!ref) return;
+      inputEditor.insertArchiveChip(ref);
+      inputEditor.focus();
+    };
+    window.addEventListener("ftre:insert-archive-ref", handler);
+    return () => window.removeEventListener("ftre:insert-archive-ref", handler);
+  }, [inputEditor]);
+
   // ── 外部事件：Plan 模式下一步按钮 ──
   useEffect(() => {
     const handler = (e: Event) => {
-      const { step } = (e as CustomEvent).detail as { step: string; label: string };
+      const { step } = (e as CustomEvent).detail as {
+        step: string;
+        label: string;
+      };
       if (!step) return;
-      const confirmText = step === "execute" ? "确认任务，开始执行" : `确认，进入下一步: ${step}`;
+      const confirmText =
+        step === "execute" ? "确认任务，开始执行" : `确认，进入下一步: ${step}`;
       const parts = [{ type: "text" as const, data: confirmText }];
       const state = useChat.getState();
 
@@ -107,13 +123,22 @@ export function ChatInput() {
     <div className="px-4 pb-3 pt-2">
       <div className="relative bg-panel rounded-2xl border border-border-subtle focus-within:border-neon/30 transition-colors shadow-sm">
         {/* 编辑区 */}
-        <Slate editor={inputEditor.editor} initialValue={inputEditor.initialValue} onChange={inputEditor.onChange}>
+        <Slate
+          editor={inputEditor.editor}
+          initialValue={inputEditor.initialValue}
+          onChange={inputEditor.onChange}
+        >
           <Editable
             renderElement={renderElement}
             onKeyDown={onKeyDown}
             placeholder="描述你想要做什么..."
             className="w-full bg-transparent text-[14px] text-t-primary outline-none resize-none px-4 py-3 font-sans overflow-y-auto overflow-x-hidden"
-            style={{ minHeight: 42, maxHeight: 120, wordBreak: "break-word", overflowWrap: "anywhere" }}
+            style={{
+              minHeight: 42,
+              maxHeight: 120,
+              wordBreak: "break-word",
+              overflowWrap: "anywhere",
+            }}
           />
         </Slate>
 
@@ -130,12 +155,20 @@ export function ChatInput() {
           <div className="flex items-center gap-1.5">
             <button
               onClick={toggleAutoFollow}
-              title={autoFollow ? "自动跟踪文件变更: 开" : "自动跟踪文件变更: 关"}
+              title={
+                autoFollow ? "自动跟踪文件变更: 开" : "自动跟踪文件变更: 关"
+              }
               className={`flex items-center h-7 w-7 justify-center rounded-lg transition-colors ${
-                autoFollow ? "text-neon/70 hover:text-neon hover:bg-neon-ghost" : "text-t-ghost hover:text-t-muted hover:bg-white/[0.06]"
+                autoFollow
+                  ? "text-neon/70 hover:text-neon hover:bg-neon-ghost"
+                  : "text-t-ghost hover:text-t-muted hover:bg-white/[0.06]"
               }`}
             >
-              {autoFollow ? <Eye size={14} strokeWidth={1.5} /> : <EyeOff size={14} strokeWidth={1.5} />}
+              {autoFollow ? (
+                <Eye size={14} strokeWidth={1.5} />
+              ) : (
+                <EyeOff size={14} strokeWidth={1.5} />
+              )}
             </button>
             <TokenRing />
             <div className="w-px h-3.5 bg-white/[0.08] mx-0.5" />

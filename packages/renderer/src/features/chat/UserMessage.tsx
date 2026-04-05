@@ -1,7 +1,24 @@
 import { memo, useCallback } from "react";
-import type { ChatMessage, MessagePart } from "@/types/chat";
+import type { ChatMessage, MessagePart, ArchiveRefData } from "@/types/chat";
 import { handleOpenFileAtLine } from "./toolActions";
 import { EmailCard } from "./EmailCard";
+import { Archive } from "lucide-react";
+
+/**
+ * 渲染归档引用 chip
+ * 显示紫色背景 + 📦 图标 + 显示文本
+ */
+function ArchiveChip({ data }: { data: ArchiveRefData }) {
+  return (
+    <span
+      className="inline-flex items-center gap-1 px-1.5 py-0.5 mx-0.5 rounded text-[11px] font-sans bg-violet-500/10 text-violet-300/80 border border-violet-500/20 align-baseline"
+      title={`归档引用: ${data.display}`}
+    >
+      <Archive size={10} className="shrink-0 opacity-70" />
+      <span className="truncate max-w-[200px]">{data.display}</span>
+    </span>
+  );
+}
 
 /**
  * 渲染单个 code ref chip（和编辑器中的 CodeChipView 样式一致）
@@ -29,15 +46,13 @@ function CodeChip({ data }: { data: { path: string; name: string; lines: [number
 }
 
 /**
- * 渲染 parts 数组为 inline 内容（text + code chips 混排）
- */
-/**
- * 渲染 parts 数组为 inline 内容（text + code chips + email cards 混排）
+ * 渲染 parts 数组为 inline 内容
  *
  * parts 类型：
- * - text:     渲染为 <span>
- * - code_ref: 渲染为 <CodeChip>（可点击跳转）
- * - email:    渲染为 <EmailCard>（邮件卡片）
+ * - text:        渲染为 <span>
+ * - code_ref:    渲染为 <CodeChip>（可点击跳转）
+ * - email:       渲染为 <EmailCard>（邮件卡片）
+ * - archive_ref: 渲染为 <ArchiveChip>（归档引用）
  */
 function PartsContent({ parts }: { parts: MessagePart[] }) {
   return (
@@ -51,6 +66,9 @@ function PartsContent({ parts }: { parts: MessagePart[] }) {
         }
         if (part.type === "email") {
           return <EmailCard key={i} data={part.data} />;
+        }
+        if (part.type === "archive_ref") {
+          return <ArchiveChip key={i} data={part.data} />;
         }
         return null;
       })}
