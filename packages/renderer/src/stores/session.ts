@@ -47,6 +47,8 @@ interface SessionState {
     loadSessions: (workspace?: string | null) => Promise<void>;
     /** 加载所有工作区的会话列表 */
     loadAllSessions: () => Promise<void>;
+    /** 加载指定工作区的会话列表并合并到 allSessions（用于展开时刷新） */
+    loadWorkspaceSessions: (workspace: string) => Promise<void>;
     /** 切换到指定会话（同时加入 openTabs，如果是其他工作区会自动切换） */
     switchSession: (sessionId: string) => Promise<void>;
     /** 打开 tab（加入 openTabs，如果不存在的话） */
@@ -87,6 +89,28 @@ export const useSession = create<SessionState>((set, get) => ({
         } finally {
             set({ loading: false });
         }
+    },
+
+    loadWorkspaceSessions: async (workspace: string) => {
+        try {
+            const workspaceSessions = await fetchSessions(workspace);
+            const { allSessions } = get();
+            // 合并：移除该工作区的旧会话，添加新会话
+            // 路径规范化：只对 Windows 盘符开头的路径转小写（与 SessionPanel 中的 normalizePath 保持一致）
+            const normalize = (p: string) => {
+                let norm = p.replace(/\\/g, '/').replace(/\/+$/, '');
+                if (/^[A-Za-z]:\//.test(norm)) {
+                    norm = norm.toLowerCase();
+                }
+                return norm;
+            };
+            const normalizedWorkspace = normalize(workspace);
+            const filtered = allSessions.filter((s) => {
+                if (!s.workspace) return true;
+                return normalize(s.workspace) !== normalizedWorkspace;
+            });
+            set({ allSessions: [...filtered, ...workspaceSessions] });
+        } catch { /* ignore */ }
     },
 
     switchSession: async (sessionId: string) => {
