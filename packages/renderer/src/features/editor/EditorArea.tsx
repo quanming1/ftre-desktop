@@ -3,7 +3,8 @@ import { X, Code2, FileText } from "lucide-react";
 import { useEditor } from "@/stores/editor";
 import { useLayout } from "@/stores/layout";
 import { useNotification } from "@/stores/notification";
-import { editorCore, editorManager } from "@ftre/editor/core";
+import { getDocumentManager, getSlotPool } from "@ftre/editor/core";
+import { wasRecentlySaved } from "@ftre/editor/runtime";
 import { ManagedEditor, MonacoDiffViewer, DiffBar } from "@ftre/editor/ui";
 import { handleOpenFile } from "@/features/chat/toolActions";
 import { Breadcrumb } from "./Breadcrumb";
@@ -30,47 +31,23 @@ export function EditorArea({ onToggleFiles }: EditorAreaProps) {
       window.removeEventListener("ftre:split-editor", handleSplitEditor);
   }, []);
 
-  // Listen for file-renamed event — update open tabs across all groups + EditorManager slot pool
+  // Listen for file-renamed event — update open tabs across all groups
+  // DocumentManager 的迁移已在 editor-store.ts 的 handleFileRenamed 中处理
   useEffect(() => {
     const handler = (e: Event) => {
       const { oldPath, newPath, isDir } = (e as CustomEvent).detail;
       useEditor.getState().handleFileRenamed(oldPath, newPath, isDir);
-      // 同步更新 EditorManager 的 slot/model/viewState 映射
-      if (isDir) {
-        // 目录重命名：EditorManager 没有批量 rename，逐个处理 slot 内命中的路径
-        const slotPaths = editorManager.getSlotPaths();
-        const oldPrefix =
-          oldPath.endsWith("/") || oldPath.endsWith("\\")
-            ? oldPath
-            : oldPath + "/";
-        for (const p of slotPaths) {
-          if (
-            p.startsWith(oldPrefix) ||
-            p.replace(/\\/g, "/").startsWith(oldPrefix.replace(/\\/g, "/"))
-          ) {
-            const newFilePath = newPath + p.slice(oldPath.length);
-            editorManager.handleFileRenamed(p, newFilePath);
-          }
-        }
-      } else {
-        editorManager.handleFileRenamed(oldPath, newPath);
-      }
     };
     window.addEventListener("ftre:file-renamed", handler);
     return () => window.removeEventListener("ftre:file-renamed", handler);
   }, []);
 
-  // Listen for file-deleted event — close tabs for deleted files across all groups + EditorManager slot pool
+  // Listen for file-deleted event — close tabs for deleted files across all groups
+  // DocumentManager 的清理已在 editor-store.ts 的 handleFileDeleted 中处理
   useEffect(() => {
     const handler = (e: Event) => {
       const { path, isDir } = (e as CustomEvent).detail;
       useEditor.getState().handleFileDeleted(path, isDir);
-      // 同步清理 EditorManager 中对应的 slot/model/viewState
-      if (isDir) {
-        editorManager.handleDirectoryDeleted(path);
-      } else {
-        editorManager.handleFileDeleted(path);
-      }
     };
     window.addEventListener("ftre:file-deleted", handler);
     return () => window.removeEventListener("ftre:file-deleted", handler);
@@ -79,18 +56,18 @@ export function EditorArea({ onToggleFiles }: EditorAreaProps) {
   // Listen for save-all event — save all modified files across all groups
   useEffect(() => {
     const handler = async () => {
-      const state = useEditor.getState();
-      for (const group of state.groups) {
-        for (const f of group.openFiles) {
-          if (f.modified) {
-            // 从 editorCore 取最新内容，不用 store 中的 f.content（可能过时）
-            const content = editorCore.resolveContent(f.path);
-            const result = await window.desktop.fs.writeFile(f.path, content);
-            if (result.success) {
-              editorCore.setDiskContent(f.path, content);
-              useEditor.getState().markSaved(f.path);
-            }
-          }
+      const docManager = getDocumentManager();
+      const dirtyPaths = docManager.getDirtyPaths();
+
+      for (const path of dirtyPaths) {
+        const doc = docManager.get(path);
+        if (!doc) continue;
+
+        const content = doc.getContentForSave();
+        const result = await window.desktop.fs.writeFile(path, content);
+        if (result.success) {
+          doc.markSaved();
+          useEditor.getState().markSaved(path);
         }
       }
     };
@@ -106,6 +83,11 @@ export function EditorArea({ onToggleFiles }: EditorAreaProps) {
   useEffect(() => {
     const cleanup = window.desktop?.fs.onFileChanged(
       async (filePath: string) => {
+        // 跳过自己保存触发的文件变更（避免重置光标）
+        if (wasRecentlySaved(filePath)) {
+          return;
+        }
+
         const state = useEditor.getState();
 
         // Find the file across all groups

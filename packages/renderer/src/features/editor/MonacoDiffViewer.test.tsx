@@ -187,16 +187,6 @@ describe("MonacoDiffViewer DiffEditor integration", () => {
     expect(expectedScrollbar.verticalScrollbarSize).toBe(5);
     expect(expectedScrollbar.horizontalScrollbarSize).toBe(5);
   });
-
-  it("should keep models to prevent premature disposal", () => {
-    // Contract: keepCurrentOriginalModel and keepCurrentModifiedModel should be true
-    const expectedKeepModels = {
-      keepCurrentOriginalModel: true,
-      keepCurrentModifiedModel: true,
-    };
-    expect(expectedKeepModels.keepCurrentOriginalModel).toBe(true);
-    expect(expectedKeepModels.keepCurrentModifiedModel).toBe(true);
-  });
 });
 
 /* ------------------------------------------------------------------ */

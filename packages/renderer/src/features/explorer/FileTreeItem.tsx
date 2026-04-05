@@ -10,7 +10,7 @@ import {
   Terminal,
   FolderOpen,
 } from "lucide-react";
-import { editorCore, editorManager } from "@ftre/editor/core";
+import { getDocumentManager } from "@ftre/editor/core";
 import { useEditor } from "@/stores/editor";
 import { useWorkspace } from "@/stores/workspace";
 import { useNotification } from "@/stores/notification";
@@ -243,23 +243,21 @@ export const FileTreeItem = memo(function FileTreeItem({
     // 只对文件生效，跳过目录
     if (entry.isDir) return;
     // 已经缓存过则跳过
-    if (editorCore.hasContent(entry.path)) return;
+    const docManager = getDocumentManager();
+    if (docManager.hasContent(entry.path)) return;
     // 已经预读取过则跳过
     if (prefetchedRef.current) return;
 
     // 延迟 150ms 再预读取，避免快速划过时的无效请求
     prefetchTimerRef.current = setTimeout(async () => {
-      if (editorCore.hasContent(entry.path)) return;
+      if (docManager.hasContent(entry.path)) return;
       try {
         const result = await window.desktop.fs.readFile(entry.path);
         if (!result.error) {
-          // 预存到 editorCore 缓存，打开时直接使用
-          editorCore.setContent(entry.path, result.content);
-          editorCore.setDiskContent(entry.path, result.content);
-          // 预加载 Monaco model（跳过 model 创建开销，打开时直接复用）
+          // 预加载到 DocumentManager
           const ext = entry.path.split(".").pop() ?? "";
           const lang = extToLanguage(ext);
-          editorManager.preloadModel(entry.path, result.content, lang);
+          docManager.preload(entry.path, lang, result.content);
           prefetchedRef.current = true;
         }
       } catch {
@@ -284,16 +282,16 @@ export const FileTreeItem = memo(function FileTreeItem({
     }
 
     // 优先使用预读取的缓存内容
-    if (editorCore.hasContent(entry.path)) {
-      const cachedContent = editorCore.getContent(entry.path);
-      // 还需要获取 language，从文件扩展名推断
+    const docManager = getDocumentManager();
+    const cachedDoc = docManager.get(entry.path);
+    if (cachedDoc && cachedDoc.state !== "idle") {
       const ext = entry.name.split(".").pop() || "";
       const language = extToLanguage(ext);
       openFile({
         path: entry.path,
         name: entry.name,
         language,
-        content: cachedContent,
+        content: cachedDoc.getContent(),
       });
       return;
     }

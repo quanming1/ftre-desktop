@@ -5,7 +5,7 @@ import { useLayout } from "@/stores/layout";
 import { getFileIcon } from "@/lib/file-icons";
 import { ContextMenu, type ContextMenuItem } from "@/components/ContextMenu";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
-import { editorCore } from "@ftre/editor/core";
+import { getDocumentManager } from "@ftre/editor/core";
 import { saveFile } from "@ftre/editor/runtime";
 
 interface TabBarProps {
@@ -419,8 +419,10 @@ export function TabBar({ groupId, onToggleFiles }: TabBarProps) {
           const fileName =
             file.name ?? pendingClose.split(/[\\/]/).pop() ?? "文件";
           const handleSaveAndClose = () => {
+            const docManager = getDocumentManager();
+            const doc = docManager.get(file.path);
             saveFile(file.path, file.name, () =>
-              editorCore.resolveContent(file.path),
+              doc ? doc.getContentForSave() : file.content,
             )
               .then(() => closeFile(file.path))
               .catch(() => {
