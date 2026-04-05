@@ -1,3 +1,4 @@
+// 旧架构（逐步废弃）
 export { editorCore } from "./core/editor-core";
 export {
   editorManager,
@@ -6,6 +7,24 @@ export {
   type EditorManagerConfig,
   type AttachOptions,
 } from "./core/editor-manager";
+
+// 新架构
+export {
+  Document,
+  getDocumentManager,
+  createDocumentManager,
+  type DocumentManager,
+  type DocumentSnapshot,
+  getSlotPool,
+  createSlotPool,
+  type SlotPool,
+  type SlotPoolConfig,
+  type AcquireOptions,
+  type DocState,
+  type FileMetadata,
+  type ViewState,
+} from "./core";
+
 export {
   saveFile,
   registerHostBridge,

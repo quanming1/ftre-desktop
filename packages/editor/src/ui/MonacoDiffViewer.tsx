@@ -2,7 +2,7 @@ import { DiffEditor } from "@monaco-editor/react";
 import { useCallback, useRef, useEffect } from "react";
 import type { editor } from "monaco-editor";
 import type * as Monaco from "monaco-editor";
-import { editorCore } from "../core";
+import { getDocumentManager } from "../core";
 import { registerFtreTheme } from "./theme-registry";
 import { getActiveThemeId } from "./themes";
 import type { DiffEntry } from "../store/types";
@@ -29,22 +29,10 @@ export function MonacoDiffViewer({
 }: MonacoDiffViewerProps) {
   const monacoLang = toMonacoLanguage(language);
   const editorRef = useRef<editor.IStandaloneDiffEditor | null>(null);
-  // 缓存 model 引用，widget dispose 后仍能安全 dispose models
-  const modelsRef = useRef<{
-    original: editor.ITextModel | null;
-    modified: editor.ITextModel | null;
-  }>({
-    original: null,
-    modified: null,
-  });
 
   const handleMount = useCallback(
     (diffEditor: editor.IStandaloneDiffEditor, monaco: typeof Monaco) => {
       editorRef.current = diffEditor;
-      modelsRef.current = {
-        original: diffEditor.getOriginalEditor().getModel(),
-        modified: diffEditor.getModifiedEditor().getModel(),
-      };
 
       registerFtreTheme(monaco);
       monaco.editor.setTheme(getActiveThemeId());
@@ -75,26 +63,22 @@ export function MonacoDiffViewer({
   const filePathRef = useRef(diff.filePath);
   filePathRef.current = diff.filePath;
 
-  // 手动 dispose models：React cleanup 顺序保证子组件（DiffEditor）先清理 widget，
-  // 父组件（本组件）后清理 models，避免 "TextModel got disposed before DiffEditorWidget
-  // model got reset" 错误
+  // 组件卸载时保存 viewState，供后续打开原始文件时恢复滚动位置
   useEffect(() => {
     return () => {
-      // 将 modified editor 的 viewState 保存到真实文件路径，
-      // 这样从 diff tab 跳转到原始文件时 MonacoEditor 能恢复相同的滚动位置
       const diffEditor = editorRef.current;
       if (diffEditor) {
         const modifiedViewState = diffEditor
           .getModifiedEditor()
           .saveViewState();
         if (modifiedViewState) {
-          editorCore.saveViewState(filePathRef.current, modifiedViewState);
+          const docManager = getDocumentManager();
+          const doc = docManager.get(filePathRef.current);
+          if (doc) {
+            doc.saveViewState(modifiedViewState);
+          }
         }
       }
-
-      modelsRef.current.original?.dispose();
-      modelsRef.current.modified?.dispose();
-      modelsRef.current = { original: null, modified: null };
       editorRef.current = null;
     };
   }, []);
@@ -107,8 +91,6 @@ export function MonacoDiffViewer({
       modified={diff.newContent}
       theme="ftre-dark"
       onMount={handleMount}
-      keepCurrentOriginalModel
-      keepCurrentModifiedModel
       options={{
         readOnly: true,
         originalEditable: false,

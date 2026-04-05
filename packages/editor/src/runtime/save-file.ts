@@ -3,8 +3,9 @@
  * 处理普通文件 + untitled 另存为两种场景。
  */
 
-import { editorCore } from "../core/editor-core";
+import { getDocumentManager } from "../core/document-manager";
 import { getHostBridge } from "./host-bridge";
+import { markSaved as markRecentlySaved } from "./save-tracker";
 
 /** 根据文件扩展名推断语言 */
 const EXT_TO_LANGUAGE: Record<string, string> = {
@@ -61,6 +62,8 @@ export async function saveFile(
 ): Promise<void> {
   const host = getHostBridge();
 
+  const docManager = getDocumentManager();
+
   // untitled 文件另存为
   if (filePath.startsWith("untitled:")) {
     const saveResult = await host.showSaveDialog({ defaultName: fileName });
@@ -71,9 +74,12 @@ export async function saveFile(
 
     if (writeResult.success) {
       const name = saveResult.path.split(/[\\/]/).pop() ?? saveResult.path;
+
+      // 关闭旧的 untitled Document
+      docManager.close(filePath);
       host.closeFile(filePath);
-      editorCore.setContent(saveResult.path, content);
-      editorCore.setDiskContent(saveResult.path, content);
+
+      // 打开新文件
       host.openFile({
         path: saveResult.path,
         name,
@@ -88,11 +94,16 @@ export async function saveFile(
 
   // 普通文件保存
   const content = getContent();
+
+  // 标记文件即将被保存，让 watcher 知道这是自己保存而非外部修改
+  markRecentlySaved(filePath);
+
   const result = await host.writeFile(filePath, content);
 
   if (result.success) {
-    editorCore.setDiskContent(filePath, content);
     onDirtyReset?.();
+    // host.markSaved 会触发 editor-store 中的 markSaved action，
+    // 那里已经会调用 doc.markSaved()，无需在此重复调用
     host.markSaved(filePath);
   } else {
     host.notifyError(result.error || "保存文件失败");
