@@ -12,6 +12,7 @@ import {
   FolderPlus,
   LocateFixed,
   ChevronsDownUp,
+  Archive,
 } from "lucide-react";
 import { useWorkspace } from "@/stores/workspace";
 import { useNotification } from "@/stores/notification";
@@ -32,6 +33,7 @@ import {
 import { FileTreeItem } from "./FileTreeItem";
 import { InlineInput } from "./InlineInput";
 import { GitChangesView } from "./GitChangesView";
+import { ArchivesView } from "./ArchivesView";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import {
   flattenVisibleEntries,
@@ -97,7 +99,7 @@ function saveExpandedPaths(paths: Set<string>, rootPath: string | null) {
   }, 300);
 }
 
-type ViewMode = "files" | "git";
+type ViewMode = "files" | "git" | "archives";
 
 const EXPLORER_ROW_HEIGHT = 32;
 const EXPLORER_OVERSCAN = 12;
@@ -1024,6 +1026,19 @@ export function ExplorerView() {
           )}
         </button>
 
+        {/* 归档按钮 */}
+        <button
+          onClick={() => setViewMode("archives")}
+          className={`flex items-center justify-center w-9 h-9 rounded-md ${
+            viewMode === "archives"
+              ? "bg-white/[0.08] text-t-primary"
+              : "text-t-ghost hover:text-t-muted hover:bg-white/[0.04]"
+          }`}
+          title="归档"
+        >
+          <Archive size={18} strokeWidth={1.5} />
+        </button>
+
         <div className="flex-1" />
       </div>
 
@@ -1161,6 +1176,9 @@ export function ExplorerView() {
       </div>
       <div style={{ display: viewMode === "git" ? "contents" : "none" }}>
         <GitChangesView visible={viewMode === "git"} />
+      </div>
+      <div style={{ display: viewMode === "archives" ? "contents" : "none" }}>
+        <ArchivesView visible={viewMode === "archives"} />
       </div>
 
       {/* Delete confirmation dialog */}
