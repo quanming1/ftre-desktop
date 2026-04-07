@@ -172,7 +172,7 @@ export function RollbackConfirmDialog({
           <button
             onClick={() => onConfirm(skipCodeRestore)}
             disabled={isLoading}
-            className="px-4 py-2 text-[13px] rounded-sm transition-colors duration-150 text-[var(--color-base,#1e1e1e)] bg-[var(--color-warning,#d29922)] hover:bg-[#e3a533] disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+            className="px-4 py-2 text-[13px] rounded-sm transition-colors duration-150 text-[var(--color-base,#1a1b1d)] bg-[var(--color-warning,#d29922)] hover:bg-[#e3a533] disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
           >
             {isLoading ? (
               <>

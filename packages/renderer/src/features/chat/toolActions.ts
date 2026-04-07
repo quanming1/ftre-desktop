@@ -107,30 +107,42 @@ export async function handleShowDiff(message: ToolCallMessage): Promise<void> {
   const diffData = await fetchDiff(callId);
 
   if (diffData && diffData.files.length > 0) {
-    // 取第一个变更文件（edit 通常只改一个文件）
-    const fileDiff = diffData.files[0];
+    // 优先选择“确实发生文本变化”的文件，避免偶发拿到空 diff 项。
+    const fileDiff =
+      diffData.files.find(
+        (f) =>
+          (f.before_content ?? "") !== (f.after_content ?? "") ||
+          (f.additions ?? 0) + (f.deletions ?? 0) > 0,
+      ) ?? diffData.files[0];
     const fullPath = resolveFilePath(fileDiff.file);
     const diffId = buildDiffId(callId, fullPath);
 
+    const diffTabPath = buildDiffTabPath(fullPath);
+    const beforeContent = fileDiff.before_content ?? "";
+    const afterContent = fileDiff.after_content ?? "";
+
     const existing = store.pendingDiffs.find((d) => d.id === diffId);
-    if (existing) {
+    if (
+      existing &&
+      existing.originalContent === beforeContent &&
+      existing.newContent === afterContent
+    ) {
       activateExistingDiff(diffId);
       return;
     }
 
-    const diffTabPath = buildDiffTabPath(fullPath);
     store.openFile({
       path: diffTabPath,
       name: `${basename(fullPath)} (Diff)`,
       language: guessLanguage(fullPath),
-      content: fileDiff.after_content,
+      content: afterContent,
     });
     store.addDiff({
       id: diffId,
       filePath: fullPath,
       tabPath: diffTabPath,
-      originalContent: fileDiff.before_content,
-      newContent: fileDiff.after_content,
+      originalContent: beforeContent,
+      newContent: afterContent,
       toolName: diffData.tool_name,
       isApproximate: false,
     });
