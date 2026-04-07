@@ -7,6 +7,10 @@ import {
   RefreshCw,
   Archive,
   Pencil,
+  FolderOpen,
+  Check,
+  ChevronsUpDown,
+  Filter,
 } from "lucide-react";
 import { useSession } from "@/stores/session";
 import { useChat } from "@/stores/chat";
@@ -16,6 +20,7 @@ import { streamManager } from "@/services/stream-manager";
 import { triggerCompaction, updateSession } from "@/services/api";
 import { ContextMenu, type ContextMenuItem } from "@/components/ContextMenu";
 import { Tooltip, TooltipProvider } from "@ftre/ui";
+import * as TooltipPrimitive from "@radix-ui/react-tooltip";
 import type { SessionSummary } from "@/services/api";
 
 // ─── 工具函数 ──────────────────────────────────────────────────────
@@ -162,21 +167,26 @@ function buildWorkspaceGroup(
 
 export function SessionPanel() {
   const rootPath = useWorkspace((s) => s.rootPath);
+  const recentFolders = useWorkspace((s) => s.recentFolders);
+  const setRootPath = useWorkspace((s) => s.setRootPath);
 
   const allSessions = useSession((s) => s.allSessions);
   const loadAllSessions = useSession((s) => s.loadAllSessions);
+  const restoreLatest = useSession((s) => s.restoreLatest);
   const switchSession = useSession((s) => s.switchSession);
   const deleteSession = useSession((s) => s.deleteSession);
   const newSession = useSession((s) => s.newSession);
   const currentSessionId = useChat((s) => s.sessionId);
 
   const [selectedSource, setSelectedSource] = useState<string>("all");
-  const [sourceMenuOpen, setSourceMenuOpen] = useState(false);
   const [showAllSessions, setShowAllSessions] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [searchOpen, setSearchOpen] = useState(false);
+  const [workspaceMenuOpen, setWorkspaceMenuOpen] = useState(false);
+  const [headerHovered, setHeaderHovered] = useState(false);
+  const [filterTipOpen, setFilterTipOpen] = useState(false);
   const searchInputRef = useRef<HTMLInputElement>(null);
-  const sourceMenuRef = useRef<HTMLDivElement>(null);
+  const workspaceMenuRef = useRef<HTMLDivElement>(null);
   const [contextMenu, setContextMenu] = useState<{
     position: { x: number; y: number };
     items: ContextMenuItem[];
@@ -334,6 +344,59 @@ export function SessionPanel() {
     });
   }, []);
 
+  const handleSelectWorkspace = useCallback((folder: string) => {
+    setRootPath(folder);
+    void restoreLatest(folder);
+    setWorkspaceMenuOpen(false);
+  }, [setRootPath, restoreLatest]);
+
+  const handleOpenFolder = useCallback(async () => {
+    try {
+      const result = await window.desktop.fs.selectFolder();
+      if (result?.path) {
+        setRootPath(result.path);
+        void restoreLatest(result.path);
+        setWorkspaceMenuOpen(false);
+      }
+    } catch {
+      // ignore
+    }
+  }, [setRootPath, restoreLatest]);
+
+  const getWorkspaceAbbrev = useCallback((folder: string) => {
+    const name = folder.split(/[\\/]/).pop() || folder;
+    const words = name
+      .replace(/[^a-zA-Z0-9\u4e00-\u9fa5]+/g, " ")
+      .trim()
+      .split(/\s+/)
+      .filter(Boolean);
+    if (words.length >= 2) {
+      return `${words[0][0]}${words[1][0]}`.toUpperCase();
+    }
+    return name.slice(0, 2).toUpperCase();
+  }, []);
+
+  const getWorkspaceColor = useCallback((folder: string) => {
+    let hash = 0;
+    for (let i = 0; i < folder.length; i++) {
+      hash = (hash * 31 + folder.charCodeAt(i)) | 0;
+    }
+    const hue = Math.abs(hash) % 360;
+    return `hsl(${hue} 65% 45%)`;
+  }, []);
+
+  // 点击外部关闭工作区菜单
+  useEffect(() => {
+    if (!workspaceMenuOpen) return;
+    const handler = (e: MouseEvent) => {
+      if (workspaceMenuRef.current && !workspaceMenuRef.current.contains(e.target as Node)) {
+        setWorkspaceMenuOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [workspaceMenuOpen]);
+
   const currentWorkspace = filteredWorkspaceGroups[0];
   const currentWorkspaceName = folderName(rootPath || "未打开文件夹");
   const sourceOptions = useMemo(() => {
@@ -396,65 +459,165 @@ export function SessionPanel() {
     setShowAllSessions(false);
   }, [selectedSource, searchQuery, currentWorkspace?.normalizedPath]);
 
-  useEffect(() => {
-    if (!sourceMenuOpen) return;
-    const handler = (e: MouseEvent) => {
-      if (sourceMenuRef.current && !sourceMenuRef.current.contains(e.target as Node)) {
-        setSourceMenuOpen(false);
-      }
-    };
-    document.addEventListener("mousedown", handler);
-    return () => document.removeEventListener("mousedown", handler);
-  }, [sourceMenuOpen]);
-
   const selectedSourceLabel = useMemo(() => {
     if (selectedSource === "all") return "全部";
     const found = sourceOptions.find((option) => option.value === selectedSource);
     return found ? found.label : "全部";
   }, [selectedSource, sourceOptions]);
+  const sourceBadgeText = useMemo(() => {
+    if (selectedSource === "all") return "A";
+    return selectedSourceLabel.slice(0, 1).toUpperCase();
+  }, [selectedSource, selectedSourceLabel]);
+
+  const handleCycleSourceFilter = useCallback(() => {
+    const values = ["all", ...sourceOptions.map((option) => option.value)];
+    if (values.length <= 1) return;
+    const currentIndex = values.indexOf(selectedSource);
+    const nextIndex = currentIndex >= 0 ? (currentIndex + 1) % values.length : 0;
+    setSelectedSource(values[nextIndex]);
+  }, [sourceOptions, selectedSource]);
 
   return (
     <TooltipProvider>
       <div className="h-full flex flex-col bg-surface text-[13px]">
-        {/* 头部：工作区 + 搜索/刷新 + 新增会话 */}
-        <div className="shrink-0 px-3 py-2.5 border-b border-border">
-          <div className="flex items-center gap-2">
-            <span className="text-[13px] text-t-primary truncate flex-1">
-              {currentWorkspaceName}
-            </span>
-            <Tooltip content="搜索会话" side="bottom">
+        {/* 头部：工作区信息 + 切换按钮 */}
+        <div
+          ref={workspaceMenuRef}
+          className="shrink-0 px-3 py-2.5 border-b border-border relative"
+          onMouseEnter={() => setHeaderHovered(true)}
+          onMouseLeave={() => setHeaderHovered(false)}
+        >
+          <div className="flex items-stretch gap-2">
+            <div className="flex-1 min-w-0">
+              <div className="text-[13px] text-t-primary truncate">
+                {currentWorkspaceName}
+              </div>
+              <div className="text-[11px] text-t-ghost truncate mt-0.5">
+                {rootPath || "未打开文件夹"}
+              </div>
+            </div>
+            {(headerHovered || workspaceMenuOpen) && (
+              <Tooltip content="切换工作区" side="bottom">
+                <button
+                  onClick={() => setWorkspaceMenuOpen((v) => !v)}
+                  className="shrink-0 h-8 w-8 rounded-md text-t-secondary bg-elevated hover:bg-panel hover:text-neon transition-colors flex items-center justify-center mt-0.5"
+                >
+                  <ChevronsUpDown size={14} />
+                </button>
+              </Tooltip>
+            )}
+          </div>
+
+          {/* 工作区下拉菜单 */}
+          {workspaceMenuOpen && (
+            <div className="absolute left-2 right-2 top-full mt-1 bg-elevated border border-border-subtle rounded-lg shadow-2xl py-1 z-[50]">
+              {recentFolders.map((folder) => {
+                const isActive = !!rootPath && normalizePath(rootPath) === normalizePath(folder);
+                return (
+                  <button
+                    key={folder}
+                    onClick={() => handleSelectWorkspace(folder)}
+                    className={`w-full flex items-center gap-3 px-3.5 py-2.5 text-[13px] transition-colors ${
+                      isActive
+                        ? "text-neon bg-neon/10"
+                        : "text-t-secondary hover:bg-white/[0.08] hover:text-t-primary"
+                    }`}
+                  >
+                    <span
+                      className="shrink-0 w-6 h-6 rounded text-[11px] font-bold flex items-center justify-center text-white"
+                      style={{ backgroundColor: getWorkspaceColor(folder) }}
+                    >
+                      {getWorkspaceAbbrev(folder)}
+                    </span>
+                    <span className="truncate flex-1 text-left">
+                      {folderName(folder)}
+                    </span>
+                    {isActive && <Check size={14} className="shrink-0 text-neon" />}
+                  </button>
+                );
+              })}
+              <div className="h-px bg-border-subtle my-1" />
               <button
-                onClick={handleSearchToggle}
-                className={`flex items-center justify-center h-7 w-7 rounded transition-colors ${
-                  searchOpen
+                onClick={handleOpenFolder}
+                className="w-full flex items-center gap-2.5 px-3 py-2 text-[12px] text-t-secondary hover:bg-white/[0.08] hover:text-t-primary transition-colors"
+              >
+                <FolderOpen size={14} />
+                <span>打开文件夹...</span>
+              </button>
+            </div>
+          )}
+        </div>
+
+        {/* 新增会话 + 搜索 + 刷新 */}
+        <div className="shrink-0 px-3 py-2 flex items-center gap-2">
+          <button
+            onClick={(e) => handleNewSession(e, rootPath || "")}
+            disabled={!rootPath}
+            className="flex-1 h-8 rounded-md text-[12px] border border-border-subtle bg-elevated hover:bg-panel text-t-secondary hover:text-neon transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-1.5"
+          >
+            <Plus size={14} />
+            <span>新增会话</span>
+          </button>
+          <Tooltip content="搜索会话" side="bottom">
+            <button
+              onClick={handleSearchToggle}
+              className={`flex items-center justify-center h-8 w-8 rounded transition-colors ${
+                searchOpen
+                  ? "text-neon bg-neon/10"
+                  : "text-t-secondary bg-elevated hover:bg-panel hover:text-neon"
+              }`}
+            >
+              <Search size={14} />
+            </button>
+          </Tooltip>
+          <TooltipPrimitive.Root open={filterTipOpen} onOpenChange={setFilterTipOpen} delayDuration={0}>
+            <TooltipPrimitive.Trigger asChild>
+              <button
+                type="button"
+                onClick={() => {
+                  handleCycleSourceFilter();
+                  setFilterTipOpen(true);
+                }}
+                onMouseEnter={() => setFilterTipOpen(true)}
+                onMouseLeave={() => setFilterTipOpen(false)}
+                disabled={sourceOptions.length === 0}
+                className={`relative flex items-center justify-center h-9 w-9 rounded transition-colors disabled:opacity-40 disabled:cursor-not-allowed ${
+                  selectedSource !== "all"
                     ? "text-neon bg-neon/10"
                     : "text-t-secondary bg-elevated hover:bg-panel hover:text-neon"
                 }`}
               >
-                <Search size={14} />
+                <Filter size={15} />
+                <span
+                  className={`absolute -right-0.5 -top-0.5 min-w-[12px] h-[12px] px-[2px] rounded-full text-[8px] leading-[12px] text-center font-semibold ${
+                    selectedSource !== "all"
+                      ? "bg-neon/25 text-neon border border-neon/40"
+                      : "bg-white/[0.14] text-t-dim border border-white/[0.2]"
+                  }`}
+                >
+                  {sourceBadgeText}
+                </span>
               </button>
-            </Tooltip>
-            <Tooltip content="刷新会话" side="bottom">
-              <button
-                onClick={handleRefreshWorkspace}
-                className="flex items-center justify-center h-7 w-7 rounded text-t-secondary bg-elevated hover:bg-panel hover:text-neon transition-colors"
+            </TooltipPrimitive.Trigger>
+            <TooltipPrimitive.Portal>
+              <TooltipPrimitive.Content
+                side="bottom"
+                sideOffset={6}
+                className="z-[9999] px-2.5 py-1.5 text-[12px] rounded shadow-lg bg-[var(--ftre-elevated,#2d2d2d)] text-[var(--ftre-text-primary,#e8e8e8)] border border-[var(--ftre-border,#3c3c3c)]"
               >
-                <RefreshCw size={14} />
-              </button>
-            </Tooltip>
-          </div>
-        <div className="text-[11px] text-t-ghost truncate mt-1">
-          {rootPath || "未打开文件夹"}
+                {`来源筛选：${selectedSourceLabel}（点击切换）`}
+              </TooltipPrimitive.Content>
+            </TooltipPrimitive.Portal>
+          </TooltipPrimitive.Root>
+          <Tooltip content="刷新会话" side="bottom">
+            <button
+              onClick={handleRefreshWorkspace}
+              className="flex items-center justify-center h-8 w-8 rounded text-t-secondary bg-elevated hover:bg-panel hover:text-neon transition-colors"
+            >
+              <RefreshCw size={14} />
+            </button>
+          </Tooltip>
         </div>
-        <button
-          onClick={(e) => handleNewSession(e, rootPath || "")}
-          disabled={!rootPath}
-          className="w-full mt-2 h-9 rounded-md text-[12px] border border-border-subtle bg-elevated hover:bg-panel text-t-secondary hover:text-neon transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-1.5"
-        >
-          <Plus size={14} />
-          <span>新增会话</span>
-        </button>
-      </div>
 
       {/* 搜索框（展开时显示） */}
       {searchOpen && (
@@ -469,55 +632,6 @@ export function SessionPanel() {
           />
         </div>
       )}
-
-      <div className="shrink-0 px-3 py-1.5 border-b border-border">
-        <div className="flex items-center gap-2" ref={sourceMenuRef}>
-          <div className="relative">
-            <button
-              type="button"
-              onClick={() => setSourceMenuOpen((prev) => !prev)}
-              className="h-7 px-1.5 rounded bg-transparent border border-transparent text-[12px] text-t-secondary outline-none hover:bg-elevated/70 focus:bg-elevated focus:border-border-subtle transition-colors"
-            >
-              {selectedSourceLabel}
-            </button>
-            {sourceMenuOpen && (
-              <div className="absolute top-full left-0 mt-1 min-w-[160px] bg-elevated border border-border-subtle rounded-lg shadow-2xl py-1 z-[40]">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setSelectedSource("all");
-                    setSourceMenuOpen(false);
-                  }}
-                  className={`w-full text-left px-3 py-2 text-[12px] transition-colors ${
-                    selectedSource === "all"
-                      ? "text-neon bg-neon/10"
-                      : "text-t-secondary hover:bg-white/[0.08] hover:text-t-primary"
-                  }`}
-                >
-                  全部
-                </button>
-                {sourceOptions.map((option) => (
-                  <button
-                    key={option.value}
-                    type="button"
-                    onClick={() => {
-                      setSelectedSource(option.value);
-                      setSourceMenuOpen(false);
-                    }}
-                    className={`w-full text-left px-3 py-2 text-[12px] transition-colors ${
-                      selectedSource === option.value
-                        ? "text-neon bg-neon/10"
-                        : "text-t-secondary hover:bg-white/[0.08] hover:text-t-primary"
-                    }`}
-                  >
-                    {option.label}
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
-        </div>
-      </div>
 
       <div
         ref={scrollContainerRef}
