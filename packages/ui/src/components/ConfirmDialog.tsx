@@ -3,26 +3,31 @@ import { createPortal } from "react-dom";
 import { motion } from "framer-motion";
 import { cn } from "../utils/cn";
 
+type DialogButtonVariant = "default" | "danger" | "primary";
+
 export interface DialogButton {
   label: string;
-  variant?: "default" | "danger" | "primary";
+  variant?: DialogButtonVariant;
   action: () => void;
 }
 
 export interface ConfirmDialogProps {
   title: string;
   message: string;
-  /** Traditional two-button mode */
+  /** 传统双按钮模式 */
   confirmLabel?: string;
   cancelLabel?: string;
   onConfirm: () => void;
   onCancel: () => void;
-  /** Custom multi-button mode (takes precedence over confirmLabel/cancelLabel) */
+  /** 自定义多按钮模式（优先于 confirmLabel/cancelLabel） */
   buttons?: DialogButton[];
   className?: string;
 }
 
-const VARIANT_CLASSES: Record<string, string> = {
+const BUTTON_BASE_CLASS =
+  "px-4 py-2 text-[13px] rounded-[4px] transition-colors duration-150 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--ftre-accent,#00ff88)]";
+
+const VARIANT_CLASSES: Record<DialogButtonVariant, string> = {
   default:
     "text-[var(--ftre-text-secondary,#cccccc)] hover:text-[var(--ftre-text-primary,#e8e8e8)] bg-[var(--ftre-panel,#333333)] hover:bg-[var(--ftre-border,#3c3c3c)] border border-[var(--ftre-border,#3c3c3c)]",
   danger:
@@ -41,7 +46,6 @@ export function ConfirmDialog({
   buttons,
   className,
 }: ConfirmDialogProps) {
-  const dialogRef = useRef<HTMLDivElement>(null);
   const previousFocusRef = useRef<HTMLElement | null>(null);
   const firstBtnRef = useRef<HTMLButtonElement>(null);
 
@@ -76,22 +80,29 @@ export function ConfirmDialog({
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
       transition={{ duration: 0.15 }}
-      className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/50"
+      className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/55"
+      onClick={onCancel}
     >
       <motion.div
-        ref={dialogRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="ftre-confirm-dialog-title"
         tabIndex={-1}
         initial={{ opacity: 0, scale: 0.95, y: -10 }}
         animate={{ opacity: 1, scale: 1, y: 0 }}
         exit={{ opacity: 0, scale: 0.95, y: -10 }}
         transition={{ duration: 0.15, ease: "easeOut" }}
+        onClick={(e) => e.stopPropagation()}
         className={cn(
-          "rounded-md border p-6 shadow-2xl min-w-[340px] max-w-[440px] outline-none",
+          "rounded-[6px] border p-6 shadow-2xl min-w-[340px] max-w-[440px] outline-none",
           "bg-[var(--ftre-elevated,#2d2d2d)] border-[var(--ftre-border,#3c3c3c)]",
           className,
         )}
       >
-        <h3 className="text-[14px] font-medium text-[var(--ftre-text-primary,#e8e8e8)] mb-2">
+        <h3
+          id="ftre-confirm-dialog-title"
+          className="text-[14px] font-medium text-[var(--ftre-text-primary,#e8e8e8)] mb-2"
+        >
           {title}
         </h3>
         <p className="text-[13px] text-[var(--ftre-text-secondary,#cccccc)] mb-5 leading-relaxed">
@@ -103,10 +114,7 @@ export function ConfirmDialog({
               key={btn.label}
               ref={i === 0 ? firstBtnRef : undefined}
               onClick={btn.action}
-              className={cn(
-                "px-4 py-2 text-[13px] rounded transition-colors duration-150",
-                VARIANT_CLASSES[btn.variant ?? "default"],
-              )}
+              className={cn(BUTTON_BASE_CLASS, VARIANT_CLASSES[btn.variant ?? "default"])}
             >
               {btn.label}
             </button>
