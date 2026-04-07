@@ -1,11 +1,12 @@
 /**
- * ArchivesView — 工作区归档列表视图（支持文件夹分组）
+ * ArchivesView — 工作区归档列表视图
  *
  * 功能：
- * - 按文件夹分组展示归档，未分类的归档单独显示
+ * - Tab 式筛选：全部 / 各文件夹 / 未分类
  * - 列表视图 / 卡片网格视图切换
- * - 拖拽归档到文件夹（@dnd-kit）
- * - 文件夹 CRUD：创建、重命名、删除、调整排序
+ * - 拖拽归档到文件夹 tab 添加分类
+ * - 拖拽归档到聊天区域插入引用
+ * - 文件夹 CRUD：创建、重命名、删除
  * - 归档分类：拖拽或右键菜单将归档加入/移出文件夹
  * - 一个归档可属于多个文件夹（多对多）
  */
@@ -32,7 +33,8 @@ import {
   List,
   LayoutGrid,
   GripVertical,
-  FolderOpen,
+  Inbox,
+  Layers,
 } from "lucide-react";
 import {
   DndContext,
@@ -63,6 +65,7 @@ import {
 import { ContextMenu, type ContextMenuItem } from "@/components/ContextMenu";
 
 type ViewMode = "list" | "grid";
+type TabId = "all" | "uncategorized" | string; // string = folder id
 
 function timeAgo(ts: number): string {
   const diff = Date.now() / 1000 - ts;
@@ -88,7 +91,7 @@ function EditActions({
     <div className="flex items-center gap-2 justify-end">
       <button
         onClick={onCancel}
-        className="flex items-center gap-1 px-2 py-1 rounded text-[11px] text-t-muted hover:bg-white/[0.06]"
+        className="flex items-center gap-1 px-2 py-1 rounded text-[11px] text-t-muted hover:bg-white/6"
       >
         <X size={12} />
         取消
@@ -105,6 +108,83 @@ function EditActions({
   );
 }
 
+// ─── Tab 项（可作为 drop target） ─────────────────────────────────
+
+interface TabItemProps {
+  id: TabId;
+  label: string;
+  count: number;
+  icon: React.ReactNode;
+  active: boolean;
+  onClick: () => void;
+  onContextMenu?: (e: React.MouseEvent) => void;
+  acceptDrop?: boolean;
+}
+
+function TabItem({
+  id,
+  label,
+  count,
+  icon,
+  active,
+  onClick,
+  onContextMenu,
+  acceptDrop = false,
+}: TabItemProps) {
+  const { isOver, setNodeRef } = useDroppable({
+    id: `tab-${id}`,
+    data: { type: "folder-tab", folderId: id },
+    disabled: !acceptDrop,
+  });
+
+  return (
+    <button
+      ref={setNodeRef}
+      onClick={onClick}
+      onContextMenu={onContextMenu}
+      className={`
+        shrink-0 flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-[11px] transition-all
+        ${active ? "bg-white/10 text-t-primary" : "text-t-muted hover:text-t-primary hover:bg-white/5"}
+        ${isOver ? "ring-2 ring-neon/50 bg-neon/10" : ""}
+      `}
+    >
+      {icon}
+      <span className="truncate max-w-20">{label}</span>
+      <span className="text-[10px] text-t-ghost">({count})</span>
+    </button>
+  );
+}
+
+// ─── 聊天区域 drop target（检测拖到右边） ─────────────────────────
+
+function ChatDropZone({ isActive }: { isActive: boolean }) {
+  const { isOver, setNodeRef } = useDroppable({
+    id: "chat-input-zone",
+    data: { type: "chat-input" },
+  });
+
+  if (!isActive) return null;
+
+  return (
+    <div
+      ref={setNodeRef}
+      className={`
+        fixed right-0 top-0 bottom-0 w-[45%] z-40 pointer-events-auto
+        flex items-center justify-center
+        transition-all duration-200
+        ${isOver ? "bg-violet-500/10 backdrop-blur-sm" : "bg-transparent"}
+      `}
+    >
+      {isOver && (
+        <div className="flex flex-col items-center gap-2 text-violet-400">
+          <Plus size={32} strokeWidth={1.5} />
+          <span className="text-[13px] font-medium">松开引用到输入框</span>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── 归档项（列表模式） ─────────────────────────────────────────
 
 interface ArchiveItemProps {
@@ -115,7 +195,7 @@ interface ArchiveItemProps {
   onDelete: (id: string) => void;
   onAddToFolder: (archiveId: string, folderId: string) => void;
   onRemoveFromFolder: (archiveId: string, folderId: string) => void;
-  isDragOverlay?: boolean;
+  onInsertRef: (archive: ArchiveEntry) => void;
 }
 
 function ArchiveListItem({
@@ -126,7 +206,7 @@ function ArchiveListItem({
   onDelete,
   onAddToFolder,
   onRemoveFromFolder,
-  isDragOverlay,
+  onInsertRef,
 }: ArchiveItemProps) {
   const [expanded, setExpanded] = useState(false);
   const [editing, setEditing] = useState<
@@ -142,31 +222,13 @@ function ArchiveListItem({
   const { attributes, listeners, setNodeRef, transform, isDragging } =
     useDraggable({
       id: `archive-${archive.id}`,
-      data: { type: "archive", archiveId: archive.id },
-      disabled: isDragOverlay || !!editing,
+      data: { type: "archive", archiveId: archive.id, archive },
+      disabled: !!editing,
     });
 
   const dragStyle = transform
     ? { transform: `translate3d(${transform.x}px, ${transform.y}px, 0)` }
     : undefined;
-
-  const handleInsertRef = useCallback(() => {
-    const archiveRef = {
-      id: archive.id,
-      summary: archive.summary,
-      turnCount: archive.meta.turn_count,
-      totalMessages: archive.meta.total_messages,
-      label: archive.meta.label,
-      createdAt: archive.created_at,
-    };
-    window.dispatchEvent(
-      new CustomEvent("ftre:insert-archive-ref", { detail: archiveRef }),
-    );
-    useNotification.getState().addNotification({
-      level: "info",
-      message: "归档已添加到输入框",
-    });
-  }, [archive]);
 
   const handleContextMenu = useCallback(
     (e: React.MouseEvent) => {
@@ -182,7 +244,7 @@ function ArchiveListItem({
           id: "insert-ref",
           label: "引用到输入框",
           icon: Plus,
-          action: () => handleInsertRef(),
+          action: () => onInsertRef(archive),
         },
         { id: "sep-actions", label: "", separator: true, action: () => {} },
       ];
@@ -266,7 +328,7 @@ function ArchiveListItem({
       onDelete,
       onAddToFolder,
       onRemoveFromFolder,
-      handleInsertRef,
+      onInsertRef,
     ],
   );
 
@@ -290,6 +352,14 @@ function ArchiveListItem({
     setEditValue("");
   }, []);
 
+  // 归档所属的文件夹标签（在"全部"视图下显示）
+  const folderTags = useMemo(() => {
+    if (!archive.folder_ids || archive.folder_ids.length === 0) return null;
+    return archive.folder_ids
+      .map((fid) => folders.find((f) => f.id === fid))
+      .filter(Boolean) as ArchiveFolder[];
+  }, [archive.folder_ids, folders]);
+
   return (
     <div
       ref={setNodeRef}
@@ -302,7 +372,7 @@ function ArchiveListItem({
       <div
         onClick={() => !editing && setExpanded(!expanded)}
         onContextMenu={handleContextMenu}
-        className="flex items-start gap-1.5 px-3 py-2.5 cursor-pointer hover:bg-white/[0.02] transition-colors group relative"
+        className="flex items-start gap-1.5 px-3 py-2.5 cursor-pointer hover:bg-white/2 transition-colors group relative"
       >
         {/* Drag handle */}
         <span
@@ -317,15 +387,29 @@ function ArchiveListItem({
           {expanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
         </span>
         <div className="flex-1 min-w-0">
-          <div className="text-[12px] text-t-primary leading-relaxed line-clamp-2 pr-12">
+          <div className="text-[12px] text-t-primary leading-relaxed line-clamp-2">
             {archive.summary || "无摘要"}
           </div>
-          {archive.meta.label && (
-            <span className="inline-flex items-center gap-1 mt-1 px-1.5 py-0.5 rounded text-[10px] bg-neon/10 text-neon">
-              <Tag size={9} />
-              {archive.meta.label}
-            </span>
-          )}
+          {/* 标签和文件夹 */}
+          <div className="flex flex-wrap items-center gap-1.5 mt-1.5">
+            {archive.meta.label && (
+              <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] bg-neon/10 text-neon">
+                <Tag size={9} />
+                {archive.meta.label}
+              </span>
+            )}
+            {folderTags &&
+              !currentFolderId &&
+              folderTags.map((f) => (
+                <span
+                  key={f.id}
+                  className="inline-flex items-center gap-0.5 px-1 py-0.5 rounded text-[9px] bg-amber-500/10 text-amber-400/80"
+                >
+                  <Folder size={8} />
+                  {f.name}
+                </span>
+              ))}
+          </div>
           <div className="flex items-center gap-3 mt-1.5 text-[10px] text-t-ghost">
             <span className="flex items-center gap-1">
               <MessageSquare size={10} />
@@ -344,12 +428,12 @@ function ArchiveListItem({
             )}
           </div>
         </div>
-        {/* Hover buttons — absolute top-right to avoid overlapping stats */}
-        <div className="absolute top-2 right-2 flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
+        {/* Hover buttons */}
+        <div className="absolute top-2 right-2 flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity bg-surface/90 rounded-md px-0.5">
           <button
             onClick={(e) => {
               e.stopPropagation();
-              handleInsertRef();
+              onInsertRef(archive);
             }}
             className="p-1 rounded text-t-ghost hover:text-violet-400 hover:bg-violet-500/10 transition-all"
             title="引用到输入框"
@@ -361,7 +445,7 @@ function ArchiveListItem({
               e.stopPropagation();
               handleContextMenu(e);
             }}
-            className="p-1 rounded text-t-ghost hover:text-t-muted hover:bg-white/[0.06] transition-all"
+            className="p-1 rounded text-t-ghost hover:text-t-muted hover:bg-white/6 transition-all"
           >
             <MoreHorizontal size={14} />
           </button>
@@ -408,7 +492,7 @@ function ArchiveListItem({
               <textarea
                 value={editValue}
                 onChange={(e) => setEditValue(e.target.value)}
-                className="w-full bg-base rounded-lg p-3 text-[11px] text-t-secondary leading-relaxed resize-none border border-border focus:border-neon/50 outline-none max-h-[400px]"
+                className="w-full bg-base rounded-lg p-3 text-[11px] text-t-secondary leading-relaxed resize-none border border-border focus:border-neon/50 outline-none max-h-100"
                 rows={10}
                 placeholder="输入内容..."
                 autoFocus
@@ -420,7 +504,7 @@ function ArchiveListItem({
               />
             </div>
           ) : (
-            <div className="bg-base/50 rounded-lg p-3 text-[11px] text-t-secondary leading-relaxed whitespace-pre-wrap max-h-[300px] overflow-y-auto scrollbar-thin">
+            <div className="bg-base/50 rounded-lg p-3 text-[11px] text-t-secondary leading-relaxed whitespace-pre-wrap max-h-75 overflow-y-auto scrollbar-thin">
               {archive.content || "无详细内容"}
             </div>
           )}
@@ -445,11 +529,10 @@ function ArchiveCardItem({
   archive,
   folders,
   currentFolderId,
-  onUpdate,
   onDelete,
   onAddToFolder,
   onRemoveFromFolder,
-  isDragOverlay,
+  onInsertRef,
 }: ArchiveItemProps) {
   const [contextMenu, setContextMenu] = useState<{
     position: { x: number; y: number };
@@ -459,31 +542,12 @@ function ArchiveCardItem({
   const { attributes, listeners, setNodeRef, transform, isDragging } =
     useDraggable({
       id: `archive-${archive.id}`,
-      data: { type: "archive", archiveId: archive.id },
-      disabled: isDragOverlay,
+      data: { type: "archive", archiveId: archive.id, archive },
     });
 
   const dragStyle = transform
     ? { transform: `translate3d(${transform.x}px, ${transform.y}px, 0)` }
     : undefined;
-
-  const handleInsertRef = useCallback(() => {
-    const archiveRef = {
-      id: archive.id,
-      summary: archive.summary,
-      turnCount: archive.meta.turn_count,
-      totalMessages: archive.meta.total_messages,
-      label: archive.meta.label,
-      createdAt: archive.created_at,
-    };
-    window.dispatchEvent(
-      new CustomEvent("ftre:insert-archive-ref", { detail: archiveRef }),
-    );
-    useNotification.getState().addNotification({
-      level: "info",
-      message: "归档已添加到输入框",
-    });
-  }, [archive]);
 
   const handleContextMenu = useCallback(
     (e: React.MouseEvent) => {
@@ -499,7 +563,7 @@ function ArchiveCardItem({
           id: "insert-ref",
           label: "引用到输入框",
           icon: Plus,
-          action: () => handleInsertRef(),
+          action: () => onInsertRef(archive),
         },
         { id: "sep-actions", label: "", separator: true, action: () => {} },
       ];
@@ -552,9 +616,17 @@ function ArchiveCardItem({
       onDelete,
       onAddToFolder,
       onRemoveFromFolder,
-      handleInsertRef,
+      onInsertRef,
     ],
   );
+
+  // 归档所属的文件夹标签
+  const folderTags = useMemo(() => {
+    if (!archive.folder_ids || archive.folder_ids.length === 0) return null;
+    return archive.folder_ids
+      .map((fid) => folders.find((f) => f.id === fid))
+      .filter(Boolean) as ArchiveFolder[];
+  }, [archive.folder_ids, folders]);
 
   return (
     <div
@@ -563,9 +635,8 @@ function ArchiveCardItem({
       onContextMenu={handleContextMenu}
       className={`
         relative rounded-lg border border-border bg-elevated/50 p-3
-        hover:border-border hover:bg-white/[0.03] transition-all cursor-default group
+        hover:border-border hover:bg-white/3 transition-all cursor-default group
         ${isDragging ? "opacity-30" : ""}
-        ${isDragOverlay ? "shadow-lg shadow-black/30 border-neon/40 bg-elevated" : ""}
       `}
     >
       {/* Drag handle — top-right */}
@@ -583,13 +654,26 @@ function ArchiveCardItem({
         {archive.summary || "无摘要"}
       </div>
 
-      {/* Label */}
-      {archive.meta.label && (
-        <span className="inline-flex items-center gap-1 mt-2 px-1.5 py-0.5 rounded text-[10px] bg-neon/10 text-neon">
-          <Tag size={9} />
-          {archive.meta.label}
-        </span>
-      )}
+      {/* Label + Folder tags */}
+      <div className="flex flex-wrap items-center gap-1 mt-2">
+        {archive.meta.label && (
+          <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] bg-neon/10 text-neon">
+            <Tag size={9} />
+            {archive.meta.label}
+          </span>
+        )}
+        {folderTags &&
+          !currentFolderId &&
+          folderTags.map((f) => (
+            <span
+              key={f.id}
+              className="inline-flex items-center gap-0.5 px-1 py-0.5 rounded text-[9px] bg-amber-500/10 text-amber-400/80"
+            >
+              <Folder size={8} />
+              {f.name}
+            </span>
+          ))}
+      </div>
 
       {/* Content preview */}
       {archive.content && (
@@ -597,27 +681,6 @@ function ArchiveCardItem({
           {archive.content}
         </div>
       )}
-
-      {/* Folder tags */}
-      {archive.folder_ids &&
-        archive.folder_ids.length > 0 &&
-        !currentFolderId && (
-          <div className="flex flex-wrap gap-1 mt-2">
-            {archive.folder_ids.map((fid) => {
-              const f = folders.find((fo) => fo.id === fid);
-              if (!f) return null;
-              return (
-                <span
-                  key={fid}
-                  className="inline-flex items-center gap-0.5 px-1 py-0.5 rounded text-[9px] bg-amber-500/10 text-amber-400/80"
-                >
-                  <Folder size={8} />
-                  {f.name}
-                </span>
-              );
-            })}
-          </div>
-        )}
 
       {/* Meta footer */}
       <div className="flex items-center gap-2.5 mt-2 pt-2 border-t border-border/50 text-[10px] text-t-ghost">
@@ -637,11 +700,11 @@ function ArchiveCardItem({
       </div>
 
       {/* Hover actions */}
-      <div className="absolute bottom-2 right-2 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+      <div className="absolute bottom-2 right-2 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity bg-elevated/90 rounded-md px-0.5">
         <button
           onClick={(e) => {
             e.stopPropagation();
-            handleInsertRef();
+            onInsertRef(archive);
           }}
           className="p-1 rounded text-t-ghost hover:text-violet-400 hover:bg-violet-500/10 transition-all"
           title="引用到输入框"
@@ -653,7 +716,7 @@ function ArchiveCardItem({
             e.stopPropagation();
             handleContextMenu(e);
           }}
-          className="p-1 rounded text-t-ghost hover:text-t-muted hover:bg-white/[0.06] transition-all"
+          className="p-1 rounded text-t-ghost hover:text-t-muted hover:bg-white/6 transition-all"
         >
           <MoreHorizontal size={12} />
         </button>
@@ -675,7 +738,7 @@ function ArchiveCardItem({
 
 function DragOverlayContent({ archive }: { archive: ArchiveEntry }) {
   return (
-    <div className="rounded-lg border border-neon/40 bg-elevated shadow-lg shadow-black/30 px-3 py-2 max-w-[260px] pointer-events-none">
+    <div className="rounded-lg border border-neon/40 bg-elevated shadow-lg shadow-black/30 px-3 py-2 max-w-65 pointer-events-none">
       <div className="text-[11px] text-t-primary leading-relaxed line-clamp-2">
         {archive.summary || "无摘要"}
       </div>
@@ -688,163 +751,6 @@ function DragOverlayContent({ archive }: { archive: ArchiveEntry }) {
       <div className="text-[9px] text-t-ghost mt-1">
         {archive.meta.turn_count} 轮 · {archive.meta.total_messages} 条消息
       </div>
-    </div>
-  );
-}
-
-// ─── 文件夹组件（可作为 drop target） ────────────────────────────
-
-interface FolderSectionProps {
-  folder: ArchiveFolder;
-  archives: ArchiveEntry[];
-  allFolders: ArchiveFolder[];
-  expanded: boolean;
-  viewMode: ViewMode;
-  onToggle: () => void;
-  onUpdate: (updated: ArchiveEntry) => void;
-  onDelete: (id: string) => void;
-  onAddToFolder: (archiveId: string, folderId: string) => void;
-  onRemoveFromFolder: (archiveId: string, folderId: string) => void;
-  onEditFolder: (folder: ArchiveFolder) => void;
-  onDeleteFolder: (folderId: string) => void;
-}
-
-function FolderSection({
-  folder,
-  archives,
-  allFolders,
-  expanded,
-  viewMode,
-  onToggle,
-  onUpdate,
-  onDelete,
-  onAddToFolder,
-  onRemoveFromFolder,
-  onEditFolder,
-  onDeleteFolder,
-}: FolderSectionProps) {
-  const [contextMenu, setContextMenu] = useState<{
-    position: { x: number; y: number };
-    items: ContextMenuItem[];
-  } | null>(null);
-
-  const { isOver, setNodeRef } = useDroppable({
-    id: `folder-${folder.id}`,
-    data: { type: "folder", folderId: folder.id },
-  });
-
-  const handleContextMenu = useCallback(
-    (e: React.MouseEvent) => {
-      e.preventDefault();
-      e.stopPropagation();
-      setContextMenu({
-        position: { x: e.clientX, y: e.clientY },
-        items: [
-          {
-            id: "edit-folder",
-            label: "编辑文件夹",
-            icon: Pencil,
-            action: () => onEditFolder(folder),
-          },
-          { id: "sep", label: "", separator: true, action: () => {} },
-          {
-            id: "delete-folder",
-            label: "删除文件夹",
-            icon: Trash2,
-            action: () => onDeleteFolder(folder.id),
-          },
-        ],
-      });
-    },
-    [folder, onEditFolder, onDeleteFolder],
-  );
-
-  const ArchiveComponent =
-    viewMode === "grid" ? ArchiveCardItem : ArchiveListItem;
-
-  return (
-    <div
-      ref={setNodeRef}
-      className={`border-b border-border transition-colors ${
-        isOver ? "bg-amber-500/[0.06]" : ""
-      }`}
-    >
-      {/* Folder header */}
-      <div
-        onClick={onToggle}
-        onContextMenu={handleContextMenu}
-        className={`flex items-center gap-2 px-3 py-2 cursor-pointer hover:bg-white/[0.02] transition-colors group ${
-          isOver ? "bg-amber-500/[0.08]" : ""
-        }`}
-      >
-        <span className="shrink-0 text-t-muted">
-          {expanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
-        </span>
-        {isOver ? (
-          <FolderOpen size={14} className="shrink-0 text-amber-400" />
-        ) : (
-          <Folder size={14} className="shrink-0 text-amber-500/80" />
-        )}
-        <div className="flex-1 min-w-0">
-          <span className="text-[12px] text-t-primary truncate block">
-            {folder.name}
-          </span>
-          {folder.description && (
-            <span className="text-[10px] text-t-ghost truncate block mt-0.5">
-              {folder.description}
-            </span>
-          )}
-        </div>
-        <span
-          className={`text-[10px] ${
-            isOver ? "text-amber-400" : "text-t-ghost"
-          }`}
-        >
-          {isOver ? "松开放入" : archives.length}
-        </span>
-      </div>
-
-      {/* Folder content */}
-      {expanded && (
-        <div
-          className={
-            viewMode === "grid"
-              ? "grid grid-cols-2 gap-2 px-3 py-2 ml-5 border-l border-border/50"
-              : "pl-4 border-l border-border/50 ml-5"
-          }
-        >
-          {archives.length === 0 ? (
-            <div
-              className={`text-[11px] text-t-ghost text-center ${
-                viewMode === "grid" ? "col-span-2 py-4" : "px-3 py-4"
-              }`}
-            >
-              文件夹为空，拖拽归档到此处
-            </div>
-          ) : (
-            archives.map((archive) => (
-              <ArchiveComponent
-                key={archive.id}
-                archive={archive}
-                folders={allFolders}
-                currentFolderId={folder.id}
-                onUpdate={onUpdate}
-                onDelete={onDelete}
-                onAddToFolder={onAddToFolder}
-                onRemoveFromFolder={onRemoveFromFolder}
-              />
-            ))
-          )}
-        </div>
-      )}
-
-      {contextMenu && (
-        <ContextMenu
-          position={contextMenu.position}
-          items={contextMenu.items}
-          onClose={() => setContextMenu(null)}
-        />
-      )}
     </div>
   );
 }
@@ -937,7 +843,7 @@ function FolderDialog({ folder, onSave, onClose }: FolderDialogProps) {
         <div className="px-4 py-3 border-t border-border flex justify-end gap-2">
           <button
             onClick={onClose}
-            className="px-3 py-1.5 rounded text-[12px] text-t-muted hover:bg-white/[0.06]"
+            className="px-3 py-1.5 rounded text-[12px] text-t-muted hover:bg-white/6"
           >
             取消
           </button>
@@ -962,17 +868,21 @@ export function ArchivesView({ visible }: { visible: boolean }) {
   const [folders, setFolders] = useState<ArchiveFolder[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [expandedFolders, setExpandedFolders] = useState<Set<string>>(
-    new Set(),
-  );
+  const [activeTab, setActiveTab] = useState<TabId>("all");
+  const [viewMode, setViewMode] = useState<ViewMode>("list");
   const [folderDialog, setFolderDialog] = useState<{
     open: boolean;
     folder?: ArchiveFolder | null;
   }>({ open: false });
-  const [viewMode, setViewMode] = useState<ViewMode>("list");
   const [draggingArchive, setDraggingArchive] = useState<ArchiveEntry | null>(
     null,
   );
+  const [folderContextMenu, setFolderContextMenu] = useState<{
+    position: { x: number; y: number };
+    items: ContextMenuItem[];
+  } | null>(null);
+
+  const tabsContainerRef = useRef<HTMLDivElement>(null);
 
   // ─── dnd-kit sensors ──────────────────────────────────────────
 
@@ -1018,30 +928,23 @@ export function ArchivesView({ visible }: { visible: boolean }) {
     }
   }, [visible, rootPath, loadData]);
 
-  // ─── Derived data ─────────────────────────────────────────────
+  // ─── Filtered archives based on active tab ────────────────────
 
-  const uncategorizedArchives = useMemo(() => {
-    return archives.filter((a) => !a.folder_ids || a.folder_ids.length === 0);
+  const filteredArchives = useMemo(() => {
+    if (activeTab === "all") {
+      return archives;
+    }
+    if (activeTab === "uncategorized") {
+      return archives.filter((a) => !a.folder_ids || a.folder_ids.length === 0);
+    }
+    // Folder tab
+    return archives.filter((a) => a.folder_ids?.includes(activeTab));
+  }, [archives, activeTab]);
+
+  const uncategorizedCount = useMemo(() => {
+    return archives.filter((a) => !a.folder_ids || a.folder_ids.length === 0)
+      .length;
   }, [archives]);
-
-  const getArchivesInFolder = useCallback(
-    (folderId: string) => {
-      return archives.filter((a) => a.folder_ids?.includes(folderId));
-    },
-    [archives],
-  );
-
-  const toggleFolder = useCallback((folderId: string) => {
-    setExpandedFolders((prev) => {
-      const next = new Set(prev);
-      if (next.has(folderId)) {
-        next.delete(folderId);
-      } else {
-        next.add(folderId);
-      }
-      return next;
-    });
-  }, []);
 
   // ─── Archive CRUD ─────────────────────────────────────────────
 
@@ -1124,6 +1027,24 @@ export function ArchivesView({ visible }: { visible: boolean }) {
     [],
   );
 
+  const handleInsertRef = useCallback((archive: ArchiveEntry) => {
+    const archiveRef = {
+      id: archive.id,
+      summary: archive.summary,
+      turnCount: archive.meta.turn_count,
+      totalMessages: archive.meta.total_messages,
+      label: archive.meta.label,
+      createdAt: archive.created_at,
+    };
+    window.dispatchEvent(
+      new CustomEvent("ftre:insert-archive-ref", { detail: archiveRef }),
+    );
+    useNotification.getState().addNotification({
+      level: "info",
+      message: "归档已添加到输入框",
+    });
+  }, []);
+
   // ─── Folder CRUD ──────────────────────────────────────────────
 
   const handleSaveFolder = useCallback(
@@ -1183,6 +1104,8 @@ export function ArchivesView({ visible }: { visible: boolean }) {
           folder_ids: (a.folder_ids || []).filter((id) => id !== folderId),
         })),
       );
+      // 如果删除的是当前激活的 tab，切回全部
+      setActiveTab((current) => (current === folderId ? "all" : current));
       useNotification.getState().addNotification({
         level: "info",
         message: "文件夹已删除",
@@ -1195,20 +1118,40 @@ export function ArchivesView({ visible }: { visible: boolean }) {
     }
   }, []);
 
+  const handleFolderContextMenu = useCallback(
+    (e: React.MouseEvent, folder: ArchiveFolder) => {
+      e.preventDefault();
+      e.stopPropagation();
+      setFolderContextMenu({
+        position: { x: e.clientX, y: e.clientY },
+        items: [
+          {
+            id: "edit-folder",
+            label: "编辑文件夹",
+            icon: Pencil,
+            action: () => setFolderDialog({ open: true, folder }),
+          },
+          { id: "sep", label: "", separator: true, action: () => {} },
+          {
+            id: "delete-folder",
+            label: "删除文件夹",
+            icon: Trash2,
+            action: () => handleDeleteFolder(folder.id),
+          },
+        ],
+      });
+    },
+    [handleDeleteFolder],
+  );
+
   // ─── Drag & Drop handlers ────────────────────────────────────
 
-  const handleDragStart = useCallback(
-    (event: DragStartEvent) => {
-      const archiveId = event.active.data?.current?.archiveId as
-        | string
-        | undefined;
-      if (archiveId) {
-        const archive = archives.find((a) => a.id === archiveId);
-        setDraggingArchive(archive || null);
-      }
-    },
-    [archives],
-  );
+  const handleDragStart = useCallback((event: DragStartEvent) => {
+    const archive = event.active.data?.current?.archive as
+      | ArchiveEntry
+      | undefined;
+    setDraggingArchive(archive || null);
+  }, []);
 
   const handleDragEnd = useCallback(
     (event: DragEndEvent) => {
@@ -1217,24 +1160,37 @@ export function ArchivesView({ visible }: { visible: boolean }) {
       const { active, over } = event;
       if (!over) return;
 
-      const archiveId = active.data?.current?.archiveId as string | undefined;
-      const folderId = over.data?.current?.folderId as string | undefined;
+      const archive = active.data?.current?.archive as ArchiveEntry | undefined;
+      if (!archive) return;
 
-      if (!archiveId || !folderId) return;
+      const overType = over.data?.current?.type as string | undefined;
 
-      // Check if archive is already in this folder
-      const archive = archives.find((a) => a.id === archiveId);
-      if (archive?.folder_ids?.includes(folderId)) {
-        useNotification.getState().addNotification({
-          level: "info",
-          message: "该归档已在此文件夹中",
-        });
+      // 拖到聊天区域 → 插入引用
+      if (overType === "chat-input") {
+        handleInsertRef(archive);
         return;
       }
 
-      handleAddToFolder(archiveId, folderId);
+      // 拖到文件夹 tab → 添加到文件夹
+      if (overType === "folder-tab") {
+        const folderId = over.data?.current?.folderId as string | undefined;
+        if (!folderId || folderId === "all" || folderId === "uncategorized") {
+          return;
+        }
+
+        // Check if archive is already in this folder
+        if (archive.folder_ids?.includes(folderId)) {
+          useNotification.getState().addNotification({
+            level: "info",
+            message: "该归档已在此文件夹中",
+          });
+          return;
+        }
+
+        handleAddToFolder(archive.id, folderId);
+      }
     },
-    [archives, handleAddToFolder],
+    [handleInsertRef, handleAddToFolder],
   );
 
   const handleDragCancel = useCallback(() => {
@@ -1248,6 +1204,11 @@ export function ArchivesView({ visible }: { visible: boolean }) {
   const ArchiveComponent =
     viewMode === "grid" ? ArchiveCardItem : ArchiveListItem;
 
+  const currentFolderId =
+    activeTab !== "all" && activeTab !== "uncategorized"
+      ? activeTab
+      : undefined;
+
   return (
     <DndContext
       sensors={sensors}
@@ -1257,10 +1218,10 @@ export function ArchivesView({ visible }: { visible: boolean }) {
     >
       <div className="flex-1 flex flex-col overflow-hidden">
         {/* Header */}
-        <div className="flex items-center px-3 h-[38px] border-b border-border shrink-0">
-          <span className="text-[12px] text-t-muted font-medium">归档列表</span>
-          <span className="ml-2 text-[10px] text-t-ghost">
-            {archives.length > 0 && `(${archives.length})`}
+        <div className="flex items-center px-3 h-9.5 border-b border-border shrink-0">
+          <span className="text-[12px] text-t-muted font-medium">归档</span>
+          <span className="ml-1.5 text-[10px] text-t-ghost">
+            {archives.length > 0 && `${archives.length}`}
           </span>
           <div className="flex-1" />
 
@@ -1270,7 +1231,7 @@ export function ArchivesView({ visible }: { visible: boolean }) {
               onClick={() => setViewMode("list")}
               className={`flex items-center justify-center w-6 h-6 rounded-l transition-colors ${
                 viewMode === "list"
-                  ? "bg-white/[0.08] text-t-primary"
+                  ? "bg-white/8 text-t-primary"
                   : "text-t-ghost hover:text-t-muted"
               }`}
               title="列表视图"
@@ -1281,7 +1242,7 @@ export function ArchivesView({ visible }: { visible: boolean }) {
               onClick={() => setViewMode("grid")}
               className={`flex items-center justify-center w-6 h-6 rounded-r transition-colors ${
                 viewMode === "grid"
-                  ? "bg-white/[0.08] text-t-primary"
+                  ? "bg-white/8 text-t-primary"
                   : "text-t-ghost hover:text-t-muted"
               }`}
               title="卡片视图"
@@ -1292,7 +1253,7 @@ export function ArchivesView({ visible }: { visible: boolean }) {
 
           <button
             onClick={() => setFolderDialog({ open: true })}
-            className="flex items-center justify-center w-6 h-6 rounded text-t-ghost hover:text-t-muted hover:bg-white/[0.04] transition-colors"
+            className="flex items-center justify-center w-6 h-6 rounded text-t-ghost hover:text-t-muted hover:bg-white/4 transition-colors"
             title="新建文件夹"
           >
             <FolderPlus size={14} />
@@ -1300,11 +1261,49 @@ export function ArchivesView({ visible }: { visible: boolean }) {
           <button
             onClick={loadData}
             disabled={loading}
-            className="flex items-center justify-center w-6 h-6 rounded text-t-ghost hover:text-t-muted hover:bg-white/[0.04] transition-colors disabled:opacity-50"
+            className="flex items-center justify-center w-6 h-6 rounded text-t-ghost hover:text-t-muted hover:bg-white/4 transition-colors disabled:opacity-50"
             title="刷新"
           >
             <RefreshCw size={14} className={loading ? "animate-spin" : ""} />
           </button>
+        </div>
+
+        {/* Tab bar */}
+        <div
+          ref={tabsContainerRef}
+          className="flex items-center gap-1 px-2 py-1.5 border-b border-border overflow-x-auto scrollbar-none shrink-0"
+        >
+          <TabItem
+            id="all"
+            label="全部"
+            count={archives.length}
+            icon={<Layers size={12} />}
+            active={activeTab === "all"}
+            onClick={() => setActiveTab("all")}
+          />
+          {folders.map((folder) => (
+            <TabItem
+              key={folder.id}
+              id={folder.id}
+              label={folder.name}
+              count={
+                archives.filter((a) => a.folder_ids?.includes(folder.id)).length
+              }
+              icon={<Folder size={12} />}
+              active={activeTab === folder.id}
+              onClick={() => setActiveTab(folder.id)}
+              onContextMenu={(e) => handleFolderContextMenu(e, folder)}
+              acceptDrop
+            />
+          ))}
+          <TabItem
+            id="uncategorized"
+            label="未分类"
+            count={uncategorizedCount}
+            icon={<Inbox size={12} />}
+            active={activeTab === "uncategorized"}
+            onClick={() => setActiveTab("uncategorized")}
+          />
         </div>
 
         {/* Content */}
@@ -1324,69 +1323,56 @@ export function ArchivesView({ visible }: { visible: boolean }) {
                 重试
               </button>
             </div>
-          ) : archives.length === 0 && folders.length === 0 ? (
+          ) : filteredArchives.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-12 gap-2">
               <Archive size={20} className="text-t-ghost/60" />
-              <span className="text-[12px] text-t-ghost">暂无归档</span>
+              <span className="text-[12px] text-t-ghost">
+                {activeTab === "all"
+                  ? "暂无归档"
+                  : activeTab === "uncategorized"
+                    ? "没有未分类的归档"
+                    : "该文件夹为空"}
+              </span>
+              {activeTab !== "all" && activeTab !== "uncategorized" && (
+                <span
+                  className="text-[10
+px] text-t-ghost/60"
+                >
+                  拖拽归档到此文件夹进行分类
+                </span>
+              )}
             </div>
-          ) : (
-            <div>
-              {/* 文件夹列表 */}
-              {folders.map((folder) => (
-                <FolderSection
-                  key={folder.id}
-                  folder={folder}
-                  archives={getArchivesInFolder(folder.id)}
-                  allFolders={folders}
-                  expanded={expandedFolders.has(folder.id)}
-                  viewMode={viewMode}
-                  onToggle={() => toggleFolder(folder.id)}
+          ) : viewMode === "grid" ? (
+            <div className="grid grid-cols-2 gap-2 p-3">
+              {filteredArchives.map((archive) => (
+                <ArchiveCardItem
+                  key={archive.id}
+                  archive={archive}
+                  folders={folders}
+                  currentFolderId={currentFolderId}
                   onUpdate={handleUpdate}
                   onDelete={handleDelete}
                   onAddToFolder={handleAddToFolder}
                   onRemoveFromFolder={handleRemoveFromFolder}
-                  onEditFolder={(f) =>
-                    setFolderDialog({ open: true, folder: f })
-                  }
-                  onDeleteFolder={handleDeleteFolder}
+                  onInsertRef={handleInsertRef}
                 />
               ))}
-
-              {/* 未分类归档 */}
-              {uncategorizedArchives.length > 0 && (
-                <div className="border-t border-border">
-                  <div className="px-3 py-2 text-[11px] text-t-ghost bg-white/[0.01]">
-                    未分类 ({uncategorizedArchives.length})
-                  </div>
-                  {viewMode === "grid" ? (
-                    <div className="grid grid-cols-2 gap-2 px-3 py-2">
-                      {uncategorizedArchives.map((archive) => (
-                        <ArchiveCardItem
-                          key={archive.id}
-                          archive={archive}
-                          folders={folders}
-                          onUpdate={handleUpdate}
-                          onDelete={handleDelete}
-                          onAddToFolder={handleAddToFolder}
-                          onRemoveFromFolder={handleRemoveFromFolder}
-                        />
-                      ))}
-                    </div>
-                  ) : (
-                    uncategorizedArchives.map((archive) => (
-                      <ArchiveListItem
-                        key={archive.id}
-                        archive={archive}
-                        folders={folders}
-                        onUpdate={handleUpdate}
-                        onDelete={handleDelete}
-                        onAddToFolder={handleAddToFolder}
-                        onRemoveFromFolder={handleRemoveFromFolder}
-                      />
-                    ))
-                  )}
-                </div>
-              )}
+            </div>
+          ) : (
+            <div>
+              {filteredArchives.map((archive) => (
+                <ArchiveListItem
+                  key={archive.id}
+                  archive={archive}
+                  folders={folders}
+                  currentFolderId={currentFolderId}
+                  onUpdate={handleUpdate}
+                  onDelete={handleDelete}
+                  onAddToFolder={handleAddToFolder}
+                  onRemoveFromFolder={handleRemoveFromFolder}
+                  onInsertRef={handleInsertRef}
+                />
+              ))}
             </div>
           )}
         </div>
@@ -1399,9 +1385,21 @@ export function ArchivesView({ visible }: { visible: boolean }) {
             onClose={() => setFolderDialog({ open: false })}
           />
         )}
+
+        {/* Folder Context Menu */}
+        {folderContextMenu && (
+          <ContextMenu
+            position={folderContextMenu.position}
+            items={folderContextMenu.items}
+            onClose={() => setFolderContextMenu(null)}
+          />
+        )}
       </div>
 
-      {/* Drag Overlay — rendered above everything via portal inside DndContext */}
+      {/* Chat drop zone — only visible while dragging */}
+      <ChatDropZone isActive={!!draggingArchive} />
+
+      {/* Drag Overlay */}
       <DragOverlay dropAnimation={null}>
         {draggingArchive ? (
           <DragOverlayContent archive={draggingArchive} />
