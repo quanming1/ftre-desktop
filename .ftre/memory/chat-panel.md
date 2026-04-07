@@ -18,6 +18,49 @@
 | `packages/renderer/src/stores/session.ts` | Session store，管理会话状态 |
 | `packages/renderer/src/services/api.ts` | rollbackSession / branchSession / fetchArchiveDetail API |
 | `packages/renderer/src/services/stream-manager.ts` | 流管理器，支持回滚和分支 |
+| `packages/renderer/src/types/chat.ts` | ChatMessage 等类型定义 |
+
+## 消息数据结构
+
+### ChatMessage 类型
+
+```typescript
+interface ChatMessage {
+  id: string;
+  role: MessageRole;
+  content: string;
+  streaming?: boolean;
+  codeRefs?: CodeRef[];
+  parts?: MessagePart[];
+  diffMeta?: DiffMeta;
+  /** 消息元数据（Fork 功能依赖） */
+  metadata?: {
+    archive_id?: string;
+    [key: string]: unknown;
+  };
+}
+```
+
+### metadata 传递链路
+
+metadata 用于携带后端附加信息（如归档 ID），流转路径：
+
+```
+后端事件 Event.metadata
+       ↓
+stream-manager.ts replayInto()
+       ↓
+addUserMessage(content, codeRefs, parts, backendId, metadata)
+       ↓
+ChatMessage.metadata
+       ↓
+UserMessage 读取 metadata.archive_id 判断是否可以 Fork
+```
+
+**关键实现点：**
+- `stream-manager.addUserMessage()` 第 5 个参数接收 metadata
+- `replayInto()` 在历史回放时将 `event.metadata` 原样传递
+- 实时流（global-event-stream.ts）中 metadata 为空（因为是当前用户新发送的消息）
 
 ## 消息渲染流程
 
@@ -163,10 +206,27 @@ interface ArchiveEntry {
 }
 ```
 
+### ArchiveChipView 空值防御
+
+`ArchiveChipView` 渲染 Slate inline void 元素，必须对 `archiveRef` 属性做防御性检查：
+
+```typescript
+const { archiveRef } = element;
+if (!archiveRef) return null;
+
+// 截断摘要显示，需使用可选链
+const shortSummary = archiveRef.summary?.length > 30
+  ? archiveRef.summary.slice(0, 30) + "..."
+  : archiveRef.summary;
+```
+
+**常见问题：** 若传递不完整的 ArchiveRef（如只传 `{ id, display }`），访问 `archiveRef.summary.length` 会抛出异常。
+
 ### 注意事项
 - `insertArchiveChip` 需要完整的 `ArchiveRef` 对象，不能只传 `{ id, display }`
 - `ArchiveChipView` 组件依赖 `summary` 字段计算显示文本长度，缺失会导致报错
 - 发送消息时，`message` 数组中包含 `archive_ref` 类型的 part，后端自动加载归档上下文
+- metadata 只在历史回放时存在，实时流中 metadata 为空
 
 ## Rollback 功能（回滚与分支）
 
@@ -278,6 +338,8 @@ Session 管理功能已拆分到独立的 `SessionPanel`，详见 [session-panel
   - 点击 Fork 跳转到新会话并自动插入归档引用
   - 新增 `ftre:insert-archive-ref` CustomEvent 用于跨组件通信
   - `insertArchiveChip` 需要完整 ArchiveRef 对象（含 summary, turnCount, totalMessages, label, createdAt）
+  - 补充 ChatMessage.metadata 类型定义
+  - stream-manager.ts 中 metadata 传递链路：replayInto → addUserMessage
 
 - **2025-01**: UserMessage 按钮布局重构
   - 按钮位置从消息下方右侧移至左侧顶部对齐
