@@ -29,15 +29,17 @@ export const AgentSelector = memo(function AgentSelector() {
   const currentSession = sessions.find((s) => s.session_id === sessionId);
   const isScheduled = currentSession?.source === "scheduled";
 
-  // workspace 变化时重新加载 agent 列表并重置选中
+  // workspace 变化时重置选中
   useEffect(() => {
-    if (workspace) {
-      fetchChatAgents(workspace).then(setAgents);
-    } else {
-      setAgents([]);
-    }
     setAgentId("code_agent");
   }, [workspace, setAgentId]);
+
+  // 每次展开时重新请求 agent 列表
+  useEffect(() => {
+    if (open && workspace) {
+      fetchChatAgents(workspace).then(setAgents);
+    }
+  }, [open, workspace]);
 
   // 点击外部关闭
   useEffect(() => {
