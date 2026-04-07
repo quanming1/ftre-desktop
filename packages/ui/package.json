@@ -11,6 +11,10 @@
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
     },
+    "./diff-summary": {
+      "types": "./src/components/diff-summary/index.ts",
+      "import": "./src/components/diff-summary/index.ts"
+    },
     "./tailwind": {
       "types": "./dist/tailwind-preset.d.ts",
       "import": "./dist/tailwind-preset.js"
