@@ -33,7 +33,7 @@ const VARIANT_CLASSES: Record<DialogButtonVariant, string> = {
   danger:
     "text-[var(--ftre-text-primary,#e8e8e8)] bg-[var(--ftre-error,#f85149)] hover:bg-[#e5443b]",
   primary:
-    "text-[var(--ftre-base,#1e1e1e)] bg-[var(--ftre-accent,#00ff88)] hover:bg-[var(--ftre-accent-hover,#00cc6e)]",
+    "text-[var(--ftre-base,#1a1b1d)] bg-[var(--ftre-accent,#00ff88)] hover:bg-[var(--ftre-accent-hover,#00cc6e)]",
 };
 
 export function ConfirmDialog({

@@ -12,7 +12,7 @@ export const TabsList = forwardRef<
     ref={ref}
     className={cn(
       "inline-flex items-center gap-1 p-1 rounded-md",
-      "bg-[var(--ftre-surface,#252526)]",
+      "bg-[var(--ftre-surface,#1a1b1d)]",
       className,
     )}
     {...props}

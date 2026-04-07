@@ -10,7 +10,7 @@ export interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
 
 const variantClasses = {
   primary:
-    "bg-[var(--ftre-accent,#00ff88)] text-[var(--ftre-base,#1e1e1e)] hover:bg-[var(--ftre-accent-hover,#00cc6e)] font-medium",
+    "bg-[var(--ftre-accent,#00ff88)] text-[var(--ftre-base,#1a1b1d)] hover:bg-[var(--ftre-accent-hover,#00cc6e)] font-medium",
   secondary:
     "bg-[var(--ftre-panel,#333333)] text-[var(--ftre-text-primary,#e8e8e8)] border border-[var(--ftre-border,#3c3c3c)] hover:bg-[var(--ftre-border,#3c3c3c)]",
   ghost:
@@ -43,7 +43,7 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(
         ref={ref}
         disabled={disabled}
         className={cn(
-          "inline-flex items-center justify-center gap-2 shrink-0 transition-colors duration-150 outline-none focus-visible:ring-2 focus-visible:ring-[var(--ftre-accent,#00ff88)] focus-visible:ring-offset-1 focus-visible:ring-offset-[var(--ftre-base,#1e1e1e)]",
+          "inline-flex items-center justify-center gap-2 shrink-0 transition-colors duration-150 outline-none focus-visible:ring-2 focus-visible:ring-[var(--ftre-accent,#00ff88)] focus-visible:ring-offset-1 focus-visible:ring-offset-[var(--ftre-base,#1a1b1d)]",
           "disabled:opacity-50 disabled:cursor-not-allowed disabled:pointer-events-none",
           variantClasses[variant],
           sizeClasses[size],

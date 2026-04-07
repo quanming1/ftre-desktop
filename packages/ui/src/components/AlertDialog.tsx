@@ -105,7 +105,7 @@ export const AlertDialogAction = forwardRef<
     className={cn(
       "inline-flex items-center justify-center h-8 px-4 text-[13px] rounded transition-colors duration-150",
       "bg-[var(--ftre-error,#f85149)] text-[var(--ftre-text-primary,#e8e8e8)] hover:bg-[#e5443b]",
-      "outline-none focus-visible:ring-2 focus-visible:ring-[var(--ftre-error,#f85149)] focus-visible:ring-offset-1 focus-visible:ring-offset-[var(--ftre-base,#1e1e1e)]",
+      "outline-none focus-visible:ring-2 focus-visible:ring-[var(--ftre-error,#f85149)] focus-visible:ring-offset-1 focus-visible:ring-offset-[var(--ftre-base,#1a1b1d)]",
       className,
     )}
     {...props}
@@ -122,7 +122,7 @@ export const AlertDialogCancel = forwardRef<
     className={cn(
       "inline-flex items-center justify-center h-8 px-4 text-[13px] rounded transition-colors duration-150",
       "bg-[var(--ftre-panel,#333333)] text-[var(--ftre-text-secondary,#cccccc)] border border-[var(--ftre-border,#3c3c3c)] hover:bg-[var(--ftre-border,#3c3c3c)] hover:text-[var(--ftre-text-primary,#e8e8e8)]",
-      "outline-none focus-visible:ring-2 focus-visible:ring-[var(--ftre-accent,#00ff88)] focus-visible:ring-offset-1 focus-visible:ring-offset-[var(--ftre-base,#1e1e1e)]",
+      "outline-none focus-visible:ring-2 focus-visible:ring-[var(--ftre-accent,#00ff88)] focus-visible:ring-offset-1 focus-visible:ring-offset-[var(--ftre-base,#1a1b1d)]",
       className,
     )}
     {...props}

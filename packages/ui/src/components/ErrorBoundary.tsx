@@ -89,7 +89,7 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
           "flex items-center justify-center",
           isAppLevel ? "h-full w-full" : "min-h-[200px] p-4",
         )}
-        style={{ backgroundColor: "var(--ftre-base, #1e1e1e)" }}
+        style={{ backgroundColor: "var(--ftre-base, #1a1b1d)" }}
       >
         <div
           className={cn(
@@ -97,7 +97,7 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
             isAppLevel ? "w-full max-w-lg" : "w-full max-w-md",
           )}
           style={{
-            backgroundColor: "var(--ftre-surface, #252526)",
+            backgroundColor: "var(--ftre-surface, #1a1b1d)",
             border: "1px solid var(--ftre-border, #3c3c3c)",
           }}
         >
@@ -166,7 +166,7 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
                     <div
                       className="rounded p-3"
                       style={{
-                        backgroundColor: "var(--ftre-base, #1e1e1e)",
+                        backgroundColor: "var(--ftre-base, #1a1b1d)",
                         border: "1px solid var(--ftre-border-subtle, #454545)",
                       }}
                     >
@@ -188,7 +188,7 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
                     <div
                       className="rounded p-3"
                       style={{
-                        backgroundColor: "var(--ftre-base, #1e1e1e)",
+                        backgroundColor: "var(--ftre-base, #1a1b1d)",
                         border: "1px solid var(--ftre-border-subtle, #454545)",
                       }}
                     >

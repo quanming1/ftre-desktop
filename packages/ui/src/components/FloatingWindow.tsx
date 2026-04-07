@@ -191,7 +191,7 @@ export function FloatingWindow({
       transition={{ duration: 0.15, ease: "easeOut" }}
       className={cn(
         "fixed flex flex-col rounded-md border shadow-2xl overflow-hidden",
-        "bg-[var(--ftre-base,#1e1e1e)] border-[var(--ftre-border,#3c3c3c)] shadow-black/60",
+        "bg-[var(--ftre-base,#1a1b1d)] border-[var(--ftre-border,#3c3c3c)] shadow-black/60",
         className,
       )}
       style={{
@@ -252,7 +252,7 @@ export function FloatingWindow({
 
       {/* Title bar */}
       <div
-        className="h-[36px] shrink-0 flex items-center bg-[var(--ftre-base,#1e1e1e)] select-none cursor-move"
+        className="h-[36px] shrink-0 flex items-center bg-[var(--ftre-base,#1a1b1d)] select-none cursor-move"
         onMouseDown={handleTitleMouseDown}
         onDoubleClick={handleToggleMaximize}
       >
