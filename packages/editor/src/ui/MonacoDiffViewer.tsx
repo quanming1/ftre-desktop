@@ -29,10 +29,15 @@ export function MonacoDiffViewer({
 }: MonacoDiffViewerProps) {
   const monacoLang = toMonacoLanguage(language);
   const editorRef = useRef<editor.IStandaloneDiffEditor | null>(null);
+  const monacoRef = useRef<typeof Monaco | null>(null);
+  // Track if we've already cleaned up to avoid double cleanup
+  const cleanedUpRef = useRef(false);
 
   const handleMount = useCallback(
     (diffEditor: editor.IStandaloneDiffEditor, monaco: typeof Monaco) => {
       editorRef.current = diffEditor;
+      monacoRef.current = monaco;
+      cleanedUpRef.current = false;
 
       registerFtreTheme(monaco);
       monaco.editor.setTheme(getActiveThemeId());
@@ -66,20 +71,61 @@ export function MonacoDiffViewer({
   // 组件卸载时保存 viewState，供后续打开原始文件时恢复滚动位置
   useEffect(() => {
     return () => {
+      // Prevent double cleanup
+      if (cleanedUpRef.current) {
+        return;
+      }
+      cleanedUpRef.current = true;
+
       const diffEditor = editorRef.current;
-      if (diffEditor) {
-        const modifiedViewState = diffEditor
-          .getModifiedEditor()
-          .saveViewState();
-        if (modifiedViewState) {
-          const docManager = getDocumentManager();
-          const doc = docManager.get(filePathRef.current);
-          if (doc) {
-            doc.saveViewState(modifiedViewState);
+      const monaco = monacoRef.current;
+
+      if (diffEditor && monaco) {
+        try {
+          // Check if the editor is still valid (not disposed)
+          const modifiedEditor = diffEditor.getModifiedEditor();
+
+          // Try to get model - if it throws, editor is already disposed
+          const modModel = modifiedEditor.getModel();
+          if (!modModel) {
+            return;
           }
+
+          // 保存 viewState
+          const modifiedViewState = modifiedEditor.saveViewState();
+          if (modifiedViewState) {
+            const docManager = getDocumentManager();
+            const doc = docManager.get(filePathRef.current);
+            if (doc) {
+              doc.saveViewState(modifiedViewState);
+            }
+          }
+
+          // 在 DiffEditor dispose 之前，用空模型替换当前模型
+          // 这可以避免 "TextModel got disposed before DiffEditorWidget model got reset" 错误
+          const origModel = diffEditor.getOriginalEditor().getModel();
+
+          // Only proceed if both models exist
+          if (origModel && modModel) {
+            const emptyOriginal = monaco.editor.createModel("", "plaintext");
+            const emptyModified = monaco.editor.createModel("", "plaintext");
+
+            diffEditor.setModel({
+              original: emptyOriginal,
+              modified: emptyModified,
+            });
+
+            // Dispose the old models manually to prevent the error
+            origModel.dispose();
+            modModel.dispose();
+          }
+        } catch {
+          // Editor was already disposed or in invalid state, ignore
         }
       }
+
       editorRef.current = null;
+      monacoRef.current = null;
     };
   }, []);
 
