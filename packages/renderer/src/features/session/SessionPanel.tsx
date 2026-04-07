@@ -15,6 +15,7 @@ import { useNotification } from "@/stores/notification";
 import { streamManager } from "@/services/stream-manager";
 import { triggerCompaction, updateSession } from "@/services/api";
 import { ContextMenu, type ContextMenuItem } from "@/components/ContextMenu";
+import { Tooltip, TooltipProvider } from "@ftre/ui";
 import type { SessionSummary } from "@/services/api";
 
 // ─── 工具函数 ──────────────────────────────────────────────────────
@@ -413,32 +414,35 @@ export function SessionPanel() {
   }, [selectedSource, sourceOptions]);
 
   return (
-    <div className="h-full flex flex-col bg-surface text-[13px]">
-      {/* 头部：工作区 + 搜索/刷新 + 新增会话 */}
-      <div className="shrink-0 px-3 py-2.5 border-b border-border">
-        <div className="flex items-center gap-2">
-          <span className="text-[13px] text-t-primary truncate flex-1">
-            {currentWorkspaceName}
-          </span>
-          <button
-            onClick={handleSearchToggle}
-            className={`flex items-center justify-center h-7 w-7 rounded transition-colors ${
-              searchOpen
-                ? "text-neon bg-neon/10"
-                : "text-t-secondary bg-elevated hover:bg-panel hover:text-neon"
-            }`}
-            title="搜索会话"
-          >
-            <Search size={14} />
-          </button>
-          <button
-            onClick={handleRefreshWorkspace}
-            className="flex items-center justify-center h-7 w-7 rounded text-t-secondary bg-elevated hover:bg-panel hover:text-neon transition-colors"
-            title="刷新会话"
-          >
-            <RefreshCw size={14} />
-          </button>
-        </div>
+    <TooltipProvider>
+      <div className="h-full flex flex-col bg-surface text-[13px]">
+        {/* 头部：工作区 + 搜索/刷新 + 新增会话 */}
+        <div className="shrink-0 px-3 py-2.5 border-b border-border">
+          <div className="flex items-center gap-2">
+            <span className="text-[13px] text-t-primary truncate flex-1">
+              {currentWorkspaceName}
+            </span>
+            <Tooltip content="搜索会话" side="bottom">
+              <button
+                onClick={handleSearchToggle}
+                className={`flex items-center justify-center h-7 w-7 rounded transition-colors ${
+                  searchOpen
+                    ? "text-neon bg-neon/10"
+                    : "text-t-secondary bg-elevated hover:bg-panel hover:text-neon"
+                }`}
+              >
+                <Search size={14} />
+              </button>
+            </Tooltip>
+            <Tooltip content="刷新会话" side="bottom">
+              <button
+                onClick={handleRefreshWorkspace}
+                className="flex items-center justify-center h-7 w-7 rounded text-t-secondary bg-elevated hover:bg-panel hover:text-neon transition-colors"
+              >
+                <RefreshCw size={14} />
+              </button>
+            </Tooltip>
+          </div>
         <div className="text-[11px] text-t-ghost truncate mt-1">
           {rootPath || "未打开文件夹"}
         </div>
@@ -674,6 +678,7 @@ export function SessionPanel() {
           </div>
         </div>
       )}
-    </div>
+      </div>
+    </TooltipProvider>
   );
 }

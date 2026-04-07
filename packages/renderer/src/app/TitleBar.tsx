@@ -3,6 +3,7 @@ import { Minus, Square, X, Copy, Terminal, GitBranch, ChevronRight, MessageSquar
 import { PixelLogo } from "@/components/PixelLogo";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { LayoutSwitcher } from "@/components/LayoutSwitcher";
+import { Tooltip, TooltipProvider } from "@ftre/ui";
 import { useEditor } from "@/stores/editor";
 import { useWorkspace } from "@/stores/workspace";
 import { useLayout } from "@/stores/layout";
@@ -219,51 +220,54 @@ export function TitleBar() {
         <div className="w-[1px] h-[14px] bg-border" />
 
         {/* 悬浮窗按钮组 */}
-        <button
-          onClick={toggleTaskPanel}
-          className={`h-full px-3 flex items-center gap-1.5 text-[12px] font-mono transition-colors ${
-            taskPanelOpen ? "text-t-primary bg-white/[0.06]" : "text-t-dim hover:bg-white/[0.06] hover:text-t-muted"
-          }`}
-          title="任务监控"
-        >
-          <ClipboardList size={14} strokeWidth={1.5} />
-        </button>
+        <TooltipProvider>
+          <Tooltip content="任务监控" side="bottom">
+            <button
+              onClick={toggleTaskPanel}
+              className={`h-full px-3 flex items-center gap-1.5 text-[12px] font-mono transition-colors ${
+                taskPanelOpen ? "text-t-primary bg-white/[0.06]" : "text-t-dim hover:bg-white/[0.06] hover:text-t-muted"
+              }`}
+            >
+              <ClipboardList size={14} strokeWidth={1.5} />
+            </button>
+          </Tooltip>
 
-        <button
-          onClick={toggleAgentChat}
-          className={`h-full px-3 flex items-center gap-1.5 text-[12px] font-mono transition-colors ${
-            agentChatOpen ? "text-t-primary bg-white/[0.06]" : "text-t-dim hover:bg-white/[0.06] hover:text-t-muted"
-          }`}
-          title="Agent 群聊"
-        >
-          <MessageSquare size={14} strokeWidth={1.5} />
-        </button>
+          <Tooltip content="Agent 群聊" side="bottom">
+            <button
+              onClick={toggleAgentChat}
+              className={`h-full px-3 flex items-center gap-1.5 text-[12px] font-mono transition-colors ${
+                agentChatOpen ? "text-t-primary bg-white/[0.06]" : "text-t-dim hover:bg-white/[0.06] hover:text-t-muted"
+              }`}
+            >
+              <MessageSquare size={14} strokeWidth={1.5} />
+            </button>
+          </Tooltip>
 
-        <button
-          onClick={toggleTerminal}
-          className={`h-full px-3 flex items-center gap-1.5 text-[12px] font-mono transition-colors ${
-            terminalOpen ? "text-t-primary bg-white/[0.06]" : "text-t-dim hover:bg-white/[0.06] hover:text-t-muted"
-          }`}
-          title="终端 (Ctrl+`)"
-        >
-          <Terminal size={14} strokeWidth={1.5} />
-        </button>
+          <Tooltip content="终端 (Ctrl+`)" side="bottom">
+            <button
+              onClick={toggleTerminal}
+              className={`h-full px-3 flex items-center gap-1.5 text-[12px] font-mono transition-colors ${
+                terminalOpen ? "text-t-primary bg-white/[0.06]" : "text-t-dim hover:bg-white/[0.06] hover:text-t-muted"
+              }`}
+            >
+              <Terminal size={14} strokeWidth={1.5} />
+            </button>
+          </Tooltip>
 
-        {/* 工作区切换下拉 */}
-        <div ref={workspaceMenuRef} className="relative h-full">
-          <button
-            onClick={() => setWorkspaceMenuOpen((v) => !v)}
-            className={`h-full px-3 flex items-center gap-1.5 text-[12px] font-mono transition-colors ${
-              workspaceMenuOpen
-                ? "text-t-primary bg-white/[0.06]"
-                : "text-t-dim hover:bg-white/[0.06] hover:text-t-muted"
-            }`}
-            title="切换工作区"
-          >
-            <FolderOpen size={14} strokeWidth={1.5} />
-            <span className="max-w-[140px] truncate">{workspaceDisplayName}</span>
-            <ChevronDown size={12} />
-          </button>
+          <Tooltip content="切换工作区" side="bottom">
+            <div ref={workspaceMenuRef} className="relative h-full">
+              <button
+                onClick={() => setWorkspaceMenuOpen((v) => !v)}
+                className={`h-full px-3 flex items-center gap-1.5 text-[12px] font-mono transition-colors ${
+                  workspaceMenuOpen
+                    ? "text-t-primary bg-white/[0.06]"
+                    : "text-t-dim hover:bg-white/[0.06] hover:text-t-muted"
+                }`}
+              >
+                <FolderOpen size={14} strokeWidth={1.5} />
+                <span className="max-w-[140px] truncate">{workspaceDisplayName}</span>
+                <ChevronDown size={12} />
+              </button>
 
           {workspaceMenuOpen && (
             <div className="absolute top-full right-0 mt-1 min-w-[320px] max-w-[420px] bg-elevated border border-border-subtle rounded-lg shadow-2xl overflow-hidden z-[70]">
@@ -318,7 +322,9 @@ export function TitleBar() {
               </div>
             </div>
           )}
-        </div>
+            </div>
+          </Tooltip>
+        </TooltipProvider>
 
         <div className="w-[1px] h-[14px] bg-border mx-0.5" />
 

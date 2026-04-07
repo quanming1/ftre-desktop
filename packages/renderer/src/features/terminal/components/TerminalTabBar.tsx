@@ -11,6 +11,7 @@
 import { useCallback, useState, useRef } from "react";
 import { Plus, X, Trash2, ChevronDown, Search } from "lucide-react";
 import { ContextMenu, type ContextMenuItem } from "@/components/ContextMenu";
+import { Tooltip, TooltipProvider } from "@ftre/ui";
 import { terminalManager } from "@/services/terminal";
 import { useTerminal, type TerminalInstance } from "@/stores/terminal";
 import { useWorkspace } from "@/stores/workspace";
@@ -260,44 +261,50 @@ export function TerminalTabBar({ instances, activeTerminalId, onToggleSearch }: 
                 })}
 
                 {/* 右侧操作按钮组 */}
-                <div className="ml-auto flex items-center pr-2 gap-1">
-                    <button
-                        onClick={handleNewTerminal}
-                        title="新建终端"
-                        aria-label="新建终端"
-                        className="w-8 h-8 flex items-center justify-center rounded-md hover:bg-white/[0.08] transition-colors text-t-ghost hover:text-t-muted"
-                    >
-                        <Plus size={16} strokeWidth={1.5} />
-                    </button>
-                    <button
-                        onClick={handleShellMenuClick}
-                        title="选择 Shell 类型"
-                        aria-label="选择 Shell 类型"
-                        className="w-8 h-8 flex items-center justify-center rounded-md hover:bg-white/[0.08] transition-colors text-t-ghost hover:text-t-muted"
-                    >
-                        <ChevronDown size={14} strokeWidth={1.5} />
-                    </button>
+                <TooltipProvider>
+                    <div className="ml-auto flex items-center pr-2 gap-1">
+                        <Tooltip content="新建终端" side="bottom">
+                            <button
+                                onClick={handleNewTerminal}
+                                aria-label="新建终端"
+                                className="w-8 h-8 flex items-center justify-center rounded-md hover:bg-white/[0.08] transition-colors text-t-ghost hover:text-t-muted"
+                            >
+                                <Plus size={16} strokeWidth={1.5} />
+                            </button>
+                        </Tooltip>
+                        <Tooltip content="选择 Shell 类型" side="bottom">
+                            <button
+                                onClick={handleShellMenuClick}
+                                aria-label="选择 Shell 类型"
+                                className="w-8 h-8 flex items-center justify-center rounded-md hover:bg-white/[0.08] transition-colors text-t-ghost hover:text-t-muted"
+                            >
+                                <ChevronDown size={14} strokeWidth={1.5} />
+                            </button>
+                        </Tooltip>
 
-                    {/* 分隔线 */}
-                    <div className="w-px h-4 bg-white/[0.1] mx-1" />
+                        {/* 分隔线 */}
+                        <div className="w-px h-4 bg-white/[0.1] mx-1" />
 
-                    <button
-                        onClick={onToggleSearch}
-                        title="搜索终端 (Ctrl+Shift+F)"
-                        aria-label="搜索终端"
-                        className="w-8 h-8 flex items-center justify-center rounded-md hover:bg-white/[0.08] transition-colors text-t-ghost hover:text-t-muted"
-                    >
-                        <Search size={15} strokeWidth={1.5} />
-                    </button>
-                    <button
-                        onClick={handleClear}
-                        title="清除终端"
-                        aria-label="清除终端"
-                        className="w-8 h-8 flex items-center justify-center rounded-md hover:bg-white/[0.08] transition-colors text-t-ghost hover:text-t-muted"
-                    >
-                        <Trash2 size={15} strokeWidth={1.5} />
-                    </button>
-                </div>
+                        <Tooltip content="搜索终端 (Ctrl+Shift+F)" side="bottom">
+                            <button
+                                onClick={onToggleSearch}
+                                aria-label="搜索终端"
+                                className="w-8 h-8 flex items-center justify-center rounded-md hover:bg-white/[0.08] transition-colors text-t-ghost hover:text-t-muted"
+                            >
+                                <Search size={15} strokeWidth={1.5} />
+                            </button>
+                        </Tooltip>
+                        <Tooltip content="清除终端" side="bottom">
+                            <button
+                                onClick={handleClear}
+                                aria-label="清除终端"
+                                className="w-8 h-8 flex items-center justify-center rounded-md hover:bg-white/[0.08] transition-colors text-t-ghost hover:text-t-muted"
+                            >
+                                <Trash2 size={15} strokeWidth={1.5} />
+                            </button>
+                        </Tooltip>
+                    </div>
+                </TooltipProvider>
             </nav>
 
             {/* Tab 右键菜单 */}

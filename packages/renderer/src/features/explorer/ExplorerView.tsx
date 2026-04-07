@@ -35,6 +35,7 @@ import { InlineInput } from "./InlineInput";
 import { GitChangesView } from "./GitChangesView";
 import { ArchivesView } from "./ArchivesView";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
+import { Tooltip, TooltipProvider } from "@ftre/ui";
 import {
   flattenVisibleEntries,
   getNextFocusPath,
@@ -992,95 +993,103 @@ export function ExplorerView() {
   }, [pendingCreate, isRootCreate, flatEntries, getChildren]);
 
   return (
-    <div className="h-full flex flex-col overflow-hidden">
-      {/* ── 工具栏 ── */}
-      <div className="flex items-center px-2 h-[38px] border-b border-border shrink-0 gap-1">
-        {/* 文件树按钮 */}
-        <button
-          onClick={() => setViewMode("files")}
-          className={`flex items-center justify-center w-9 h-9 rounded-md ${
-            viewMode === "files"
-              ? "bg-white/[0.08] text-t-primary"
-              : "text-t-ghost hover:text-t-muted hover:bg-white/[0.04]"
-          }`}
-          title="文件"
-        >
-          <FolderTree size={18} strokeWidth={1.5} />
-        </button>
+    <TooltipProvider>
+      <div className="h-full flex flex-col overflow-hidden">
+        {/* ── 工具栏 ── */}
+        <div className="flex items-center px-2 h-[38px] border-b border-border shrink-0 gap-1">
+          {/* 文件树按钮 */}
+          <Tooltip content="文件" side="bottom">
+            <button
+              onClick={() => setViewMode("files")}
+              className={`flex items-center justify-center w-9 h-9 rounded-md ${
+                viewMode === "files"
+                  ? "bg-white/[0.08] text-t-primary"
+                  : "text-t-ghost hover:text-t-muted hover:bg-white/[0.04]"
+              }`}
+            >
+              <FolderTree size={18} strokeWidth={1.5} />
+            </button>
+          </Tooltip>
 
-        {/* Git 变更按钮 */}
-        <button
-          onClick={() => setViewMode("git")}
-          className={`relative flex items-center justify-center w-9 h-9 rounded-md ${
-            viewMode === "git"
-              ? "bg-white/[0.08] text-t-primary"
-              : "text-t-ghost hover:text-t-muted hover:bg-white/[0.04]"
-          }`}
-          title="Git 变更"
-        >
-          <GitBranch size={18} strokeWidth={1.5} />
-          {gitChangeCount > 0 && (
-            <span className="absolute -top-0.5 -right-0.5 min-w-[16px] h-[16px] flex items-center justify-center rounded-full bg-neon text-base text-[10px] font-mono font-bold leading-none px-0.5">
-              {gitChangeCount > 99 ? "99+" : gitChangeCount}
-            </span>
-          )}
-        </button>
+          {/* Git 变更按钮 */}
+          <Tooltip content="Git 变更" side="bottom">
+            <button
+              onClick={() => setViewMode("git")}
+              className={`relative flex items-center justify-center w-9 h-9 rounded-md ${
+                viewMode === "git"
+                  ? "bg-white/[0.08] text-t-primary"
+                  : "text-t-ghost hover:text-t-muted hover:bg-white/[0.04]"
+              }`}
+            >
+              <GitBranch size={18} strokeWidth={1.5} />
+              {gitChangeCount > 0 && (
+                <span className="absolute -top-0.5 -right-0.5 min-w-[16px] h-[16px] flex items-center justify-center rounded-full bg-neon text-base text-[10px] font-mono font-bold leading-none px-0.5">
+                  {gitChangeCount > 99 ? "99+" : gitChangeCount}
+                </span>
+              )}
+            </button>
+          </Tooltip>
 
-        {/* 归档按钮 */}
-        <button
-          onClick={() => setViewMode("archives")}
-          className={`flex items-center justify-center w-9 h-9 rounded-md ${
-            viewMode === "archives"
-              ? "bg-white/[0.08] text-t-primary"
-              : "text-t-ghost hover:text-t-muted hover:bg-white/[0.04]"
-          }`}
-          title="归档"
-        >
-          <Archive size={18} strokeWidth={1.5} />
-        </button>
+          {/* 归档按钮 */}
+          <Tooltip content="归档" side="bottom">
+            <button
+              onClick={() => setViewMode("archives")}
+              className={`flex items-center justify-center w-9 h-9 rounded-md ${
+                viewMode === "archives"
+                  ? "bg-white/[0.08] text-t-primary"
+                  : "text-t-ghost hover:text-t-muted hover:bg-white/[0.04]"
+              }`}
+            >
+              <Archive size={18} strokeWidth={1.5} />
+            </button>
+          </Tooltip>
 
-        <div className="flex-1" />
-      </div>
-
-      {/* ── 第二行操作按钮栏 ── */}
-      {viewMode === "files" && rootPath && (
-        <div className="flex items-center px-2 h-[38px] border-b border-border shrink-0 gap-0.5">
           <div className="flex-1" />
-          <button
-            onClick={handleNewFile}
-            className="flex items-center justify-center w-7 h-7 rounded-md text-t-ghost hover:text-t-muted hover:bg-white/[0.04] transition-colors"
-            title="新建文件"
-          >
-            <FilePlus size={16} strokeWidth={1.5} />
-          </button>
-          <button
-            onClick={handleNewFolder}
-            className="flex items-center justify-center w-7 h-7 rounded-md text-t-ghost hover:text-t-muted hover:bg-white/[0.04] transition-colors"
-            title="新建文件夹"
-          >
-            <FolderPlus size={16} strokeWidth={1.5} />
-          </button>
-          <button
-            onClick={hasActiveFile ? handleLocateFile : undefined}
-            className={`flex items-center justify-center w-7 h-7 rounded-md transition-colors ${
-              hasActiveFile
-                ? "text-t-ghost hover:text-t-muted hover:bg-white/[0.04] cursor-pointer"
-                : "text-t-ghost opacity-40 cursor-not-allowed"
-            }`}
-            title="定位当前文件"
-            disabled={!hasActiveFile}
-          >
-            <LocateFixed size={16} strokeWidth={1.5} />
-          </button>
-          <button
-            onClick={collapseAll}
-            className="flex items-center justify-center w-7 h-7 rounded-md text-t-ghost hover:text-t-muted hover:bg-white/[0.04] transition-colors"
-            title="收齐所有文件夹"
-          >
-            <ChevronsDownUp size={16} strokeWidth={1.5} />
-          </button>
         </div>
-      )}
+
+        {/* ── 第二行操作按钮栏 ── */}
+        {viewMode === "files" && rootPath && (
+          <div className="flex items-center px-2 h-[38px] border-b border-border shrink-0 gap-0.5">
+            <div className="flex-1" />
+            <Tooltip content="新建文件" side="bottom">
+              <button
+                onClick={handleNewFile}
+                className="flex items-center justify-center w-7 h-7 rounded-md text-t-ghost hover:text-t-muted hover:bg-white/[0.04] transition-colors"
+              >
+                <FilePlus size={16} strokeWidth={1.5} />
+              </button>
+            </Tooltip>
+            <Tooltip content="新建文件夹" side="bottom">
+              <button
+                onClick={handleNewFolder}
+                className="flex items-center justify-center w-7 h-7 rounded-md text-t-ghost hover:text-t-muted hover:bg-white/[0.04] transition-colors"
+              >
+                <FolderPlus size={16} strokeWidth={1.5} />
+              </button>
+            </Tooltip>
+            <Tooltip content="定位当前文件" side="bottom">
+              <button
+                onClick={hasActiveFile ? handleLocateFile : undefined}
+                className={`flex items-center justify-center w-7 h-7 rounded-md transition-colors ${
+                  hasActiveFile
+                    ? "text-t-ghost hover:text-t-muted hover:bg-white/[0.04] cursor-pointer"
+                    : "text-t-ghost opacity-40 cursor-not-allowed"
+                }`}
+                disabled={!hasActiveFile}
+              >
+                <LocateFixed size={16} strokeWidth={1.5} />
+              </button>
+            </Tooltip>
+            <Tooltip content="收起所有文件夹" side="bottom">
+              <button
+                onClick={collapseAll}
+                className="flex items-center justify-center w-7 h-7 rounded-md text-t-ghost hover:text-t-muted hover:bg-white/[0.04] transition-colors"
+              >
+                <ChevronsDownUp size={16} strokeWidth={1.5} />
+              </button>
+            </Tooltip>
+          </div>
+        )}
 
       {/* ── 内容区 — 两个视图始终挂载，CSS display 切换，避免重新挂载的开销 ── */}
       <div
@@ -1181,16 +1190,17 @@ export function ExplorerView() {
         <ArchivesView visible={viewMode === "archives"} />
       </div>
 
-      {/* Delete confirmation dialog */}
-      {pendingDelete && (
-        <ConfirmDialog
-          title={pendingDelete.isDir ? "删除文件夹" : "删除文件"}
-          message={`确定要删除 "${pendingDelete.path.split(/[\\/]/).pop()}" 吗？此操作无法撤销。`}
-          confirmLabel="删除"
-          onConfirm={handleDelete}
-          onCancel={() => setPendingDelete(null)}
-        />
-      )}
-    </div>
+        {/* Delete confirmation dialog */}
+        {pendingDelete && (
+          <ConfirmDialog
+            title={pendingDelete.isDir ? "删除文件夹" : "删除文件"}
+            message={`确定要删除 "${pendingDelete.path.split(/[\\/]/).pop()}" 吗？此操作无法撤销。`}
+            confirmLabel="删除"
+            onConfirm={handleDelete}
+            onCancel={() => setPendingDelete(null)}
+          />
+        )}
+      </div>
+    </TooltipProvider>
   );
 }
