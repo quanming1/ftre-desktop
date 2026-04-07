@@ -177,6 +177,16 @@ export function MessageList() {
   // ① 核心 hook：deps=[sessionId] 切换会话时重置锁
   const { ref, scrollToBottom, resetLock } = useAutoScrollToBottom([sessionId]);
 
+  // 统一滚动调度：同一帧内只执行一次，避免切换会话时多观察器重复触发导致抖动
+  const scrollRafRef = useRef<number | null>(null);
+  const scheduleScrollToBottom = useCallback(() => {
+    if (scrollRafRef.current != null) return;
+    scrollRafRef.current = requestAnimationFrame(() => {
+      scrollRafRef.current = null;
+      scrollToBottom();
+    });
+  }, [scrollToBottom]);
+
   // ② 新一轮流开始时重置锁（用户可能在上方浏览历史后发送消息）
   const prevStreaming = useRef(false);
   useEffect(() => {
@@ -191,29 +201,32 @@ export function MessageList() {
   useEffect(() => {
     const el = containerRef.current;
     if (!el) return;
-    let rafId: number | null = null;
     const observer = new MutationObserver(() => {
-      if (rafId) return;
-      rafId = requestAnimationFrame(() => {
-        rafId = null;
-        scrollToBottom();
-      });
+      scheduleScrollToBottom();
     });
     observer.observe(el, { childList: true, subtree: true, characterData: true });
     return () => {
       observer.disconnect();
-      if (rafId) cancelAnimationFrame(rafId);
     };
-  }, [scrollToBottom]);
+  }, [scheduleScrollToBottom]);
 
   // ④ ResizeObserver：容器尺寸变化时保持底部
   useEffect(() => {
     const el = containerRef.current;
     if (!el) return;
-    const ro = new ResizeObserver(() => scrollToBottom());
+    const ro = new ResizeObserver(() => scheduleScrollToBottom());
     ro.observe(el);
     return () => ro.disconnect();
-  }, [scrollToBottom]);
+  }, [scheduleScrollToBottom]);
+
+  useEffect(() => {
+    return () => {
+      if (scrollRafRef.current != null) {
+        cancelAnimationFrame(scrollRafRef.current);
+        scrollRafRef.current = null;
+      }
+    };
+  }, []);
 
   // ⑤ 合并 ref（hook 的 ref 负责事件绑定，containerRef 供 observer 使用）
   const mergedRef = useCallback((el: HTMLDivElement | null) => {
@@ -224,28 +237,30 @@ export function MessageList() {
   return (
     <div
       ref={mergedRef}
-      className="flex-1 min-w-0 overflow-y-auto overflow-x-hidden px-5 py-4 space-y-2 break-words"
+      className="flex-1 min-w-0 overflow-y-auto overflow-x-hidden px-5 py-4"
       style={{ willChange: "transform", contain: "layout style" }}
     >
-      {renderUnits.length === 0 && (
-        <div className="flex-1 flex items-center justify-center text-t-dim text-[14px] font-mono pt-20">描述你想要构建的内容</div>
-      )}
-      {renderUnits.map((unit) => (
-        <div key={unit.type === "single" ? unit.id : unit.key} style={MSG_ITEM_STYLE}>
-          {unit.type === "ai_turn_start" ? (
-            <div className="mt-4 mb-1 flex items-center h-[20px]">
-              <PixelLogo size={2} />
-            </div>
-          ) : unit.type === "group" ? (
-            <GroupedToolCalls toolName={unit.toolName} messageIds={unit.ids} />
-          ) : unit.type === "diff_summary" ? (
-            <DiffSummaryCard diffMeta={unit.diffMeta} />
-          ) : (
-            <MessageItem messageId={unit.id} />
-          )}
-        </div>
-      ))}
-      <StreamingIndicator />
+      <div className="mx-auto w-full max-w-[960px] space-y-2 break-words">
+        {renderUnits.length === 0 && (
+          <div className="flex-1 flex items-center justify-center text-t-dim text-[14px] font-mono pt-20">描述你想要构建的内容</div>
+        )}
+        {renderUnits.map((unit) => (
+          <div key={unit.type === "single" ? unit.id : unit.key} style={MSG_ITEM_STYLE}>
+            {unit.type === "ai_turn_start" ? (
+              <div className="mt-4 mb-1 flex items-center h-[20px]">
+                <PixelLogo size={2} />
+              </div>
+            ) : unit.type === "group" ? (
+              <GroupedToolCalls toolName={unit.toolName} messageIds={unit.ids} />
+            ) : unit.type === "diff_summary" ? (
+              <DiffSummaryCard diffMeta={unit.diffMeta} />
+            ) : (
+              <MessageItem messageId={unit.id} />
+            )}
+          </div>
+        ))}
+        <StreamingIndicator />
+      </div>
     </div>
   );
 }

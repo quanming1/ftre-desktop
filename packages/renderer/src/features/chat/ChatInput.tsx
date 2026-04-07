@@ -134,76 +134,78 @@ export function ChatInput() {
 
   return (
     <div className="px-4 pb-3 pt-2">
-      <div className="relative bg-panel rounded-2xl border border-border-subtle focus-within:border-neon/30 transition-colors shadow-sm">
-        {/* 编辑区 */}
-        <Slate
-          editor={inputEditor.editor}
-          initialValue={inputEditor.initialValue}
-          onChange={inputEditor.onChange}
-        >
-          <Editable
-            renderElement={renderElement}
-            onKeyDown={onKeyDown}
-            placeholder="描述你想要做什么..."
-            className="w-full bg-transparent text-[14px] text-t-primary outline-none resize-none px-4 py-3 font-sans overflow-y-auto overflow-x-hidden"
-            style={{
-              minHeight: 42,
-              maxHeight: 120,
-              wordBreak: "break-word",
-              overflowWrap: "anywhere",
-            }}
-          />
-        </Slate>
+      <div className="mx-auto w-full max-w-[960px]">
+        <div className="relative bg-panel rounded-2xl border border-border-subtle focus-within:border-neon/30 transition-colors shadow-sm">
+          {/* 编辑区 */}
+          <Slate
+            editor={inputEditor.editor}
+            initialValue={inputEditor.initialValue}
+            onChange={inputEditor.onChange}
+          >
+            <Editable
+              renderElement={renderElement}
+              onKeyDown={onKeyDown}
+              placeholder="描述你想要做什么..."
+              className="w-full bg-transparent text-[14px] text-t-primary outline-none resize-none px-4 py-4 font-sans overflow-y-auto overflow-x-hidden"
+              style={{
+                minHeight: 64,
+                maxHeight: 180,
+                wordBreak: "break-word",
+                overflowWrap: "anywhere",
+              }}
+            />
+          </Slate>
 
-        {/* 工具栏 */}
-        <div className="flex items-center justify-between px-3 py-2 border-t border-white/[0.04]">
-          {/* 左侧：Agent & 模型选择 */}
-          <div className="flex items-center gap-1">
-            <AgentSelector />
-            <div className="w-px h-3.5 bg-white/[0.08] mx-0.5" />
-            <ModelSelector />
-          </div>
+          {/* 工具栏 */}
+          <div className="flex items-center justify-between px-3 py-2.5">
+            {/* 左侧：Agent & 模型选择 */}
+            <div className="flex items-center gap-1">
+              <AgentSelector />
+              <div className="w-px h-3.5 bg-white/[0.08] mx-0.5" />
+              <ModelSelector />
+            </div>
 
-          {/* 右侧：工具按钮 & 发送 */}
-          <div className="flex items-center gap-1.5">
-            <button
-              onClick={toggleAutoFollow}
-              title={
-                autoFollow ? "自动跟踪文件变更: 开" : "自动跟踪文件变更: 关"
-              }
-              className={`flex items-center h-7 w-7 justify-center rounded-lg transition-colors ${
-                autoFollow
-                  ? "text-neon/70 hover:text-neon hover:bg-neon-ghost"
-                  : "text-t-ghost hover:text-t-muted hover:bg-white/[0.06]"
-              }`}
-            >
-              {autoFollow ? (
-                <Eye size={14} strokeWidth={1.5} />
-              ) : (
-                <EyeOff size={14} strokeWidth={1.5} />
-              )}
-            </button>
-            <TokenRing />
-            <div className="w-px h-3.5 bg-white/[0.08] mx-0.5" />
-            {isStreaming ? (
+            {/* 右侧：工具按钮 & 发送 */}
+            <div className="flex items-center gap-1">
               <button
-                onClick={handleCancel}
-                className="h-7 w-7 flex items-center justify-center rounded-lg bg-danger/15 text-danger hover:bg-danger/25 transition-colors"
-              >
-                <div className="w-2.5 h-2.5 bg-current rounded-sm" />
-              </button>
-            ) : (
-              <button
-                onClick={handleSend}
-                className={`h-7 w-7 flex items-center justify-center rounded-lg transition-all ${
-                  !inputEditor.isEmpty
-                    ? "bg-neon text-base hover:bg-neon/80 shadow-[0_0_8px_rgba(var(--neon-rgb,56,189,248),0.25)]"
-                    : "bg-white/[0.06] text-t-ghost"
+                onClick={toggleAutoFollow}
+                title={
+                  autoFollow ? "自动跟踪文件变更: 开" : "自动跟踪文件变更: 关"
+                }
+                className={`flex items-center h-8 w-8 justify-center rounded-lg transition-colors ${
+                  autoFollow
+                    ? "text-neon/70 hover:text-neon hover:bg-neon-ghost"
+                    : "text-t-ghost hover:text-t-muted hover:bg-white/[0.06]"
                 }`}
               >
-                <ArrowUp size={14} />
+                {autoFollow ? (
+                  <Eye size={14} strokeWidth={1.5} />
+                ) : (
+                  <EyeOff size={14} strokeWidth={1.5} />
+                )}
               </button>
-            )}
+              <TokenRing />
+              <div className="w-px h-3.5 bg-white/[0.08] mx-0.5" />
+              {isStreaming ? (
+                <button
+                  onClick={handleCancel}
+                  className="h-9 w-9 flex items-center justify-center rounded-lg bg-danger/12 text-danger hover:bg-danger/25 transition-colors"
+                >
+                  <div className="w-3 h-3 bg-current rounded-sm" />
+                </button>
+              ) : (
+                <button
+                  onClick={handleSend}
+                  className={`h-8 w-8 flex items-center justify-center rounded-lg transition-all ${
+                    !inputEditor.isEmpty
+                      ? "bg-neon text-base hover:bg-neon/80 shadow-[0_0_8px_rgba(var(--neon-rgb,56,189,248),0.22)]"
+                      : "bg-white/[0.06] text-t-ghost"
+                  }`}
+                >
+                  <ArrowUp size={15} />
+                </button>
+              )}
+            </div>
           </div>
         </div>
       </div>
