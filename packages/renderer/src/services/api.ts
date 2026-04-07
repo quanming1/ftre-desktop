@@ -26,6 +26,7 @@ export async function fetchSessions(
 
 export async function fetchSessionMessages(sessionId: string): Promise<
   Array<{
+    id: string;
     type: string;
     data: Record<string, unknown>;
     metadata?: Record<string, unknown>;
@@ -246,9 +247,7 @@ export async function createArchiveFolder(params: {
   description?: string;
   sort_order?: number;
 }): Promise<
-  | ArchiveFolder
-  | { error: "folder_name_conflict"; existing_id: string }
-  | null
+  ArchiveFolder | { error: "folder_name_conflict"; existing_id: string } | null
 > {
   try {
     const res = await fetch(`${BACKEND_URL}/session/archive-folders`, {
@@ -449,6 +448,32 @@ export interface DiffResponse {
   call_id: string;
   tool_name: string;
   files: DiffFileEntry[];
+}
+
+// ─── Session Rollback API ───────────────────────────────────────
+
+export interface RollbackFileAffected {
+  file: string;
+  additions: number;
+  deletions: number;
+}
+
+export interface RollbackRefillMessage {
+  parts: Array<{ type: string; data: unknown }>;
+}
+
+export interface RollbackPreviewResponse {
+  rolled_back_count: number;
+  has_code_changes: boolean;
+  files_affected: RollbackFileAffected[];
+  refill_message: RollbackRefillMessage;
+}
+
+export interface RollbackExecuteResponse {
+  success: boolean;
+  rolled_back_count: number;
+  code_restored: boolean;
+  refill_message: RollbackRefillMessage;
 }
 
 export async function fetchDiff(callId: string): Promise<DiffResponse | null> {
@@ -795,6 +820,42 @@ export async function createRoom(
   } catch {
     return null;
   }
+}
+
+/** 预览会话回滚 */
+export async function previewRollback(
+  sessionId: string,
+  messageId: string,
+  skipCodeRestore: boolean = false,
+): Promise<RollbackPreviewResponse | { error: string }> {
+  const res = await fetch(`${BACKEND_URL}/session/${sessionId}/rollback`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      message_id: messageId,
+      dry_run: true,
+      skip_code_restore: skipCodeRestore,
+    }),
+  });
+  return res.json();
+}
+
+/** 执行会话回滚 */
+export async function executeRollback(
+  sessionId: string,
+  messageId: string,
+  skipCodeRestore: boolean = false,
+): Promise<RollbackExecuteResponse | { error: string }> {
+  const res = await fetch(`${BACKEND_URL}/session/${sessionId}/rollback`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      message_id: messageId,
+      dry_run: false,
+      skip_code_restore: skipCodeRestore,
+    }),
+  });
+  return res.json();
 }
 
 /** 获取所有群聊房间 */
