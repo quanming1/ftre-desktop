@@ -9,13 +9,14 @@
 | `packages/renderer/src/features/chat/ChatPanel.tsx` | 纯聊天面板，仅包含 MessageList + ChatInput |
 | `packages/renderer/src/features/chat/MessageList.tsx` | 消息列表展示，包含消息分组和 AI turn start 渲染 |
 | `packages/renderer/src/features/chat/ChatInput.tsx` | 输入框组件，支持拖拽 archive_ref |
-| `packages/renderer/src/features/chat/UserMessage.tsx` | 用户消息渲染 + rollback/branch 操作按钮 |
+| `packages/renderer/src/features/chat/UserMessage.tsx` | 用户消息渲染 + 操作按钮（复制/回滚/Fork） |
 | `packages/renderer/src/features/chat/RollbackConfirmDialog.tsx` | 回滚确认对话框，支持分支选项 |
 | `packages/renderer/src/features/chat/AssistantMessage.tsx` | AI 消息渲染（Markdown） |
-| `packages/renderer/src/features/chat/slate/ChatInputEditor.ts` | Slate 编辑器，处理拖拽插入 |
+| `packages/renderer/src/features/chat/slate/ChatInputEditor.ts` | Slate 编辑器，处理 archive-chip 插入 |
+| `packages/renderer/src/features/chat/slate/elements/ArchiveChipView.tsx` | Slate 内联归档 Chip 渲染 |
 | `packages/renderer/src/components/PixelLogo.tsx` | 像素风格 Logo 组件 |
 | `packages/renderer/src/stores/session.ts` | Session store，管理会话状态 |
-| `packages/renderer/src/services/api.ts` | rollbackSession / branchSession API |
+| `packages/renderer/src/services/api.ts` | rollbackSession / branchSession / fetchArchiveDetail API |
 | `packages/renderer/src/services/stream-manager.ts` | 流管理器，支持回滚和分支 |
 
 ## 消息渲染流程
@@ -40,6 +41,132 @@
 ```
 user message → [ai_turn_start → PixelLogo] → tool calls / assistant message
 ```
+
+## UserMessage 按钮交互设计
+
+### 按钮布局
+- **位置**：消息左侧，顶部与消息对齐（flex 布局）
+- **排列**：水平排列（复制在左，回滚在右，Fork 在右）
+- **尺寸**：`w-7 h-7`，图标 15px
+- **间距**：`gap-1`
+
+### 显示逻辑
+| 状态 | 可见按钮 | 说明 |
+|------|----------|------|
+| 默认 | 回滚按钮 | 常驻显示，紧贴消息 |
+| Hover | 复制 + 回滚 + Fork | 复制和 Fork 从两侧滑入 |
+
+### Fork 按钮显示条件
+Fork 按钮仅在以下条件下显示：
+- `message.metadata?.archive_id` 存在且非空
+- 该归档 ID 表示该轮对话已完成归档
+
+### 组件依赖
+- 使用 `@ftre/ui` 的 `Tooltip` 组件为按钮添加提示
+- 按钮样式使用 Tailwind 工具类
+
+## Fork 会话功能
+
+### 功能描述
+用户可以从历史对话的某一轮"分叉"出一个新会话，新会话自动携带该轮的归档摘要作为上下文。
+
+### 业务流程
+
+```
+UserMessage:hover 显示 Fork 按钮
+          ↓
+    点击 Fork
+          ↓
+    fetchArchiveDetail(archiveId) 获取归档详情
+          ↓
+    newSession() 跳转到新会话页面（session_id = null）
+          ↓
+    dispatch "ftre:insert-archive-ref" CustomEvent
+          ↓
+    ChatInput.tsx 监听事件 → insertArchiveChip(archiveRef)
+          ↓
+    Slate 编辑器插入 ArchiveChipElement
+          ↓
+    用户可在引用后继续输入，发送后后端自动加载归档上下文
+```
+
+### 核心实现
+
+**UserMessage.tsx 事件触发：**
+```typescript
+const handleFork = useCallback(async () => {
+  if (!archiveId) return;
+  const archive = await fetchArchiveDetail(archiveId);
+  
+  // 构建完整的 ArchiveRef 对象
+  const archiveRef: ArchiveRef = {
+    id: archiveId,
+    summary: archive.summary,
+    turnCount: archive.meta.turn_count,
+    totalMessages: archive.meta.total_messages,
+    label: archive.meta.label,
+    createdAt: archive.created_at,
+  };
+  
+  useSession.getState().newSession();
+  window.dispatchEvent(
+    new CustomEvent("ftre:insert-archive-ref", { detail: archiveRef })
+  );
+}, [archiveId]);
+```
+
+**ChatInput.tsx 事件监听：**
+```typescript
+useEffect(() => {
+  const handler = (e: Event) => {
+    const ref = (e as CustomEvent).detail as ArchiveRef;
+    inputEditor.insertArchiveChip(ref);
+    inputEditor.focus();
+  };
+  window.addEventListener("ftre:insert-archive-ref", handler);
+  return () => window.removeEventListener("ftre:insert-archive-ref", handler);
+}, [inputEditor]);
+```
+
+### 数据结构设计
+
+**ArchiveRef（Slate 编辑器使用）：**
+```typescript
+interface ArchiveRef {
+  id: string;
+  summary: string;
+  turnCount: number;
+  totalMessages: number;
+  label?: string;
+  createdAt: number;
+}
+```
+
+**ArchiveEntry（API 返回）：**
+```typescript
+interface ArchiveEntry {
+  id: string;
+  type: string;
+  summary: string;
+  content: string;
+  meta: {
+    session_id: string;
+    parent_id: string;
+    turn_count: number;
+    total_messages: number;
+    compressed_at: number;
+    label?: string;
+    updated_at?: number | null;
+  };
+  created_at: number;
+  folder_ids: string[];
+}
+```
+
+### 注意事项
+- `insertArchiveChip` 需要完整的 `ArchiveRef` 对象，不能只传 `{ id, display }`
+- `ArchiveChipView` 组件依赖 `summary` 字段计算显示文本长度，缺失会导致报错
+- 发送消息时，`message` 数组中包含 `archive_ref` 类型的 part，后端自动加载归档上下文
 
 ## Rollback 功能（回滚与分支）
 
@@ -71,7 +198,7 @@ api.branchSession(sessionId: string, messageId: string): Promise<{ session_id: s
 ```
 
 ### UI 交互
-- **触发位置**：`UserMessage.tsx` hover 时显示 rollback/branch 按钮
+- **触发位置**：`UserMessage.tsx` hover 时显示操作按钮
 - **确认对话框**：`RollbackConfirmDialog.tsx`
   - 默认选项：「创建分支」（保留原会话）
   - 危险选项：「回滚」（红色警告，不可逆）
@@ -145,6 +272,18 @@ ChatPanel 现在是一个纯聊天面板：
 Session 管理功能已拆分到独立的 `SessionPanel`，详见 [session-panel.md](./session-panel.md)。
 
 ## 历史变更
+
+- **2025-01**: 新增 Fork 会话功能
+  - UserMessage 添加 Fork 按钮（仅当 metadata.archive_id 存在时显示）
+  - 点击 Fork 跳转到新会话并自动插入归档引用
+  - 新增 `ftre:insert-archive-ref` CustomEvent 用于跨组件通信
+  - `insertArchiveChip` 需要完整 ArchiveRef 对象（含 summary, turnCount, totalMessages, label, createdAt）
+
+- **2025-01**: UserMessage 按钮布局重构
+  - 按钮位置从消息下方右侧移至左侧顶部对齐
+  - 默认状态仅显示回滚按钮，hover 显示复制+回滚
+  - 按钮水平排列：复制在左，回滚在右
+  - 引入 `@ftre/ui` Tooltip 组件
 
 - **2024-xx**: 新增 Rollback 功能
   - UserMessage 添加 rollback/branch 按钮
