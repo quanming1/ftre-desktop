@@ -93,7 +93,7 @@ Session 面板是最左侧的顶层面板，和 sidebar/editor/chat 同级：
 - **标题**: 单行截断，`text-[12px]`
 - **流式状态**: 正在输出时左侧显示旋转 loading 图标 (`Loader2` + `animate-spin`)
 - **时间**: 相对时间（now/2h/1d），颜色渐变：越新越亮 (opacity 1.0)，越旧越暗 (opacity 0.4)
-- **操作菜单**: `⋯` hover 显示，支持删除会话
+- **操作菜单**: `⋯` hover 显示，支持重命名、归档、删除会话
 - **当前高亮**: 激活 session 背景 `bg-neon/10`
 
 ### 顶部按钮区
@@ -158,8 +158,14 @@ function timeAgo(ts: number): { text: string; opacity: number } {
 ### 新建会话
 点击工作区行的 `[+]` → `sessionStore.newSession(workspace)` → 切换到 Chat 面板
 
+### 重命名会话
+右键会话标题 `⋯` → 菜单「重命名」→ `setRenameDialog({ isOpen, sessionId, currentTitle })` → 输入新标题 → `updateSession(sessionId, { title })` → 成功后刷新会话列表
+
+### 归档会话
+右键会话标题 `⋯` → 菜单「归档会话」→ `triggerCompaction(sessionId)` → 异步归档任务触发
+
 ### 删除会话
-点击 `⋯` → 菜单「删除」→ `sessionStore.deleteSession()`
+右键会话标题 `⋯` → 菜单「删除」→ `sessionStore.deleteSession()`
 
 ### 添加工作区
 点击底部 `[Open]` → `window.desktop.fs.selectFolder()` → 添加到工作区列表
@@ -248,6 +254,11 @@ type PanelId = 'sessions' | 'sidebar' | 'editor' | 'chat'
   expandedSources: Set<string>;       // 展开的 source
   expandedFullSources: Set<string>;   // 展开全部 session 的 source
   searchQuery: string;                // 搜索关键词
+  renameDialog: {                     // 重命名对话框状态
+    isOpen: boolean;
+    sessionId: string | null;
+    currentTitle: string;
+  };
 }
 ```
 
@@ -322,9 +333,14 @@ type PanelId = 'sessions' | 'sidebar' | 'editor' | 'chat'
 - **避免全量刷新**: `loadWorkspaceSessions` 只请求单个工作区，而不是所有工作区
 - **合并更新**: 将新数据合并到 `allSessions` 中，而不是完全替换
 
+### 会话操作菜单设计
+- **右键菜单选项**: 重命名（Pencil 图标）、归档会话（Archive 图标）、删除会话
+- **重命名对话框**: 独立模态框，Enter 确认 / Escape 取消
+- **API 调用**: `updateSession(sessionId, { title?, description? })` PUT 请求
+
 ## 注意事项
 
-- **圆角边框遮挡问题**: 内层元素（如 Source 分组）会遮挡外层容器的圆角边框，解决方案是将边框统一移到外层容器 `rounded-lg border`，header 用 `rounded-t-lg`，content 用 `rounded-b-lg overflow-hidden` 确保内容不溢出
+- **圆角边框遮挡问题**: 内层元素（如 Source 分组）会遮挡外层容器的圆角边框，解决方案是将边框统一移到外层容器 `rounded-lg border`，header 用 `rounded-t-lg`，content 用 `rounded-b-lg overflow-hidden` 确保内容不溢出圆角
 - **overflow-hidden 与 sticky 冲突**: 父级设置 `overflow: hidden` 会导致 `position: sticky` 失效，边框移到外层容器后可避免此问题
 - **多级 sticky 堆叠**: Workspace Header 和 Source Header 都需要 sticky，通过 `top` 值区分层级（0 vs 52px）
 - **Source 分组**: 如果只有 User 分类但后端返回了其他 source，需要动态处理所有 source 值
