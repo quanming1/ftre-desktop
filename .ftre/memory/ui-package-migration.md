@@ -91,10 +91,10 @@ packages/ui/
 ```css
 :root {
   /* 背景层级 */
-  --ftre-base: #1e1e1e;
-  --ftre-surface: #252526;
-  --ftre-elevated: #2d2d2d;
-  --ftre-panel: #333333;
+  --ftre-base: #1a1b1d;
+  --ftre-surface: #1a1b1d;
+  --ftre-elevated: #252526;
+  --ftre-panel: #2d2d2d;
 
   /* 品牌色（霓虹绿） */
   --ftre-accent: #00ff88;
