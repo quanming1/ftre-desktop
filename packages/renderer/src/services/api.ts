@@ -45,6 +45,31 @@ export async function deleteSession(sessionId: string): Promise<boolean> {
   return data.status === "deleted";
 }
 
+/** 更新 Session（title/description，所有字段可选） */
+export async function updateSession(
+  sessionId: string,
+  data: { title?: string; description?: string },
+): Promise<
+  | { status: "updated"; session_id: string }
+  | { error: "session_not_found" }
+  | null
+> {
+  try {
+    const res = await fetch(`${BACKEND_URL}/session/${sessionId}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(data),
+    });
+    if (res.status === 404) {
+      return res.json();
+    }
+    if (!res.ok) return null;
+    return res.json();
+  } catch {
+    return null;
+  }
+}
+
 export async function fetchModels(): Promise<{
   models: Array<{ id: string; name: string; provider: string }>;
 }> {
