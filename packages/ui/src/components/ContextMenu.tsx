@@ -139,7 +139,7 @@ export function ContextMenu({
       animate={{ opacity: 1, scale: 1, y: 0 }}
       transition={{ duration: 0.12, ease: "easeOut" }}
       className={cn(
-        "fixed z-[9999] min-w-[200px] rounded-md border py-1 shadow-2xl outline-none",
+        "fixed z-[9999] min-w-[200px] rounded-md border py-1.5 shadow-2xl outline-none",
         "bg-[var(--ftre-elevated,#2d2d2d)] border-[var(--ftre-border,#3c3c3c)]",
         className,
       )}
@@ -169,7 +169,7 @@ export function ContextMenu({
               if (!item.disabled) setFocusedIndex(index);
             }}
             className={cn(
-              "w-full flex items-center gap-2 px-3 py-2 text-left text-[13px] transition-colors duration-150",
+              "w-full flex items-center gap-2.5 px-3.5 py-2 text-left text-[13px] transition-colors duration-150",
               item.disabled
                 ? "text-[var(--ftre-text-faint,#7a8088)] cursor-not-allowed opacity-50"
                 : isFocused
@@ -177,8 +177,8 @@ export function ContextMenu({
                   : "text-[var(--ftre-text-secondary,#cccccc)] hover:bg-[var(--ftre-accent-ghost,rgba(0,255,136,0.06))]",
             )}
           >
-            <span className="w-4 h-4 flex items-center justify-center shrink-0">
-              {Icon && <Icon size={16} />}
+            <span className="w-4.5 h-4.5 flex items-center justify-center shrink-0">
+              {Icon && <Icon size={15} />}
             </span>
             <span className="flex-1 truncate">{item.label}</span>
             {item.shortcut && (

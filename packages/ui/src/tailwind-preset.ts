@@ -38,6 +38,46 @@ export const ftreUiPreset: Partial<Config> = {
         "ftre-error": "var(--ftre-error, #f85149)",
         "ftre-info": "var(--ftre-info, #58a6ff)",
       },
+      keyframes: {
+        "ftre-enter": {
+          from: { opacity: "0", transform: "scale(0.95)" },
+          to: { opacity: "1", transform: "scale(1)" },
+        },
+        "ftre-exit": {
+          from: { opacity: "1", transform: "scale(1)" },
+          to: { opacity: "0", transform: "scale(0.95)" },
+        },
+        "ftre-fade-in": {
+          from: { opacity: "0" },
+          to: { opacity: "1" },
+        },
+        "ftre-fade-out": {
+          from: { opacity: "1" },
+          to: { opacity: "0" },
+        },
+        "ftre-slide-in-from-top": {
+          from: { transform: "translateY(-8px)" },
+          to: { transform: "translateY(0)" },
+        },
+        "ftre-slide-in-from-bottom": {
+          from: { transform: "translateY(8px)" },
+          to: { transform: "translateY(0)" },
+        },
+        "ftre-slide-in-from-left": {
+          from: { transform: "translateX(-8px)" },
+          to: { transform: "translateX(0)" },
+        },
+        "ftre-slide-in-from-right": {
+          from: { transform: "translateX(8px)" },
+          to: { transform: "translateX(0)" },
+        },
+      },
+      animation: {
+        "ftre-enter": "ftre-enter 150ms ease-out",
+        "ftre-exit": "ftre-exit 100ms ease-in",
+        "ftre-fade-in": "ftre-fade-in 150ms ease-out",
+        "ftre-fade-out": "ftre-fade-out 100ms ease-in",
+      },
     },
   },
 };
