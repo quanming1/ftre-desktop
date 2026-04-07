@@ -12,11 +12,11 @@ export const ftreUiPreset: Partial<Config> = {
     extend: {
       colors: {
         // Background layers (dark to light)
-        "ftre-base": "var(--ftre-base, #1e1e1e)",
-        "ftre-surface": "var(--ftre-surface, #252526)",
-        "ftre-elevated": "var(--ftre-elevated, #2d2d2d)",
-        "ftre-panel": "var(--ftre-panel, #333333)",
-        "ftre-menu-bg": "var(--ftre-menu-bg, #2d2d2d)",
+        "ftre-base": "var(--ftre-base, #1a1b1d)",
+        "ftre-surface": "var(--ftre-surface, #1a1b1d)",
+        "ftre-elevated": "var(--ftre-elevated, #252526)",
+        "ftre-panel": "var(--ftre-panel, #2d2d2d)",
+        "ftre-menu-bg": "var(--ftre-menu-bg, #252526)",
         // Brand colors (neon green)
         "ftre-accent": "var(--ftre-accent, #00ff88)",
         "ftre-accent-hover": "var(--ftre-accent-hover, #00cc6e)",
@@ -88,11 +88,11 @@ export default ftreUiPreset;
  * CSS variables reference (aligned with ftre design system):
  *
  * Background layers:
- * --ftre-base: Main background (default: #1e1e1e)
- * --ftre-surface: Sidebar/panel background (default: #252526)
- * --ftre-elevated: Floating elements (default: #2d2d2d)
- * --ftre-panel: Input/card background (default: #333333)
- * --ftre-menu-bg: Menu/dropdown background (default: #2d2d2d)
+ * --ftre-base: Main background (default: #1a1b1d)
+ * --ftre-surface: Sidebar/panel background (default: #1a1b1d)
+ * --ftre-elevated: Floating elements (default: #252526)
+ * --ftre-panel: Input/card background (default: #2d2d2d)
+ * --ftre-menu-bg: Menu/dropdown background (default: #252526)
  *
  * Brand colors:
  * --ftre-accent: Primary accent/neon green (default: #00ff88)

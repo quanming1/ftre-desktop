@@ -118,10 +118,10 @@ function App() {
 ### 可用的 CSS 变量
 
 **背景层级**
-- `--ftre-base` - 主背景 (#1e1e1e)
-- `--ftre-surface` - 侧边栏/面板背景 (#252526)
-- `--ftre-elevated` - 浮动元素背景 (#2d2d2d)
-- `--ftre-panel` - 输入框/卡片背景 (#333333)
+- `--ftre-base` - 主背景 (#1a1b1d)
+- `--ftre-surface` - 侧边栏/面板背景 (#1a1b1d)
+- `--ftre-elevated` - 浮动元素背景 (#252526)
+- `--ftre-panel` - 输入框/卡片背景 (#2d2d2d)
 
 **品牌色**
 - `--ftre-accent` - 主强调色 (#00ff88)

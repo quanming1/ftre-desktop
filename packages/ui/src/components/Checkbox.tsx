@@ -25,14 +25,14 @@ export const Checkbox = forwardRef<HTMLButtonElement, CheckboxProps>(
           "data-[state=unchecked]:bg-transparent",
           "data-[state=checked]:bg-[var(--ftre-accent,#00ff88)] data-[state=checked]:border-[var(--ftre-accent,#00ff88)]",
           "data-[state=indeterminate]:bg-[var(--ftre-accent,#00ff88)] data-[state=indeterminate]:border-[var(--ftre-accent,#00ff88)]",
-          "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ftre-accent,#00ff88)] focus-visible:ring-offset-1 focus-visible:ring-offset-[var(--ftre-base,#1e1e1e)]",
+          "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ftre-accent,#00ff88)] focus-visible:ring-offset-1 focus-visible:ring-offset-[var(--ftre-base,#1a1b1d)]",
           "disabled:cursor-not-allowed disabled:opacity-50",
           config.box,
           className,
         )}
         {...props}
       >
-        <CheckboxPrimitive.Indicator className="flex items-center justify-center text-[var(--ftre-base,#1e1e1e)]">
+        <CheckboxPrimitive.Indicator className="flex items-center justify-center text-[var(--ftre-base,#1a1b1d)]">
           {props.checked === "indeterminate" ? (
             <Minus size={config.icon} strokeWidth={3} />
           ) : (
