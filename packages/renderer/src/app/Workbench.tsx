@@ -35,7 +35,6 @@ export function Workbench() {
   const centerRatio = useLayout((s) => s.centerRatio);
   const setCenterRatio = useLayout((s) => s.setCenterRatio);
   const activeSidebarView = useLayout((s) => s.activeSidebarView);
-  const toggleSidebar = useLayout((s) => s.toggleSidebar);
   const panelOrder = useLayout((s) => s.panelOrder);
   const panelVisible = useLayout((s) => s.panelVisible);
 
@@ -322,7 +321,7 @@ export function Workbench() {
           >
             <div className="flex-1 overflow-hidden">
               <ErrorBoundary>
-                <EditorArea onToggleFiles={toggleSidebar} />
+                <EditorArea />
               </ErrorBoundary>
             </div>
           </div>

@@ -10,10 +10,10 @@
  */
 @theme {
     /* 背景层级: 从深到浅 */
-    --color-base: #1e1e1e; /* 主背景 (VS Code Dark+) */
-    --color-surface: #252526; /* 侧边栏/面板 */
-    --color-elevated: #2d2d2d; /* 悬浮/弹窗 */
-    --color-panel: #333333; /* 输入框/卡片 */
+    --color-base: #1a1b1d; /* 主背景 */
+    --color-surface: #1a1b1d; /* 侧边栏/面板 */
+    --color-elevated: #252526; /* 悬浮/弹窗 */
+    --color-panel: #2d2d2d; /* 输入框/卡片 */
     --color-border: #3c3c3c; /* 主边框 */
     --color-border-subtle: #454545; /* 次要边框 */
 
@@ -43,11 +43,11 @@
  * CSS 变量向后兼容（Monaco 主题等仍在用）
  */
 :root {
-    --bg-base: #1e1e1e;
-    --bg-surface: #252526;
-    --bg-elevated: #2d2d2d;
-    --bg-hover: #333333;
-    --bg-active: #3c3c3c;
+    --bg-base: #1a1b1d;
+    --bg-surface: #1a1b1d;
+    --bg-elevated: #252526;
+    --bg-hover: #2d2d2d;
+    --bg-active: #333333;
 
     --text-primary: #e8e8e8;
     --text-secondary: #cccccc;
