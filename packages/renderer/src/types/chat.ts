@@ -64,6 +64,11 @@ export interface ChatMessage {
   parts?: MessagePart[];
   /** 本轮对话的文件变更摘要（仅 user 消息） */
   diffMeta?: DiffMeta;
+  /** 消息元数据（如 archive_id） */
+  metadata?: {
+    archive_id?: string;
+    [key: string]: unknown;
+  };
 }
 
 export interface ToolCallMessage {

@@ -104,6 +104,7 @@ export class StreamSession {
     codeRefs?: CodeRef[],
     parts?: MessagePart[],
     backendId?: string,
+    metadata?: Record<string, unknown>,
   ): void {
     const msg: ChatMessage = {
       id: backendId || nextId(),
@@ -111,6 +112,7 @@ export class StreamSession {
       content,
       codeRefs,
       parts,
+      metadata,
     };
     this.messages = [...this.messages, msg];
     this.emitChange();
@@ -657,6 +659,7 @@ class SessionStreamManager {
             codeRefs,
             parts as MessagePart[] | undefined,
             eventId,
+            event.metadata,
           );
           const diffMeta = (event.metadata as any)?.diff_meta;
           if (diffMeta) {
