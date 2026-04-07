@@ -11,7 +11,11 @@ export interface TooltipProps {
   className?: string;
 }
 
-export const TooltipProvider = TooltipPrimitive.Provider;
+export const TooltipProvider = ({ children }: { children: ReactNode }) => (
+  <TooltipPrimitive.Provider delayDuration={0} skipDelayDuration={0}>
+    {children}
+  </TooltipPrimitive.Provider>
+);
 
 export const Tooltip = forwardRef<HTMLButtonElement, TooltipProps>(
   (
