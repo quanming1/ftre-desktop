@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from "react";
+import { ErrorBoundary } from "@ftre/ui";
 import { TitleBar } from "./TitleBar";
 import { StatusBar } from "./StatusBar";
 import { Sidebar } from "@/features/explorer/Sidebar";
@@ -273,7 +274,9 @@ export function Workbench() {
             className="h-full overflow-hidden"
             style={getPanelStyle("sessions")}
           >
-            <SessionPanel />
+            <ErrorBoundary>
+              <SessionPanel />
+            </ErrorBoundary>
           </div>
         )}
         {panelVisible.sessions && isResizeHandleVisible("sessions") && (
@@ -294,7 +297,9 @@ export function Workbench() {
             className="h-full overflow-hidden"
             style={getPanelStyle("sidebar")}
           >
-            <Sidebar />
+            <ErrorBoundary>
+              <Sidebar />
+            </ErrorBoundary>
           </div>
         )}
         {panelVisible.sidebar && isResizeHandleVisible("sidebar") && (
@@ -316,7 +321,9 @@ export function Workbench() {
             style={getPanelStyle("editor")}
           >
             <div className="flex-1 overflow-hidden">
-              <EditorArea onToggleFiles={toggleSidebar} />
+              <ErrorBoundary>
+                <EditorArea onToggleFiles={toggleSidebar} />
+              </ErrorBoundary>
             </div>
           </div>
         )}
@@ -335,7 +342,9 @@ export function Workbench() {
         {/* Chat Panel */}
         {panelVisible.chat && (
           <div className="h-full overflow-hidden" style={getPanelStyle("chat")}>
-            <ChatPanel key={rootPath} />
+            <ErrorBoundary>
+              <ChatPanel key={rootPath} />
+            </ErrorBoundary>
           </div>
         )}
         {panelVisible.chat && isResizeHandleVisible("chat") && (

@@ -37,6 +37,7 @@ import { registerFtreTheme, getActiveThemeId } from "@ftre/editor/ui";
 import { initEditorHostBridge } from "../features/editor/editor-host-bridge";
 import React from "react";
 import { createRoot } from "react-dom/client";
+import { ErrorBoundary } from "@ftre/ui";
 import { App } from "./App";
 import "../styles/tailwind.css";
 import "../styles/reset.css";
@@ -60,6 +61,8 @@ monaco.editor.setTheme(getActiveThemeId());
 
 createRoot(document.getElementById("root")!).render(
   <React.StrictMode>
-    <App />
+    <ErrorBoundary level="app">
+      <App />
+    </ErrorBoundary>
   </React.StrictMode>,
 );
