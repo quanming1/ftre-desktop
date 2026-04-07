@@ -1,9 +1,9 @@
-import { type ReactNode } from "react";
+import { cloneElement, isValidElement, type ReactNode, type ReactElement } from "react";
 import { cn } from "../utils/cn";
 
 export interface TooltipProps {
   content: ReactNode;
-  children: ReactNode;
+  children: ReactElement;
   side?: "top" | "right" | "bottom" | "left";
   className?: string;
 }
@@ -34,25 +34,34 @@ export function Tooltip({
     right: "right-full top-1/2 -translate-y-1/2 border-r-[var(--ftre-elevated,#2d2d2d)] border-y-transparent border-l-transparent",
   };
 
-  return (
-    <div className="relative inline-flex group">
-      {children}
-      <div
-        className={cn(
-          "hidden group-hover:block absolute z-[9999] px-2.5 py-1.5 text-[12px] rounded shadow-lg whitespace-nowrap pointer-events-none",
-          "bg-[var(--ftre-elevated,#2d2d2d)] text-[var(--ftre-text-primary,#e8e8e8)] border border-[var(--ftre-border,#3c3c3c)]",
-          positionClasses[side],
-          className,
-        )}
-      >
-        {content}
-        <div
-          className={cn(
-            "absolute border-4",
-            arrowClasses[side],
-          )}
-        />
-      </div>
-    </div>
+  const tooltipEl = (
+    <span
+      className={cn(
+        "hidden group-hover/tooltip:block absolute z-[9999] px-2.5 py-1.5 text-[12px] rounded shadow-lg whitespace-nowrap pointer-events-none",
+        "bg-[var(--ftre-elevated,#2d2d2d)] text-[var(--ftre-text-primary,#e8e8e8)] border border-[var(--ftre-border,#3c3c3c)]",
+        positionClasses[side],
+        className,
+      )}
+    >
+      {content}
+      <span className={cn("absolute border-4", arrowClasses[side])} />
+    </span>
   );
+
+  if (!isValidElement(children)) {
+    return <>{children}</>;
+  }
+
+  const childProps = children.props as Record<string, unknown>;
+  const existingClassName = (childProps.className as string) || "";
+
+  return cloneElement(children, {
+    className: cn(existingClassName, "relative group/tooltip"),
+    children: (
+      <>
+        {childProps.children}
+        {tooltipEl}
+      </>
+    ),
+  } as Partial<unknown>);
 }
