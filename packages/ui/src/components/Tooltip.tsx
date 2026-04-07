@@ -20,7 +20,7 @@ export const Tooltip = forwardRef<HTMLButtonElement, TooltipProps>(
       children,
       side = "top",
       sideOffset = 6,
-      delayDuration = 200,
+      delayDuration = 0,
       className,
     },
     ref,
