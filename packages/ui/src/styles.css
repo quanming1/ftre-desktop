@@ -1,7 +1,7 @@
 /**
  * @ftre/ui 组件库 CSS 变量
  *
- * 这个文件只定义 CSS 变量，组件样式使用 Tailwind。
+ * 这个文件定义 CSS 变量和动画，组件样式使用 Tailwind。
  * 使用方可以选择导入这个文件来获得默认的主题变量。
  *
  * 用法：
@@ -9,33 +9,112 @@
  */
 
 :root {
-    /* 背景层级: 从深到浅 */
-    --ftre-base: #1e1e1e;
-    --ftre-surface: #252526;
-    --ftre-elevated: #2d2d2d;
-    --ftre-panel: #333333;
-    --ftre-menu-bg: #2d2d2d;
+  /* 背景层级: 从深到浅 */
+  --ftre-base: #1e1e1e;
+  --ftre-surface: #252526;
+  --ftre-elevated: #2d2d2d;
+  --ftre-panel: #333333;
+  --ftre-menu-bg: #2d2d2d;
 
-    /* 品牌色（霓虹绿） */
-    --ftre-accent: #00ff88;
-    --ftre-accent-hover: #00cc6e;
-    --ftre-accent-dim: rgba(0, 255, 136, 0.12);
-    --ftre-accent-ghost: rgba(0, 255, 136, 0.06);
+  /* 品牌色（霓虹绿） */
+  --ftre-accent: #00ff88;
+  --ftre-accent-hover: #00cc6e;
+  --ftre-accent-dim: rgba(0, 255, 136, 0.12);
+  --ftre-accent-ghost: rgba(0, 255, 136, 0.06);
 
-    /* 边框 */
-    --ftre-border: #3c3c3c;
-    --ftre-border-subtle: #454545;
+  /* 边框 */
+  --ftre-border: #3c3c3c;
+  --ftre-border-subtle: #454545;
 
-    /* 文字层级 */
-    --ftre-text-primary: #e8e8e8;
-    --ftre-text-secondary: #cccccc;
-    --ftre-text-muted: #aab0b8;
-    --ftre-text-dim: #969ca6;
-    --ftre-text-ghost: #888e98;
+  /* 文字层级 */
+  --ftre-text-primary: #e8e8e8;
+  --ftre-text-secondary: #cccccc;
+  --ftre-text-muted: #aab0b8;
+  --ftre-text-dim: #969ca6;
+  --ftre-text-ghost: #888e98;
+  --ftre-text-faint: #7a8088;
 
-    /* 语义色 */
-    --ftre-danger: #f85149;
-    --ftre-warning: #d29922;
-    --ftre-info: #58a6ff;
-    --ftre-success: #00ff88;
+  /* 语义色 */
+  --ftre-danger: #f85149;
+  --ftre-error: #f85149;
+  --ftre-warning: #d29922;
+  --ftre-info: #58a6ff;
+  --ftre-success: #00ff88;
+}
+
+/* Radix UI 动画 - 需要 Tailwind 的 animate 插件 */
+@keyframes ftre-enter {
+  from {
+    opacity: 0;
+    transform: scale(0.95);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes ftre-exit {
+  from {
+    opacity: 1;
+    transform: scale(1);
+  }
+  to {
+    opacity: 0;
+    transform: scale(0.95);
+  }
+}
+
+@keyframes ftre-fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes ftre-fade-out {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}
+
+@keyframes ftre-slide-in-from-top {
+  from {
+    transform: translateY(-8px);
+  }
+  to {
+    transform: translateY(0);
+  }
+}
+
+@keyframes ftre-slide-in-from-bottom {
+  from {
+    transform: translateY(8px);
+  }
+  to {
+    transform: translateY(0);
+  }
+}
+
+@keyframes ftre-slide-in-from-left {
+  from {
+    transform: translateX(-8px);
+  }
+  to {
+    transform: translateX(0);
+  }
+}
+
+@keyframes ftre-slide-in-from-right {
+  from {
+    transform: translateX(8px);
+  }
+  to {
+    transform: translateX(0);
+  }
 }
