@@ -1,6 +1,6 @@
 # UI 组件库拆分 (@ftre/ui)
 
-> 独立发布的 React 组件库，纯 UI 与业务逻辑完全解耦
+> 基于 Radix UI 的 React 组件库，遵循 ftre 设计规范
 
 ## 包结构
 
@@ -8,94 +8,115 @@
 packages/ui/
 ├── src/
 │   ├── components/
-│   │   ├── ContextMenu.tsx       # 右键菜单
-│   │   ├── ConfirmDialog.tsx     # 确认对话框
-│   │   ├── FloatingWindow.tsx    # 浮动窗口（拖拽/缩放）
-│   │   ├── ResizeHandle.tsx      # 拖拽调整手柄
-│   │   ├── CommandPalette.tsx    # 命令面板（泛型）
-│   │   ├── NotificationStack.tsx # 通知栈（受控组件）
+│   │   ├── Button.tsx             # 按钮 (primary/secondary/ghost/danger)
+│   │   ├── Input.tsx              # 输入框
+│   │   ├── Tooltip.tsx            # 工具提示 (@radix-ui/react-tooltip)
+│   │   ├── Dialog.tsx             # 对话框 (@radix-ui/react-dialog)
+│   │   ├── AlertDialog.tsx        # 确认对话框 (@radix-ui/react-alert-dialog)
+│   │   ├── DropdownMenu.tsx       # 下拉菜单 (@radix-ui/react-dropdown-menu)
+│   │   ├── ContextMenu.tsx        # 右键菜单 (命令式 API，向后兼容)
+│   │   ├── ContextMenuRadix.tsx   # 右键菜单 (Radix 声明式 API)
+│   │   ├── Select.tsx             # 下拉选择 (@radix-ui/react-select)
+│   │   ├── Switch.tsx             # 开关 (@radix-ui/react-switch)
+│   │   ├── Checkbox.tsx           # 复选框 (@radix-ui/react-checkbox)
+│   │   ├── Tabs.tsx               # 标签页 (@radix-ui/react-tabs)
+│   │   ├── FloatingWindow.tsx     # 浮动窗口（拖拽/缩放）
+│   │   ├── ResizeHandle.tsx       # 拖拽调整手柄
+│   │   ├── CommandPalette.tsx     # 命令面板（泛型）
+│   │   ├── NotificationStack.tsx  # 通知栈（受控组件）
+│   │   ├── ConfirmDialog.tsx      # [deprecated] 使用 AlertDialog
+│   │   ├── diff-summary/          # Diff 摘要卡片
 │   │   └── index.ts
 │   ├── hooks/
 │   │   └── useThrottledValue.ts
 │   ├── utils/
-│   │   ├── cn.ts                 # tailwind-merge
-│   │   └── menu-position.ts      # 菜单位置计算
-│   ├── index.ts                  # 主入口
-│   └── tailwind-preset.ts        # Tailwind CSS 预设
-├── dist/                         # 构建产物
+│   │   ├── cn.ts                  # tailwind-merge
+│   │   └── menu-position.ts       # 菜单位置计算
+│   ├── index.ts                   # 主入口
+│   ├── styles.css                 # CSS 变量定义
+│   └── tailwind-preset.ts         # Tailwind CSS 预设
+├── dist/                          # 构建产物
 ├── package.json
 ├── tsconfig.json
 └── tsup.config.ts
 ```
 
+## 组件分类
+
+### 基于 Radix UI 的组件
+
+| 组件 | Radix 包 | 说明 |
+|------|----------|------|
+| `Button` | - | 按钮（primary/secondary/ghost/danger） |
+| `Input` | - | 输入框 |
+| `Tooltip` | @radix-ui/react-tooltip | 工具提示 |
+| `Dialog` | @radix-ui/react-dialog | 对话框 |
+| `AlertDialog` | @radix-ui/react-alert-dialog | 确认对话框 |
+| `DropdownMenu` | @radix-ui/react-dropdown-menu | 下拉菜单 |
+| `ContextMenuRadix` | @radix-ui/react-context-menu | 右键菜单（声明式） |
+| `Select` | @radix-ui/react-select | 下拉选择 |
+| `Switch` | @radix-ui/react-switch | 开关 |
+| `Checkbox` | @radix-ui/react-checkbox | 复选框 |
+| `Tabs` | @radix-ui/react-tabs | 标签页 |
+
+### 自定义组件
+
+| 组件 | 说明 |
+|------|------|
+| `ContextMenu` | 命令式 API，向后兼容（传入 items/position/onClose） |
+| `FloatingWindow` | 可拖拽浮动窗口 |
+| `ResizeHandle` | 拖拽调整大小 |
+| `CommandPalette` | 命令面板 |
+| `NotificationStack` | 通知堆栈 |
+| `DiffSummaryCard` | Diff 摘要卡片 |
+
 ## 导出清单
 
 | 类别 | 导出项 | 路径 |
 |------|--------|------|
-| 组件 | `ContextMenu`, `ConfirmDialog`, `FloatingWindow`, `ResizeHandle`, `CommandPalette`, `NotificationStack` | `@ftre/ui` |
-| 类型 | `ContextMenuItem`, `DialogButton`, `CommandItem`, `NotificationItem` 等 | `@ftre/ui` |
+| 基础组件 | `Button`, `Input`, `Tooltip`, `TooltipProvider` | `@ftre/ui` |
+| 对话框 | `Dialog`, `DialogContent`, `DialogHeader`, `DialogTitle`, `DialogDescription`, `DialogFooter`, `AlertDialog`, `AlertDialogContent`, `AlertDialogAction`, `AlertDialogCancel` 等 | `@ftre/ui` |
+| 菜单 | `DropdownMenu`, `DropdownMenuContent`, `DropdownMenuItem`, `ContextMenu` (命令式), `ContextMenuRadix` (声明式) 等 | `@ftre/ui` |
+| 表单 | `Select`, `SelectTrigger`, `SelectContent`, `SelectItem`, `Switch`, `Checkbox`, `Tabs`, `TabsList`, `TabsTrigger`, `TabsContent` | `@ftre/ui` |
+| 自定义 | `FloatingWindow`, `ResizeHandle`, `CommandPalette`, `NotificationStack`, `DiffSummaryCard` | `@ftre/ui` |
 | Hooks | `useThrottledValue` | `@ftre/ui` |
 | 工具 | `cn`, `adjustMenuPosition` | `@ftre/ui` |
 | 样式 | `ftreUiPreset` | `@ftre/ui/tailwind` |
-
-## renderer 适配方案
-
-### 纯重导出组件
-直接转发，零业务逻辑：
-```typescript
-// packages/renderer/src/components/ConfirmDialog.tsx
-export { ConfirmDialog, type DialogButton, type ConfirmDialogProps } from "@ftre/ui";
-```
-
-适用：`ContextMenu`, `ConfirmDialog`, `FloatingWindow`, `ResizeHandle`
-
-### 业务适配层
-保留业务逻辑，props 传递给 UI 组件：
-```typescript
-// packages/renderer/src/components/NotificationStack.tsx
-import { NotificationStack as BaseNotificationStack } from "@ftre/ui";
-import { useNotification } from "@/stores/notification";
-
-export function NotificationStack() {
-  const notifications = useNotification((s) => s.notifications);
-  const removeNotification = useNotification((s) => s.removeNotification);
-  return (
-    <BaseNotificationStack
-      notifications={notifications}
-      onDismiss={removeNotification}
-    />
-  );
-}
-```
-
-适用：`NotificationStack`, `CommandPalette`
-
-### 保持原样
-完全业务耦合，暂不解耦：
-- `FilePalette` → 依赖 `@/stores/workspace`, `@/services/file-index-service`
-- `LayoutSwitcher` → 依赖 `@/stores/layout`, `@dnd-kit`
-- `PixelLogo` → 项目专属 Logo
+| CSS | CSS 变量 | `@ftre/ui/styles.css` |
 
 ## 主题系统
 
 组件使用 CSS 变量，支持自定义主题：
+
 ```css
 :root {
-  --ftre-base-bg: #1e1e1e;
+  /* 背景层级 */
+  --ftre-base: #1e1e1e;
   --ftre-surface: #252526;
-  --ftre-border: #3c3c3c;
-  --ftre-text-primary: #cccccc;
-  --ftre-text-secondary: #999999;
-  --ftre-neon: #00ff9d;
-  --ftre-neon-ghost: rgba(0, 255, 157, 0.1);
-}
-```
+  --ftre-elevated: #2d2d2d;
+  --ftre-panel: #333333;
 
-可选导入 Tailwind 预设：
-```typescript
-// tailwind.config.ts
-import { ftreUiPreset } from "@ftre/ui/tailwind";
-export default { presets: [ftreUiPreset], ... };
+  /* 品牌色（霓虹绿） */
+  --ftre-accent: #00ff88;
+  --ftre-accent-hover: #00cc6e;
+  --ftre-accent-dim: rgba(0, 255, 136, 0.12);
+  --ftre-accent-ghost: rgba(0, 255, 136, 0.06);
+
+  /* 边框 */
+  --ftre-border: #3c3c3c;
+
+  /* 文字 */
+  --ftre-text-primary: #e8e8e8;
+  --ftre-text-secondary: #cccccc;
+  --ftre-text-muted: #aab0b8;
+  --ftre-text-ghost: #888e98;
+
+  /* 语义色 */
+  --ftre-error: #f85149;
+  --ftre-warning: #d29922;
+  --ftre-info: #58a6ff;
+  --ftre-success: #00ff88;
+}
 ```
 
 ## 依赖关系
@@ -107,37 +128,74 @@ export default { presets: [ftreUiPreset], ... };
 └── tailwindcss >= 4.0.0
 
 @ftre/ui (dependencies)
+├── @radix-ui/react-* (10个包)
 ├── framer-motion
 ├── lucide-react
 ├── clsx
 └── tailwind-merge
+```
 
-@ftre/renderer
-├── @ftre/ui (workspace:*)
-├── @ftre/editor
-└── @ftre/shared
+## ContextMenu 双 API 说明
+
+保留两种 API 以确保向后兼容：
+
+### 命令式 API（向后兼容）
+
+```tsx
+// 用于需要动态控制菜单位置的场景
+const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null);
+
+<ContextMenu
+  items={[
+    { id: "copy", label: "复制", action: () => copy() },
+    { id: "sep", separator: true },
+    { id: "delete", label: "删除", action: () => del() },
+  ]}
+  position={contextMenu}
+  onClose={() => setContextMenu(null)}
+/>
+```
+
+### 声明式 API（Radix 风格）
+
+```tsx
+// 用于右键触发菜单的场景
+<ContextMenuRadix>
+  <ContextMenuTrigger>右键点击这里</ContextMenuTrigger>
+  <ContextMenuContent>
+    <ContextMenuItemRadix onSelect={() => copy()}>复制</ContextMenuItemRadix>
+    <ContextMenuSeparator />
+    <ContextMenuItemRadix onSelect={() => del()}>删除</ContextMenuItemRadix>
+  </ContextMenuContent>
+</ContextMenuRadix>
 ```
 
 ## 关键设计决策
 
-1. **纯 UI 组件无状态** - 所有数据通过 props 传递，不依赖任何 store
+1. **基于 Radix UI** - 完善的无障碍支持、焦点管理、键盘导航
 2. **CSS 变量主题** - 不绑定特定配色，通过变量支持任意主题
-3. **tsup 打包** - 输出 ESM + DTS，支持 Tree-shaking
-4. **业务组件保留适配层** - 不解耦到面目全非，保持 renderer 使用习惯
+3. **遵循 ftre 设计规范** - 霓虹绿品牌色、深色背景层级、4px 间距系统
+4. **向后兼容** - ContextMenu 保留命令式 API，不破坏现有代码
+5. **tsup 打包** - 输出 ESM + DTS，支持 Tree-shaking
 
 ## 已迁移组件
 
-- [x] ContextMenu
-- [x] ConfirmDialog
+- [x] Button (新增)
+- [x] Input (新增)
+- [x] Tooltip (新增，基于 Radix)
+- [x] Dialog (新增，基于 Radix)
+- [x] AlertDialog (新增，基于 Radix)
+- [x] DropdownMenu (新增，基于 Radix)
+- [x] ContextMenu (重写，保持命令式 API)
+- [x] ContextMenuRadix (新增，Radix 声明式 API)
+- [x] Select (新增，基于 Radix)
+- [x] Switch (新增，基于 Radix)
+- [x] Checkbox (新增，基于 Radix)
+- [x] Tabs (新增，基于 Radix)
 - [x] FloatingWindow
 - [x] ResizeHandle
-- [x] CommandPalette (泛型重构)
-- [x] NotificationStack (受控化重构)
+- [x] CommandPalette
+- [x] NotificationStack
+- [x] DiffSummaryCard
 - [x] useThrottledValue
 - [x] cn / menu-position
-
-## 未来扩展
-
-可考虑迁移（需抽象）：
-- `FilePalette` → 抽象为 `SearchPalette<T>` 泛型组件
-- `LayoutSwitcher` → 抽象为 `SortableToggleGroup`
