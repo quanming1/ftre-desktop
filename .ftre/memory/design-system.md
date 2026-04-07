@@ -14,10 +14,10 @@
 
 ### 背景层级
 ```
---color-base: #1e1e1e      (主背景)
---color-surface: #252526   (侧边栏/面板)
---color-elevated: #2d2d2d  (悬浮/弹窗)
---color-panel: #333333     (输入框/卡片)
+--color-base: #1a1b1d      (主背景)
+--color-surface: #1a1b1d   (侧边栏/面板)
+--color-elevated: #252526  (悬浮/弹窗)
+--color-panel: #2d2d2d     (输入框/卡片)
 ```
 
 ### 品牌色（霓虹绿）
