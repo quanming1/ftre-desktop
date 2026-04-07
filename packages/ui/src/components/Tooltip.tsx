@@ -1,55 +1,58 @@
-import * as TooltipPrimitive from "@radix-ui/react-tooltip";
-import { forwardRef, type ReactNode } from "react";
+import { type ReactNode } from "react";
 import { cn } from "../utils/cn";
 
 export interface TooltipProps {
   content: ReactNode;
   children: ReactNode;
   side?: "top" | "right" | "bottom" | "left";
-  sideOffset?: number;
-  delayDuration?: number;
   className?: string;
 }
 
+/** Provider 不再需要，保留空壳兼容现有代码 */
 export const TooltipProvider = ({ children }: { children: ReactNode }) => (
-  <TooltipPrimitive.Provider delayDuration={0} skipDelayDuration={0}>
-    {children}
-  </TooltipPrimitive.Provider>
+  <>{children}</>
 );
 
-export const Tooltip = forwardRef<HTMLButtonElement, TooltipProps>(
-  (
-    {
-      content,
-      children,
-      side = "top",
-      sideOffset = 6,
-      delayDuration = 0,
-      className,
-    },
-    ref,
-  ) => {
-    return (
-      <TooltipPrimitive.Root delayDuration={delayDuration}>
-        <TooltipPrimitive.Trigger ref={ref} asChild>
-          {children}
-        </TooltipPrimitive.Trigger>
-        <TooltipPrimitive.Portal>
-          <TooltipPrimitive.Content
-            side={side}
-            sideOffset={sideOffset}
-            className={cn(
-              "z-[9999] px-2.5 py-1.5 text-[12px] rounded shadow-lg",
-              "bg-[var(--ftre-elevated,#2d2d2d)] text-[var(--ftre-text-primary,#e8e8e8)] border border-[var(--ftre-border,#3c3c3c)]",
-              className,
-            )}
-          >
-            {content}
-          </TooltipPrimitive.Content>
-        </TooltipPrimitive.Portal>
-      </TooltipPrimitive.Root>
-    );
-  },
-);
+/** 纯 CSS Tooltip，无延迟 */
+export function Tooltip({
+  content,
+  children,
+  side = "top",
+  className,
+}: TooltipProps) {
+  const positionClasses = {
+    top: "bottom-full left-1/2 -translate-x-1/2 mb-1.5",
+    bottom: "top-full left-1/2 -translate-x-1/2 mt-1.5",
+    left: "right-full top-1/2 -translate-y-1/2 mr-1.5",
+    right: "left-full top-1/2 -translate-y-1/2 ml-1.5",
+  };
 
-Tooltip.displayName = "Tooltip";
+  const arrowClasses = {
+    top: "top-full left-1/2 -translate-x-1/2 border-t-[var(--ftre-elevated,#2d2d2d)] border-x-transparent border-b-transparent",
+    bottom: "bottom-full left-1/2 -translate-x-1/2 border-b-[var(--ftre-elevated,#2d2d2d)] border-x-transparent border-t-transparent",
+    left: "left-full top-1/2 -translate-y-1/2 border-l-[var(--ftre-elevated,#2d2d2d)] border-y-transparent border-r-transparent",
+    right: "right-full top-1/2 -translate-y-1/2 border-r-[var(--ftre-elevated,#2d2d2d)] border-y-transparent border-l-transparent",
+  };
+
+  return (
+    <div className="relative inline-flex group">
+      {children}
+      <div
+        className={cn(
+          "hidden group-hover:block absolute z-[9999] px-2.5 py-1.5 text-[12px] rounded shadow-lg whitespace-nowrap pointer-events-none",
+          "bg-[var(--ftre-elevated,#2d2d2d)] text-[var(--ftre-text-primary,#e8e8e8)] border border-[var(--ftre-border,#3c3c3c)]",
+          positionClasses[side],
+          className,
+        )}
+      >
+        {content}
+        <div
+          className={cn(
+            "absolute border-4",
+            arrowClasses[side],
+          )}
+        />
+      </div>
+    </div>
+  );
+}
