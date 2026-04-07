@@ -140,12 +140,20 @@ export function MonacoDiffViewer({
       options={{
         readOnly: true,
         originalEditable: false,
+        // Git 变更里经常包含空白调整，默认忽略会出现“有统计但无高亮”
+        ignoreTrimWhitespace: false,
         fontSize: 14,
         fontFamily: "'JetBrains Mono', 'Cascadia Code', 'Consolas', monospace",
         lineHeight: 22,
         minimap: { enabled: false },
         scrollBeyondLastLine: false,
         renderSideBySide,
+        renderOverviewRuler: false,
+        hideCursorInOverviewRuler: true,
+        overviewRulerBorder: false,
+        glyphMargin: false,
+        lineNumbersMinChars: 3,
+        folding: false,
         automaticLayout: true,
         scrollbar: {
           verticalScrollbarSize: 5,

@@ -129,7 +129,7 @@ export function Breadcrumb({ groupId }: { groupId?: string }) {
   return (
     <div
       data-breadcrumb-bar
-      className="relative flex items-center gap-1 px-5 py-2 text-[12px] text-t-ghost border-b border-border font-mono shrink-0 overflow-hidden"
+      className="relative flex items-center gap-1 px-5 py-2 text-[12px] text-t-ghost font-mono shrink-0 overflow-hidden"
     >
       {visibleSegments.map((item, i) => {
         if (item === "ellipsis") {

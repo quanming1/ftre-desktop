@@ -1,5 +1,9 @@
 import { useState, useRef, useCallback, useEffect } from "react";
-import { X, FolderOpen, ChevronLeft, ChevronRight, Pin } from "lucide-react";
+import { X, ChevronLeft, ChevronRight, Pin } from "lucide-react";
+import {
+  OverlayScrollbarsComponent,
+  type OverlayScrollbarsComponentRef,
+} from "overlayscrollbars-react";
 import { useEditor } from "@/stores/editor";
 import { useLayout } from "@/stores/layout";
 import { getFileIcon } from "@/lib/file-icons";
@@ -10,10 +14,9 @@ import { saveFile } from "@ftre/editor/runtime";
 
 interface TabBarProps {
   groupId?: string;
-  onToggleFiles?: () => void;
 }
 
-export function TabBar({ groupId, onToggleFiles }: TabBarProps) {
+export function TabBar({ groupId }: TabBarProps) {
   const {
     groups,
     activeGroupId,
@@ -149,19 +152,23 @@ export function TabBar({ groupId, onToggleFiles }: TabBarProps) {
   );
 
   // Overflow scroll state
-  const tabsContainerRef = useRef<HTMLDivElement>(null);
+  const overlayRef = useRef<OverlayScrollbarsComponentRef | null>(null);
   const [canScrollLeft, setCanScrollLeft] = useState(false);
   const [canScrollRight, setCanScrollRight] = useState(false);
 
+  const getScrollElement = useCallback((): HTMLElement | null => {
+    return overlayRef.current?.osInstance()?.elements().viewport ?? null;
+  }, []);
+
   const updateScrollState = useCallback(() => {
-    const el = tabsContainerRef.current;
+    const el = getScrollElement();
     if (!el) return;
     setCanScrollLeft(el.scrollLeft > 0);
     setCanScrollRight(el.scrollLeft + el.clientWidth < el.scrollWidth - 1);
-  }, []);
+  }, [getScrollElement]);
 
   useEffect(() => {
-    const el = tabsContainerRef.current;
+    const el = getScrollElement();
     if (!el) return;
 
     const observer = new ResizeObserver(() => updateScrollState());
@@ -173,14 +180,14 @@ export function TabBar({ groupId, onToggleFiles }: TabBarProps) {
       observer.disconnect();
       el.removeEventListener("scroll", updateScrollState);
     };
-  }, [updateScrollState, openFiles.length]);
+  }, [getScrollElement, updateScrollState, openFiles.length]);
 
   const scrollTabs = useCallback((direction: "left" | "right") => {
-    const el = tabsContainerRef.current;
+    const el = getScrollElement();
     if (!el) return;
     const amount = direction === "left" ? -150 : 150;
     el.scrollBy({ left: amount, behavior: "instant" });
-  }, []);
+  }, [getScrollElement]);
 
   // Middle-click close handler
   const handleMouseDown = useCallback(
@@ -268,14 +275,14 @@ export function TabBar({ groupId, onToggleFiles }: TabBarProps) {
 
   const handleWheel = useCallback((e: React.WheelEvent) => {
     e.preventDefault();
-    const container = tabsContainerRef.current;
+    const container = getScrollElement();
     if (container) {
       container.scrollLeft += e.deltaY;
     }
-  }, []);
+  }, [getScrollElement]);
 
   const handleContainerDragOver = useCallback(
-    (e: React.DragEvent<HTMLDivElement>) => {
+    (e: React.DragEvent<HTMLElement>) => {
       e.preventDefault();
     },
     [],
@@ -283,14 +290,6 @@ export function TabBar({ groupId, onToggleFiles }: TabBarProps) {
 
   return (
     <div className="h-[38px] bg-base flex items-end shrink-0">
-      {/* File browser trigger */}
-      <button
-        onClick={onToggleFiles}
-        className="flex items-center justify-center w-[38px] h-full text-t-muted hover:text-t-primary hover:bg-white/[0.06] transition-colors duration-150 shrink-0"
-      >
-        <FolderOpen size={15} strokeWidth={1.5} />
-      </button>
-
       {/* Left scroll arrow */}
       {canScrollLeft && (
         <button
@@ -304,34 +303,43 @@ export function TabBar({ groupId, onToggleFiles }: TabBarProps) {
       )}
 
       {/* Tabs */}
-      <div
-        ref={tabsContainerRef}
-        className="flex items-end flex-1 min-w-0 overflow-x-auto h-full relative scrollbar-none"
+      <OverlayScrollbarsComponent
+        ref={overlayRef}
+        defer
+        options={{
+          overflow: { x: "scroll", y: "hidden" },
+          scrollbars: {
+            autoHide: "leave",
+            autoHideDelay: 120,
+          },
+        }}
+        className="tabbar-scroll-area flex items-end flex-1 min-w-0 h-full relative"
         onDragOver={handleContainerDragOver}
         onWheel={handleWheel}
       >
-        {openFiles.map((file, index) => {
-          const isActive = file.path === activeFile;
-          const isHovered = hoveredTab === file.path;
-          const isDragging = dragIndex === index;
-          return (
-            <button
-              key={file.path}
-              draggable
-              onDragStart={(e) => handleDragStart(e, index)}
-              onDragEnd={handleDragEnd}
-              onDragOver={(e) => handleDragOver(e, index)}
-              onDrop={(e) => handleDrop(e, index)}
-              onClick={() => setActive(file.path)}
-              onMouseDown={(e) => handleMouseDown(e, file.path)}
-              onContextMenu={(e) => handleContextMenu(e, file.path)}
-              onMouseEnter={() => setHoveredTab(file.path)}
-              onMouseLeave={() => setHoveredTab(null)}
-              className={`group relative flex items-center gap-2 h-full text-[13px] whitespace-nowrap font-sans transition-colors duration-150 border-r border-border select-none ${
-                file.pinned ? "px-2.5" : "px-3.5"
-              } ${isDragging ? "opacity-40" : ""} ${isActive ? "bg-surface text-t-primary" : "bg-base text-t-muted hover:bg-elevated hover:text-t-secondary"}`}
-              data-tab-index={index}
-            >
+        <div className="flex items-end justify-start h-full min-w-max">
+          {openFiles.map((file, index) => {
+            const isActive = file.path === activeFile;
+            const isHovered = hoveredTab === file.path;
+            const isDragging = dragIndex === index;
+            return (
+              <button
+                key={file.path}
+                draggable
+                onDragStart={(e) => handleDragStart(e, index)}
+                onDragEnd={handleDragEnd}
+                onDragOver={(e) => handleDragOver(e, index)}
+                onDrop={(e) => handleDrop(e, index)}
+                onClick={() => setActive(file.path)}
+                onMouseDown={(e) => handleMouseDown(e, file.path)}
+                onContextMenu={(e) => handleContextMenu(e, file.path)}
+                onMouseEnter={() => setHoveredTab(file.path)}
+                onMouseLeave={() => setHoveredTab(null)}
+                className={`group relative flex items-center gap-2 h-full text-[13px] whitespace-nowrap font-sans transition-colors duration-150 border border-border select-none ${
+                  file.pinned ? "px-2.5" : "px-3.5"
+                } ${isDragging ? "opacity-40" : ""} ${isActive ? "z-10 border-b-transparent bg-[#1a1b1d] text-t-primary" : "bg-base text-t-muted hover:bg-elevated hover:text-t-secondary"}`}
+                data-tab-index={index}
+              >
               {/* Drop indicator line — left side */}
               {dropIndicatorIndex === index && (
                 <div
@@ -348,7 +356,7 @@ export function TabBar({ groupId, onToggleFiles }: TabBarProps) {
                   />
                 )}
               {isActive && (
-                <div className="absolute bottom-0 left-0 right-0 h-[2px] bg-neon" />
+                <div className="absolute top-0 left-0 right-0 h-[2px] bg-white/40" />
               )}
               {(() => {
                 const { icon: FileIcon, color } = getFileIcon(file.name, false);
@@ -381,10 +389,11 @@ export function TabBar({ groupId, onToggleFiles }: TabBarProps) {
                   <X size={12} strokeWidth={1.5} />
                 </span>
               )}
-            </button>
-          );
-        })}
-      </div>
+              </button>
+            );
+          })}
+        </div>
+      </OverlayScrollbarsComponent>
 
       {/* Right scroll arrow */}
       {canScrollRight && (
