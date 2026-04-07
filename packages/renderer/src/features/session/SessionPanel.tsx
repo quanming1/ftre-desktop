@@ -10,13 +10,14 @@ import {
   Loader2,
   RefreshCw,
   Archive,
+  Pencil,
 } from "lucide-react";
 import { useSession } from "@/stores/session";
 import { useChat } from "@/stores/chat";
 import { useWorkspace } from "@/stores/workspace";
 import { useNotification } from "@/stores/notification";
 import { streamManager } from "@/services/stream-manager";
-import { triggerCompaction } from "@/services/api";
+import { triggerCompaction, updateSession } from "@/services/api";
 import { ContextMenu, type ContextMenuItem } from "@/components/ContextMenu";
 import type { SessionSummary } from "@/services/api";
 
@@ -193,6 +194,8 @@ export function SessionPanel() {
   } | null>(null);
   const [hoveredSession, setHoveredSession] = useState<string | null>(null);
   const [hoveredWorkspace, setHoveredWorkspace] = useState<string | null>(null);
+  const [renamingSession, setRenamingSession] = useState<SessionSummary | null>(null);
+  const [renameValue, setRenameValue] = useState("");
 
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const sessionRefs = useRef<Map<string, HTMLDivElement>>(new Map());
@@ -424,6 +427,28 @@ export function SessionPanel() {
     }
   }, []);
 
+  const handleRenameSession = useCallback(
+    async (sessionId: string, newTitle: string) => {
+      if (!newTitle.trim()) return;
+      const result = await updateSession(sessionId, { title: newTitle.trim() });
+      if (result && "status" in result && result.status === "updated") {
+        // 刷新会话列表
+        loadAllSessions();
+        useNotification.getState().addNotification({
+          level: "info",
+          message: "会话已重命名",
+        });
+      } else {
+        useNotification.getState().addNotification({
+          level: "error",
+          message: "重命名失败",
+        });
+      }
+      setRenamingSession(null);
+    },
+    [loadAllSessions],
+  );
+
   const showSessionMenu = useCallback(
     (e: React.MouseEvent, session: SessionSummary) => {
       e.stopPropagation();
@@ -432,11 +457,21 @@ export function SessionPanel() {
         position: { x: e.clientX, y: e.clientY },
         items: [
           {
+            id: "rename-session",
+            label: "重命名",
+            icon: Pencil,
+            action: () => {
+              setRenameValue(session.title || "");
+              setRenamingSession(session);
+            },
+          },
+          {
             id: "compact-session",
             label: "归档会话",
             icon: Archive,
             action: () => handleCompaction(session.session_id),
           },
+          { id: "sep", label: "", separator: true, action: () => {} },
           {
             id: "delete-session",
             label: "删除会话",
@@ -761,6 +796,58 @@ export function SessionPanel() {
           items={contextMenu.items}
           onClose={() => setContextMenu(null)}
         />
+      )}
+
+      {/* 重命名对话框 */}
+      {renamingSession && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
+          onClick={() => setRenamingSession(null)}
+        >
+          <div
+            className="bg-surface rounded-lg border border-border shadow-xl w-[320px]"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="px-4 py-3 border-b border-border">
+              <span className="text-[13px] text-t-primary font-medium">
+                重命名会话
+              </span>
+            </div>
+            <div className="p-4">
+              <input
+                type="text"
+                value={renameValue}
+                onChange={(e) => setRenameValue(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    handleRenameSession(renamingSession.session_id, renameValue);
+                  } else if (e.key === "Escape") {
+                    setRenamingSession(null);
+                  }
+                }}
+                className="w-full h-8 px-3 rounded bg-base border border-border focus:border-neon/50 text-[12px] text-t-primary outline-none"
+                placeholder="输入新标题"
+                autoFocus
+              />
+            </div>
+            <div className="px-4 py-3 border-t border-border flex justify-end gap-2">
+              <button
+                onClick={() => setRenamingSession(null)}
+                className="px-3 py-1.5 rounded text-[12px] text-t-muted hover:bg-white/[0.06]"
+              >
+                取消
+              </button>
+              <button
+                onClick={() =>
+                  handleRenameSession(renamingSession.session_id, renameValue)
+                }
+                className="px-3 py-1.5 rounded text-[12px] bg-neon/20 text-neon hover:bg-neon/30"
+              >
+                保存
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );
