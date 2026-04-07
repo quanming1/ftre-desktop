@@ -108,6 +108,59 @@ export class ChatInputEditor {
     ReactEditor.focus(this.editor as ReactEditor);
   }
 
+  // ── 内容恢复 ──
+
+  /** 从后端返回的 parts 数组恢复输入框内容 */
+  setContent(parts: Array<{ type: string; data: unknown }>): void {
+    // 1. 清空现有内容
+    this.clear();
+
+    // 2. 遍历 parts 数组并插入内容
+    for (const part of parts) {
+      if (part.type === "text") {
+        // 插入文本
+        const text = part.data as string;
+        if (text) {
+          Transforms.insertText(this.editor, text);
+        }
+      } else if (part.type === "code_ref") {
+        // 转换 data 为 CodeRef 格式并插入
+        const data = part.data as {
+          path: string;
+          name: string;
+          lines: [number, number];
+          raw: string;
+        };
+        const codeRef: CodeRef = {
+          filePath: data.path,
+          fileName: data.name,
+          startLine: data.lines[0],
+          endLine: data.lines[1],
+          content: data.raw,
+        };
+        this.insertCodeChip(codeRef);
+      } else if (part.type === "archive_ref") {
+        // 转换 data 为 ArchiveRef 格式并插入
+        const data = part.data as {
+          id: string;
+          display: string;
+        };
+        const archiveRef: ArchiveRef = {
+          id: data.id,
+          summary: data.display,
+          turnCount: 0,
+          totalMessages: 0,
+          label: data.display,
+          createdAt: 0,
+        };
+        this.insertArchiveChip(archiveRef);
+      }
+    }
+
+    // 3. 聚焦编辑器
+    this.focus();
+  }
+
   // ── 序列化 ──
 
   /** 将当前内容序列化为发送给后端的格式 */
