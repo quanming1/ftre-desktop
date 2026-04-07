@@ -93,6 +93,19 @@ export function ChatInput() {
     return () => window.removeEventListener("ftre:insert-archive-ref", handler);
   }, [inputEditor]);
 
+  // ── 外部事件：回滚后回填输入框 ──
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const { parts } = (e as CustomEvent).detail as {
+        parts: Array<{ type: string; data: unknown }>;
+      };
+      if (!parts || parts.length === 0) return;
+      inputEditor.setContent(parts);
+    };
+    window.addEventListener("ftre:rollback-refill", handler);
+    return () => window.removeEventListener("ftre:rollback-refill", handler);
+  }, [inputEditor]);
+
   // ── 外部事件：Plan 模式下一步按钮 ──
   useEffect(() => {
     const handler = (e: Event) => {
