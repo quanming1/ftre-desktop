@@ -11,3 +11,4 @@
 | editor-themes.md | 编辑器主题系统 | editor themes, Monaco theme, theme-registry, FtreThemeDefinition, registerFtreTheme, darcula |
 | terminal-features.md | 终端功能特性 | terminal, keybindings, font zoom, Ctrl+=, xterm |
 | explorer.md | 文件浏览器 (Explorer) | explorer, ExplorerView, FileTreeItem, file tree, drag-drop, git changes |
+| archives-folder-ui.md | 归档文件夹功能 | archive, archive folder, ArchivesView, folder_ids, link, unlink, sort_order, createArchiveFolder, fetchArchiveFolders |
