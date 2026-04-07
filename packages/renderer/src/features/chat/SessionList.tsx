@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { MessageSquare, Trash2, Plus, ChevronLeft } from "lucide-react";
+import { Trash2, Plus, ChevronLeft } from "lucide-react";
 import { useSession } from "@/stores/session";
 import { useChat } from "@/stores/chat";
 import { useWorkspace } from "@/stores/workspace";
@@ -47,34 +47,37 @@ export function SessionList({ onClose }: { onClose: () => void }) {
 
   return (
     <div className="h-full flex flex-col bg-surface">
-      {/* Header */}
       <div className="flex items-center gap-2.5 px-3.5 py-2.5 border-b border-border">
         <button onClick={onClose} className="text-t-dim hover:text-neon transition-colors duration-150 p-1.5 hover:bg-neon-ghost rounded-md">
           <ChevronLeft size={15} />
         </button>
-        <span className="text-[13px] text-t-secondary font-mono flex-1">会话历史</span>
+        <span className="text-[13px] text-t-secondary flex-1">会话历史</span>
+        <span className="text-[11px] text-t-ghost">{sessions.length}</span>
         <button onClick={handleNew} className="text-t-dim hover:text-neon transition-colors duration-150 p-1.5 hover:bg-neon-ghost rounded-md" title="新建会话">
           <Plus size={15} />
         </button>
       </div>
 
-      {/* List */}
       <div className="flex-1 overflow-y-auto">
-        {loading && <div className="text-[13px] text-t-ghost font-mono px-3.5 py-4 text-center">加载中...</div>}
-        {!loading && sessions.length === 0 && <div className="text-[13px] text-t-ghost font-mono px-3.5 py-4 text-center">暂无会话</div>}
+        {loading && <div className="text-[13px] text-t-ghost px-3.5 py-4 text-center">加载中...</div>}
+        {!loading && sessions.length === 0 && <div className="text-[13px] text-t-ghost px-3.5 py-6 text-center">暂无会话，点击右上角 + 新建</div>}
         {sessions.map((s) => (
           <div
             key={s.session_id}
             onClick={() => handleSwitch(s.session_id)}
-            className={`group flex items-center gap-2.5 px-3.5 py-2.5 cursor-pointer text-[13px] border-b border-border/50 transition-colors duration-150 ${
-              s.session_id === currentSessionId ? "bg-neon/5 border-l-2 border-l-neon" : "hover:bg-white/[0.03] border-l-2 border-l-transparent"
+            className={`group flex items-center gap-2.5 px-3.5 py-2.5 cursor-pointer text-[13px] border-b border-border/40 transition-colors duration-150 ${
+              s.session_id === currentSessionId
+                ? "bg-neon/5 border-l-2 border-l-neon"
+                : "hover:bg-white/[0.03] border-l-2 border-l-transparent"
             }`}
           >
-            <MessageSquare size={14} className="shrink-0 text-t-dim" />
-            <div className="flex-1 min-w-0">
-              <div className="font-mono text-t-secondary truncate">{s.title}</div>
-              <div className="text-[11px] text-t-ghost font-mono mt-0.5">{timeAgo(s.updated_at)}</div>
-            </div>
+            <span
+              className={`w-1.5 h-1.5 rounded-full shrink-0 ${
+                s.session_id === currentSessionId ? "bg-neon" : "bg-border-subtle"
+              }`}
+            />
+            <div className="flex-1 min-w-0 text-t-secondary truncate">{s.title}</div>
+            <div className="text-[11px] text-t-ghost shrink-0">{timeAgo(s.updated_at)}</div>
             <button
               onClick={(e) => handleDelete(e, s.session_id)}
               disabled={deletingId === s.session_id}
