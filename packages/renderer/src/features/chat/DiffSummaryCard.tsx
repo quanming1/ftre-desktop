@@ -1,5 +1,5 @@
 import { memo, useCallback } from "react";
-import { DiffSummaryCard as UiDiffSummaryCard } from "@ftre/ui/diff-summary";
+import { DiffSummaryCard as UiDiffSummaryCard } from "@ftre/ui";
 import type { DiffMeta, DiffFileSummary } from "@/types/chat";
 import { fetchSnapshotFileDiff, fetchSnapshotFileContent } from "@/services/api";
 import { useEditor } from "@/stores/editor";

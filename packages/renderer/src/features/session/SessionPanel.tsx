@@ -1,11 +1,7 @@
 import { useState, useMemo, useCallback, useEffect, useRef } from "react";
 import {
-  ChevronDown,
-  ChevronRight,
   Plus,
   MoreHorizontal,
-  FolderOpen,
-  LocateFixed,
   Search,
   Loader2,
   RefreshCw,
@@ -20,35 +16,6 @@ import { streamManager } from "@/services/stream-manager";
 import { triggerCompaction, updateSession } from "@/services/api";
 import { ContextMenu, type ContextMenuItem } from "@/components/ContextMenu";
 import type { SessionSummary } from "@/services/api";
-
-// ─── 颜色系统 ──────────────────────────────────────────────────────
-
-const WORKSPACE_COLORS = [
-  "#6366f1", // indigo
-  "#8b5cf6", // violet
-  "#ec4899", // pink
-  "#f59e0b", // amber
-  "#10b981", // emerald
-  "#06b6d4", // cyan
-  "#3b82f6", // blue
-  "#f97316", // orange
-  "#14b8a6", // teal
-  "#e11d48", // rose
-  "#a855f7", // purple
-  "#84cc16", // lime
-];
-
-function pathHash(path: string): number {
-  let h = 0;
-  for (let i = 0; i < path.length; i++) {
-    h = ((h << 5) - h + path.charCodeAt(i)) | 0;
-  }
-  return Math.abs(h);
-}
-
-function getWorkspaceColor(path: string): string {
-  return WORKSPACE_COLORS[pathHash(path) % WORKSPACE_COLORS.length];
-}
 
 // ─── 工具函数 ──────────────────────────────────────────────────────
 
@@ -88,6 +55,39 @@ function normalizePath(p: string): string {
     normalized = normalized.toLowerCase();
   }
   return normalized;
+}
+
+type SessionTimeBucketKey =
+  | "running"
+  | "just_now"
+  | "today"
+  | "yesterday"
+  | "long_ago";
+
+const SESSION_TIME_BUCKETS: Array<{ key: SessionTimeBucketKey; label: string }> = [
+  { key: "running", label: "运行中" },
+  { key: "just_now", label: "刚刚" },
+  { key: "today", label: "今天" },
+  { key: "yesterday", label: "昨天" },
+  { key: "long_ago", label: "很久之前" },
+];
+
+function getSessionTimeBucket(
+  updatedAt: number,
+  isRunning: boolean,
+): SessionTimeBucketKey {
+  if (isRunning) return "running";
+  const nowSec = Date.now() / 1000;
+  if (nowSec - updatedAt <= 300) return "just_now";
+
+  const now = new Date();
+  const todayStartSec =
+    new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime() / 1000;
+  const yesterdayStartSec = todayStartSec - 86400;
+
+  if (updatedAt >= todayStartSec) return "today";
+  if (updatedAt >= yesterdayStartSec) return "yesterday";
+  return "long_ago";
 }
 
 // ─── 类型定义 ──────────────────────────────────────────────────────
@@ -161,9 +161,6 @@ function buildWorkspaceGroup(
 
 export function SessionPanel() {
   const rootPath = useWorkspace((s) => s.rootPath);
-  const recentFolders = useWorkspace((s) => s.recentFolders);
-  const setRootPath = useWorkspace((s) => s.setRootPath);
-  const removeRecentFolder = useWorkspace((s) => s.removeRecentFolder);
 
   const allSessions = useSession((s) => s.allSessions);
   const loadAllSessions = useSession((s) => s.loadAllSessions);
@@ -172,100 +169,45 @@ export function SessionPanel() {
   const newSession = useSession((s) => s.newSession);
   const currentSessionId = useChat((s) => s.sessionId);
 
-  const [expandedWorkspaces, setExpandedWorkspaces] = useState<Set<string>>(
-    () => {
-      const norm = normalizePath(rootPath || "");
-      return norm ? new Set([norm]) : new Set();
-    },
-  );
-  const [expandedSources, setExpandedSources] = useState<Set<string>>(() => {
-    const norm = normalizePath(rootPath || "");
-    return norm ? new Set([`${norm}:user`]) : new Set();
-  });
-  const [expandedFullSources, setExpandedFullSources] = useState<Set<string>>(
-    new Set(),
-  );
+  const [selectedSource, setSelectedSource] = useState<string>("all");
+  const [sourceMenuOpen, setSourceMenuOpen] = useState(false);
+  const [showAllSessions, setShowAllSessions] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [searchOpen, setSearchOpen] = useState(false);
   const searchInputRef = useRef<HTMLInputElement>(null);
+  const sourceMenuRef = useRef<HTMLDivElement>(null);
   const [contextMenu, setContextMenu] = useState<{
     position: { x: number; y: number };
     items: ContextMenuItem[];
   } | null>(null);
   const [hoveredSession, setHoveredSession] = useState<string | null>(null);
-  const [hoveredWorkspace, setHoveredWorkspace] = useState<string | null>(null);
   const [renamingSession, setRenamingSession] = useState<SessionSummary | null>(null);
   const [renameValue, setRenameValue] = useState("");
 
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const sessionRefs = useRef<Map<string, HTMLDivElement>>(new Map());
 
-  // 初次加载 + recentFolders 变化时刷新
-  const recentFoldersCount = recentFolders.length;
+  // 初次加载 + 当前工作区变化时刷新
   useEffect(() => {
     loadAllSessions();
-  }, [loadAllSessions, recentFoldersCount]);
-
-  useEffect(() => {
-    if (rootPath) {
-      const norm = normalizePath(rootPath);
-      setExpandedWorkspaces((prev) => new Set([...prev, norm]));
-      setExpandedSources((prev) => {
-        const next = new Set(prev);
-        next.add(`${norm}:user`);
-        return next;
-      });
-    }
-  }, [rootPath]);
+  }, [loadAllSessions, rootPath]);
 
   // 构建工作区分组
   const workspaceGroups = useMemo(() => {
-    const normalizedMap = new Map<
-      string,
-      { displayPath: string; sessions: SessionSummary[] }
-    >();
-
-    recentFolders.forEach((folder) => {
-      const norm = normalizePath(folder);
-      if (!normalizedMap.has(norm)) {
-        normalizedMap.set(norm, { displayPath: folder, sessions: [] });
-      }
-    });
-
-    allSessions.forEach((session) => {
-      if (!session.workspace) return;
-      const norm = normalizePath(session.workspace);
-      if (normalizedMap.has(norm)) {
-        normalizedMap.get(norm)!.sessions.push(session);
-      } else {
-        normalizedMap.set(norm, {
-          displayPath: session.workspace,
-          sessions: [session],
-        });
-      }
-    });
-
-    const groups: WorkspaceGroup[] = [];
-    const seen = new Set<string>();
-
-    recentFolders.forEach((folder) => {
-      const norm = normalizePath(folder);
-      if (!seen.has(norm) && normalizedMap.has(norm)) {
-        const data = normalizedMap.get(norm)!;
-        groups.push(buildWorkspaceGroup(norm, data.displayPath, data.sessions));
-        seen.add(norm);
-      }
-    });
-
-    normalizedMap.forEach((data, norm) => {
-      if (!seen.has(norm)) {
-        groups.push(buildWorkspaceGroup(norm, data.displayPath, data.sessions));
-        seen.add(norm);
-      }
-    });
-
-    return groups;
-  }, [allSessions, recentFolders]);
+    if (!rootPath) return [];
+    const normalizedRoot = normalizePath(rootPath);
+    const currentWorkspaceSessions = allSessions.filter(
+      (session) =>
+        session.workspace && normalizePath(session.workspace) === normalizedRoot,
+    );
+    return [
+      buildWorkspaceGroup(
+        normalizedRoot,
+        rootPath,
+        currentWorkspaceSessions,
+      ),
+    ];
+  }, [allSessions, rootPath]);
 
   // 搜索过滤
   const filteredWorkspaceGroups = useMemo(() => {
@@ -289,106 +231,6 @@ export function SessionPanel() {
 
   const loadWorkspaceSessions = useSession((s) => s.loadWorkspaceSessions);
 
-  const toggleWorkspace = useCallback(
-    (normalizedPath: string, displayPath: string) => {
-      // 先检查当前是否展开，再执行 toggle
-      const wasExpanded = expandedWorkspaces.has(normalizedPath);
-
-      setExpandedWorkspaces((prev) => {
-        const next = new Set(prev);
-        if (next.has(normalizedPath)) {
-          next.delete(normalizedPath);
-        } else {
-          next.add(normalizedPath);
-        }
-        return next;
-      });
-
-      // 如果之前是折叠的（即现在是展开操作）：设置默认展开的 source，并刷新会话列表
-      if (!wasExpanded) {
-        setExpandedSources((prev) => {
-          const next = new Set(prev);
-          next.add(`${normalizedPath}:user`);
-          return next;
-        });
-        loadWorkspaceSessions(displayPath);
-      }
-    },
-    [expandedWorkspaces, loadWorkspaceSessions],
-  );
-
-  const toggleSource = useCallback((wsPath: string, source: string) => {
-    const key = `${wsPath}:${source}`;
-    setExpandedSources((prev) => {
-      const next = new Set(prev);
-      if (next.has(key)) {
-        next.delete(key);
-      } else {
-        next.add(key);
-      }
-      return next;
-    });
-  }, []);
-
-  const handleOpenFolder = useCallback(async () => {
-    try {
-      const result = await window.desktop.fs.selectFolder();
-      if (result?.path) {
-        setRootPath(result.path);
-      }
-    } catch {}
-  }, [setRootPath]);
-
-  const handleLocateCurrentSession = useCallback(() => {
-    if (!currentSessionId) return;
-
-    // 找到当前 session 所在的工作区和 source
-    const session = allSessions.find((s) => s.session_id === currentSessionId);
-    if (session?.workspace) {
-      const wsNorm = normalizePath(session.workspace);
-      const source = session.source || "user";
-      const sourceKey = `${wsNorm}:${source}`;
-
-      // 展开工作区
-      setExpandedWorkspaces((prev) => {
-        if (prev.has(wsNorm)) return prev;
-        return new Set([...prev, wsNorm]);
-      });
-
-      // 展开 source
-      setExpandedSources((prev) => {
-        if (prev.has(sourceKey)) return prev;
-        return new Set([...prev, sourceKey]);
-      });
-
-      // 延迟滚动，等待 DOM 更新
-      setTimeout(() => {
-        const el = sessionRefs.current.get(currentSessionId);
-        if (el && scrollContainerRef.current) {
-          el.scrollIntoView({ behavior: "smooth", block: "center" });
-        }
-      }, 50);
-    } else {
-      // 没有找到 session 信息，直接尝试滚动
-      const el = sessionRefs.current.get(currentSessionId);
-      if (el && scrollContainerRef.current) {
-        el.scrollIntoView({ behavior: "smooth", block: "center" });
-      }
-    }
-  }, [currentSessionId, allSessions]);
-
-  const toggleShowAllSessions = useCallback((sourceKey: string) => {
-    setExpandedFullSources((prev) => {
-      const next = new Set(prev);
-      if (next.has(sourceKey)) {
-        next.delete(sourceKey);
-      } else {
-        next.add(sourceKey);
-      }
-      return next;
-    });
-  }, []);
-
   const handleNewSession = useCallback(
     (e: React.MouseEvent, workspace: string) => {
       e.stopPropagation();
@@ -397,13 +239,10 @@ export function SessionPanel() {
     [newSession],
   );
 
-  const handleRefreshWorkspace = useCallback(
-    (e: React.MouseEvent, workspace: string) => {
-      e.stopPropagation();
-      loadWorkspaceSessions(workspace);
-    },
-    [loadWorkspaceSessions],
-  );
+  const handleRefreshWorkspace = useCallback(() => {
+    if (!rootPath) return;
+    loadWorkspaceSessions(rootPath);
+  }, [rootPath, loadWorkspaceSessions]);
 
   const handleSwitchSession = useCallback(
     (sessionId: string) => {
@@ -483,26 +322,6 @@ export function SessionPanel() {
     [deleteSession, handleCompaction],
   );
 
-  const showWorkspaceMenu = useCallback(
-    (e: React.MouseEvent, workspace: string) => {
-      e.stopPropagation();
-      e.preventDefault();
-      setContextMenu({
-        position: { x: e.clientX, y: e.clientY },
-        items: [
-          {
-            id: "remove-workspace",
-            label: "移除工作区",
-            action: () => removeRecentFolder(workspace),
-          },
-        ],
-      });
-    },
-    [removeRecentFolder],
-  );
-
-  const currentNormalized = normalizePath(rootPath || "");
-
   const handleSearchToggle = useCallback(() => {
     setSearchOpen((prev) => {
       if (!prev) {
@@ -514,35 +333,122 @@ export function SessionPanel() {
     });
   }, []);
 
+  const currentWorkspace = filteredWorkspaceGroups[0];
+  const currentWorkspaceName = folderName(rootPath || "未打开文件夹");
+  const sourceOptions = useMemo(() => {
+    if (!currentWorkspace) return [];
+    return currentWorkspace.sourceGroups.map((group) => ({
+      value: group.source,
+      label: group.label,
+      count: group.sessions.length,
+    }));
+  }, [currentWorkspace]);
+  const visibleSessions = useMemo(() => {
+    if (!currentWorkspace) return [];
+    if (selectedSource === "all") {
+      return currentWorkspace.sourceGroups
+        .flatMap((group) => group.sessions)
+        .sort((a, b) => b.updated_at - a.updated_at);
+    }
+    const selectedGroup = currentWorkspace.sourceGroups.find(
+      (group) => group.source === selectedSource,
+    );
+    return selectedGroup ? selectedGroup.sessions : [];
+  }, [currentWorkspace, selectedSource]);
+  const displayedSessions = useMemo(
+    () => (showAllSessions ? visibleSessions : visibleSessions.slice(0, 5)),
+    [visibleSessions, showAllSessions],
+  );
+  const hasMoreSessions = visibleSessions.length > 5;
+  const groupedDisplayedSessions = useMemo(() => {
+    const grouped: Record<SessionTimeBucketKey, SessionSummary[]> = {
+      running: [],
+      just_now: [],
+      today: [],
+      yesterday: [],
+      long_ago: [],
+    };
+    displayedSessions.forEach((session) => {
+      const isRunning = streamManager.isSessionStreaming(session.session_id);
+      const bucket = getSessionTimeBucket(session.updated_at, isRunning);
+      grouped[bucket].push(session);
+    });
+    return SESSION_TIME_BUCKETS
+      .map((bucket) => ({
+        ...bucket,
+        sessions: grouped[bucket.key],
+      }))
+      .filter((bucket) => bucket.sessions.length > 0);
+  }, [displayedSessions]);
+
+  useEffect(() => {
+    if (!currentWorkspace) return;
+    if (
+      selectedSource !== "all" &&
+      !currentWorkspace.sourceGroups.some((group) => group.source === selectedSource)
+    ) {
+      setSelectedSource("all");
+    }
+  }, [currentWorkspace, selectedSource]);
+
+  useEffect(() => {
+    setShowAllSessions(false);
+  }, [selectedSource, searchQuery, currentWorkspace?.normalizedPath]);
+
+  useEffect(() => {
+    if (!sourceMenuOpen) return;
+    const handler = (e: MouseEvent) => {
+      if (sourceMenuRef.current && !sourceMenuRef.current.contains(e.target as Node)) {
+        setSourceMenuOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [sourceMenuOpen]);
+
+  const selectedSourceLabel = useMemo(() => {
+    if (selectedSource === "all") return "全部";
+    const found = sourceOptions.find((option) => option.value === selectedSource);
+    return found ? found.label : "全部";
+  }, [selectedSource, sourceOptions]);
+
   return (
     <div className="h-full flex flex-col bg-surface text-[13px]">
-      {/* 顶部按钮区 */}
-      <div className="shrink-0 px-2.5 py-2 border-b border-border flex items-center gap-1.5">
+      {/* 头部：工作区 + 搜索/刷新 + 新增会话 */}
+      <div className="shrink-0 px-3 py-2.5 border-b border-border">
+        <div className="flex items-center gap-2">
+          <span className="text-[13px] text-t-primary truncate flex-1">
+            {currentWorkspaceName}
+          </span>
+          <button
+            onClick={handleSearchToggle}
+            className={`flex items-center justify-center h-7 w-7 rounded transition-colors ${
+              searchOpen
+                ? "text-neon bg-neon/10"
+                : "text-t-secondary bg-elevated hover:bg-panel hover:text-neon"
+            }`}
+            title="搜索会话"
+          >
+            <Search size={14} />
+          </button>
+          <button
+            onClick={handleRefreshWorkspace}
+            className="flex items-center justify-center h-7 w-7 rounded text-t-secondary bg-elevated hover:bg-panel hover:text-neon transition-colors"
+            title="刷新会话"
+          >
+            <RefreshCw size={14} />
+          </button>
+        </div>
+        <div className="text-[11px] text-t-ghost truncate mt-1">
+          {rootPath || "未打开文件夹"}
+        </div>
         <button
-          onClick={handleOpenFolder}
-          className="flex-1 flex items-center justify-center gap-1.5 h-7 rounded text-[12px] text-t-secondary bg-elevated hover:bg-panel hover:text-neon transition-colors"
-          title="Open Workspace"
+          onClick={(e) => handleNewSession(e, rootPath || "")}
+          disabled={!rootPath}
+          className="w-full mt-2 h-9 rounded-md text-[12px] border border-border-subtle bg-elevated hover:bg-panel text-t-secondary hover:text-neon transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-1.5"
         >
-          <FolderOpen size={14} />
-          <span>Open</span>
-        </button>
-        <button
-          onClick={handleLocateCurrentSession}
-          className="flex items-center justify-center h-7 w-7 rounded text-t-secondary bg-elevated hover:bg-panel hover:text-neon transition-colors"
-          title="Locate Current Session"
-        >
-          <LocateFixed size={14} />
-        </button>
-        <button
-          onClick={handleSearchToggle}
-          className={`flex items-center justify-center h-7 w-7 rounded transition-colors ${
-            searchOpen
-              ? "text-neon bg-neon/10"
-              : "text-t-secondary bg-elevated hover:bg-panel hover:text-neon"
-          }`}
-          title="Search Sessions"
-        >
-          <Search size={14} />
+          <Plus size={14} />
+          <span>新增会话</span>
         </button>
       </div>
 
@@ -560,233 +466,152 @@ export function SessionPanel() {
         </div>
       )}
 
+      <div className="shrink-0 px-3 py-1.5 border-b border-border">
+        <div className="flex items-center gap-2" ref={sourceMenuRef}>
+          <div className="relative">
+            <button
+              type="button"
+              onClick={() => setSourceMenuOpen((prev) => !prev)}
+              className="h-7 px-1.5 rounded bg-transparent border border-transparent text-[12px] text-t-secondary outline-none hover:bg-elevated/70 focus:bg-elevated focus:border-border-subtle transition-colors"
+            >
+              {selectedSourceLabel}
+            </button>
+            {sourceMenuOpen && (
+              <div className="absolute top-full left-0 mt-1 min-w-[160px] bg-elevated border border-border-subtle rounded-lg shadow-2xl py-1 z-[40]">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSelectedSource("all");
+                    setSourceMenuOpen(false);
+                  }}
+                  className={`w-full text-left px-3 py-2 text-[12px] transition-colors ${
+                    selectedSource === "all"
+                      ? "text-neon bg-neon/10"
+                      : "text-t-secondary hover:bg-white/[0.08] hover:text-t-primary"
+                  }`}
+                >
+                  全部
+                </button>
+                {sourceOptions.map((option) => (
+                  <button
+                    key={option.value}
+                    type="button"
+                    onClick={() => {
+                      setSelectedSource(option.value);
+                      setSourceMenuOpen(false);
+                    }}
+                    className={`w-full text-left px-3 py-2 text-[12px] transition-colors ${
+                      selectedSource === option.value
+                        ? "text-neon bg-neon/10"
+                        : "text-t-secondary hover:bg-white/[0.08] hover:text-t-primary"
+                    }`}
+                  >
+                    {option.label}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+
       <div
         ref={scrollContainerRef}
         className="flex-1 overflow-y-auto scrollbar-thin"
       >
-        {filteredWorkspaceGroups.length === 0 ? (
+        {!currentWorkspace ? (
           <div className="text-t-ghost px-4 py-12 text-center">
-            {searchQuery ? "No matching sessions" : "No workspaces"}
+            {searchQuery ? "No matching sessions" : "No sessions"}
           </div>
         ) : (
-          filteredWorkspaceGroups.map((ws) => {
-            const isActive = ws.normalizedPath === currentNormalized;
-            const isExpanded = expandedWorkspaces.has(ws.normalizedPath);
-            const isHovered = hoveredWorkspace === ws.normalizedPath;
-            const wsColor = getWorkspaceColor(ws.normalizedPath);
-
-            return (
-              <div
-                key={ws.normalizedPath}
-                className="mx-2 mt-2 rounded-lg"
-                style={
-                  isExpanded
-                    ? {
-                        border: `1px solid ${wsColor}50`,
-                        boxShadow: `inset 0 1px 4px ${wsColor}12`,
-                      }
-                    : {
-                        border: "1px solid transparent",
-                      }
-                }
-              >
-                {/* Workspace Header — sticky */}
-                <div
-                  onClick={() =>
-                    toggleWorkspace(ws.normalizedPath, ws.displayPath)
-                  }
-                  onMouseEnter={() => setHoveredWorkspace(ws.normalizedPath)}
-                  onMouseLeave={() => setHoveredWorkspace(null)}
-                  className={`
-                    sticky top-0 z-10 cursor-pointer select-none px-3
-                    rounded-t-lg
-                    ${isActive ? "bg-white/[0.08]" : "hover:bg-white/[0.05]"}
-                    ${isExpanded ? "py-2.5" : "py-1.5 rounded-b-lg"}
-                    transition-all
-                  `}
-                >
-                  <div className="flex items-center gap-2">
-                    <span className="shrink-0 text-t-muted">
-                      {isExpanded ? (
-                        <ChevronDown size={16} />
-                      ) : (
-                        <ChevronRight size={14} />
-                      )}
-                    </span>
-                    <span
-                      className={`flex-1 truncate font-semibold ${isExpanded ? "text-[15px]" : "text-[13px]"} ${isActive ? "text-t-primary" : "text-t-primary"}`}
-                    >
-                      {folderName(ws.displayPath)}
-                    </span>
-                    <div
-                      className={`flex items-center gap-0.5 ${isHovered ? "opacity-100" : "opacity-0"}`}
-                    >
-                      <button
-                        onClick={(e) =>
-                          handleRefreshWorkspace(e, ws.displayPath)
-                        }
-                        className="p-1 rounded text-t-dim hover:text-neon hover:bg-white/[0.08] transition-colors"
-                        title="Refresh Sessions"
-                      >
-                        <RefreshCw size={14} />
-                      </button>
-                      <button
-                        onClick={(e) => handleNewSession(e, ws.displayPath)}
-                        className="p-1 rounded text-t-dim hover:text-neon hover:bg-white/[0.08] transition-colors"
-                        title="New Session"
-                      >
-                        <Plus size={15} />
-                      </button>
-                      <button
-                        onClick={(e) => showWorkspaceMenu(e, ws.displayPath)}
-                        className="p-1 rounded text-t-dim hover:text-t-primary hover:bg-white/[0.08] transition-colors"
-                      >
-                        <MoreHorizontal size={15} />
-                      </button>
-                    </div>
-                  </div>
-                  {isExpanded && (
-                    <div className="text-[11px] text-t-dim truncate mt-1 ml-[24px]">
-                      {ws.displayPath}
-                    </div>
-                  )}
-                </div>
-
-                {/* Source 分组 + Sessions */}
-                {isExpanded && (
-                  <div className="rounded-b-lg overflow-hidden">
-                    {ws.sourceGroups.map((sg) => {
-                      const sourceKey = `${ws.normalizedPath}:${sg.source}`;
-                      const isSourceExpanded = expandedSources.has(sourceKey);
-                      const showAll = expandedFullSources.has(sourceKey);
-                      const maxVisible = 5;
-                      const visibleSessions = showAll
-                        ? sg.sessions
-                        : sg.sessions.slice(0, maxVisible);
-                      const hasMore = sg.sessions.length > maxVisible;
-
-                      return (
-                        <div key={sourceKey}>
-                          {/* Source 分割线 */}
-                          <div
-                            onClick={() =>
-                              toggleSource(ws.normalizedPath, sg.source)
-                            }
-                            className="flex items-center gap-2 px-3 py-1 cursor-pointer select-none hover:bg-white/[0.02] transition-colors"
-                          >
-                            <div className="flex-1 h-px bg-border" />
-                            <span className="text-[10px] text-t-ghost px-1.5">
-                              {sg.label}
-                              {!isSourceExpanded && ` (${sg.sessions.length})`}
-                            </span>
-                            <div className="flex-1 h-px bg-border" />
-                          </div>
-
-                          {/* Sessions */}
-                          {isSourceExpanded && (
-                            <>
-                              {visibleSessions.map((session) => {
-                                const isSessionActive =
-                                  session.session_id === currentSessionId;
-                                const isSessionHovered =
-                                  hoveredSession === session.session_id;
-                                const isStreaming =
-                                  streamManager.isSessionStreaming(
-                                    session.session_id,
-                                  );
-                                const time = timeAgo(session.updated_at);
-
-                                return (
-                                  <div
-                                    key={session.session_id}
-                                    ref={(el) => {
-                                      if (el) {
-                                        sessionRefs.current.set(
-                                          session.session_id,
-                                          el,
-                                        );
-                                      } else {
-                                        sessionRefs.current.delete(
-                                          session.session_id,
-                                        );
-                                      }
-                                    }}
-                                    onClick={() =>
-                                      handleSwitchSession(session.session_id)
-                                    }
-                                    onMouseEnter={() =>
-                                      setHoveredSession(session.session_id)
-                                    }
-                                    onMouseLeave={() => setHoveredSession(null)}
-                                    className={`
-                                      flex items-center gap-2 px-3 py-2 cursor-pointer select-none transition-colors
-                                      ${
-                                        isSessionActive
-                                          ? "bg-white/[0.06]"
-                                          : "hover:bg-white/[0.03]"
-                                      }
-                                    `}
-                                  >
-                                    <div className="flex-1 min-w-0">
-                                      <div
-                                        className={`truncate text-[12px] ${isSessionActive ? "text-t-primary" : "text-t-secondary"}`}
-                                      >
-                                        {session.title || "New Session"}
-                                      </div>
-                                      <div className="flex items-center gap-1.5 mt-0.5">
-                                        <span
-                                          className="text-[10px]"
-                                          style={{
-                                            opacity: time.opacity,
-                                            color: "var(--color-t-dim)",
-                                          }}
-                                        >
-                                          {time.text}
-                                        </span>
-                                        {isStreaming && (
-                                          <Loader2
-                                            size={10}
-                                            className="text-neon animate-spin"
-                                          />
-                                        )}
-                                      </div>
-                                    </div>
-                                    {isSessionHovered && (
-                                      <button
-                                        onClick={(e) =>
-                                          showSessionMenu(e, session)
-                                        }
-                                        className="shrink-0 p-1 rounded text-t-dim hover:text-t-primary hover:bg-white/[0.08] transition-colors"
-                                      >
-                                        <MoreHorizontal size={14} />
-                                      </button>
-                                    )}
-                                  </div>
-                                );
-                              })}
-                              {/* Show all / Show less */}
-                              {hasMore && (
-                                <button
-                                  onClick={() =>
-                                    toggleShowAllSessions(sourceKey)
-                                  }
-                                  className="w-full text-center py-1.5 text-[10px] text-t-ghost hover:text-neon transition-colors"
-                                >
-                                  {showAll
-                                    ? "Show less"
-                                    : `Show all ${sg.sessions.length}`}
-                                </button>
-                              )}
-                            </>
-                          )}
-                        </div>
-                      );
-                    })}
-                  </div>
-                )}
+          <div className="px-2 py-2">
+            {visibleSessions.length === 0 ? (
+              <div className="text-t-ghost px-2 py-8 text-center text-[12px]">
+                当前分类下暂无会话
               </div>
-            );
-          })
+            ) : (
+              groupedDisplayedSessions.map((bucket) => (
+                <div key={bucket.key} className="mb-2">
+                  <div className="px-1 py-1 text-[10px] text-t-ghost">
+                    {bucket.label}
+                  </div>
+                  {bucket.sessions.map((session) => {
+                    const isSessionActive = session.session_id === currentSessionId;
+                    const isSessionHovered = hoveredSession === session.session_id;
+                    const isStreaming = streamManager.isSessionStreaming(
+                      session.session_id,
+                    );
+                    const time = timeAgo(session.updated_at);
+
+                    return (
+                      <div
+                        key={session.session_id}
+                        ref={(el) => {
+                          if (el) {
+                            sessionRefs.current.set(session.session_id, el);
+                          } else {
+                            sessionRefs.current.delete(session.session_id);
+                          }
+                        }}
+                        onClick={() => handleSwitchSession(session.session_id)}
+                        onMouseEnter={() => setHoveredSession(session.session_id)}
+                        onMouseLeave={() => setHoveredSession(null)}
+                        className={`
+                          mt-1 flex items-center gap-2 px-3 py-2 cursor-pointer select-none transition-colors rounded-md border border-transparent
+                          ${
+                            isSessionActive
+                              ? "bg-white/[0.06]"
+                              : "bg-transparent border-border/30 hover:bg-white/[0.03]"
+                          }
+                        `}
+                      >
+                        <div className="flex-1 min-w-0">
+                          <div
+                            className={`truncate text-[12px] ${
+                              isSessionActive ? "text-t-primary" : "text-t-secondary"
+                            }`}
+                          >
+                            {session.title || "New Session"}
+                          </div>
+                          <div className="flex items-center gap-1.5 mt-0.5">
+                            <span
+                              className="text-[10px]"
+                              style={{
+                                opacity: time.opacity,
+                                color: "var(--color-t-dim)",
+                              }}
+                            >
+                              {time.text}
+                            </span>
+                            {isStreaming && (
+                              <Loader2 size={10} className="text-neon animate-spin" />
+                            )}
+                          </div>
+                        </div>
+                        {isSessionHovered && (
+                          <button
+                            onClick={(e) => showSessionMenu(e, session)}
+                            className="shrink-0 p-1 rounded text-t-dim hover:text-t-primary hover:bg-white/[0.08] transition-colors"
+                          >
+                            <MoreHorizontal size={14} />
+                          </button>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              ))
+            )}
+            {hasMoreSessions && (
+              <button
+                type="button"
+                onClick={() => setShowAllSessions((prev) => !prev)}
+                className="w-full mt-2 py-1.5 text-[11px] text-t-ghost hover:text-neon transition-colors"
+              >
+                {showAllSessions ? "收起" : `展示全部（${visibleSessions.length}）`}
+              </button>
+            )}
+          </div>
         )}
       </div>
 

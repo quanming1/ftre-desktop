@@ -32,8 +32,8 @@ function renderMenu(items?: ContextMenuItem[], onClose?: () => void) {
 // Helper to check if an element has focus styling (uses CSS variable-based classes)
 function hasFocusStyle(element: HTMLElement | null): boolean {
   if (!element) return false;
-  // @ftre/ui uses bg-[var(--ftre-accent-ghost,...)] for focus, which contains "accent-ghost"
-  return element.className.includes("accent-ghost") || element.className.includes("bg-neon-ghost");
+  // @ftre/ui uses bg-[var(--ftre-accent-dim,...)] for focused state
+  return element.className.includes("accent-dim") || element.className.includes("accent-ghost") || element.className.includes("bg-neon-ghost");
 }
 
 // ── tests ────────────────────────────────────────────────────────────

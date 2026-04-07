@@ -679,15 +679,16 @@ const GroupChip = memo(function GroupChip({ messageId }: { messageId: string }) 
     <Search size={11} className="text-t-ghost shrink-0 transition-colors group-hover/chip:text-t-dim" />
   );
 
-  // grep/glob 结果摘要
-  const resultSummary = useMemo(() => {
-    if (!isCompleted || !message.result) return null;
-    if (message.name === "grep" || message.name === "glob") {
-      const lines = message.result.split("\n").filter(Boolean);
-      return `${lines.length}`;
-    }
-    return null;
-  }, [isCompleted, message.result, message.name]);
+  // grep/glob 结果摘要（避免在条件 return 后再调用 Hook）
+  let resultSummary: string | null = null;
+  if (
+    isCompleted &&
+    message.result &&
+    (message.name === "grep" || message.name === "glob")
+  ) {
+    const lines = message.result.split("\n").filter(Boolean);
+    resultSummary = `${lines.length}`;
+  }
 
   return (
     <div className="flex flex-col">
