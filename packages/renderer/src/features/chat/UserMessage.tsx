@@ -4,6 +4,7 @@ import { handleOpenFileAtLine } from "./toolActions";
 import { EmailCard } from "./EmailCard";
 import { Archive, RotateCcw, Loader2, Copy, Check } from "lucide-react";
 import { useChat } from "@/stores/chat";
+import { useEditor } from "@/stores/editor";
 import { useNotification } from "@/stores/notification";
 import { previewRollback, executeRollback } from "@/services/api";
 import { fetchSessionMessages } from "@/services/api";
@@ -214,6 +215,13 @@ export const UserMessage = memo(
           // 关闭弹窗
           setShowConfirmDialog(false);
           setPreviewData(null);
+
+          // 清理所有 pendingDiffs（关闭 diff 标签页，防止 Monaco DiffEditor 报错）
+          const editorState = useEditor.getState();
+          const diffsToReject = [...editorState.pendingDiffs];
+          for (const diff of diffsToReject) {
+            editorState.rejectDiff(diff.filePath);
+          }
 
           // 刷新消息列表
           const events = await fetchSessionMessages(sessionId);
