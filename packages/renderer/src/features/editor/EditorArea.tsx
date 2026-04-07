@@ -10,11 +10,7 @@ import { handleOpenFile } from "@/features/chat/toolActions";
 import { Breadcrumb } from "./Breadcrumb";
 import { TabBar } from "./TabBar";
 
-interface EditorAreaProps {
-  onToggleFiles?: () => void;
-}
-
-export function EditorArea({ onToggleFiles }: EditorAreaProps) {
+export function EditorArea() {
   const groups = useEditor((s) => s.groups);
   const activeGroupId = useEditor((s) => s.activeGroupId);
   const pendingDiffs = useEditor((s) => s.pendingDiffs);
@@ -183,10 +179,7 @@ export function EditorArea({ onToggleFiles }: EditorAreaProps) {
             {/* Group header: TabBar + optional close button */}
             <div className="flex items-stretch shrink-0">
               <div className="flex-1 min-w-0">
-                <TabBar
-                  groupId={group.id}
-                  onToggleFiles={index === 0 ? onToggleFiles : undefined}
-                />
+                <TabBar groupId={group.id} />
               </div>
               {showCloseButton && (
                 <button
@@ -194,7 +187,7 @@ export function EditorArea({ onToggleFiles }: EditorAreaProps) {
                     e.stopPropagation();
                     handleCloseGroup(group.id);
                   }}
-                  className="flex items-center justify-center w-[38px] bg-base text-t-muted hover:text-t-primary hover:bg-white/[0.06] transition-colors duration-150 shrink-0 border-b border-border"
+                  className="flex items-center justify-center w-[38px] bg-base text-t-muted hover:text-t-primary hover:bg-white/[0.06] transition-colors duration-150 shrink-0"
                   aria-label={`关闭编辑器组 ${group.id}`}
                   data-testid={`close-group-${group.id}`}
                 >

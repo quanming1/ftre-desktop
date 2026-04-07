@@ -994,17 +994,17 @@ export function ExplorerView() {
 
   return (
     <TooltipProvider>
-      <div className="h-full flex flex-col overflow-hidden">
+      <div className="h-full flex flex-col overflow-hidden bg-surface">
         {/* ── 工具栏 ── */}
         <div className="flex items-center px-2 h-[38px] border-b border-border shrink-0 gap-1">
           {/* 文件树按钮 */}
           <Tooltip content="文件" side="bottom">
             <button
               onClick={() => setViewMode("files")}
-              className={`flex items-center justify-center w-9 h-9 rounded-md ${
+              className={`flex items-center justify-center w-9 h-9 rounded-md transition-colors ${
                 viewMode === "files"
-                  ? "bg-white/[0.08] text-t-primary"
-                  : "text-t-ghost hover:text-t-muted hover:bg-white/[0.04]"
+                  ? "bg-elevated text-t-primary ring-1 ring-border-subtle"
+                  : "text-t-dim hover:text-t-secondary hover:bg-elevated/70"
               }`}
             >
               <FolderTree size={18} strokeWidth={1.5} />
@@ -1015,10 +1015,10 @@ export function ExplorerView() {
           <Tooltip content="Git 变更" side="bottom">
             <button
               onClick={() => setViewMode("git")}
-              className={`relative flex items-center justify-center w-9 h-9 rounded-md ${
+              className={`relative flex items-center justify-center w-9 h-9 rounded-md transition-colors ${
                 viewMode === "git"
-                  ? "bg-white/[0.08] text-t-primary"
-                  : "text-t-ghost hover:text-t-muted hover:bg-white/[0.04]"
+                  ? "bg-elevated text-t-primary ring-1 ring-border-subtle"
+                  : "text-t-dim hover:text-t-secondary hover:bg-elevated/70"
               }`}
             >
               <GitBranch size={18} strokeWidth={1.5} />
@@ -1034,10 +1034,10 @@ export function ExplorerView() {
           <Tooltip content="归档" side="bottom">
             <button
               onClick={() => setViewMode("archives")}
-              className={`flex items-center justify-center w-9 h-9 rounded-md ${
+              className={`flex items-center justify-center w-9 h-9 rounded-md transition-colors ${
                 viewMode === "archives"
-                  ? "bg-white/[0.08] text-t-primary"
-                  : "text-t-ghost hover:text-t-muted hover:bg-white/[0.04]"
+                  ? "bg-elevated text-t-primary ring-1 ring-border-subtle"
+                  : "text-t-dim hover:text-t-secondary hover:bg-elevated/70"
               }`}
             >
               <Archive size={18} strokeWidth={1.5} />
@@ -1054,7 +1054,7 @@ export function ExplorerView() {
             <Tooltip content="新建文件" side="bottom">
               <button
                 onClick={handleNewFile}
-                className="flex items-center justify-center w-7 h-7 rounded-md text-t-ghost hover:text-t-muted hover:bg-white/[0.04] transition-colors"
+                className="flex items-center justify-center w-7 h-7 rounded-md text-t-dim hover:text-t-secondary hover:bg-elevated/70 transition-colors"
               >
                 <FilePlus size={16} strokeWidth={1.5} />
               </button>
@@ -1062,7 +1062,7 @@ export function ExplorerView() {
             <Tooltip content="新建文件夹" side="bottom">
               <button
                 onClick={handleNewFolder}
-                className="flex items-center justify-center w-7 h-7 rounded-md text-t-ghost hover:text-t-muted hover:bg-white/[0.04] transition-colors"
+                className="flex items-center justify-center w-7 h-7 rounded-md text-t-dim hover:text-t-secondary hover:bg-elevated/70 transition-colors"
               >
                 <FolderPlus size={16} strokeWidth={1.5} />
               </button>
@@ -1072,8 +1072,8 @@ export function ExplorerView() {
                 onClick={hasActiveFile ? handleLocateFile : undefined}
                 className={`flex items-center justify-center w-7 h-7 rounded-md transition-colors ${
                   hasActiveFile
-                    ? "text-t-ghost hover:text-t-muted hover:bg-white/[0.04] cursor-pointer"
-                    : "text-t-ghost opacity-40 cursor-not-allowed"
+                    ? "text-t-dim hover:text-t-secondary hover:bg-elevated/70 cursor-pointer"
+                    : "text-t-dim opacity-40 cursor-not-allowed"
                 }`}
                 disabled={!hasActiveFile}
               >
@@ -1083,7 +1083,7 @@ export function ExplorerView() {
             <Tooltip content="收起所有文件夹" side="bottom">
               <button
                 onClick={collapseAll}
-                className="flex items-center justify-center w-7 h-7 rounded-md text-t-ghost hover:text-t-muted hover:bg-white/[0.04] transition-colors"
+                className="flex items-center justify-center w-7 h-7 rounded-md text-t-dim hover:text-t-secondary hover:bg-elevated/70 transition-colors"
               >
                 <ChevronsDownUp size={16} strokeWidth={1.5} />
               </button>

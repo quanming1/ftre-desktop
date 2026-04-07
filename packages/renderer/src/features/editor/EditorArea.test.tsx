@@ -225,23 +225,11 @@ describe("EditorArea — split editor", () => {
     expect(secondGroup.className).toContain("border-l");
   });
 
-  it("only first group gets onToggleFiles on its TabBar", () => {
-    const toggleFn = vi.fn();
+  it("renders split groups without tabbar toggle button", () => {
     openFiles("/a.ts");
     useEditor.getState().splitEditor();
 
-    render(<EditorArea onToggleFiles={toggleFn} />);
-
-    // The FolderOpen button should only appear in the first group's TabBar
-    // We can verify by checking the folder icon buttons
-    const folderButtons = screen
-      .getAllByRole("button")
-      .filter(
-        (btn) => btn.querySelector("svg") && btn.className.includes("w-[35px]"),
-      );
-    // There should be folder button(s) in the first group + close buttons
-    // This is a structural test — the key point is it doesn't crash
-    expect(folderButtons.length).toBeGreaterThan(0);
+    expect(() => render(<EditorArea />)).not.toThrow();
   });
 });
 

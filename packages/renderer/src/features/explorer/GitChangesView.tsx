@@ -1,6 +1,7 @@
 import { useState, useCallback, memo } from "react";
 import { Plus, Minus, Check, Folder } from "lucide-react";
 import { useEditor } from "@/stores/editor";
+import { useNotification } from "@/stores/notification";
 import { gitService, useGitService } from "@/services/git-service";
 
 /**
@@ -30,6 +31,7 @@ const STATUS_COLORS: Record<string, string> = {
 
 export function GitChangesView({ visible }: { visible: boolean }) {
   const files = useGitService((s) => s.getFiles()) as GitFile[];
+  const addNotification = useNotification((s) => s.addNotification);
   const [stagedCollapsed, setStagedCollapsed] = useState(false);
   const [unstagedCollapsed, setUnstagedCollapsed] = useState(false);
 
@@ -54,7 +56,14 @@ export function GitChangesView({ visible }: { visible: boolean }) {
   const handleFileClick = useCallback(async (file: GitFile) => {
     if (file.isDir) return;
     const result = await gitService.diffFile(file);
-    if (result.error) return;
+    if (result.error) {
+      console.error("[GitChangesView] diffFile failed:", file, result.error);
+      addNotification({
+        level: "error",
+        message: `加载 Diff 失败：${file.path}`,
+      });
+      return;
+    }
 
     useEditor.getState().addDiff({
       id: `git-change:${file.absolutePath}`,
@@ -65,7 +74,7 @@ export function GitChangesView({ visible }: { visible: boolean }) {
       toolName: "Git",
       isApproximate: false,
     });
-  }, []);
+  }, [addNotification]);
 
   const stagedFiles = files.filter((f) => f.staged);
   const unstagedFiles = files.filter((f) => !f.staged);
