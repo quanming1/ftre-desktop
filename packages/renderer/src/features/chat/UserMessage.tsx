@@ -1,8 +1,15 @@
-import { memo, useCallback } from "react";
+import { memo, useCallback, useState, useRef } from "react";
 import type { ChatMessage, MessagePart, ArchiveRefData } from "@/types/chat";
 import { handleOpenFileAtLine } from "./toolActions";
 import { EmailCard } from "./EmailCard";
-import { Archive } from "lucide-react";
+import { Archive, RotateCcw, Loader2, Copy, Check } from "lucide-react";
+import { useChat } from "@/stores/chat";
+import { useNotification } from "@/stores/notification";
+import { previewRollback, executeRollback } from "@/services/api";
+import { fetchSessionMessages } from "@/services/api";
+import { streamManager } from "@/services/stream-manager";
+import { RollbackConfirmDialog } from "./RollbackConfirmDialog";
+import { ContextMenu, type ContextMenuItem } from "@/components/ContextMenu";
 
 /**
  * 渲染归档引用 chip
@@ -24,7 +31,11 @@ function ArchiveChip({ data }: { data: ArchiveRefData }) {
  * 渲染单个 code ref chip（和编辑器中的 CodeChipView 样式一致）
  * 点击跳转到对应文件的指定行
  */
-function CodeChip({ data }: { data: { path: string; name: string; lines: [number, number]; raw: string } }) {
+function CodeChip({
+  data,
+}: {
+  data: { path: string; name: string; lines: [number, number]; raw: string };
+}) {
   const label = `${data.name}:L${data.lines[0]}-L${data.lines[1]}`;
 
   const handleClick = useCallback(() => {
@@ -37,7 +48,13 @@ function CodeChip({ data }: { data: { path: string; name: string; lines: [number
       className="inline-flex items-center gap-1 px-1.5 py-0.5 mx-0.5 rounded text-[11px] font-mono bg-white/[0.06] text-t-secondary border border-border-subtle align-baseline cursor-pointer hover:bg-white/[0.1] hover:text-t-primary transition-colors"
       title={`${data.path} L${data.lines[0]}-L${data.lines[1]} — 点击打开`}
     >
-      <svg width="10" height="10" viewBox="0 0 16 16" fill="currentColor" className="shrink-0 opacity-60">
+      <svg
+        width="10"
+        height="10"
+        viewBox="0 0 16 16"
+        fill="currentColor"
+        className="shrink-0 opacity-60"
+      >
         <path d="M2 1.5A1.5 1.5 0 013.5 0h6.879a1.5 1.5 0 011.06.44l2.122 2.12A1.5 1.5 0 0114 3.622V14.5a1.5 1.5 0 01-1.5 1.5h-9A1.5 1.5 0 012 14.5v-13z" />
       </svg>
       {label}
@@ -76,21 +93,287 @@ function PartsContent({ parts }: { parts: MessagePart[] }) {
   );
 }
 
+/** 提取消息的纯文本内容（用于复制） */
+function getMessageText(message: ChatMessage): string {
+  if (message.parts && message.parts.length > 0) {
+    return message.parts
+      .map((part) => {
+        if (part.type === "text") return part.data;
+        if (part.type === "code_ref") {
+          const d = part.data;
+          return `[${d.name}:L${d.lines[0]}-L${d.lines[1]}]`;
+        }
+        if (part.type === "archive_ref") return `[归档: ${part.data.display}]`;
+        return "";
+      })
+      .join("");
+  }
+  return message.content;
+}
+
+interface RollbackPreviewData {
+  rolledBackCount: number;
+  hasCodeChanges: boolean;
+  filesAffected: Array<{ file: string; additions: number; deletions: number }>;
+  refillMessage: { parts: Array<{ type: string; data: unknown }> };
+}
+
 export const UserMessage = memo(
   function UserMessage({ message }: { message: ChatMessage }) {
     const hasParts = message.parts && message.parts.length > 0;
+    const sessionId = useChat((s) => s.sessionId);
+    const isStreaming = useChat((s) => s.isStreaming);
+
+    const [isHovered, setIsHovered] = useState(false);
+    const [isLoadingPreview, setIsLoadingPreview] = useState(false);
+    const [showConfirmDialog, setShowConfirmDialog] = useState(false);
+    const [isExecuting, setIsExecuting] = useState(false);
+    const [previewData, setPreviewData] = useState<RollbackPreviewData | null>(
+      null,
+    );
+    const [copied, setCopied] = useState(false);
+    const [contextMenu, setContextMenu] = useState<{
+      x: number;
+      y: number;
+    } | null>(null);
+
+    const messageRef = useRef<HTMLDivElement>(null);
+
+    // 检查是否可以回滚（不在流式输出中，有 sessionId）
+    const canRollback = !isStreaming && !!sessionId;
+
+    // 复制消息内容
+    const handleCopy = useCallback(async () => {
+      const text = getMessageText(message);
+      try {
+        await navigator.clipboard.writeText(text);
+        setCopied(true);
+        setTimeout(() => setCopied(false), 2000);
+      } catch {
+        useNotification.getState().addNotification({
+          level: "error",
+          message: "复制失败",
+        });
+      }
+    }, [message]);
+
+    // 处理点击回滚按钮
+    const handleRollbackClick = useCallback(async () => {
+      if (!sessionId || !message.id) return;
+
+      setIsLoadingPreview(true);
+      try {
+        const result = await previewRollback(sessionId, message.id);
+
+        if ("error" in result) {
+          useNotification.getState().addNotification({
+            level: "error",
+            message: `回滚预览失败: ${result.error}`,
+          });
+          return;
+        }
+
+        setPreviewData({
+          rolledBackCount: result.rolled_back_count,
+          hasCodeChanges: result.has_code_changes,
+          filesAffected: result.files_affected,
+          refillMessage: result.refill_message,
+        });
+        setShowConfirmDialog(true);
+      } catch (err) {
+        useNotification.getState().addNotification({
+          level: "error",
+          message: "回滚预览请求失败",
+        });
+      } finally {
+        setIsLoadingPreview(false);
+      }
+    }, [sessionId, message.id]);
+
+    // 处理确认回滚
+    const handleConfirmRollback = useCallback(
+      async (skipCodeRestore: boolean) => {
+        if (!sessionId || !message.id || !previewData) return;
+
+        setIsExecuting(true);
+        try {
+          const result = await executeRollback(
+            sessionId,
+            message.id,
+            skipCodeRestore,
+          );
+
+          if ("error" in result) {
+            useNotification.getState().addNotification({
+              level: "error",
+              message: `回滚失败: ${result.error}`,
+            });
+            return;
+          }
+
+          // 关闭弹窗
+          setShowConfirmDialog(false);
+          setPreviewData(null);
+
+          // 刷新消息列表
+          const events = await fetchSessionMessages(sessionId);
+          streamManager.replayInto(sessionId, events);
+
+          // 通过全局事件回填输入框（与 ftre:insert-code-ref 模式一致）
+          if (result.refill_message?.parts) {
+            window.dispatchEvent(
+              new CustomEvent("ftre:rollback-refill", {
+                detail: { parts: result.refill_message.parts },
+              }),
+            );
+          }
+
+          // Toast 提示
+          useNotification.getState().addNotification({
+            level: "info",
+            message: `已回滚 ${result.rolled_back_count} 轮对话`,
+          });
+        } catch (err) {
+          useNotification.getState().addNotification({
+            level: "error",
+            message: "回滚执行失败",
+          });
+        } finally {
+          setIsExecuting(false);
+        }
+      },
+      [sessionId, message.id, previewData],
+    );
+
+    // 处理取消
+    const handleCancelRollback = useCallback(() => {
+      setShowConfirmDialog(false);
+      setPreviewData(null);
+    }, []);
+
+    // 右键菜单
+    const handleContextMenu = useCallback((e: React.MouseEvent) => {
+      e.preventDefault();
+      setContextMenu({ x: e.clientX, y: e.clientY });
+    }, []);
+
+    const closeContextMenu = useCallback(() => {
+      setContextMenu(null);
+    }, []);
+
+    const contextMenuItems: ContextMenuItem[] = [
+      {
+        id: "copy",
+        label: "复制",
+        icon: Copy,
+        action: handleCopy,
+      },
+      ...(canRollback
+        ? [
+            {
+              id: "separator-1",
+              label: "",
+              separator: true,
+              action: () => {},
+            },
+            {
+              id: "rollback",
+              label: "回滚到此处",
+              icon: RotateCcw,
+              disabled: isLoadingPreview,
+              action: handleRollbackClick,
+            },
+          ]
+        : []),
+    ];
 
     return (
-      <div className="flex justify-end">
-        <div className="max-w-[90%]">
-          <div className="text-[14px] leading-relaxed text-t-primary bg-panel px-4 py-3 rounded-xl rounded-br-sm whitespace-pre-wrap break-words font-sans">
-            {hasParts ? <PartsContent parts={message.parts!} /> : message.content}
+      <>
+        <div
+          className="flex flex-col items-end group"
+          onMouseEnter={() => setIsHovered(true)}
+          onMouseLeave={() => setIsHovered(false)}
+        >
+          {/* 消息内容 */}
+          <div className="max-w-[90%]">
+            <div
+              ref={messageRef}
+              onContextMenu={handleContextMenu}
+              className="text-[14px] leading-relaxed text-t-primary bg-panel px-4 py-3 rounded-xl rounded-br-sm whitespace-pre-wrap break-words font-sans cursor-default"
+            >
+              {hasParts ? (
+                <PartsContent parts={message.parts!} />
+              ) : (
+                message.content
+              )}
+            </div>
+          </div>
+
+          {/* 操作按钮 - hover 时显示在消息下方 */}
+          <div
+            className={`flex items-center gap-1 mt-1 mr-1 transition-opacity duration-150 ${
+              isHovered ? "opacity-100" : "opacity-0"
+            }`}
+          >
+            {/* 复制按钮 */}
+            <button
+              onClick={handleCopy}
+              className="flex items-center justify-center w-7 h-7 text-t-ghost hover:text-t-secondary rounded-lg hover:bg-white/[0.06] transition-colors"
+              title="复制"
+            >
+              {copied ? (
+                <Check size={15} className="text-green-500" />
+              ) : (
+                <Copy size={15} />
+              )}
+            </button>
+
+            {/* 回滚按钮 */}
+            {canRollback && (
+              <button
+                onClick={handleRollbackClick}
+                disabled={isLoadingPreview}
+                className="flex items-center justify-center w-7 h-7 text-t-ghost hover:text-t-secondary rounded-lg hover:bg-white/[0.06] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                title="回滚到此轮对话之前"
+              >
+                {isLoadingPreview ? (
+                  <Loader2 size={15} className="animate-spin" />
+                ) : (
+                  <RotateCcw size={15} />
+                )}
+              </button>
+            )}
           </div>
         </div>
-      </div>
+
+        {/* 右键菜单 */}
+        {contextMenu && (
+          <ContextMenu
+            items={contextMenuItems}
+            position={contextMenu}
+            onClose={closeContextMenu}
+          />
+        )}
+
+        {/* 回滚确认弹窗 */}
+        {showConfirmDialog && previewData && (
+          <RollbackConfirmDialog
+            rolledBackCount={previewData.rolledBackCount}
+            hasCodeChanges={previewData.hasCodeChanges}
+            filesAffected={previewData.filesAffected}
+            onConfirm={handleConfirmRollback}
+            onCancel={handleCancelRollback}
+            isLoading={isExecuting}
+          />
+        )}
+      </>
     );
   },
   (prev, next) => {
-    return prev.message.content === next.message.content && prev.message.parts === next.message.parts;
+    return (
+      prev.message.content === next.message.content &&
+      prev.message.parts === next.message.parts &&
+      prev.message.id === next.message.id
+    );
   },
 );
