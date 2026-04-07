@@ -52,3 +52,6 @@
 - React 组件是否需要 `key` 强制重建？
 - 初始化逻辑是否兼容 slot 复用场景？
 - **首次 attach 后是否同步了 Monaco 实际内容？**
+
+
+修改packages/ui模块的时候，务必保证你已经使用了design-target这个skill

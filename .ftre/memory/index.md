@@ -12,3 +12,5 @@
 | terminal-features.md | 终端功能特性 | terminal, keybindings, font zoom, Ctrl+=, xterm |
 | explorer.md | 文件浏览器 (Explorer) | explorer, ExplorerView, FileTreeItem, file tree, drag-drop, git changes |
 | archives-folder-ui.md | 归档文件夹功能 | archive, archive folder, ArchivesView, folder_ids, link, unlink, sort_order, createArchiveFolder, fetchArchiveFolders |
+| ui-package-migration.md | UI 组件库拆分 | @ftre/ui, components, renderer, ContextMenu, ConfirmDialog, FloatingWindow, 纯 UI, 业务解耦 |
+| design-system.md | 设计系统规范 | design system, 设计规范, 色彩系统, tailwind, theme, 霓虹绿, neon, SKILL.md, JetBrains Mono, Inter |

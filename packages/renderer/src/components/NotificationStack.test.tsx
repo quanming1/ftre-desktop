@@ -24,8 +24,8 @@ function addNotification(level: "info" | "warning" | "error", message: string, a
 
 describe("NotificationStack — rendering", () => {
   it("renders nothing when there are no notifications", () => {
-    const { container } = render(<NotificationStack />);
-    expect(container.innerHTML).toBe("");
+    render(<NotificationStack />);
+    expect(screen.queryByRole("alert")).toBeNull();
   });
 
   it("renders notifications from the store", () => {
@@ -100,7 +100,7 @@ describe("NotificationStack — level styles", () => {
 // ── close button ─────────────────────────────────────────────────────
 
 describe("NotificationStack — close button", () => {
-  it("removes notification when close button is clicked", () => {
+  it("removes notification when close button is clicked", async () => {
     addNotification("info", "Dismiss me");
     const { rerender } = render(<NotificationStack />);
 
@@ -109,12 +109,16 @@ describe("NotificationStack — close button", () => {
     act(() => {
       fireEvent.click(screen.getByLabelText("Close notification"));
     });
+    // Allow framer-motion exit animation to complete
+    act(() => {
+      vi.advanceTimersByTime(300);
+    });
     rerender(<NotificationStack />);
 
     expect(screen.queryByText("Dismiss me")).toBeNull();
   });
 
-  it("removes only the targeted notification", () => {
+  it("removes only the targeted notification", async () => {
     addNotification("info", "Keep me");
     addNotification("warning", "Remove me");
     const { rerender } = render(<NotificationStack />);
@@ -122,6 +126,10 @@ describe("NotificationStack — close button", () => {
     const closeButtons = screen.getAllByLabelText("Close notification");
     act(() => {
       fireEvent.click(closeButtons[1]); // close the second one
+    });
+    // Allow framer-motion exit animation to complete
+    act(() => {
+      vi.advanceTimersByTime(300);
     });
     rerender(<NotificationStack />);
 
@@ -133,7 +141,7 @@ describe("NotificationStack — close button", () => {
 // ── auto-dismiss ─────────────────────────────────────────────────────
 
 describe("NotificationStack — auto-dismiss", () => {
-  it("auto-removes info notification after 5 seconds", () => {
+  it("auto-removes info notification after 5 seconds", async () => {
     addNotification("info", "Auto dismiss");
     const { rerender } = render(<NotificationStack />);
 
@@ -142,12 +150,16 @@ describe("NotificationStack — auto-dismiss", () => {
     act(() => {
       vi.advanceTimersByTime(5000);
     });
+    // Allow framer-motion exit animation to complete
+    act(() => {
+      vi.advanceTimersByTime(300);
+    });
     rerender(<NotificationStack />);
 
     expect(screen.queryByText("Auto dismiss")).toBeNull();
   });
 
-  it("auto-removes warning notification after 5 seconds", () => {
+  it("auto-removes warning notification after 5 seconds", async () => {
     addNotification("warning", "Warning auto");
     const { rerender } = render(<NotificationStack />);
 
@@ -155,6 +167,10 @@ describe("NotificationStack — auto-dismiss", () => {
 
     act(() => {
       vi.advanceTimersByTime(5000);
+    });
+    // Allow framer-motion exit animation to complete
+    act(() => {
+      vi.advanceTimersByTime(300);
     });
     rerender(<NotificationStack />);
 
@@ -197,13 +213,17 @@ describe("NotificationStack — action buttons", () => {
     expect(screen.getByText("Retry")).toBeTruthy();
   });
 
-  it("calls action onClick and removes notification when action button is clicked", () => {
+  it("calls action onClick and removes notification when action button is clicked", async () => {
     const onClick = vi.fn();
     addNotification("warning", "Action test", [{ label: "Fix", onClick }]);
     const { rerender } = render(<NotificationStack />);
 
     act(() => {
       fireEvent.click(screen.getByText("Fix"));
+    });
+    // Allow framer-motion exit animation to complete
+    act(() => {
+      vi.advanceTimersByTime(300);
     });
     rerender(<NotificationStack />);
 
@@ -232,14 +252,15 @@ describe("NotificationStack — action buttons", () => {
   });
 });
 
-// ── slide-in animation ──────────────────────────────────────────────
+// ── animation ──────────────────────────────────────────────────────
 
 describe("NotificationStack — animation", () => {
-  it("applies slide-in animation class", () => {
+  it("uses framer-motion for animation", () => {
     addNotification("info", "Animated");
     render(<NotificationStack />);
 
     const alert = screen.getByRole("alert");
-    expect(alert.className).toContain("animate-slide-in-right");
+    // framer-motion adds style attribute for animations
+    expect(alert.hasAttribute("style")).toBe(true);
   });
 });

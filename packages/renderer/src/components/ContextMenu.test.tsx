@@ -29,6 +29,13 @@ function renderMenu(items?: ContextMenuItem[], onClose?: () => void) {
   return { ...render(<ContextMenu items={menuItems} position={defaultPosition} onClose={close} />), onClose: close, items: menuItems };
 }
 
+// Helper to check if an element has focus styling (uses CSS variable-based classes)
+function hasFocusStyle(element: HTMLElement | null): boolean {
+  if (!element) return false;
+  // @ftre/ui uses bg-[var(--ftre-accent-ghost,...)] for focus, which contains "accent-ghost"
+  return element.className.includes("accent-ghost") || element.className.includes("bg-neon-ghost");
+}
+
 // ── tests ────────────────────────────────────────────────────────────
 
 describe("ContextMenu — rendering", () => {
@@ -133,7 +140,7 @@ describe("ContextMenu — keyboard navigation", () => {
 
     // First focusable item is "Open" (index 0)
     const menuItems = screen.getAllByRole("menuitem");
-    expect(menuItems[0].className).toContain("bg-neon-ghost");
+    expect(hasFocusStyle(menuItems[0])).toBe(true);
   });
 
   it("ArrowDown skips separators and disabled items", () => {
@@ -145,7 +152,7 @@ describe("ContextMenu — keyboard navigation", () => {
 
     // Third focusable item is "Rename" (index 4, but 3rd focusable)
     const renameBtn = screen.getByText("Rename").closest("button");
-    expect(renameBtn?.className).toContain("bg-neon-ghost");
+    expect(hasFocusStyle(renameBtn)).toBe(true);
   });
 
   it("ArrowDown wraps around to the first item", () => {
@@ -157,7 +164,7 @@ describe("ContextMenu — keyboard navigation", () => {
     fireEvent.keyDown(document, { key: "ArrowDown" }); // → wraps to Open
 
     const openBtn = screen.getByText("Open").closest("button");
-    expect(openBtn?.className).toContain("bg-neon-ghost");
+    expect(hasFocusStyle(openBtn)).toBe(true);
   });
 
   it("ArrowUp moves focus to the last focusable item from initial state", () => {
@@ -166,7 +173,7 @@ describe("ContextMenu — keyboard navigation", () => {
 
     // From -1 (no focus), ArrowUp should go to last focusable: Rename
     const renameBtn = screen.getByText("Rename").closest("button");
-    expect(renameBtn?.className).toContain("bg-neon-ghost");
+    expect(hasFocusStyle(renameBtn)).toBe(true);
   });
 
   it("ArrowUp wraps around from first to last", () => {
@@ -175,7 +182,7 @@ describe("ContextMenu — keyboard navigation", () => {
     fireEvent.keyDown(document, { key: "ArrowUp" }); // → wraps to Rename (last)
 
     const renameBtn = screen.getByText("Rename").closest("button");
-    expect(renameBtn?.className).toContain("bg-neon-ghost");
+    expect(hasFocusStyle(renameBtn)).toBe(true);
   });
 
   it("Enter activates the focused item and closes menu", () => {
@@ -199,7 +206,7 @@ describe("ContextMenu — keyboard navigation", () => {
     renderMenu();
     const renameBtn = screen.getByText("Rename").closest("button")!;
     fireEvent.mouseEnter(renameBtn);
-    expect(renameBtn.className).toContain("bg-neon-ghost");
+    expect(hasFocusStyle(renameBtn)).toBe(true);
   });
 
   it("mouse hover on disabled item does not update focus", () => {
@@ -207,15 +214,15 @@ describe("ContextMenu — keyboard navigation", () => {
     // First focus on Open
     fireEvent.keyDown(document, { key: "ArrowDown" });
     const openBtn = screen.getByText("Open").closest("button")!;
-    expect(openBtn.className).toContain("bg-neon-ghost");
+    expect(hasFocusStyle(openBtn)).toBe(true);
 
     // Hover on disabled Delete
     const deleteBtn = screen.getByText("Delete").closest("button")!;
     fireEvent.mouseEnter(deleteBtn);
 
     // Open should still be focused (Delete hover is ignored)
-    expect(openBtn.className).toContain("bg-neon-ghost");
-    expect(deleteBtn.className).not.toContain("bg-neon-ghost");
+    expect(hasFocusStyle(openBtn)).toBe(true);
+    expect(hasFocusStyle(deleteBtn)).toBe(false);
   });
 });
 
