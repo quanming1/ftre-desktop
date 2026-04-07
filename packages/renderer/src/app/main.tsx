@@ -37,7 +37,7 @@ import { registerFtreTheme, getActiveThemeId } from "@ftre/editor/ui";
 import { initEditorHostBridge } from "../features/editor/editor-host-bridge";
 import React from "react";
 import { createRoot } from "react-dom/client";
-import { ErrorBoundary } from "@ftre/ui";
+import { ErrorBoundary, TooltipProvider } from "@ftre/ui";
 import { App } from "./App";
 import "../styles/tailwind.css";
 import "../styles/reset.css";
@@ -45,6 +45,7 @@ import "../styles/global.css";
 import "../styles/markdown.css";
 import "highlight.js/styles/github-dark.min.css";
 import "@ftre/ui/styles.css";
+import "overlayscrollbars/styles/overlayscrollbars.css";
 
 // 初始化编辑器 host bridge
 initEditorHostBridge();
@@ -61,8 +62,10 @@ monaco.editor.setTheme(getActiveThemeId());
 
 createRoot(document.getElementById("root")!).render(
   <React.StrictMode>
-    <ErrorBoundary level="app">
-      <App />
-    </ErrorBoundary>
+    <TooltipProvider>
+      <ErrorBoundary level="app">
+        <App />
+      </ErrorBoundary>
+    </TooltipProvider>
   </React.StrictMode>,
 );

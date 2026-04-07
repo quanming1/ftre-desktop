@@ -191,9 +191,9 @@ export const useWorkspace = create<WorkspaceState>((set) => ({
 
 ```css
 /* 颜色系统 */
---color-surface: #1e1e1e;
---color-base: #252526;
---color-elevated: #2d2d2d;
+--color-base: #1a1b1d;
+--color-surface: #1a1b1d;
+--color-elevated: #252526;
 --color-neon: #00ff88;
 
 /* 文本颜色 */

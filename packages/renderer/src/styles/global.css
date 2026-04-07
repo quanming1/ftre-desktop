@@ -49,3 +49,22 @@
   opacity: 1 !important;
   color: var(--color-t-ghost) !important;
 }
+
+/* ===== TabBar OverlayScrollbars ===== */
+.tabbar-scroll-area .os-scrollbar-horizontal {
+  --os-size: 6px;
+}
+
+.tabbar-scroll-area .os-scrollbar-track {
+  background: transparent;
+}
+
+.tabbar-scroll-area .os-scrollbar-handle {
+  background: rgba(255, 255, 255, 0.22);
+  border-radius: 9999px;
+}
+
+.tabbar-scroll-area .os-scrollbar:hover .os-scrollbar-handle,
+.tabbar-scroll-area .os-scrollbar.os-scrollbar-pressed .os-scrollbar-handle {
+  background: rgba(255, 255, 255, 0.34);
+}
