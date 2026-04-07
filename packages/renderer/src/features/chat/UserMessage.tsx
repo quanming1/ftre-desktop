@@ -2,15 +2,17 @@ import { memo, useCallback, useState, useRef } from "react";
 import type { ChatMessage, MessagePart, ArchiveRefData } from "@/types/chat";
 import { handleOpenFileAtLine } from "./toolActions";
 import { EmailCard } from "./EmailCard";
-import { Archive, RotateCcw, Loader2, Copy, Check } from "lucide-react";
+import { Archive, RotateCcw, Loader2, Copy, Check, GitFork } from "lucide-react";
 import { useChat } from "@/stores/chat";
 import { useEditor } from "@/stores/editor";
 import { useNotification } from "@/stores/notification";
+import { useSession } from "@/stores/session";
 import { previewRollback, executeRollback } from "@/services/api";
-import { fetchSessionMessages } from "@/services/api";
+import { fetchSessionMessages, fetchArchiveDetail } from "@/services/api";
 import { streamManager } from "@/services/stream-manager";
 import { RollbackConfirmDialog } from "./RollbackConfirmDialog";
 import { ContextMenu, type ContextMenuItem } from "@/components/ContextMenu";
+import { Tooltip, TooltipProvider } from "@ftre/ui";
 
 /**
  * 渲染归档引用 chip
@@ -143,6 +145,10 @@ export const UserMessage = memo(
     // 检查是否可以回滚（不在流式输出中，有 sessionId）
     const canRollback = !isStreaming && !!sessionId;
 
+    // 检查是否可以 Fork（消息有 archive_id）
+    const archiveId = message.metadata?.archive_id as string | undefined;
+    const canFork = !!archiveId;
+
     // 复制消息内容
     const handleCopy = useCallback(async () => {
       const text = getMessageText(message);
@@ -259,6 +265,38 @@ export const UserMessage = memo(
       setPreviewData(null);
     }, []);
 
+    // 处理 Fork 会话
+    const handleFork = useCallback(async () => {
+      if (!archiveId) return;
+
+      // 获取归档详情
+      const archive = await fetchArchiveDetail(archiveId);
+      if (!archive) {
+        useNotification.getState().addNotification({
+          level: "error",
+          message: "获取归档详情失败",
+        });
+        return;
+      }
+
+      // 跳转到新会话
+      useSession.getState().newSession();
+
+      // 构造完整的 ArchiveRef 并插入输入框
+      window.dispatchEvent(
+        new CustomEvent("ftre:insert-archive-ref", {
+          detail: {
+            id: archive.id,
+            summary: archive.summary,
+            turnCount: archive.meta.turn_count,
+            totalMessages: archive.meta.total_messages,
+            label: archive.meta.label,
+            createdAt: archive.created_at,
+          },
+        }),
+      );
+    }, [archiveId]);
+
     // 右键菜单
     const handleContextMenu = useCallback((e: React.MouseEvent) => {
       e.preventDefault();
@@ -276,6 +314,16 @@ export const UserMessage = memo(
         icon: Copy,
         action: handleCopy,
       },
+      ...(canFork
+        ? [
+            {
+              id: "fork",
+              label: "Fork 会话",
+              icon: GitFork,
+              action: handleFork,
+            },
+          ]
+        : []),
       ...(canRollback
         ? [
             {
@@ -297,62 +345,78 @@ export const UserMessage = memo(
 
     return (
       <>
-        <div
-          className="flex flex-col items-end group"
-          onMouseEnter={() => setIsHovered(true)}
-          onMouseLeave={() => setIsHovered(false)}
-        >
-          {/* 消息内容 */}
-          <div className="max-w-[90%]">
-            <div
-              ref={messageRef}
-              onContextMenu={handleContextMenu}
-              className="text-[14px] leading-relaxed text-t-primary bg-panel px-4 py-3 rounded-xl rounded-br-sm whitespace-pre-wrap break-words font-sans cursor-default"
-            >
-              {hasParts ? (
-                <PartsContent parts={message.parts!} />
-              ) : (
-                message.content
+        <TooltipProvider>
+          <div
+            className="flex items-start justify-end gap-1.5 group"
+            onMouseEnter={() => setIsHovered(true)}
+            onMouseLeave={() => setIsHovered(false)}
+          >
+            {/* 操作按钮 - 在消息左侧，与消息顶部对齐 */}
+            <div className="flex items-center gap-1 pt-2">
+              {/* 复制按钮 - hover 时显示，在最左边 */}
+              <Tooltip content="复制" side="top">
+                <button
+                  onClick={handleCopy}
+                  className={`flex items-center justify-center w-7 h-7 text-t-ghost hover:text-t-secondary rounded-md hover:bg-white/[0.06] transition-all ${
+                    isHovered ? "opacity-100" : "opacity-0 pointer-events-none"
+                  }`}
+                >
+                  {copied ? (
+                    <Check size={15} className="text-green-500" />
+                  ) : (
+                    <Copy size={15} />
+                  )}
+                </button>
+              </Tooltip>
+
+              {/* Fork 按钮 - hover 时显示，仅当有 archive_id 时 */}
+              {canFork && (
+                <Tooltip content="Fork 会话" side="top">
+                  <button
+                    onClick={handleFork}
+                    className={`flex items-center justify-center w-7 h-7 text-t-ghost hover:text-t-secondary rounded-md hover:bg-white/[0.06] transition-all ${
+                      isHovered ? "opacity-100" : "opacity-0 pointer-events-none"
+                    }`}
+                  >
+                    <GitFork size={15} />
+                  </button>
+                </Tooltip>
+              )}
+
+              {/* 回滚按钮 - 默认显示，紧贴消息 */}
+              {canRollback && (
+                <Tooltip content="回滚到此处" side="top">
+                  <button
+                    onClick={handleRollbackClick}
+                    disabled={isLoadingPreview}
+                    className="flex items-center justify-center w-7 h-7 text-t-ghost hover:text-t-secondary rounded-md hover:bg-white/[0.06] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    {isLoadingPreview ? (
+                      <Loader2 size={15} className="animate-spin" />
+                    ) : (
+                      <RotateCcw size={15} />
+                    )}
+                  </button>
+                </Tooltip>
               )}
             </div>
-          </div>
 
-          {/* 操作按钮 - hover 时显示在消息下方 */}
-          <div
-            className={`flex items-center gap-1 mt-1 mr-1 transition-opacity duration-150 ${
-              isHovered ? "opacity-100" : "opacity-0"
-            }`}
-          >
-            {/* 复制按钮 */}
-            <button
-              onClick={handleCopy}
-              className="flex items-center justify-center w-7 h-7 text-t-ghost hover:text-t-secondary rounded-lg hover:bg-white/[0.06] transition-colors"
-              title="复制"
-            >
-              {copied ? (
-                <Check size={15} className="text-green-500" />
-              ) : (
-                <Copy size={15} />
-              )}
-            </button>
-
-            {/* 回滚按钮 */}
-            {canRollback && (
-              <button
-                onClick={handleRollbackClick}
-                disabled={isLoadingPreview}
-                className="flex items-center justify-center w-7 h-7 text-t-ghost hover:text-t-secondary rounded-lg hover:bg-white/[0.06] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                title="回滚到此轮对话之前"
+            {/* 消息内容 */}
+            <div className="max-w-[85%]">
+              <div
+                ref={messageRef}
+                onContextMenu={handleContextMenu}
+                className="text-[14px] leading-relaxed text-t-primary bg-panel px-4 py-3 rounded-xl rounded-br-sm whitespace-pre-wrap break-words font-sans cursor-default"
               >
-                {isLoadingPreview ? (
-                  <Loader2 size={15} className="animate-spin" />
+                {hasParts ? (
+                  <PartsContent parts={message.parts!} />
                 ) : (
-                  <RotateCcw size={15} />
+                  message.content
                 )}
-              </button>
-            )}
+              </div>
+            </div>
           </div>
-        </div>
+        </TooltipProvider>
 
         {/* 右键菜单 */}
         {contextMenu && (

@@ -30,11 +30,16 @@ export function ArchiveChipView({ element, attributes, children }: Props) {
   const [hover, setHover] = useState(false);
   const { archiveRef } = element;
 
+  // 防御性检查：确保 archiveRef 数据完整
+  const summary = archiveRef?.summary || "";
+  const turnCount = archiveRef?.turnCount ?? 0;
+  const totalMessages = archiveRef?.totalMessages ?? 0;
+  const createdAt = archiveRef?.createdAt ?? Date.now() / 1000;
+  const label = archiveRef?.label;
+
   // 截断摘要显示
   const shortSummary =
-    archiveRef.summary.length > 30
-      ? archiveRef.summary.slice(0, 30) + "..."
-      : archiveRef.summary;
+    summary.length > 30 ? summary.slice(0, 30) + "..." : summary;
 
   return (
     <span
@@ -49,11 +54,11 @@ export function ArchiveChipView({ element, attributes, children }: Props) {
       }`}
     >
       <Archive size={12} className="shrink-0 opacity-70" />
-      <span className="truncate max-w-[200px]">{shortSummary}</span>
-      {archiveRef.label && (
+      <span className="truncate max-w-[200px]">{shortSummary || "(无摘要)"}</span>
+      {label && (
         <span className="flex items-center gap-0.5 px-1 py-0.5 rounded bg-violet-500/20 text-[9px] text-violet-300/80">
           <Tag size={8} />
-          {archiveRef.label}
+          {label}
         </span>
       )}
       {children}
@@ -66,28 +71,28 @@ export function ArchiveChipView({ element, attributes, children }: Props) {
               <Archive size={12} className="text-violet-400" />
               <span>归档引用</span>
               <span className="text-t-ghost/60">·</span>
-              <span>{timeAgo(archiveRef.createdAt)}</span>
+              <span>{timeAgo(createdAt)}</span>
             </span>
 
             {/* Summary */}
             <span className="block text-[11px] text-t-primary leading-relaxed mb-2">
-              {archiveRef.summary}
+              {summary || "(无摘要)"}
             </span>
 
             {/* Stats */}
             <span className="flex items-center gap-3 text-[9px] text-t-ghost">
               <span className="flex items-center gap-1">
                 <MessageSquare size={10} />
-                {archiveRef.turnCount} 轮对话
+                {turnCount} 轮对话
               </span>
               <span className="flex items-center gap-1">
                 <FileText size={10} />
-                {archiveRef.totalMessages} 条消息
+                {totalMessages} 条消息
               </span>
-              {archiveRef.label && (
+              {label && (
                 <span className="flex items-center gap-1 text-violet-400/80">
                   <Tag size={9} />
-                  {archiveRef.label}
+                  {label}
                 </span>
               )}
             </span>
