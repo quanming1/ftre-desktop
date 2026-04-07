@@ -9,3 +9,9 @@ export {
   type NotificationAction,
   type NotificationStackProps,
 } from "./NotificationStack";
+export {
+  DiffSummaryCard,
+  type DiffSummaryCardProps,
+  type DiffSummaryMeta,
+  type DiffSummaryFile,
+} from "./diff-summary";
