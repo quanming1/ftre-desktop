@@ -3,7 +3,7 @@
  * 处理普通文件 + untitled 另存为两种场景。
  */
 
-import { getDocumentManager } from "../core/document-manager";
+import { getTextModelService } from "../core/text-model";
 import { getHostBridge } from "./host-bridge";
 import { markSaved as markRecentlySaved } from "./save-tracker";
 
@@ -61,8 +61,7 @@ export async function saveFile(
   onDirtyReset?: () => void,
 ): Promise<void> {
   const host = getHostBridge();
-
-  const docManager = getDocumentManager();
+  const modelService = getTextModelService();
 
   // untitled 文件另存为
   if (filePath.startsWith("untitled:")) {
@@ -75,8 +74,10 @@ export async function saveFile(
     if (writeResult.success) {
       const name = saveResult.path.split(/[\\/]/).pop() ?? saveResult.path;
 
-      // 关闭旧的 untitled Document
-      docManager.close(filePath);
+      // 关闭旧的 untitled Model
+      if (modelService.isInitialized()) {
+        modelService.dispose(filePath);
+      }
       host.closeFile(filePath);
 
       // 打开新文件
@@ -102,8 +103,11 @@ export async function saveFile(
 
   if (result.success) {
     onDirtyReset?.();
-    // host.markSaved 会触发 editor-store 中的 markSaved action，
-    // 那里已经会调用 doc.markSaved()，无需在此重复调用
+    // 标记 model 为已保存
+    if (modelService.isInitialized()) {
+      modelService.markSaved(filePath);
+    }
+    // host.markSaved 会触发 editor-store 中的 markSaved action
     host.markSaved(filePath);
   } else {
     host.notifyError(result.error || "保存文件失败");

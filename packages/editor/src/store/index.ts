@@ -1,5 +1,11 @@
-export type { OpenFile, DiffEntry, EditorGroup, EditorSnapshot } from "./types";
-export { buildDiffId, buildDiffTabPath } from "./types";
+export type {
+  OpenFile,
+  DiffEntry,
+  EditorGroup,
+  EditorSnapshot,
+  EditorInputType,
+} from "./types";
+export { buildDiffId, buildDiffTabPath, SETTINGS_PATH } from "./types";
 
 // Editor store implementation
 export {
