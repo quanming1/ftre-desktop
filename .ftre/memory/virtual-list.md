@@ -1,6 +1,6 @@
 # 虚拟列表组件 (@ftre/virtual-list)
 
-> 高性能虚拟列表组件，支持动态高度和固定高度两种模式。适用于消息列表、日志流等场景。**文件树当前不使用此组件**。
+> 高性能虚拟列表组件，支持动态高度和固定高度两种模式。**当前文件树未使用此组件**，使用 `@tanstack/react-virtual` 替代。
 
 ## 包信息
 
@@ -52,34 +52,45 @@ export { VirtualRows }
 
 | 场景 | 状态 | 说明 |
 |------|------|------|
+| **文件树** | ❌ 未使用 | 使用 `@tanstack/react-virtual` 替代 |
 | 消息列表 | ⏳ 候选 | 计划使用，待实现 |
 | 日志流 | ⏳ 候选 | 潜在适用场景 |
-| **文件树** | ❌ 已回退 | 边界滚动抖动问题，暂时使用原手动虚拟化 |
+
+## 方案演进历史
+
+### 1. 手动虚拟化
+- 文件树最初使用简单手动实现的虚拟化
+
+### 2. 尝试自研 @ftre/virtual-list
+- 尝试将 `useVirtualization` Hook 集成到 `ExplorerView.tsx`
+- 出现边界滚动抖动问题——滚动到顶部/底部时列表内容突然跳变
+- 多次尝试修复未果（重构 VLManager、使用 useSyncExternalStore、优化边界计算等）
+- 因边界"吸顶"问题放弃使用
+
+### 3. 采用 @tanstack/react-virtual
+- 安装 `@tanstack/react-virtual` 替代
+- API 简洁，无边界抖动问题
+- 文件树当前使用此方案
 
 ## 设计决策
 
-### 为何文件树回退到手动虚拟化？
+### 为何自研方案在文件树中失败？
 
 **尝试过程**：
-1. 将 `useVirtualization` Hook 集成到 `ExplorerView.tsx`
-2. 出现边界滚动抖动问题——滚动到顶部/底部时列表内容突然跳变
+1. 集成 `useVirtualization` Hook 到 `ExplorerView.tsx`
+2. 出现边界滚动抖动问题
+3. 多轮修复尝试未解决
 
 **根因定位**：
-顶部占位元素 (`topSpacer`) 在边界处会突然消失，导致视觉跳变。
+- 顶部占位元素 (`topSpacer`) 在边界处会突然消失，导致视觉跳变
+- 根本原因在于边界处的 overscan 计算和 topBlank 高度计算冲突
 
-**决策**：暂时回退到原来的手动虚拟化实现
-- 文件树继续使用原有简单虚拟化逻辑
-- `@ftre/virtual-list` 包保留，待后续用于消息列表等场景
+**决策**：文件树改用 `@tanstack/react-virtual`
+- 保留 `@ftre/virtual-list` 包，待后续用于消息列表等场景
 
-**可能的后续方案**：
-- 调试边界条件处理逻辑
-- 或直接在消息列表中验证组件稳定性
-
-### 核心算法要点
+### 核心算法要点（仅作参考）
 
 #### Overscan 基于像素而非项数
-
-避免边界滚动时的"吸顶"效果：
 
 ```ts
 protected MAX_OVERSCAN_SIZE = this.bufferSize * this.presetHeight;
@@ -113,8 +124,6 @@ for (let i = 0; i < topIndex; i++) {
 ```
 
 #### 使用 useSyncExternalStore 同步滚动状态
-
-避免 `useState` + RAF 节流导致的滚动跳跃（jank）：
 
 ```tsx
 const scrollTop = useSyncExternalStore(
@@ -217,8 +226,9 @@ function MyList({ items }) {
 - **滚动同步**: 必须使用 useSyncExternalStore 同步读取滚动位置，不能用 useState + RAF 节流
 - **topBlank 计算**: 必须遍历累加，不能用减法或特殊边界处理
 - **Overscan**: 使用基于像素的算法，避免边界"吸顶"效果
+- **调试建议**: 出现滚动抖动时，优先检查 `topSpacerHeight` 在边界处的变化是否平滑，避免突然跳变到 0
 
 ## 相关文件
 
 - 包位置: `packages/virtual-list/`
-- 文件树实现: `packages/renderer/src/features/explorer/ExplorerView.tsx`
+- 文件树实现: `packages/renderer/src/features/explorer/ExplorerView.tsx`（使用 `@tanstack/react-virtual`）

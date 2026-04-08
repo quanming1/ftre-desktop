@@ -102,9 +102,6 @@ function saveExpandedPaths(paths: Set<string>, rootPath: string | null) {
 
 type ViewMode = "files" | "git" | "archives";
 
-const EXPLORER_ROW_HEIGHT = 32;
-const EXPLORER_OVERSCAN = 12;
-
 export function ExplorerView() {
   const { rootPath, setRootPath } = useWorkspace();
   const [viewMode, setViewMode] = useState<ViewMode>("files");
@@ -208,64 +205,6 @@ export function ExplorerView() {
     walk(treeEntries);
     return map;
   }, [treeEntries]);
-
-  // 虚拟化策略：始终启用虚拟化，但在 pending 状态时扩展可见范围以包含目标行
-  const canVirtualize = !!rootPath;
-
-  // 计算 pending 操作的目标行索引，用于扩展可见范围
-  const pendingTargetIndex = useMemo(() => {
-    if (pendingCreate) {
-      return flatEntries.findIndex((e) => e.path === pendingCreate.dirPath);
-    }
-    if (pendingRename) {
-      return flatEntries.findIndex((e) => e.path === pendingRename.path);
-    }
-    if (dragOverPath) {
-      return flatEntries.findIndex((e) => e.path === dragOverPath);
-    }
-    return -1;
-  }, [flatEntries, pendingCreate, pendingRename, dragOverPath]);
-
-  const [scrollTop, setScrollTop] = useState(0);
-  const [viewportHeight, setViewportHeight] = useState(0);
-
-  const totalRows = flatEntries.length;
-
-  // 基础可见范围计算
-  const baseStartIndex = Math.max(
-    0,
-    Math.floor(scrollTop / EXPLORER_ROW_HEIGHT) - EXPLORER_OVERSCAN,
-  );
-  const baseVisibleCount =
-    Math.ceil(viewportHeight / EXPLORER_ROW_HEIGHT) + EXPLORER_OVERSCAN * 2;
-  const baseEndIndex = Math.min(totalRows, baseStartIndex + baseVisibleCount);
-
-  // 如果有 pending 操作，扩展范围以包含目标行（前后各 5 行缓冲）
-  const PENDING_BUFFER = 5;
-  let startIndex = baseStartIndex;
-  let endIndex = baseEndIndex;
-
-  if (pendingTargetIndex >= 0) {
-    const targetStart = Math.max(0, pendingTargetIndex - PENDING_BUFFER);
-    const targetEnd = Math.min(
-      totalRows,
-      pendingTargetIndex + PENDING_BUFFER + 1,
-    );
-    startIndex = Math.min(startIndex, targetStart);
-    endIndex = Math.max(endIndex, targetEnd);
-  }
-
-  const virtualEntries = useMemo(
-    () => flatEntries.slice(startIndex, endIndex),
-    [flatEntries, startIndex, endIndex],
-  );
-  const visibleEntries = virtualEntries;
-
-  const topSpacerHeight = startIndex * EXPLORER_ROW_HEIGHT;
-  const bottomSpacerHeight = Math.max(
-    0,
-    (totalRows - endIndex) * EXPLORER_ROW_HEIGHT,
-  );
 
   const toggleExpanded = useCallback(
     (path: string) => {
@@ -892,61 +831,16 @@ export function ExplorerView() {
     [pendingCreate, pendingRename, entries, childrenMap],
   );
 
-  useEffect(() => {
-    const el = treeContainerRef.current;
-    if (!el) return;
-
-    let rafId: number | null = null;
-
-    const syncViewport = () => {
-      setViewportHeight(el.clientHeight);
-      setScrollTop(el.scrollTop);
-    };
-
-    const handleScroll = () => {
-      if (rafId !== null) return;
-      rafId = requestAnimationFrame(() => {
-        rafId = null;
-        syncViewport();
-      });
-    };
-
-    syncViewport();
-    el.addEventListener("scroll", handleScroll, { passive: true });
-
-    const ro = new ResizeObserver(() => syncViewport());
-    ro.observe(el);
-
-    return () => {
-      el.removeEventListener("scroll", handleScroll);
-      ro.disconnect();
-      if (rafId !== null) cancelAnimationFrame(rafId);
-    };
-  }, []);
-
   // 焦点项自动滚动到可视区域
   useEffect(() => {
-    if (!canVirtualize) return;
     if (!focusedPath) return;
     const el = treeContainerRef.current;
     if (!el) return;
-
-    const index = flatEntries.findIndex((entry) => entry.path === focusedPath);
-    if (index === -1) return;
-
-    const rowTop = index * EXPLORER_ROW_HEIGHT;
-    const rowBottom = rowTop + EXPLORER_ROW_HEIGHT;
-    const viewTop = el.scrollTop;
-    const viewBottom = viewTop + el.clientHeight;
-
-    if (rowTop >= viewTop && rowBottom <= viewBottom) return;
-
-    const targetScrollTop = Math.max(
-      0,
-      rowTop - Math.max(0, (el.clientHeight - EXPLORER_ROW_HEIGHT) / 2),
-    );
-    el.scrollTo({ top: targetScrollTop });
-  }, [canVirtualize, focusedPath, focusSeq, flatEntries]);
+    const focusedEl = el.querySelector(`[data-path="${CSS.escape(focusedPath)}"]`);
+    if (focusedEl) {
+      focusedEl.scrollIntoView({ block: "nearest" });
+    }
+  }, [focusedPath, focusSeq]);
 
   // Check if the pending create is at the root level
   const isRootCreate =
@@ -1114,31 +1008,23 @@ export function ExplorerView() {
             </button>
           </div>
         )}
-        {canVirtualize && topSpacerHeight > 0 && (
-          <div style={{ height: topSpacerHeight }} aria-hidden="true" />
-        )}
-        {visibleEntries.map((flatEntry, idx) => {
+        {flatEntries.map((flatEntry, index) => {
           const entry = entryMap.get(flatEntry.path);
           if (!entry) return null;
 
-          // 计算当前条目在 flatEntries 中的真实索引
-          const realIndex = startIndex + idx;
-
-          // 检查是否需要在此条目之后渲染 InlineInput
           const shouldRenderInlineInput =
             pendingCreateInfo &&
-            realIndex === pendingCreateInfo.insertAfterIndex;
+            index === pendingCreateInfo.insertAfterIndex;
 
           return (
             <React.Fragment key={entry.path}>
               <FileTreeItem
-                key={entry.path}
                 entry={entry}
                 depth={flatEntry.depth}
                 expanded={flatEntry.expanded}
                 focusedPath={focusedPath}
                 focusSeq={focusSeq}
-                expandedPaths={canVirtualize ? new Set() : expandedPaths}
+                expandedPaths={new Set()}
                 onToggle={toggleExpanded}
                 childEntries={[]}
                 getChildren={() => []}
@@ -1167,9 +1053,6 @@ export function ExplorerView() {
             </React.Fragment>
           );
         })}
-        {bottomSpacerHeight > 0 && (
-          <div style={{ height: bottomSpacerHeight }} aria-hidden="true" />
-        )}
         {/* 根目录的 InlineInput：在底部渲染 */}
         {isRootCreate && (
           <InlineInput
