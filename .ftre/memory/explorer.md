@@ -8,7 +8,6 @@
 |------|------|
 | `packages/renderer/src/features/explorer/ExplorerView.tsx` | 主视图组件，整合文件树和 Git 变更 |
 | `packages/renderer/src/features/explorer/FileTreeItem.tsx` | 单个文件/文件夹项的渲染和交互逻辑 |
-| `packages/renderer/src/features/explorer/VirtualFileList.tsx` | 大型项目虚拟化渲染（性能优化） |
 | `packages/renderer/src/features/explorer/Sidebar.tsx` | 侧边栏容器，根据 activeSidebarView 切换面板 |
 | `packages/renderer/src/features/explorer/tree-navigation.ts` | 树形结构扁平化和导航工具函数 |
 | `packages/renderer/src/features/explorer/drag-drop-utils.ts` | 拖拽移动文件的验证和目标解析 |
@@ -18,11 +17,13 @@
 
 ## 业务流程
 
-### 文件树渲染（非虚拟化）
-`tree-navigation:flattenVisibleEntries` → `ExplorerView` → `FileTreeItem`
+### 文件树渲染（虚拟化）
+`useVirtualization` Hook → 计算可见范围 → `flatEntries.slice(startIndex, endIndex)` → `FileTreeItem`
 
-### 文件树渲染（虚拟化，大项目优化）
-`VirtualFileList` → `FileTreeItem`（仅渲染可视区域）
+虚拟化参数：
+- 行高: `32px`
+- 缓冲区: `overscan: 12`
+- 强制包含: `forceIncludeRange`（确保 InlineInput 目标行可见）
 
 ### 文件拖拽移动
 用户拖拽 → `drag-drop-utils:canDrop` 验证 → `drag-drop-utils:resolveDropTarget` 解析 → 执行移动操作
@@ -30,7 +31,7 @@
 ### 文件重命名
 1. **触发**: `FileTreeItem` 右键菜单点击"重命名" → dispatch `ftre:file-rename` CustomEvent
 2. **状态管理**: `ExplorerView` 监听事件 → `setPendingRename({path, isDir})`
-3. **虚拟化处理**: `pendingTargetIndex` 确保重命名目标在可视范围内
+3. **虚拟化处理**: `forceIncludeRange` 确保重命名目标在可视范围内
 4. **渲染**: `FileTreeItem` 检测 `isRenaming` → 渲染 `InlineInput` 替换原行
 5. **提交/取消**: `InlineInput` 处理 Enter/Esc/blur → 调用 `onRenameSubmit`/`onRenameCancel`
 
@@ -44,7 +45,7 @@
 - **Git 集成方式**：通过 `gitService` 单例管理数据，`useGitService` hook 处理状态订阅和防闪烁
 - **模块拆分决策**：explorer 不适合拆分为独立 monorepo 包，因其重度依赖应用层核心模块（stores/workspace, stores/editor, services/git-service 等），且无跨项目复用场景
 - **重命名架构**：采用事件驱动（CustomEvent）解耦右键菜单和状态管理，支持键盘快捷键（F2）复用相同逻辑
-- **虚拟化条件**：`canVirtualize = !!rootPath`，有 rootPath 时启用虚拟化，否则（如 InlineInput 内）禁用
+- **虚拟化方案**：使用 `@ftre/virtual-list` 的 `useVirtualization` Hook，替代原 `VirtualFileList` 组件，简化代码并统一虚拟化能力
 
 ## 注意事项
 
@@ -52,6 +53,5 @@
 - 内联编辑时会自动选中文件名部分（不含扩展名）
 - `Sidebar` 组件使用 `rootPath` 作为 key 实现工作区切换时的重新挂载
 - explorer 直接 import 应用层几乎所有核心模块，包括 stores、services、lib、components 和 utils，拆包会导致大量胶水代码
-- 虚拟化渲染模式下，pending 操作（重命名/新建）的目标项必须通过 `pendingTargetIndex` 确保在可视范围内
-- **⚠️ VirtualFileList 回调传递问题**：`VirtualFileList` 渲染 `FileTreeItem` 时必须正确传递 `onRenameSubmit` 和 `onRenameCancel` 回调，否则 `FileTreeItem` 中的条件 `isRenaming && onRenameSubmit && onRenameCancel` 会失败，导致重命名无法渲染 `InlineInput`
-- **⚠️ 测试覆盖盲区**：`VirtualFileList` 无独立测试文件，`ExplorerView.test.tsx` 使用 mock 数据（仅 2 个条目）测试普通列表模式，未覆盖虚拟列表场景。这是重命名 bug 漏过的根本原因
+- 虚拟化渲染模式下，pending 操作（重命名/新建）的目标项必须通过 `forceIncludeRange` 确保在可视范围内
+- 虚拟化依赖 `@ftre/virtual-list` 包，已在 `renderer/package.json` 中添加依赖
