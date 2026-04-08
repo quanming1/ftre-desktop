@@ -16,14 +16,16 @@ import {
   type DiffEntry,
   type EditorGroup,
   type EditorSnapshot,
+  type EditorInputType,
   buildDiffId,
   buildDiffTabPath,
+  SETTINGS_PATH,
   _resetGroupCounter,
 } from "@ftre/editor";
 
 // Re-export types and utils for backward compatibility
-export type { OpenFile, DiffEntry, EditorGroup, EditorSnapshot };
-export { buildDiffId, buildDiffTabPath, _resetGroupCounter };
+export type { OpenFile, DiffEntry, EditorGroup, EditorSnapshot, EditorInputType };
+export { buildDiffId, buildDiffTabPath, SETTINGS_PATH, _resetGroupCounter };
 
 // ── Host Implementation ──────────────────────────────────────────────
 

@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from "react";
-import { Minus, Square, X, Copy, Terminal, GitBranch, ChevronRight, MessageSquare, ClipboardList } from "lucide-react";
+import { Minus, Square, X, Copy, Terminal, GitBranch, ChevronRight, MessageSquare, ClipboardList, Settings } from "lucide-react";
 import { PixelLogo } from "@/components/PixelLogo";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { LayoutSwitcher } from "@/components/LayoutSwitcher";
@@ -192,6 +192,15 @@ export function TitleBar() {
               }`}
             >
               <Terminal size={14} strokeWidth={1.5} />
+            </button>
+          </Tooltip>
+
+          <Tooltip content="设置" side="bottom">
+            <button
+              onClick={() => useEditor.getState().openSettings()}
+              className="h-full px-3 flex items-center gap-1.5 text-[12px] font-mono transition-colors text-t-dim hover:bg-white/[0.06] hover:text-t-muted"
+            >
+              <Settings size={14} strokeWidth={1.5} />
             </button>
           </Tooltip>
         </TooltipProvider>
