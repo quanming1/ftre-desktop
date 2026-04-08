@@ -16,9 +16,40 @@
 | `packages/renderer/src/features/chat/slate/elements/ArchiveChipView.tsx` | Slate 内联归档 Chip 渲染 |
 | `packages/renderer/src/components/PixelLogo.tsx` | 像素风格 Logo 组件 |
 | `packages/renderer/src/stores/session.ts` | Session store，管理会话状态 |
+| `packages/renderer/src/stores/chat.ts` | Chat store，UI 层数据源 |
 | `packages/renderer/src/services/api.ts` | rollbackSession / branchSession / fetchArchiveDetail API |
-| `packages/renderer/src/services/stream-manager.ts` | 流管理器，支持回滚和分支 |
+| `packages/renderer/src/services/stream-manager.ts` | 流管理器，管理 StreamSession 生命周期 |
+| `packages/renderer/src/services/global-event-stream.ts` | 全局 SSE 连接，接收所有 session 的事件 |
 | `packages/renderer/src/types/chat.ts` | ChatMessage 等类型定义 |
+
+## 流式处理架构
+
+```
+后端 (chat.py / dispatcher)
+       ↓ SSE 推送
+GlobalEventStream (global-event-stream.ts)
+       ↓ 按 session_id 分发
+StreamSession (stream-manager.ts，每 session 一个实例)
+       ↓ 更新 messages 数组
+       ↓ 如果是 active session，调用 onChanged 回调
+useChat store (chat.ts)
+       ↓ syncFrom() 更新 UI 数据
+React UI (ChatPanel → MessageList)
+```
+
+### SessionStreamManager
+
+全局单例，管理多个 `StreamSession` 实例：
+- `getOrCreate(sessionId)` - 获取或创建 StreamSession
+- `switchTo(sessionId)` - 切换 active session，绑定回调
+- `isSessionStreaming(sessionId)` - 检查指定 session 是否在流式中
+
+### StreamSession
+
+每个 session 对应一个实例，保存完整的消息状态：
+- `messages: AnyMessage[]` - 消息列表
+- `isStreaming: boolean` - session 级别流式状态
+- `streamingMessageId: string | null` - 当前正在流式的 assistant 消息 ID
 
 ## 消息数据结构
 
@@ -38,6 +69,19 @@ interface ChatMessage {
     archive_id?: string;
     [key: string]: unknown;
   };
+}
+```
+
+### ToolCallMessage 类型
+
+```typescript
+interface ToolCallMessage {
+  id: string;
+  role: "tool_call";
+  tool: string;
+  args: Record<string, unknown>;
+  status: "running" | "success" | "error";
+  result?: unknown;
 }
 ```
 
@@ -61,6 +105,44 @@ UserMessage 读取 metadata.archive_id 判断是否可以 Fork
 - `stream-manager.addUserMessage()` 第 5 个参数接收 metadata
 - `replayInto()` 在历史回放时将 `event.metadata` 原样传递
 - 实时流（global-event-stream.ts）中 metadata 为空（因为是当前用户新发送的消息）
+
+## Session 切换数据流
+
+```
+sessionStore.switchSession(sessionId)
+       ↓
+streamManager.switchTo(sessionId)
+       ↓ 解绑旧 session，绑定新 session
+bindAndSync() → 立即同步内存消息到 useChat
+       ↓
+fetchSessionMessages(sessionId)
+       ↓
+replayInto(events) → 从后端历史重建消息
+```
+
+### replayInto 重建逻辑
+
+`replayInto()` 在从后端历史重建消息时，需要保留内存中正在流式的消息（streamingTail）：
+
+```typescript
+let streamingTail: AnyMessage[] = [];
+if (session.isStreaming && session.streamingMessageId) {
+    const streamIdx = session.messages.findIndex(
+        (m) => m.id === session.streamingMessageId,
+    );
+    if (streamIdx >= 0) {
+        streamingTail = session.messages.slice(streamIdx);
+    }
+}
+```
+
+**注意**：`streamingMessageId` 只追踪 **assistant 消息**（`ChatMessage.streaming`），**不追踪 tool 消息**。
+
+当 tool 正在 running 时：
+- `session.isStreaming = true`（session 级别仍在流式中）
+- `session.streamingMessageId = null`（因为 `tool_call` 事件会调用 `finalizeAssistantMessage()`，把它清空）
+
+由于 `streamingMessageId === null`，条件 `session.isStreaming && session.streamingMessageId` 不满足，`streamingTail` 保持为空。
 
 ## 消息渲染流程
 
@@ -331,7 +413,21 @@ ChatPanel 现在是一个纯聊天面板：
 
 Session 管理功能已拆分到独立的 `SessionPanel`，详见 [session-panel.md](./session-panel.md)。
 
+## 注意事项
+
+- **切换 session 时 running tool 消息丢失**：`replayInto()` 在从后端历史重建消息时，`streamingTail` 的保留条件只检查 `streamingMessageId`（assistant 消息的 ID），而 tool 执行时这个字段已经是 null。导致切换 session 再切回来时，内存中正在 running 的 tool 消息被清空，UI 丢失。修复方案需要扩展 `streamingTail` 的保留逻辑，同时检查 `isStreaming` 和是否存在 `status === "running"` 的 tool 消息。
+- `insertArchiveChip` 需要完整的 `ArchiveRef` 对象，不能只传 `{ id, display }`
+- `ArchiveChipView` 组件依赖 `summary` 字段计算显示文本长度，缺失会导致报错
+- 发送消息时，`message` 数组中包含 `archive_ref` 类型的 part，后端自动加载归档上下文
+- metadata 只在历史回放时存在，实时流中 metadata 为空
+
 ## 历史变更
+
+- **2025-02**: 补充流式处理架构文档
+  - GlobalEventStream → StreamSession → useChat 完整数据链路
+  - Session 切换时的数据流（switchSession → switchTo → replayInto）
+  - replayInto streamingTail 保留逻辑及 BUG 根因
+  - 注意事项记录切换 session 时 running tool 消息丢失问题
 
 - **2025-01**: 新增 Fork 会话功能
   - UserMessage 添加 Fork 按钮（仅当 metadata.archive_id 存在时显示）
