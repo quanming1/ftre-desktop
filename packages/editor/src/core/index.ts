@@ -1,25 +1,23 @@
-export { editorCore } from "./editor-core";
-export {
-  editorManager,
-  createEditorManager,
-  type EditorManager,
-  type EditorManagerConfig,
-  type AttachOptions,
-} from "./editor-manager";
+/**
+ * Core 模块导出
+ *
+ * 简化版 VSCode 风格编辑器核心
+ */
 
-// 新架构
-export { Document } from "./document";
+// TextModel 服务
 export {
-  getDocumentManager,
-  createDocumentManager,
-  type DocumentManager,
-  type DocumentSnapshot,
-} from "./document-manager";
+  getTextModelService,
+  disposeTextModelService,
+  _resetTextModelService,
+  type ITextModelOptions,
+  type IViewState,
+  type ITextModelData,
+} from "./text-model";
+
+// CodeEditor 组件
 export {
-  getSlotPool,
-  createSlotPool,
-  type SlotPool,
-  type SlotPoolConfig,
-  type AcquireOptions,
-} from "./slot-pool";
-export type { DocState, FileMetadata, ViewState } from "./types";
+  CodeEditor,
+  createCodeEditor,
+  type ICodeEditorOptions,
+  type ICodeEditorCallbacks,
+} from "./code-editor";
