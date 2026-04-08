@@ -7,13 +7,21 @@ import { FileCode } from "lucide-react";
 
 // ── Mocks ────────────────────────────────────────────────────────────
 
-// Mock MonacoEditor, MonacoDiffViewer, DiffBar from @ftre/editor/ui — heavy dependencies, not needed for layout tests
-vi.mock("@ftre/editor/ui", () => ({
-  MonacoEditor: ({ file }: { file: OpenFile }) => (
-    <div data-testid={`monaco-${file.path}`}>{file.name}</div>
+// Mock EditorGroupPane, MonacoDiffViewer, DiffBar from @ftre/editor — heavy dependencies, not needed for layout tests
+vi.mock("@ftre/editor", () => ({
+  EditorGroupPane: ({ activeFilePath }: { activeFilePath: string | null }) => (
+    <div data-testid={`editor-pane-${activeFilePath ?? "empty"}`} />
   ),
   MonacoDiffViewer: () => <div data-testid="monaco-diff-viewer" />,
   DiffBar: () => <div data-testid="diff-bar" />,
+  getTextFileModelManager: () => ({
+    getDirty: () => [],
+  }),
+  refreshFileV2: vi.fn(),
+}));
+
+vi.mock("@/hooks/useMonaco", () => ({
+  useMonaco: () => ({}),
 }));
 
 // Mock file-icons
@@ -83,7 +91,7 @@ describe("EditorArea — single group", () => {
     render(<EditorArea />);
 
     expect(screen.getByTestId("editor-group-default")).toBeTruthy();
-    expect(screen.getByTestId("monaco-/a.ts")).toBeTruthy();
+    expect(screen.getByTestId("editor-pane-/a.ts")).toBeTruthy();
   });
 
   it("shows welcome placeholder when no files are open", () => {
@@ -181,7 +189,7 @@ describe("EditorArea — split editor", () => {
     expect(screen.getByTestId(`breadcrumb-${groups[1].id}`)).toBeTruthy();
   });
 
-  it("each group renders its own MonacoEditor for its active file", () => {
+  it("each group renders its own EditorGroupPane for its active file", () => {
     openFiles("/a.ts", "/b.ts");
     // b.ts is active
     useEditor.getState().splitEditor();
@@ -192,8 +200,8 @@ describe("EditorArea — split editor", () => {
 
     render(<EditorArea />);
 
-    expect(screen.getByTestId("monaco-/a.ts")).toBeTruthy();
-    expect(screen.getByTestId("monaco-/b.ts")).toBeTruthy();
+    expect(screen.getByTestId("editor-pane-/a.ts")).toBeTruthy();
+    expect(screen.getByTestId("editor-pane-/b.ts")).toBeTruthy();
   });
 
   it("does not split when no file is active", () => {

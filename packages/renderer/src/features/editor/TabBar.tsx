@@ -9,7 +9,7 @@ import { useLayout } from "@/stores/layout";
 import { getFileIcon } from "@/lib/file-icons";
 import { ContextMenu, type ContextMenuItem } from "@/components/ContextMenu";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
-import { getDocumentManager } from "@ftre/editor/core";
+import { getTextModelService } from "@ftre/editor/core";
 import { saveFile } from "@ftre/editor/runtime";
 
 interface TabBarProps {
@@ -182,12 +182,15 @@ export function TabBar({ groupId }: TabBarProps) {
     };
   }, [getScrollElement, updateScrollState, openFiles.length]);
 
-  const scrollTabs = useCallback((direction: "left" | "right") => {
-    const el = getScrollElement();
-    if (!el) return;
-    const amount = direction === "left" ? -150 : 150;
-    el.scrollBy({ left: amount, behavior: "instant" });
-  }, [getScrollElement]);
+  const scrollTabs = useCallback(
+    (direction: "left" | "right") => {
+      const el = getScrollElement();
+      if (!el) return;
+      const amount = direction === "left" ? -150 : 150;
+      el.scrollBy({ left: amount, behavior: "instant" });
+    },
+    [getScrollElement],
+  );
 
   // Middle-click close handler
   const handleMouseDown = useCallback(
@@ -273,13 +276,16 @@ export function TabBar({ groupId }: TabBarProps) {
     [resolvedGroupId],
   );
 
-  const handleWheel = useCallback((e: React.WheelEvent) => {
-    e.preventDefault();
-    const container = getScrollElement();
-    if (container) {
-      container.scrollLeft += e.deltaY;
-    }
-  }, [getScrollElement]);
+  const handleWheel = useCallback(
+    (e: React.WheelEvent) => {
+      e.preventDefault();
+      const container = getScrollElement();
+      if (container) {
+        container.scrollLeft += e.deltaY;
+      }
+    },
+    [getScrollElement],
+  );
 
   const handleContainerDragOver = useCallback(
     (e: React.DragEvent<HTMLElement>) => {
@@ -340,55 +346,63 @@ export function TabBar({ groupId }: TabBarProps) {
                 } ${isDragging ? "opacity-40" : ""} ${isActive ? "z-10 border-b-transparent bg-[#1a1b1d] text-t-primary" : "bg-base text-t-muted hover:bg-elevated hover:text-t-secondary"}`}
                 data-tab-index={index}
               >
-              {/* Drop indicator line — left side */}
-              {dropIndicatorIndex === index && (
-                <div
-                  className="absolute left-0 top-[4px] bottom-[4px] w-[2px] bg-neon z-10 pointer-events-none"
-                  data-testid="drop-indicator"
-                />
-              )}
-              {/* Drop indicator line — right side (for last tab) */}
-              {dropIndicatorIndex === index + 1 &&
-                index === openFiles.length - 1 && (
+                {/* Drop indicator line — left side */}
+                {dropIndicatorIndex === index && (
                   <div
-                    className="absolute right-0 top-[4px] bottom-[4px] w-[2px] bg-neon z-10 pointer-events-none"
+                    className="absolute left-0 top-[4px] bottom-[4px] w-[2px] bg-neon z-10 pointer-events-none"
                     data-testid="drop-indicator"
                   />
                 )}
-              {isActive && (
-                <div className="absolute top-0 left-0 right-0 h-[2px] bg-white/40" />
-              )}
-              {(() => {
-                const { icon: FileIcon, color } = getFileIcon(file.name, false);
-                return (
-                  <FileIcon size={15} className="shrink-0" style={{ color }} />
-                );
-              })()}
-              {!file.pinned && file.name}
-              {file.modified && (
-                <div className="w-[6px] h-[6px] rounded-full bg-t-primary shrink-0" />
-              )}
-              {file.pinned ? (
-                <Pin
-                  size={10}
-                  className="text-t-dim shrink-0"
-                  strokeWidth={1.5}
-                />
-              ) : (
-                <span
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    requestClose(file.path);
-                  }}
-                  className={`ml-1 p-0.5 rounded transition-all cursor-pointer ${
-                    isActive || isHovered
-                      ? "text-t-muted hover:text-t-primary hover:bg-white/[0.1] opacity-100"
-                      : "opacity-0"
-                  }`}
-                >
-                  <X size={12} strokeWidth={1.5} />
-                </span>
-              )}
+                {/* Drop indicator line — right side (for last tab) */}
+                {dropIndicatorIndex === index + 1 &&
+                  index === openFiles.length - 1 && (
+                    <div
+                      className="absolute right-0 top-[4px] bottom-[4px] w-[2px] bg-neon z-10 pointer-events-none"
+                      data-testid="drop-indicator"
+                    />
+                  )}
+                {isActive && (
+                  <div className="absolute top-0 left-0 right-0 h-[2px] bg-white/40" />
+                )}
+                {(() => {
+                  // Pass full path for virtual paths (e.g. ftre://settings)
+                  const { icon: FileIcon, color } = getFileIcon(
+                    file.path,
+                    false,
+                  );
+                  return (
+                    <FileIcon
+                      size={15}
+                      className="shrink-0"
+                      style={{ color }}
+                    />
+                  );
+                })()}
+                {!file.pinned && file.name}
+                {file.modified && (
+                  <div className="w-[6px] h-[6px] rounded-full bg-t-primary shrink-0" />
+                )}
+                {file.pinned ? (
+                  <Pin
+                    size={10}
+                    className="text-t-dim shrink-0"
+                    strokeWidth={1.5}
+                  />
+                ) : (
+                  <span
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      requestClose(file.path);
+                    }}
+                    className={`ml-1 p-0.5 rounded transition-all cursor-pointer ${
+                      isActive || isHovered
+                        ? "text-t-muted hover:text-t-primary hover:bg-white/[0.1] opacity-100"
+                        : "opacity-0"
+                    }`}
+                  >
+                    <X size={12} strokeWidth={1.5} />
+                  </span>
+                )}
               </button>
             );
           })}
@@ -428,11 +442,11 @@ export function TabBar({ groupId }: TabBarProps) {
           const fileName =
             file.name ?? pendingClose.split(/[\\/]/).pop() ?? "文件";
           const handleSaveAndClose = () => {
-            const docManager = getDocumentManager();
-            const doc = docManager.get(file.path);
-            saveFile(file.path, file.name, () =>
-              doc ? doc.getContentForSave() : file.content,
-            )
+            const modelService = getTextModelService();
+            const content = modelService.isInitialized()
+              ? modelService.getContentForSave(file.path)
+              : null;
+            saveFile(file.path, file.name, () => content ?? file.content)
               .then(() => closeFile(file.path))
               .catch(() => {
                 /* saveFile 内部已通知用户 */
