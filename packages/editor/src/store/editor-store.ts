@@ -8,11 +8,10 @@
  * 3. 实现 EditorStoreHost 接口并注册
  */
 
-// editorCore 已被 DocumentManager 替代，保留 import 以便后续完全移除
-import { getDocumentManager } from "../core/document-manager";
+import { getTextModelService } from "../core/text-model";
 import { workspaceHash } from "../utils/path-utils";
 import type { OpenFile, DiffEntry, EditorGroup, EditorSnapshot } from "./types";
-import { buildDiffTabPath } from "./types";
+import { buildDiffTabPath, SETTINGS_PATH } from "./types";
 
 // ── Constants ────────────────────────────────────────────────────────
 
@@ -160,6 +159,9 @@ export interface EditorActions {
   closeAllFiles: () => void;
   hasUnsavedChanges: () => boolean;
 
+  // Special editors (VSCode-style EditorInput)
+  openSettings: () => void;
+
   // Persistence
   persist: () => void;
   restore: (workspace?: string | null) => Promise<void>;
@@ -283,8 +285,8 @@ export function createEditorActions(
         g.openFiles.some((f) => f.path === path),
       );
       if (!stillOpen) {
-        const docManager = getDocumentManager();
-        docManager.close(path);
+        const modelService = getTextModelService();
+        modelService.dispose(path);
       }
     },
 
@@ -313,11 +315,10 @@ export function createEditorActions(
     markSaved: (path) => {
       const state = get();
 
-      // 标记 Document 为已保存
-      const docManager = getDocumentManager();
-      const doc = docManager.get(path);
-      if (doc) {
-        doc.markSaved();
+      // 标记 Model 为已保存
+      const modelService = getTextModelService();
+      if (modelService.isInitialized()) {
+        modelService.markSaved(path);
       }
 
       // 更新所有组中该文件的 modified 状态（UI 需要）
@@ -361,12 +362,10 @@ export function createEditorActions(
       );
       if (!exists) return;
 
-      // 刷新 Document
-      const docManager = getDocumentManager();
-      const doc = docManager.get(path);
-      if (doc) {
-        doc.refresh(newContent);
-        doc.markSaved();
+      // 刷新 Model
+      const modelService = getTextModelService();
+      if (modelService.isInitialized()) {
+        modelService.updateContent(path, newContent);
       }
 
       const groups = state.groups.map((g) => ({
@@ -387,13 +386,7 @@ export function createEditorActions(
       );
       if (!exists) return;
 
-      // 加载 Document
-      const docManager = getDocumentManager();
-      const doc = docManager.get(path);
-      if (doc && doc.state === "idle") {
-        doc.load(newContent);
-      }
-
+      // 新架构由 EditorGroupPane 自动加载 Model，这里只更新 store 状态
       const groups = state.groups.map((g) => ({
         ...g,
         openFiles: g.openFiles.map((f) =>
@@ -670,13 +663,13 @@ export function createEditorActions(
       });
 
       // 清理不再打开的文件
-      const docManager = getDocumentManager();
+      const modelService = getTextModelService();
       for (const removedPath of removedPaths) {
         const stillOpen = groups.some((g) =>
           g.openFiles.some((f) => f.path === removedPath),
         );
         if (!stillOpen) {
-          docManager.close(removedPath);
+          modelService.dispose(removedPath);
         }
       }
     },
@@ -714,13 +707,13 @@ export function createEditorActions(
       });
 
       // 清理不再打开的文件
-      const docManager = getDocumentManager();
+      const modelService = getTextModelService();
       for (const removedPath of removedPaths) {
         const stillOpen = groups.some((g) =>
           g.openFiles.some((f) => f.path === removedPath),
         );
         if (!stillOpen) {
-          docManager.close(removedPath);
+          modelService.dispose(removedPath);
         }
       }
     },
@@ -756,13 +749,13 @@ export function createEditorActions(
       });
 
       // 清理不再打开的文件
-      const docManager = getDocumentManager();
+      const modelService = getTextModelService();
       for (const removedPath of removedPaths) {
         const stillOpen = groups.some((g) =>
           g.openFiles.some((f) => f.path === removedPath),
         );
         if (!stillOpen) {
-          docManager.close(removedPath);
+          modelService.dispose(removedPath);
         }
       }
     },
@@ -870,12 +863,25 @@ export function createEditorActions(
         ...syncTopLevel(groups, state.activeGroupId),
       });
 
-      // 迁移 Document
-      const docManager = getDocumentManager();
-      if (isDir) {
-        docManager.handleDirectoryRenamed(oldPath, newPath);
-      } else {
-        docManager.handleFileRenamed(oldPath, newPath);
+      // 新架构：关闭旧路径的 Model，让编辑器重新加载新路径
+      const modelService = getTextModelService();
+      if (modelService.isInitialized()) {
+        if (isDir) {
+          // 目录重命名：需要遍历所有打开的文件
+          for (const group of state.groups) {
+            for (const file of group.openFiles) {
+              if (
+                file.path === oldPath ||
+                file.path.startsWith(oldPath + "/") ||
+                file.path.startsWith(oldPath + "\\")
+              ) {
+                modelService.dispose(file.path);
+              }
+            }
+          }
+        } else {
+          modelService.dispose(oldPath);
+        }
       }
     },
 
@@ -922,14 +928,14 @@ export function createEditorActions(
         ...syncTopLevel(groups, state.activeGroupId),
       });
 
-      // 删除 Document（仅当文件不在任何 group 中打开时）
-      const docManager = getDocumentManager();
+      // 删除 Model（仅当文件不在任何 group 中打开时）
+      const modelService = getTextModelService();
       for (const deletedFilePath of deletedFilePaths) {
         const stillOpen = groups.some((g) =>
           g.openFiles.some((f) => f.path === deletedFilePath),
         );
         if (!stillOpen) {
-          docManager.close(deletedFilePath);
+          modelService.dispose(deletedFilePath);
         }
       }
     },
@@ -980,14 +986,60 @@ export function createEditorActions(
         pendingDiffs: [],
       });
 
-      // 销毁所有 Document
-      const docManager = getDocumentManager();
-      docManager.dispose();
+      // 销毁所有 Model
+      const modelService = getTextModelService();
+      if (modelService.isInitialized()) {
+        modelService.disposeAll();
+      }
     },
 
     hasUnsavedChanges: () => {
-      const docManager = getDocumentManager();
-      return docManager.hasUnsavedChanges();
+      const modelService = getTextModelService();
+      return modelService.getDirtyUris().length > 0;
+    },
+
+    // ── Special Editors (VSCode-style EditorInput) ───────────────────
+
+    openSettings: () => {
+      const state = get();
+
+      // 检查是否已经打开了 Settings tab（单例模式）
+      for (const g of state.groups) {
+        const existing = g.openFiles.find((f) => f.path === SETTINGS_PATH);
+        if (existing) {
+          // 聚焦到已有的 Settings tab
+          const groups = updateGroup(state.groups, g.id, (group) => ({
+            ...group,
+            activeFile: SETTINGS_PATH,
+          }));
+          set({
+            groups,
+            activeGroupId: g.id,
+            ...syncTopLevel(groups, g.id),
+          });
+          return;
+        }
+      }
+
+      // 创建新的 Settings tab
+      const group = getActiveGroup(state);
+      const settingsFile: OpenFile = {
+        path: SETTINGS_PATH,
+        name: "Settings",
+        language: "settings",
+        content: "",
+        modified: false,
+        pinned: false,
+        loaded: true,
+        type: "settings",
+      };
+
+      const groups = updateGroup(state.groups, group.id, (g) => ({
+        ...g,
+        openFiles: [...g.openFiles, settingsFile],
+        activeFile: SETTINGS_PATH,
+      }));
+      set({ groups, ...syncTopLevel(groups, state.activeGroupId) });
     },
 
     // ── Persistence ──────────────────────────────────────────────────
@@ -1004,7 +1056,8 @@ export function createEditorActions(
                 .filter(
                   (f) =>
                     !f.path.startsWith("diff:") &&
-                    !f.path.startsWith("untitled:"),
+                    !f.path.startsWith("untitled:") &&
+                    !f.path.startsWith("ftre://"),
                 )
                 .map((f) => ({
                   path: f.path,
@@ -1111,10 +1164,7 @@ export function createEditorActions(
       });
       currentPersistWorkspace = workspace;
 
-      // 新架构：休眠非当前工作区的文档
-      const docManager = getDocumentManager();
-      docManager.hibernateOthers(workspace);
-
+      // 新架构不需要休眠机制，直接持久化
       get().persist();
     },
 
