@@ -20,7 +20,6 @@ vi.mock("@ftre/editor/ui", async () => {
     registerFtreTheme: (...args: unknown[]) => mockRegisterFtreTheme(...args),
     computeDiffStats: vi.fn(() => ({ additions: 0, deletions: 0 })),
     DiffBar: vi.fn(() => null),
-    MonacoEditor: vi.fn(() => null),
     _resetThemeRegistration: vi.fn(),
   };
 });
@@ -156,7 +155,7 @@ describe("MonacoDiffViewer DiffEditor integration", () => {
   });
 
   it("should use consistent font configuration", () => {
-    // Contract: Font configuration should match MonacoEditor
+    // Contract: Font configuration should match editor defaults
     const expectedFontConfig = {
       fontSize: 14,
       fontFamily: "'JetBrains Mono', 'Cascadia Code', 'Consolas', monospace",
