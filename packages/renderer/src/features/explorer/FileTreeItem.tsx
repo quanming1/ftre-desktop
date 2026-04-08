@@ -10,7 +10,7 @@ import {
   Terminal,
   FolderOpen,
 } from "lucide-react";
-import { getDocumentManager } from "@ftre/editor/core";
+import { getTextModelService } from "@ftre/editor/core";
 import { useEditor } from "@/stores/editor";
 import { useWorkspace } from "@/stores/workspace";
 import { useNotification } from "@/stores/notification";
@@ -243,28 +243,32 @@ export const FileTreeItem = memo(function FileTreeItem({
     // 只对文件生效，跳过目录
     if (entry.isDir) return;
     // 已经缓存过则跳过
-    const docManager = getDocumentManager();
-    if (docManager.hasContent(entry.path)) return;
+    const modelService = getTextModelService();
+    if (!modelService.isInitialized()) return;
+    if (modelService.has(entry.path)) return;
     // 已经预读取过则跳过
     if (prefetchedRef.current) return;
 
     // 延迟 150ms 再预读取，避免快速划过时的无效请求
     prefetchTimerRef.current = setTimeout(async () => {
-      if (docManager.hasContent(entry.path)) return;
+      if (modelService.has(entry.path)) return;
       try {
         const result = await window.desktop.fs.readFile(entry.path);
         if (!result.error) {
-          // 预加载到 DocumentManager
-          const ext = entry.path.split(".").pop() ?? "";
-          const lang = extToLanguage(ext);
-          docManager.preload(entry.path, lang, result.content);
+          // 预加载到 TextModelService
+          const ext = entry.name.split(".").pop() || "";
+          const language = extToLanguage(ext);
+          modelService.getOrCreate(entry.path, {
+            content: result.content,
+            language,
+          });
           prefetchedRef.current = true;
         }
       } catch {
         // 预读取失败静默忽略，不影响正常流程
       }
     }, 150);
-  }, [entry.path, entry.isDir]);
+  }, [entry.path, entry.isDir, entry.name]);
 
   const handleMouseLeave = useCallback(() => {
     // 取消未完成的预读取
@@ -282,18 +286,20 @@ export const FileTreeItem = memo(function FileTreeItem({
     }
 
     // 优先使用预读取的缓存内容
-    const docManager = getDocumentManager();
-    const cachedDoc = docManager.get(entry.path);
-    if (cachedDoc && cachedDoc.state !== "idle") {
-      const ext = entry.name.split(".").pop() || "";
-      const language = extToLanguage(ext);
-      openFile({
-        path: entry.path,
-        name: entry.name,
-        language,
-        content: cachedDoc.getContent(),
-      });
-      return;
+    const modelService = getTextModelService();
+    if (modelService.isInitialized()) {
+      const cachedModel = modelService.get(entry.path);
+      if (cachedModel) {
+        const ext = entry.name.split(".").pop() || "";
+        const language = extToLanguage(ext);
+        openFile({
+          path: entry.path,
+          name: entry.name,
+          language,
+          content: cachedModel.model.getValue(),
+        });
+        return;
+      }
     }
 
     // 没有缓存则正常读取

@@ -4,7 +4,7 @@ import {
   formatBytes,
   formatKB,
 } from "@/services/memory-monitor";
-import { getSlotPool, getDocumentManager } from "@ftre/editor/core";
+import { getTextModelService } from "@ftre/editor/core";
 
 // ══════════════════════════════════════════════════
 //  类型定义
@@ -30,39 +30,26 @@ const SPARKLINE_HEIGHT = 48;
 // ══════════════════════════════════════════════════
 
 interface EditorStats {
-  slotCount: number;
-  preloadedModelCount: number;
-  viewStateCount: number;
-  activeSlotPath: string | null;
+  modelCount: number;
+  textFileModelCount: number;
+  dirtyModelCount: number;
 }
 
 function getEditorStats(): EditorStats | null {
   try {
-    const slotPool = getSlotPool();
-    if (!slotPool.isInitialized()) return null;
-
-    const stats = slotPool.getStats();
-
-    // 从 DocumentManager 获取真实数据
-    let preloadedModelCount = 0;
-    let viewStateCount = 0;
-    try {
-      const docManager = getDocumentManager();
-      const allDocs = docManager.getAll();
-      preloadedModelCount = allDocs.length;
-      viewStateCount = allDocs.filter((d) => d.getViewState() !== null).length;
-    } catch {
-      // DocumentManager 可能尚未初始化
+    const textModelService = getTextModelService();
+    if (!textModelService.isInitialized()) {
+      return null;
     }
+    const dirtyUris = textModelService.getDirtyUris();
 
     return {
-      slotCount: stats.slotCount,
-      preloadedModelCount,
-      viewStateCount,
-      activeSlotPath: slotPool.getActivePath(),
+      modelCount: 0, // No longer tracking Monaco models separately
+      textFileModelCount: 0, // Simplified - tracked via store now
+      dirtyModelCount: dirtyUris.length,
     };
   } catch {
-    // slotPool 可能尚未初始化
+    // 服务可能尚未初始化
     return null;
   }
 }
@@ -257,27 +244,21 @@ export function MemoryMonitorPanel({ onClose }: MemoryMonitorPanelProps) {
           </h3>
           <div className="grid grid-cols-2 gap-x-3 gap-y-1.5">
             <div className="flex justify-between">
-              <span className="text-t-dim">活跃插槽</span>
+              <span className="text-t-dim">Monaco Models</span>
               <span className="text-t-primary">
-                {editorStats ? `${editorStats.slotCount}/8` : "—"}
+                {editorStats ? editorStats.modelCount : "—"}
               </span>
             </div>
             <div className="flex justify-between">
-              <span className="text-t-dim">预加载模型</span>
+              <span className="text-t-dim">TextFileModel</span>
               <span className="text-t-primary">
-                {editorStats ? `${editorStats.preloadedModelCount}/15` : "—"}
+                {editorStats ? editorStats.textFileModelCount : "—"}
               </span>
             </div>
             <div className="flex justify-between">
-              <span className="text-t-dim">视图状态缓存</span>
+              <span className="text-t-dim">Dirty 模型数</span>
               <span className="text-t-primary">
-                {editorStats ? editorStats.viewStateCount : "—"}
-              </span>
-            </div>
-            <div className="col-span-2 mt-0.5">
-              <span className="text-t-dim">当前活跃路径: </span>
-              <span className="text-t-secondary truncate inline-block max-w-65 align-bottom">
-                {editorStats?.activeSlotPath ?? "无"}
+                {editorStats ? editorStats.dirtyModelCount : "—"}
               </span>
             </div>
           </div>

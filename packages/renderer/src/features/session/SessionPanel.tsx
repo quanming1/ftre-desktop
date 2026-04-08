@@ -22,6 +22,7 @@ import { ContextMenu, type ContextMenuItem } from "@/components/ContextMenu";
 import { Tooltip, TooltipProvider } from "@ftre/ui";
 import * as TooltipPrimitive from "@radix-ui/react-tooltip";
 import type { SessionSummary } from "@/services/api";
+import { normalizePathForCompare } from "@/utils/pathUtils";
 
 // ─── 工具函数 ──────────────────────────────────────────────────────
 
@@ -55,14 +56,6 @@ function folderName(fullPath: string): string {
   return normalized.split("/").pop() || fullPath;
 }
 
-function normalizePath(p: string): string {
-  let normalized = p.replace(/\\/g, "/").replace(/\/+$/, "");
-  if (/^[A-Za-z]:\//.test(normalized)) {
-    normalized = normalized.toLowerCase();
-  }
-  return normalized;
-}
-
 type SessionTimeBucketKey =
   | "running"
   | "just_now"
@@ -70,7 +63,10 @@ type SessionTimeBucketKey =
   | "yesterday"
   | "long_ago";
 
-const SESSION_TIME_BUCKETS: Array<{ key: SessionTimeBucketKey; label: string }> = [
+const SESSION_TIME_BUCKETS: Array<{
+  key: SessionTimeBucketKey;
+  label: string;
+}> = [
   { key: "running", label: "运行中" },
   { key: "just_now", label: "刚刚" },
   { key: "today", label: "今天" },
@@ -192,7 +188,9 @@ export function SessionPanel() {
     items: ContextMenuItem[];
   } | null>(null);
   const [hoveredSession, setHoveredSession] = useState<string | null>(null);
-  const [renamingSession, setRenamingSession] = useState<SessionSummary | null>(null);
+  const [renamingSession, setRenamingSession] = useState<SessionSummary | null>(
+    null,
+  );
   const [renameValue, setRenameValue] = useState("");
 
   const scrollContainerRef = useRef<HTMLDivElement>(null);
@@ -206,17 +204,14 @@ export function SessionPanel() {
   // 构建工作区分组
   const workspaceGroups = useMemo(() => {
     if (!rootPath) return [];
-    const normalizedRoot = normalizePath(rootPath);
+    const normalizedRoot = normalizePathForCompare(rootPath);
     const currentWorkspaceSessions = allSessions.filter(
       (session) =>
-        session.workspace && normalizePath(session.workspace) === normalizedRoot,
+        session.workspace &&
+        normalizePathForCompare(session.workspace) === normalizedRoot,
     );
     return [
-      buildWorkspaceGroup(
-        normalizedRoot,
-        rootPath,
-        currentWorkspaceSessions,
-      ),
+      buildWorkspaceGroup(normalizedRoot, rootPath, currentWorkspaceSessions),
     ];
   }, [allSessions, rootPath]);
 
@@ -344,11 +339,14 @@ export function SessionPanel() {
     });
   }, []);
 
-  const handleSelectWorkspace = useCallback((folder: string) => {
-    setRootPath(folder);
-    void restoreLatest(folder);
-    setWorkspaceMenuOpen(false);
-  }, [setRootPath, restoreLatest]);
+  const handleSelectWorkspace = useCallback(
+    (folder: string) => {
+      setRootPath(folder);
+      void restoreLatest(folder);
+      setWorkspaceMenuOpen(false);
+    },
+    [setRootPath, restoreLatest],
+  );
 
   const handleOpenFolder = useCallback(async () => {
     try {
@@ -389,7 +387,10 @@ export function SessionPanel() {
   useEffect(() => {
     if (!workspaceMenuOpen) return;
     const handler = (e: MouseEvent) => {
-      if (workspaceMenuRef.current && !workspaceMenuRef.current.contains(e.target as Node)) {
+      if (
+        workspaceMenuRef.current &&
+        !workspaceMenuRef.current.contains(e.target as Node)
+      ) {
         setWorkspaceMenuOpen(false);
       }
     };
@@ -437,19 +438,19 @@ export function SessionPanel() {
       const bucket = getSessionTimeBucket(session.updated_at, isRunning);
       grouped[bucket].push(session);
     });
-    return SESSION_TIME_BUCKETS
-      .map((bucket) => ({
-        ...bucket,
-        sessions: grouped[bucket.key],
-      }))
-      .filter((bucket) => bucket.sessions.length > 0);
+    return SESSION_TIME_BUCKETS.map((bucket) => ({
+      ...bucket,
+      sessions: grouped[bucket.key],
+    })).filter((bucket) => bucket.sessions.length > 0);
   }, [displayedSessions]);
 
   useEffect(() => {
     if (!currentWorkspace) return;
     if (
       selectedSource !== "all" &&
-      !currentWorkspace.sourceGroups.some((group) => group.source === selectedSource)
+      !currentWorkspace.sourceGroups.some(
+        (group) => group.source === selectedSource,
+      )
     ) {
       setSelectedSource("all");
     }
@@ -461,7 +462,9 @@ export function SessionPanel() {
 
   const selectedSourceLabel = useMemo(() => {
     if (selectedSource === "all") return "全部";
-    const found = sourceOptions.find((option) => option.value === selectedSource);
+    const found = sourceOptions.find(
+      (option) => option.value === selectedSource,
+    );
     return found ? found.label : "全部";
   }, [selectedSource, sourceOptions]);
   const sourceBadgeText = useMemo(() => {
@@ -473,7 +476,8 @@ export function SessionPanel() {
     const values = ["all", ...sourceOptions.map((option) => option.value)];
     if (values.length <= 1) return;
     const currentIndex = values.indexOf(selectedSource);
-    const nextIndex = currentIndex >= 0 ? (currentIndex + 1) % values.length : 0;
+    const nextIndex =
+      currentIndex >= 0 ? (currentIndex + 1) % values.length : 0;
     setSelectedSource(values[nextIndex]);
   }, [sourceOptions, selectedSource]);
 
@@ -512,7 +516,10 @@ export function SessionPanel() {
           {workspaceMenuOpen && (
             <div className="absolute left-2 right-2 top-full mt-1 bg-elevated border border-border-subtle rounded-lg shadow-2xl py-1 z-[50]">
               {recentFolders.map((folder) => {
-                const isActive = !!rootPath && normalizePath(rootPath) === normalizePath(folder);
+                const isActive =
+                  !!rootPath &&
+                  normalizePathForCompare(rootPath) ===
+                    normalizePathForCompare(folder);
                 return (
                   <button
                     key={folder}
@@ -532,7 +539,9 @@ export function SessionPanel() {
                     <span className="truncate flex-1 text-left">
                       {folderName(folder)}
                     </span>
-                    {isActive && <Check size={14} className="shrink-0 text-neon" />}
+                    {isActive && (
+                      <Check size={14} className="shrink-0 text-neon" />
+                    )}
                   </button>
                 );
               })}
@@ -570,7 +579,11 @@ export function SessionPanel() {
               <Search size={14} />
             </button>
           </Tooltip>
-          <TooltipPrimitive.Root open={filterTipOpen} onOpenChange={setFilterTipOpen} delayDuration={0}>
+          <TooltipPrimitive.Root
+            open={filterTipOpen}
+            onOpenChange={setFilterTipOpen}
+            delayDuration={0}
+          >
             <TooltipPrimitive.Trigger asChild>
               <button
                 type="button"
@@ -619,62 +632,68 @@ export function SessionPanel() {
           </Tooltip>
         </div>
 
-      {/* 搜索框（展开时显示） */}
-      {searchOpen && (
-        <div className="shrink-0 px-2.5 py-1.5 border-b border-border">
-          <input
-            ref={searchInputRef}
-            type="text"
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder="Search sessions..."
-            className="w-full h-7 px-3 rounded bg-elevated border border-neon/30 focus:border-neon/50 text-[12px] text-t-primary placeholder:text-t-ghost outline-none transition-colors"
-          />
-        </div>
-      )}
-
-      <div
-        ref={scrollContainerRef}
-        className="flex-1 overflow-y-auto scrollbar-thin"
-      >
-        {!currentWorkspace ? (
-          <div className="text-t-ghost px-4 py-12 text-center">
-            {searchQuery ? "No matching sessions" : "No sessions"}
+        {/* 搜索框（展开时显示） */}
+        {searchOpen && (
+          <div className="shrink-0 px-2.5 py-1.5 border-b border-border">
+            <input
+              ref={searchInputRef}
+              type="text"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Search sessions..."
+              className="w-full h-7 px-3 rounded bg-elevated border border-neon/30 focus:border-neon/50 text-[12px] text-t-primary placeholder:text-t-ghost outline-none transition-colors"
+            />
           </div>
-        ) : (
-          <div className="px-2 py-2">
-            {visibleSessions.length === 0 ? (
-              <div className="text-t-ghost px-2 py-8 text-center text-[12px]">
-                当前分类下暂无会话
-              </div>
-            ) : (
-              groupedDisplayedSessions.map((bucket) => (
-                <div key={bucket.key} className="mb-2">
-                  <div className="px-1 py-1 text-[10px] text-t-ghost">
-                    {bucket.label}
-                  </div>
-                  {bucket.sessions.map((session) => {
-                    const isSessionActive = session.session_id === currentSessionId;
-                    const isSessionHovered = hoveredSession === session.session_id;
-                    const isStreaming = streamManager.isSessionStreaming(
-                      session.session_id,
-                    );
-                    const time = timeAgo(session.updated_at);
+        )}
 
-                    return (
-                      <div
-                        key={session.session_id}
-                        ref={(el) => {
-                          if (el) {
-                            sessionRefs.current.set(session.session_id, el);
-                          } else {
-                            sessionRefs.current.delete(session.session_id);
+        <div
+          ref={scrollContainerRef}
+          className="flex-1 overflow-y-auto scrollbar-thin"
+        >
+          {!currentWorkspace ? (
+            <div className="text-t-ghost px-4 py-12 text-center">
+              {searchQuery ? "No matching sessions" : "No sessions"}
+            </div>
+          ) : (
+            <div className="px-2 py-2">
+              {visibleSessions.length === 0 ? (
+                <div className="text-t-ghost px-2 py-8 text-center text-[12px]">
+                  当前分类下暂无会话
+                </div>
+              ) : (
+                groupedDisplayedSessions.map((bucket) => (
+                  <div key={bucket.key} className="mb-2">
+                    <div className="px-1 py-1 text-[10px] text-t-ghost">
+                      {bucket.label}
+                    </div>
+                    {bucket.sessions.map((session) => {
+                      const isSessionActive =
+                        session.session_id === currentSessionId;
+                      const isSessionHovered =
+                        hoveredSession === session.session_id;
+                      const isStreaming = streamManager.isSessionStreaming(
+                        session.session_id,
+                      );
+                      const time = timeAgo(session.updated_at);
+
+                      return (
+                        <div
+                          key={session.session_id}
+                          ref={(el) => {
+                            if (el) {
+                              sessionRefs.current.set(session.session_id, el);
+                            } else {
+                              sessionRefs.current.delete(session.session_id);
+                            }
+                          }}
+                          onClick={() =>
+                            handleSwitchSession(session.session_id)
                           }
-                        }}
-                        onClick={() => handleSwitchSession(session.session_id)}
-                        onMouseEnter={() => setHoveredSession(session.session_id)}
-                        onMouseLeave={() => setHoveredSession(null)}
-                        className={`
+                          onMouseEnter={() =>
+                            setHoveredSession(session.session_id)
+                          }
+                          onMouseLeave={() => setHoveredSession(null)}
+                          className={`
                           mt-1 flex items-center gap-2 px-3 py-2 cursor-pointer select-none transition-colors rounded-md border border-transparent
                           ${
                             isSessionActive
@@ -682,116 +701,126 @@ export function SessionPanel() {
                               : "bg-transparent border-border/30 hover:bg-white/[0.03]"
                           }
                         `}
-                      >
-                        <div className="flex-1 min-w-0">
-                          <div
-                            className={`truncate text-[12px] ${
-                              isSessionActive ? "text-t-primary" : "text-t-secondary"
-                            }`}
-                          >
-                            {session.title || "New Session"}
-                          </div>
-                          <div className="flex items-center gap-1.5 mt-0.5">
-                            <span
-                              className="text-[10px]"
-                              style={{
-                                opacity: time.opacity,
-                                color: "var(--color-t-dim)",
-                              }}
+                        >
+                          <div className="flex-1 min-w-0">
+                            <div
+                              className={`truncate text-[12px] ${
+                                isSessionActive
+                                  ? "text-t-primary"
+                                  : "text-t-secondary"
+                              }`}
                             >
-                              {time.text}
-                            </span>
-                            {isStreaming && (
-                              <Loader2 size={10} className="text-neon animate-spin" />
-                            )}
+                              {session.title || "New Session"}
+                            </div>
+                            <div className="flex items-center gap-1.5 mt-0.5">
+                              <span
+                                className="text-[10px]"
+                                style={{
+                                  opacity: time.opacity,
+                                  color: "var(--color-t-dim)",
+                                }}
+                              >
+                                {time.text}
+                              </span>
+                              {isStreaming && (
+                                <Loader2
+                                  size={10}
+                                  className="text-neon animate-spin"
+                                />
+                              )}
+                            </div>
                           </div>
+                          {isSessionHovered && (
+                            <button
+                              onClick={(e) => showSessionMenu(e, session)}
+                              className="shrink-0 p-1 rounded text-t-dim hover:text-t-primary hover:bg-white/[0.08] transition-colors"
+                            >
+                              <MoreHorizontal size={14} />
+                            </button>
+                          )}
                         </div>
-                        {isSessionHovered && (
-                          <button
-                            onClick={(e) => showSessionMenu(e, session)}
-                            className="shrink-0 p-1 rounded text-t-dim hover:text-t-primary hover:bg-white/[0.08] transition-colors"
-                          >
-                            <MoreHorizontal size={14} />
-                          </button>
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
-              ))
-            )}
-            {hasMoreSessions && (
-              <button
-                type="button"
-                onClick={() => setShowAllSessions((prev) => !prev)}
-                className="w-full mt-2 py-1.5 text-[11px] text-t-ghost hover:text-neon transition-colors"
-              >
-                {showAllSessions ? "收起" : `展示全部（${visibleSessions.length}）`}
-              </button>
-            )}
+                      );
+                    })}
+                  </div>
+                ))
+              )}
+              {hasMoreSessions && (
+                <button
+                  type="button"
+                  onClick={() => setShowAllSessions((prev) => !prev)}
+                  className="w-full mt-2 py-1.5 text-[11px] text-t-ghost hover:text-neon transition-colors"
+                >
+                  {showAllSessions
+                    ? "收起"
+                    : `展示全部（${visibleSessions.length}）`}
+                </button>
+              )}
+            </div>
+          )}
+        </div>
+
+        {contextMenu && (
+          <ContextMenu
+            position={contextMenu.position}
+            items={contextMenu.items}
+            onClose={() => setContextMenu(null)}
+          />
+        )}
+
+        {/* 重命名对话框 */}
+        {renamingSession && (
+          <div
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
+            onClick={() => setRenamingSession(null)}
+          >
+            <div
+              className="bg-surface rounded-lg border border-border shadow-xl w-[320px]"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="px-4 py-3 border-b border-border">
+                <span className="text-[13px] text-t-primary font-medium">
+                  重命名会话
+                </span>
+              </div>
+              <div className="p-4">
+                <input
+                  type="text"
+                  value={renameValue}
+                  onChange={(e) => setRenameValue(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      handleRenameSession(
+                        renamingSession.session_id,
+                        renameValue,
+                      );
+                    } else if (e.key === "Escape") {
+                      setRenamingSession(null);
+                    }
+                  }}
+                  className="w-full h-8 px-3 rounded bg-base border border-border focus:border-neon/50 text-[12px] text-t-primary outline-none"
+                  placeholder="输入新标题"
+                  autoFocus
+                />
+              </div>
+              <div className="px-4 py-3 border-t border-border flex justify-end gap-2">
+                <button
+                  onClick={() => setRenamingSession(null)}
+                  className="px-3 py-1.5 rounded text-[12px] text-t-muted hover:bg-white/[0.06]"
+                >
+                  取消
+                </button>
+                <button
+                  onClick={() =>
+                    handleRenameSession(renamingSession.session_id, renameValue)
+                  }
+                  className="px-3 py-1.5 rounded text-[12px] bg-neon/20 text-neon hover:bg-neon/30"
+                >
+                  保存
+                </button>
+              </div>
+            </div>
           </div>
         )}
-      </div>
-
-      {contextMenu && (
-        <ContextMenu
-          position={contextMenu.position}
-          items={contextMenu.items}
-          onClose={() => setContextMenu(null)}
-        />
-      )}
-
-      {/* 重命名对话框 */}
-      {renamingSession && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
-          onClick={() => setRenamingSession(null)}
-        >
-          <div
-            className="bg-surface rounded-lg border border-border shadow-xl w-[320px]"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="px-4 py-3 border-b border-border">
-              <span className="text-[13px] text-t-primary font-medium">
-                重命名会话
-              </span>
-            </div>
-            <div className="p-4">
-              <input
-                type="text"
-                value={renameValue}
-                onChange={(e) => setRenameValue(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") {
-                    handleRenameSession(renamingSession.session_id, renameValue);
-                  } else if (e.key === "Escape") {
-                    setRenamingSession(null);
-                  }
-                }}
-                className="w-full h-8 px-3 rounded bg-base border border-border focus:border-neon/50 text-[12px] text-t-primary outline-none"
-                placeholder="输入新标题"
-                autoFocus
-              />
-            </div>
-            <div className="px-4 py-3 border-t border-border flex justify-end gap-2">
-              <button
-                onClick={() => setRenamingSession(null)}
-                className="px-3 py-1.5 rounded text-[12px] text-t-muted hover:bg-white/[0.06]"
-              >
-                取消
-              </button>
-              <button
-                onClick={() =>
-                  handleRenameSession(renamingSession.session_id, renameValue)
-                }
-                className="px-3 py-1.5 rounded text-[12px] bg-neon/20 text-neon hover:bg-neon/30"
-              >
-                保存
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
       </div>
     </TooltipProvider>
   );

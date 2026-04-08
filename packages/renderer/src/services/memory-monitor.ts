@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import { getSlotPool, getDocumentManager } from "@ftre/editor/core";
+import { getTextModelService } from "@ftre/editor";
 
 // ══════════════════════════════════════════════════
 //  类型定义
@@ -113,27 +113,16 @@ async function collectSample(): Promise<MemorySample> {
   let editorActiveSlot: string | null = null;
 
   try {
-    const slotPool = getSlotPool();
-    if (slotPool.isInitialized()) {
-      const stats = slotPool.getStats();
-      editorSlotCount = stats.slotCount;
-      editorActiveSlot = slotPool.getActivePath();
+    const modelService = getTextModelService();
+    if (modelService.isInitialized()) {
+      const dirtyUris = modelService.getDirtyUris();
+      editorPreloadedModelCount = dirtyUris.length;
+      // 简化版：不再追踪 slot 数量
+      editorSlotCount = 0;
+      editorViewStateCount = 0;
     }
   } catch {
-    // slotPool 可能尚未初始化
-  }
-
-  try {
-    const docManager = getDocumentManager();
-    if (docManager.isInitialized()) {
-      const allDocs = docManager.getAll();
-      editorPreloadedModelCount = allDocs.length;
-      editorViewStateCount = allDocs.filter(
-        (d) => d.getViewState() !== null,
-      ).length;
-    }
-  } catch {
-    // DocumentManager 可能尚未初始化
+    // ModelService 可能尚未初始化
   }
 
   return {
