@@ -2,7 +2,6 @@ import { DiffEditor } from "@monaco-editor/react";
 import { useCallback, useRef, useEffect } from "react";
 import type { editor } from "monaco-editor";
 import type * as Monaco from "monaco-editor";
-import { getDocumentManager } from "../core";
 import { registerFtreTheme } from "./theme-registry";
 import { getActiveThemeId } from "./themes";
 import type { DiffEntry } from "../store/types";
@@ -68,7 +67,7 @@ export function MonacoDiffViewer({
   const filePathRef = useRef(diff.filePath);
   filePathRef.current = diff.filePath;
 
-  // 组件卸载时保存 viewState，供后续打开原始文件时恢复滚动位置
+  // 组件卸载时安全释放模型，避免已知 DiffEditor dispose 报错
   useEffect(() => {
     return () => {
       // Prevent double cleanup
@@ -89,16 +88,6 @@ export function MonacoDiffViewer({
           const modModel = modifiedEditor.getModel();
           if (!modModel) {
             return;
-          }
-
-          // 保存 viewState
-          const modifiedViewState = modifiedEditor.saveViewState();
-          if (modifiedViewState) {
-            const docManager = getDocumentManager();
-            const doc = docManager.get(filePathRef.current);
-            if (doc) {
-              doc.saveViewState(modifiedViewState);
-            }
           }
 
           // 在 DiffEditor dispose 之前，用空模型替换当前模型
