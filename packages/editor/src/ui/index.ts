@@ -1,8 +1,29 @@
 export { registerFtreTheme, _resetThemeRegistration } from "./theme-registry";
-export { MonacoEditor } from "./MonacoEditor";
-export { ManagedEditor } from "./ManagedEditor";
 export { MonacoDiffViewer } from "./MonacoDiffViewer";
 export { DiffBar, computeDiffStats } from "./DiffBar";
+
+// 新架构编辑器组件
+export {
+  CodeEditorWidget,
+  type CodeEditorFile,
+  type CodeEditorWidgetProps,
+} from "./CodeEditorWidget";
+
+// EditorPane 工厂
+export {
+  CodeEditorPaneFactory,
+  createCodeEditorPaneFactory,
+  type IContentStore,
+  type ICodeEditorPaneFactoryOptions,
+} from "./CodeEditorPaneFactory";
+
+// EditorPart 视图（支持分屏）
+export {
+  EditorPartView,
+  type EditorFile,
+  type EditorPartViewProps,
+  type EditorPartViewHandle,
+} from "./EditorPartView";
 
 // Themes
 export {
