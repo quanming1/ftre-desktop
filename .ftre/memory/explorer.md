@@ -17,15 +17,24 @@
 
 ## 业务流程
 
-### 文件树渲染（虚拟化）
-`useVirtualizer` Hook (`@tanstack/react-virtual`) → `rowVirtualizer.getVirtualItems()` → 渲染可见项
+### 文件树渲染（直接渲染）
+当前文件树**不使用虚拟化**，直接渲染所有可见项：
 
-虚拟化参数：
-- 行高: `estimateSize: () => 32` (固定32px)
-- 缓冲区: `overscan: 12`
-- 定位: `transform: translateY(虚拟项.start)`
-- 总高度: `rowVirtualizer.getTotalSize()`
-- 滚动到焦点: `rowVirtualizer.scrollToIndex(index, { align: "auto" })`
+```tsx
+// ExplorerView.tsx 中的渲染逻辑
+{flatEntries.map((entry) => (
+  <FileTreeItem key={entry.path} entry={entry} ... />
+))}
+```
+
+焦点滚动使用原生 `scrollIntoView`：
+```tsx
+useEffect(() => {
+  if (!focusedPath) return;
+  const el = treeContainerRef.current?.querySelector(`[data-path="${focusedPath}"]`);
+  el?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+}, [focusedPath, focusSeq]);
+```
 
 ### 文件拖拽移动
 用户拖拽 → `drag-drop-utils:canDrop` 验证 → `drag-drop-utils:resolveDropTarget` 解析 → 执行移动操作
@@ -47,39 +56,28 @@
 - **模块拆分决策**：explorer 不适合拆分为独立 monorepo 包，因其重度依赖应用层核心模块（stores/workspace, stores/editor, services/git-service 等），且无跨项目复用场景
 - **重命名架构**：采用事件驱动（CustomEvent）解耦右键菜单和状态管理，支持键盘快捷键（F2）复用相同逻辑
 
-### 虚拟化方案选型
+### 虚拟化方案演进（重要）
 
-**当前方案**：使用 `@tanstack/react-virtual` (TanStack 出品)
+**当前方案**：**不使用虚拟化**，直接渲染所有文件树项
 
 ```tsx
-import { useVirtualizer } from '@tanstack/react-virtual';
-
-const rowVirtualizer = useVirtualizer({
-  count: flatEntries.length,
-  getScrollElement: () => treeContainerRef.current,
-  estimateSize: () => EXPLORER_ROW_HEIGHT,
-  overscan: EXPLORER_OVERSCAN,
-});
-
-// 渲染
-<div style={{ height: rowVirtualizer.getTotalSize() }}>
-  {rowVirtualizer.getVirtualItems().map((virtualItem) => (
-    <div key={virtualItem.key} style={{ transform: `translateY(${virtualItem.start}px)` }}>
-      {/* 文件树项 */}
-    </div>
-  ))}
-</div>
+// 直接渲染所有项
+{flatEntries.map((entry) => (
+  <FileTreeItem key={entry.path} entry={entry} ... />
+))}
 ```
 
 **方案演进**：
 1. 最初：手动实现简单虚拟化
 2. 尝试：自研 `@ftre/virtual-list` 包（因边界抖动问题放弃）
-3. 最终：采用 `@tanstack/react-virtual`（成熟稳定，API简洁）
+3. 尝试：采用 `@tanstack/react-virtual`（仍有滚动抖动问题）
+4. **最终**：移除虚拟化，直接渲染所有项
 
-**选型原因**：
-- `@tanstack/react-virtual` 是 TanStack 出品的成熟库
-- API 简洁，性能优秀，无边界滚动抖动问题
-- 专门优化固定行高场景
+**最终决策原因**：
+- 虚拟化引入的边界滚动抖动问题难以根除
+- 文件树通常不会同时展开过多节点，直接渲染性能可接受
+- 简化代码，减少依赖（移除了 `@tanstack/react-virtual`）
+- 使用原生 `scrollIntoView` 实现焦点滚动，更稳定可靠
 
 ## 注意事项
 
@@ -87,4 +85,4 @@ const rowVirtualizer = useVirtualizer({
 - 内联编辑时会自动选中文件名部分（不含扩展名）
 - `Sidebar` 组件使用 `rootPath` 作为 key 实现工作区切换时的重新挂载
 - explorer 直接 import 应用层几乎所有核心模块，包括 stores、services、lib、components 和 utils，拆包会导致大量胶水代码
-- 虚拟化依赖 `@tanstack/react-virtual`，已安装在 `renderer/package.json`
+- **文件树现在不使用任何虚拟化方案**，直接渲染所有可见项
