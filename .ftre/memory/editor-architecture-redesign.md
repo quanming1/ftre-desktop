@@ -1,298 +1,258 @@
-# Editor 架构重构方案
+# 编辑器架构 (VSCode 风格)
 
-> 编辑器架构从"三重存储"重构为"单一内容源+状态机驱动"，解决内容同步问题和 isDirty 误报
+> 已完全采用 VSCode 三层架构（Model → Widget → Pane）。旧架构代码（Document + SlotPool）已删除。
 
-**📄 正式设计文档：** `.ftre/specs/editor-architecture-refactor/design.md`  
-**📋 需求文档：** `.ftre/specs/editor-architecture-refactor/requirements.md`
+**📄 正式设计文档：** `.ftre/specs/editor-vscode-architecture/design.md`
 
-## 重构进度
+---
 
-- ✅ Phase 1: Document + DocumentManager（已实现）
-- ✅ Phase 2: SlotPool（已实现，从 editor-manager.ts 拆分）
-- ✅ Phase 3: 简化 ManagedEditor.tsx（已迁移）
-- ✅ Phase 4: 移除双重状态更新（已完成，renderer 包所有旧架构调用已清理）
-- ⏳ Phase 5: 删除旧的 editor-core.ts 和 editor-manager.ts（新旧架构并行中）
+## 架构图
 
-### Phase 4 详细完成记录
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                          Layer 1: Model Service                             │
+│  ┌─────────────────────────────────────────────────────────────────────┐   │
+│  │ ModelService (全局单例)                                              │   │
+│  │ - 按 URI 管理所有 ITextModel                                        │   │
+│  └─────────────────────────────────────────────────────────────────────┘   │
+│                                  ↓ getModel()                              │
+│  ┌─────────────────────────────────────────────────────────────────────┐   │
+│  │ TextFileModel (文件状态机)                                          │   │
+│  │ - 包装 ITextModel                                                   │   │
+│  │ - versionId 判断 dirty (Undo 回保存点自动变 clean)                  │   │
+│  └─────────────────────────────────────────────────────────────────────┘   │
+└─────────────────────────────────────────────────────────────────────────────┘
+                                    getModel()
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                          Layer 2: Widget Layer                              │
+│  ┌─────────────────────────────────────────────────────────────────────┐   │
+│  │ CodeEditorWidget (Monaco 封装)                                      │   │
+│  │ - 封装 Monaco Editor 实例                                           │   │
+│  │ - 支持 setModel() 切换内容                                          │   │
+│  │ - 管理 ViewState                                                    │   │
+│  └─────────────────────────────────────────────────────────────────────┘   │
+└─────────────────────────────────────────────────────────────────────────────┘
+                                    this.editorControl
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                          Layer 3: Pane Layer                                │
+│  ┌─────────────────────────────────────────────────────────────────────┐   │
+│  │ EditorPanes (按类型复用)                                            │   │
+│  │ - 每个 EditorGroup 一个实例                                         │   │
+│  │ - 按 EditorPane 类型复用（不是按文件路径）                          │   │
+│  │ - 切换 tab 时调用 pane.setInput()                                   │   │
+│  └─────────────────────────────────────────────────────────────────────┘   │
+│                                  ↓ setInput()                              │
+│  ┌─────────────────────────────────────────────────────────────────────┐   │
+│  │ TextEditorPane (文本编辑器 Pane)                                    │   │
+│  │ - 持有 CodeEditorWidget                                             │   │
+│  │ - 处理 FileEditorInput                                              │   │
+│  │ - 管理 ViewState 保存/恢复                                          │   │
+│  └─────────────────────────────────────────────────────────────────────┘   │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
 
-**已迁移文件（renderer 包）：**
-
-| 文件 | 变更 |
-|------|------|
-| `packages/renderer/src/features/explorer/FileTreeItem.tsx` | 预加载逻辑迁移：用 `docManager.hasContent()` 和 `docManager.preload()` 替代 `editorCore.setContent` |
-| `packages/renderer/src/features/editor/EditorArea.tsx` | 文件重命名/删除事件：用 `docManager.getDirtyPaths()` 和 `doc.getContentForSave()` 替代 editorCore |
-| `packages/renderer/src/features/editor/TabBar.tsx` | 保存关闭逻辑：用 `docManager.get().getContentForSave()` 替代 `editorCore.resolveContent()` |
-| `packages/renderer/src/features/memory/MemoryMonitorPanel.tsx` | 统计信息：用 `slotPool.getStats()` 替代 `editorManager.getStats()` |
-| `packages/renderer/src/services/memory-monitor.ts` | 统计信息：用 `slotPool.getStats()` 替代 `editorManager.getStats()` |
-| `packages/renderer/src/app/main.tsx` | 移除 `editorManager.init()`，只初始化 `docManager` 和 `slotPool` |
-| `packages/renderer/src/features/editor/core/index.ts` | 重新导出 `getDocumentManager`, `getSlotPool` 等新架构 API |
-
-**仍保留的旧架构文件（Phase 5 删除）：**
-- `packages/editor/src/core/editor-core.ts` - 三重存储
-- `packages/editor/src/core/editor-manager.ts` - 混杂管理器
-- `packages/editor/src/ui/MonacoEditor.tsx` - 旧编辑器组件
-- 测试文件中的旧 mock（需更新测试）
+---
 
 ## 核心文件
 
-| 文件 | 职责 | 状态 |
-|------|------|------|
-| `packages/editor/src/core/types.ts` | 核心类型：DocState, FileMetadata, ViewState | ✅ 已创建 |
-| `packages/editor/src/core/document.ts` | Document 类（状态机、内容管理、跨平台元数据） | ✅ 已实现 |
-| `packages/editor/src/core/document-manager.ts` | DocumentManager（生命周期管理、快照、工作区切换） | ✅ 已实现 |
-| `packages/editor/src/core/slot-pool.ts` | SlotPool（Monaco 实例池、LRU 回收、DOM 挂载） | ✅ 已实现 |
-| `packages/editor/src/ui/ManagedEditor.tsx` | 新架构编辑器组件（绑定 Document + SlotPool） | ✅ 已迁移 |
-| `packages/editor/src/store/editor-store.ts` | Store 集成（仅使用新架构） | ✅ 已移除 editorCore 依赖 |
-| `packages/editor/src/core/editor-core.ts` | 旧架构三重存储（待删除） | ⚠️ 已清理所有调用 |
-| `packages/editor/src/core/editor-manager.ts` | 旧架构混杂管理器（待删除） | ⚠️ 已清理所有调用 |
+### 基础层
 
-**导出入口：** `packages/editor/src/core/index.ts`  
-**全局初始化：** `packages/renderer/src/app/main.tsx` 初始化 docManager 和 slotPool
+| 层级 | 文件 | 职责 | 对标 VSCode |
+|------|------|------|-------------|
+| Model | `packages/editor/src/core/model-service.ts` | 全局 ITextModel 管理 | `ModelService` |
+| Model | `packages/editor/src/core/text-file-model.ts` | 文件状态机 + versionId dirty 判断 | `TextFileEditorModel` |
+| Model | `packages/editor/src/core/text-file-model-manager.ts` | 管理所有 TextFileModel | `TextFileEditorModelManager` |
+| Widget | `packages/editor/src/widget/code-editor-widget.ts` | Monaco Editor 封装，支持 setModel | `CodeEditorWidget` |
+| Pane | `packages/editor/src/panes/editor-pane.ts` | EditorPane 基类 | `EditorPane` |
+| Pane | `packages/editor/src/panes/text-editor-pane.ts` | 文本编辑器 Pane 实现 | `TextCodeEditor` |
+| Pane | `packages/editor/src/panes/editor-panes.ts` | 按类型复用 EditorPane | `EditorPanes` |
+| Input | `packages/editor/src/input/editor-input.ts` | EditorInput 基类 | `EditorInput` |
+| Input | `packages/editor/src/input/file-editor-input.ts` | 文件编辑器 Input | `FileEditorInput` |
 
-## 初始化流程
+### Workbench 层 (EditorGroup)
 
-```
-main.tsx
-  ├─ import monaco-setup (workers 配置)
-  ├─ getDocumentManager().init(monaco)  ← 新架构
-  ├─ getSlotPool().init(monaco)         ← 新架构
-  └─ registerFtreTheme(monaco)
-```
+| 文件 | 职责 | 对标 VSCode |
+|------|------|-------------|
+| `packages/editor/src/workbench/editorGroup.ts` | 编辑器组管理（打开/关闭/切换） | `EditorGroupView` |
+| `packages/editor/src/workbench/editorGroupModel.ts` | 编辑器数据模型 | `EditorGroupModel` |
+| `packages/editor/src/workbench/editorMemento.ts` | ViewState 持久化 (LRU + localStorage) | `EditorMemento` |
+| `packages/editor/src/workbench/editorPart.ts` | 多组网格布局管理 | `EditorPart` |
 
-## Document 状态机
+### UI 集成层
 
-```
-IDLE ──────→ LOADED ←──────→ HIBERNATED
-         load()   hibernate()
-         restore() activate()
-```
-
-**状态说明：**
-- `idle`: 初始状态，等待加载
-- `loaded`: Monaco model 已创建，可编辑
-- `hibernated`: 休眠（释放 model，cache 保留未保存内容）
-- Document 被销毁时直接调用 `dispose()`，不经过额外状态
-
-## DocumentManager API
-
-```typescript
-interface ReadResult {
-  content: string;
-  language?: string;
-  error?: string;
-}
-
-type ReadFileFn = (path: string) => Promise<ReadResult>;
-
-class DocumentManager {
-  // 基本操作
-  open(path, language): Document           // 创建新 Document
-  get(path): Document | undefined          // 获取已有 Document
-  has(path): boolean                       // 是否存在 Document
-  hasContent(path): boolean                // Document 是否已加载内容（state !== idle）
-  close(path): void
-  closeAll(): void
-  
-  // 异步加载文件内容（从 ManagedEditor 下沉至此）
-  loadAsync(path, language, readFn: ReadFileFn): Promise<Document | null>
-  
-  // 预加载（用于 Explorer hover 预读取）
-  preload(path, language, content: string): void
-  
-  // 文件系统事件处理
-  handleFileRenamed(oldPath, newPath): void
-  handleDirectoryRenamed(oldDir, newDir): void
-  handleFileDeleted(path): void
-  handleDirectoryDeleted(dirPath): void
-  
-  // 工作区切换
-  hibernateAll(): void
-  hibernateOthers(activePath): void        // 休眠非活跃工作区的文档
-  wakeupAll(): void
-  
-  // Dirty 检查
-  getDirtyPaths(): string[]                // 返回所有 dirty 文件路径
-  getDirtyFiles(): { path, name }[]        // 返回所有 dirty 文件信息
-  hasUnsavedChanges(): boolean
-}
-
-// 全局单例
-export function getDocumentManager(): DocumentManager
-```
-
-**设计意图：** `loadAsync` 接收 `readFn` 回调而非直接依赖 `HostBridge`，保持 core 层不依赖 runtime 层。
-
-## SlotPool API
-
-```typescript
-class SlotPool {
-  init(monaco): void
-  isInitialized(): boolean
-  
-  // 获取/释放编辑器实例
-  acquire({ doc, container, onDidCreate, onDidChangeContent }): IStandaloneCodeEditor | null
-  release(path, doc): void
-  
-  // 统计信息
-  getStats(): {
-    slotCount: number;
-    preloadedModelCount: number;
-    viewStateCount: number;
-    activeSlotPath: string | null;
-  }
-  
-  getActivePath(): string | null
-  setTheme(theme): void
-  updateOptions(options): void
-  closeAll(): void
-  dispose(): void
-}
-
-// 全局单例
-export function getSlotPool(): SlotPool
-```
-
-## Document API
-
-```typescript
-class Document {
-  readonly path: string
-  readonly language: string
-  
-  // 状态查询
-  get state(): DocState                    // 'idle' | 'loaded' | 'hibernated'
-  get model(): ITextModel | null
-  get metadata(): FileMetadata             // { lineEnding, hasBom, encoding }
-  
-  // 内容获取
-  getContent(): string                     // 规范化内容（LF、无 BOM）
-  getContentForSave(): string              // 恢复原始格式（CRLF/BOM）
-  
-  // 状态变更
-  load(rawContent): void                   // 从磁盘加载（检测元数据、计算 hash）
-  activate(): void                         // 从 hibernated 唤醒
-  hibernate(): void                        // 休眠（释放 model、保留 cache）
-  refresh(newContent): void                // 从外部刷新内容
-  markSaved(): void                        // 标记为已保存（更新 diskHash）
-  
-  // Dirty 检测
-  isDirty(): boolean                       // hash 比较
-  
-  // 视图状态
-  saveViewState(state): void
-  getViewState(): ViewState | null
-  
-  // 监听
-  onStateChange(listener): () => void
-}
-```
-
-## ManagedEditor 绑定流程
-
-```
-ManagedEditor 渲染
-  ├─ useMemo: doc = docManager.get(path) ?? docManager.open(path, lang)
-  ├─ useEffect 1: 监听 doc.onStateChange，更新本地 state
-  ├─ useEffect 2: 懒加载
-  │   ├─ docState === "idle":
-  │   │   └─ docManager.loadAsync(path, lang, bridge.readFile)
-  │   └─ docState === "hibernated": doc.activate() → slotPool.acquire()
-  └─ useEffect 清理: slotPool.release(path)
-```
-
-**关键实现细节：**
-- `docManager.get/open` 必须在 `useMemo` 中调用，避免 React 渲染阶段副作用
-- 文件读取职责完全下沉到 DocumentManager，ManagedEditor 退化为纯 UI 组件
-
-## Store 集成（新架构独占）
-
-`packages/editor/src/store/editor-store.ts` 已完全迁移到新架构，所有旧架构 `editorCore.xxx()` 调用已移除：
-
-| Store 方法 | 新架构调用 |
-|------------|-----------|
-| `suspendForWorkspace` | `docManager.hibernateAll()` |
-| `resumeForWorkspace` | `docManager.wakeupAll()` |
-| `handleFileRenamed` | `docManager.handleFileRenamed()` |
-| `handleDirectoryRenamed` | `docManager.handleDirectoryRenamed()` |
-| `handleFileDeleted` | `docManager.handleFileDeleted()` |
-| `handleDirectoryDeleted` | `docManager.handleDirectoryDeleted()` |
-| `closeFile` | `docManager.close(path)` |
-| `closeAllFiles` | `docManager.closeAll()` |
-| `refreshFile` | `docManager.get(path)?.refresh(newContent)` |
-| `hydrateFileContent` | `docManager.get(path)?.load(content)` |
-| `markSaved` | `docManager.get(path)?.markSaved()` |
-| `hasUnsavedChanges` | `docManager.hasUnsavedChanges()` |
-
-## 关键设计决策
-
-1. **单一内容源** - Document 持有唯一可信内容，避免 React Store + editorCore + Monaco 三重同步
-2. **hash 判断 dirty** - Document 存储 diskHash，编辑时比较规范化内容的 hash
-3. **状态机简化** - 仅 3 态（idle / loaded / hibernated），无 loading 和 closed 状态，状态流转更清晰
-4. **文件读取职责下沉** - DocumentManager 提供 `loadAsync`，ManagedEditor 退化为纯 UI
-5. **Hibernate 机制** - 工作区切换时休眠文档，恢复时重新激活
-6. **跨平台兼容** - FileMetadata 存储原始 BOM/CRLF，编辑时用 LF，保存时恢复
-7. **分层清晰** - core 层不依赖 runtime 层，通过回调获取 runtime 能力
-
-## 跨平台处理
-
-| 问题 | 方案 |
+| 文件 | 职责 |
 |------|------|
-| Windows CRLF vs Unix LF | Monaco 内统一用 LF，保存时恢复原始行尾符 |
-| UTF-8 BOM | 读取时检测 hasBom，保存时恢复 BOM 头 |
-| mixed 行尾符 | Monaco 强制规范化为 LF，保存时按 LF 处理（无法恢复原始混合状态） |
-| isDirty 误报 | hash 比较规范化后的内容（LF、无 BOM）|
+| `packages/editor/src/ui/EditorGroupPane.tsx` | 单个 Group 的编辑器组件，与 editor-store 集成 |
+| `packages/renderer/src/features/editor/EditorArea.tsx` | 主编辑器区域（已迁移到新架构） |
+| `packages/renderer/src/hooks/useMonaco.ts` | Monaco 全局实例 hook |
+
+### 运行时层
+
+| 文件 | 职责 |
+|------|------|
+| `packages/editor/src/runtime/save-file.ts` | 统一保存入口，操作 TextFileModel |
+| `packages/editor/src/runtime/host-bridge.ts` | 宿主通信桥接 |
+
+### 状态管理
+
+| 文件 | 职责 |
+|------|------|
+| `packages/editor/src/store/editor-store.ts` | Zustand store，管理 groups/tabs，操作 ModelManager |
+
+---
+
+## 调用链路
+
+### 打开文件
+```
+FileEditorInput
+  → EditorPanes.openEditor()
+  → EditorPanes.doShowEditorPane() (按类型复用)
+  → TextEditorPane.setInput()
+  → FileEditorInput.resolve()
+  → TextFileModelManager.resolve()
+  → TextFileModel.resolve()
+  → ModelService.createModel()
+  → CodeEditorWidget.setModel()
+```
+
+### 保存文件
+```
+TextFileModel.save()
+  → fileReader.write() (HostBridge)
+  → markSaved() (更新 bufferSavedVersionId)
+  → setDirty(false)
+  → fire onDidChangeDirty
+```
+
+### 切换 Tab
+```
+EditorPanes.openEditor(newInput)
+  → 找到当前 active pane
+  → pane.setInput(newInput) (不换 pane！)
+  → save 旧 input 的 ViewState
+  → CodeEditorWidget.setModel(newModel)
+  → restore 新 input 的 ViewState
+```
+
+### 关闭 Tab → 清理 ViewState
+```
+EditorGroup.closeEditor(input)
+  → _model.closeEditor(editor)        // 从 model 移除
+  → _editorPanes.closeActiveEditor()  // 关闭 pane
+  → this._closingEditor = editor      // 标记正在关闭
+  → editor.dispose()                  // 触发 onWillDispose
+       → editorMemento.onWillDispose  // 清理 ViewState
+  → this._closingEditor = undefined   // 清理标记
+```
+
+---
+
+## 设计决策
+
+### 1. 用 versionId 判断 Dirty
+```typescript
+// text-file-model.ts
+private bufferSavedVersionId: number = 0;
+
+markSaved(): void {
+  this.bufferSavedVersionId = this.textEditorModel.getAlternativeVersionId();
+}
+
+get isDirty(): boolean {
+  return this.textEditorModel.getAlternativeVersionId() !== this.bufferSavedVersionId;
+}
+```
+- **优点**: Undo 回保存点自动变 clean，性能更好
+- **缺点**: 无法检测"改回原样"（修改后 Undo 再修改回来）
+
+### 2. EditorPane 按类型复用
+```typescript
+// editor-panes.ts
+doShowEditorPane(descriptor): EditorPane {
+  const existing = this.editorPanes.find(p => descriptor.describes(p));
+  if (existing) return existing;  // 复用！
+  return this.instantiateEditorPane(descriptor);
+}
+```
+- 每个 Group 只需 1 个 TextEditorPane
+- 切换 tab 时不销毁 Pane，只换 Input
+
+### 3. setModel 切换内容
+```typescript
+// code-editor-widget.ts
+setModel(model: ITextModel | null): void {
+  this._detachModel();
+  this._attachModel(model);
+}
+```
+- 不销毁 CodeEditorWidget，切换更快
+- 需要手动管理 ViewState
+
+### 4. EditorInput dispose 触发 ViewState 清理
+```typescript
+// editorMemento.ts
+clearEditorStateOnDispose(resource: string, editor: EditorInput): void {
+  const disposable = editor.onWillDispose(() => {
+    this.clearEditorState(resource);
+    this._editorDisposables?.delete(editor);
+  });
+  this._editorDisposables.set(editor, disposable);
+}
+
+// editorGroup.ts - closeEditor 中调用 dispose
+async closeEditor(input: EditorInput): Promise<void> {
+  // ... 关闭逻辑 ...
+  this._closingEditor = editor;   // 标记防止重复
+  editor.dispose();                // 触发 onWillDispose
+  this._closingEditor = undefined;
+}
+```
+- **参考 VSCode**: `EditorGroupView.handleOnDidCloseEditor` 中调用 `editor.dispose()`
+- **关键点**: 必须在 `closeEditor` 中显式调用 `dispose()`，仅移除 model 不够
+
+### 5. canDispose 检查避免跨组重复 dispose
+```typescript
+// 参考 VSCode 的 canDispose 机制
+handleOnDidCloseEditor(editor: EditorInput) {
+  // 检查 editor 是否在其他 group 中仍然打开
+  if (this.canDispose(editor)) {
+    editor.dispose();  // 安全 dispose
+  }
+}
+
+private canDispose(editor: EditorInput): boolean {
+  // 遍历所有 group，检查 editor 是否在其他地方打开
+  for (const group of this.groups) {
+    if (group.contains(editor)) return false;
+  }
+  return true;
+}
+```
+- **场景**: Split view 同一文件在多个 group 中打开
+- **问题**: 关闭其中一个 tab 时不能 dispose，否则影响其他 group
+- **方案**: 关闭时先 `canDispose()` 检查，只有所有 group 都关闭后才 dispose
+- **VSCode 参考**: `editorPart.ts` → `handleOnDidCloseEditor` → `canDispose`
+
+---
 
 ## 注意事项
 
-- **渲染阶段副作用**：`docManager.get/open` 必须在 `useMemo` 中调用，不能在渲染阶段直接调用
-- **Monaco 初始化顺序**：`docManager.init()` 和 `slotPool.init()` 必须在 Monaco Workers 配置之后调用
-- **分层依赖**：core 层通过回调（如 `ReadFileFn`）而非直接依赖获取 runtime 能力
-- **旧文件待删除**：editor-core.ts 和 editor-manager.ts 已无调用，可安全删除
+1. **versionId 的局限性**: Undo 回保存点自动变 clean，但无法检测"改回原样"
+2. **EditorPane 复用**: 每个 Group 只需 1-2 个 Pane，大大减少 Monaco 实例数量
+3. **ViewState 管理**: setModel 不自动保存/光标位置，需手动调用 `saveViewState`/`restoreViewState`
+4. **Model 共享**: ModelService 全局按 URI 管理，支持 split view 共享同一文件
+5. **FileReader 接口**: `TextFileModelManager` 依赖宿主层实现文件读写
+6. **EditorInput dispose 时机**: 关闭 tab 时必须调用 `editor.dispose()` 才能触发 ViewState 清理，仅 `model.closeEditor()` 不够
+7. **跨组 Editor 共享**: 同一文件在多个 group 打开时，`canDispose()` 检查必不可少，避免过早 dispose 影响其他 group
 
-## 迁移路径
+---
 
-**新架构入口：** `packages/editor/src/core/index.ts` 导出：
-```typescript
-export { Document, type DocState, type FileMetadata } from "./document";
-export { DocumentManager, type DocumentSnapshot } from "./document-manager";
-export { SlotPool, type Slot } from "./slot-pool";
-export { getDocumentManager, getSlotPool } from "./singleton";
-```
+## 历史版本
 
-**Phase 5 待清理：**
-- `packages/editor/src/core/editor-core.ts` - 三重存储，所有调用已移除
-- `packages/editor/src/core/editor-manager.ts` - 混杂管理器，所有调用已移除
-- `packages/editor/src/ui/MonacoEditor.tsx` - 旧编辑器组件（已被 ManagedEditor 替代）
-- 测试文件中的旧 mock（FileTreeItem.test.tsx、MonacoDiffViewer.test.tsx）
-
-## 架构守护者 Agent
-
-**Agent 文件：** `.ftre/agents_def/editor-guardian/AGENT.md`
-
-**触发方式：**
-```typescript
-send_email({
-  to: "editor-guardian",
-  subject: "[审查请求] 编辑器模块变更",
-  content: "变更文件: xxx.ts\n变更描述: ..."
-});
-```
-
-**核心职责：**
-- 审查涉及 editor 模块的变更，阻止违反单一内容源原则的代码
-- 向其他 Agent 或开发者解释架构设计意图
-- 评估新需求对现有架构的影响，提供迁移建议
-
-**守护内容：**
-- 三层分离原则（UI / Instance / Content）
-- 单一内容源原则（Monaco Model 或 cache，无副本）
-- isDirty 基于 hash 比较
-- 跨平台 BOM/CRLF 规范化
-- Slot 复用安全
-- 历史教训（如 loading 状态移除原因）
-
-**四不要原则：**
-1. 不要创建内容的额外副本（React Store 或全局变量）
-2. 不要直接修改 Document 的 model，通过 Document 提供的 API 操作
-3. 不要在 acquire() 前操作 model，必须通过 SlotPool 获取编辑器实例
-4. 不要在工作区切换时销毁 Document，应使用 hibernate/activate 机制
+### v1: Document + SlotPool 架构（已删除）
+- 按路径缓存最多 8 个 Slot
+- hash 判断 dirty
+- 切换时 detach/attach DOM
+- **删除时间**: 架构重构完成后直接删除，无兼容层
+- **删除的文件**: `editor-core.ts`, `editor-manager.ts`, `document.ts`, `document-manager.ts`, `slot-pool.ts`, `types.ts`

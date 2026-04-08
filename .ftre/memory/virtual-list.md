@@ -1,6 +1,6 @@
 # 虚拟列表组件 (@ftre/virtual-list)
 
-> 高性能虚拟列表组件，支持动态高度和固定高度两种模式。**当前文件树未使用此组件**，使用 `@tanstack/react-virtual` 替代。
+> 高性能虚拟列表组件，支持动态高度和固定高度两种模式。**当前文件树不使用此组件**。
 
 ## 包信息
 
@@ -52,7 +52,7 @@ export { VirtualRows }
 
 | 场景 | 状态 | 说明 |
 |------|------|------|
-| **文件树** | ❌ 未使用 | 使用 `@tanstack/react-virtual` 替代 |
+| **文件树** | ❌ 不使用 | 已移除虚拟化，直接渲染所有项 |
 | 消息列表 | ⏳ 候选 | 计划使用，待实现 |
 | 日志流 | ⏳ 候选 | 潜在适用场景 |
 
@@ -67,26 +67,35 @@ export { VirtualRows }
 - 多次尝试修复未果（重构 VLManager、使用 useSyncExternalStore、优化边界计算等）
 - 因边界"吸顶"问题放弃使用
 
-### 3. 采用 @tanstack/react-virtual
+### 3. 尝试 @tanstack/react-virtual
 - 安装 `@tanstack/react-virtual` 替代
-- API 简洁，无边界抖动问题
-- 文件树当前使用此方案
+- 仍有滚动抖动问题
+- 最终移除虚拟化
+
+### 4. 移除虚拟化
+- 文件树现在直接渲染所有项，不使用任何虚拟化
+- 使用原生 `scrollIntoView` 实现焦点滚动
+- 移除了 `@tanstack/react-virtual` 依赖
 
 ## 设计决策
 
-### 为何自研方案在文件树中失败？
+### 为何虚拟化方案在文件树中失败？
 
 **尝试过程**：
 1. 集成 `useVirtualization` Hook 到 `ExplorerView.tsx`
 2. 出现边界滚动抖动问题
 3. 多轮修复尝试未解决
+4. 尝试 `@tanstack/react-virtual` 仍有抖动
+5. 最终决策：移除虚拟化
 
 **根因定位**：
 - 顶部占位元素 (`topSpacer`) 在边界处会突然消失，导致视觉跳变
 - 根本原因在于边界处的 overscan 计算和 topBlank 高度计算冲突
+- 文件树场景下（可折叠的树形结构）虚拟化复杂度较高
 
-**决策**：文件树改用 `@tanstack/react-virtual`
+**最终决策**：文件树不使用虚拟化，直接渲染所有项
 - 保留 `@ftre/virtual-list` 包，待后续用于消息列表等场景
+- 文件树场景数据量通常可控（不会同时展开过多节点）
 
 ### 核心算法要点（仅作参考）
 
@@ -231,4 +240,4 @@ function MyList({ items }) {
 ## 相关文件
 
 - 包位置: `packages/virtual-list/`
-- 文件树实现: `packages/renderer/src/features/explorer/ExplorerView.tsx`（使用 `@tanstack/react-virtual`）
+- 文件树实现: `packages/renderer/src/features/explorer/ExplorerView.tsx`（不使用虚拟化，直接渲染）
