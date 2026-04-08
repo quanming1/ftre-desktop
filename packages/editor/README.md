@@ -28,6 +28,62 @@
 
 现在，`@ftre/editor` 是一个完全独立的编辑器包，通过 `HostBridge` 和 `EditorStoreHost` 接口与宿主应用解耦。
 
+## 🆕 VSCode 风格架构 (2024)
+
+在 2024 年的架构重构中，我们参考 VSCode 编辑器架构，实现了完整的编辑器组件层次：
+
+### 新架构组件
+
+| 组件 | 职责 | VSCode 对应 |
+|------|------|-------------|
+| `EditorInput` | 编辑器输入抽象 | `vs/workbench/common/editor.ts` |
+| `EditorPane` | 编辑器面板基类 | `vs/workbench/browser/parts/editor/editorPane.ts` |
+| `EditorPanes` | 面板复用池 | `vs/workbench/browser/parts/editor/editorPanes.ts` |
+| `EditorGroup` | 编辑器组 | `vs/workbench/browser/parts/editor/editorGroupView.ts` |
+| `EditorPart` | 多组管理 | `vs/workbench/browser/parts/editor/editorPart.ts` |
+| `EditorMemento` | ViewState 持久化 | `vs/workbench/browser/parts/editor/editorPane.ts` |
+
+### React 组件
+
+```typescript
+// 单编辑器（新架构）
+import { CodeEditorWidget } from '@ftre/editor';
+
+<CodeEditorWidget
+  file={file}
+  minimapEnabled={true}
+  onContentChange={handleContentChange}
+  onDirtyChange={handleDirtyChange}
+  onSave={handleSave}
+/>
+
+// 支持分屏
+import { EditorPartView, EditorPartViewHandle } from '@ftre/editor';
+
+const editorRef = useRef<EditorPartViewHandle>(null);
+
+// 分屏
+editorRef.current?.splitEditor(GroupDirection.RIGHT);
+
+// 合并
+editorRef.current?.mergeAllGroups();
+
+<EditorPartView
+  ref={editorRef}
+  initialFile={file}
+  onActiveGroupChange={handleActiveGroupChange}
+/>
+```
+
+### 核心优势
+
+1. **编辑器复用** - EditorPanes 管理实例池，不销毁重建
+2. **ViewState 同步恢复** - 使用 `ScrollType.Immediate`，无延迟
+3. **清晰的分层** - common / browser / workbench 分离
+4. **可扩展架构** - 支持自定义 EditorPane 和 EditorInput
+
+详细设计请参考 `ARCHITECTURE.md` 和 `MIGRATION_PLAN.md`。
+
 ## 🎯 定位
 
 `@ftre/editor` 是一个**框架无关**的编辑器核心库，设计目标：
@@ -41,23 +97,40 @@
 
 ```
 @ftre/editor/
-├── core/           # 非响应式内核
-│   └── editor-core.ts
-├── runtime/        # 运行时管道
+├── common/              # 通用接口（对标 vs/editor/common）
+│   └── editorCommon.ts
+├── browser/             # 浏览器接口（对标 vs/editor/browser）
+│   └── editorBrowser.ts
+├── workbench/           # 工作台集成（对标 vs/workbench/browser/parts/editor）
+│   ├── editorInput.ts         # EditorInput 抽象
+│   ├── editorMemento.ts       # ViewState 持久化
+│   ├── editorPane.ts          # EditorPane 基类
+│   ├── editorPanes.ts         # 面板复用池
+│   ├── editorGroup.ts         # 编辑器组
+│   ├── editorPart.ts          # 多组管理
+│   ├── textCodeEditorPane.ts  # 代码编辑器面板
+│   ├── textModelResolverService.ts  # TextModel 管理
+│   └── viewStateCompat.ts     # ViewState 兼容层
+├── core/                # 核心服务
+│   ├── text-model.ts
+│   └── code-editor.ts
+├── runtime/             # 运行时管道
 │   ├── host-bridge.ts
 │   └── save-file.ts
-├── store/          # 状态管理
+├── store/               # 状态管理
 │   ├── types.ts
 │   └── editor-store.ts
-├── ui/             # React 组件
-│   ├── MonacoEditor.tsx
+├── ui/                  # React 组件
+│   ├── CodeEditorWidget.tsx   # 编辑器组件
+│   ├── EditorPartView.tsx     # 分屏支持
+│   ├── CodeEditorPaneFactory.ts
 │   ├── MonacoDiffViewer.tsx
 │   ├── DiffBar.tsx
 │   ├── TabBar.tsx
 │   ├── Breadcrumb.tsx
 │   ├── file-icons.ts
 │   └── theme-registry.ts
-└── utils/          # 工具函数
+└── utils/               # 工具函数
     ├── path-utils.ts
     └── breadcrumb-utils.ts
 ```
