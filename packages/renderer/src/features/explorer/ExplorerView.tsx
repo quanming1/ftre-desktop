@@ -210,13 +210,11 @@ export function ExplorerView() {
   }, [treeEntries]);
 
   // 虚拟化策略：始终启用虚拟化，但在 pending 状态时扩展可见范围以包含目标行
-  // 这样既保持大型项目的性能，又确保 InlineInput 能正确渲染
   const canVirtualize = !!rootPath;
 
   // 计算 pending 操作的目标行索引，用于扩展可见范围
   const pendingTargetIndex = useMemo(() => {
     if (pendingCreate) {
-      // 新建时目标是父目录的最后一个子项位置
       return flatEntries.findIndex((e) => e.path === pendingCreate.dirPath);
     }
     if (pendingRename) {
@@ -905,9 +903,8 @@ export function ExplorerView() {
       setScrollTop(el.scrollTop);
     };
 
-    // 使用 requestAnimationFrame 节流滚动事件，避免频繁渲染
     const handleScroll = () => {
-      if (rafId !== null) return; // 已有待处理的帧，跳过
+      if (rafId !== null) return;
       rafId = requestAnimationFrame(() => {
         rafId = null;
         syncViewport();
@@ -927,6 +924,7 @@ export function ExplorerView() {
     };
   }, []);
 
+  // 焦点项自动滚动到可视区域
   useEffect(() => {
     if (!canVirtualize) return;
     if (!focusedPath) return;

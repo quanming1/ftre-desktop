@@ -193,59 +193,63 @@ export function Workbench() {
     return index >= 0 && index < visiblePanels.length - 1;
   };
 
-  // Resize handler for sessions panel
-  const onSessionsResize = useCallback(
-    (delta: number) => {
-      const sessionsIndex = panelOrder.indexOf("sessions");
-      const isLast = sessionsIndex === panelOrder.length - 1;
-      const adjustedDelta = isLast ? -delta : delta;
-      setSessionsWidth(Math.max(140, Math.min(400, sessionsWidth + adjustedDelta)));
+  // Create resize handler for fixed-width panels (sessions, sidebar)
+  // The resize handle is placed AFTER afterPanelId, so:
+  // - If the target panel === afterPanelId, it's on the LEFT of the handle -> delta positive = grow
+  // - If the target panel === nextPanelId, it's on the RIGHT of the handle -> delta positive = shrink
+  const createFixedPanelResizeHandler = useCallback(
+    (
+      targetPanel: "sessions" | "sidebar",
+      afterPanelId: PanelId,
+    ) => {
+      return (delta: number) => {
+        // Read current width from store at call time, not at creation time
+        const state = useLayout.getState();
+        const currentWidth = targetPanel === "sessions" ? state.sessionsWidth : state.sidebarWidth;
+        const setWidth = targetPanel === "sessions" ? state.setSessionsWidth : state.setSidebarWidth;
+        
+        const currentOrder = state.panelOrder;
+        const index = currentOrder.indexOf(afterPanelId);
+        const nextPanelId = currentOrder[index + 1];
+        // If target panel is on the RIGHT of the handle, reverse delta
+        const adjustedDelta = nextPanelId === targetPanel ? -delta : delta;
+        setWidth(Math.max(140, Math.min(400, currentWidth + adjustedDelta)));
+      };
     },
-    [setSessionsWidth, sessionsWidth, panelOrder],
-  );
-
-  // Resize handler for sidebar
-  const onSidebarResize = useCallback(
-    (delta: number) => {
-      const sidebarIndex = panelOrder.indexOf("sidebar");
-      const isLast = sidebarIndex === panelOrder.length - 1;
-      const adjustedDelta = isLast ? -delta : delta;
-      setSidebarWidth(Math.max(140, Math.min(400, sidebarWidth + adjustedDelta)));
-    },
-    [setSidebarWidth, sidebarWidth, panelOrder],
+    [], // No dependencies - reads from store at call time
   );
 
   // Resize handler for editor/chat divider
-  const onCenterResize = useCallback(
-    (delta: number) => {
-      const container = containerRef.current;
-      if (!container) return;
-      // Available width = container width minus fixed panels
-      const sessionsW = panelVisible.sessions ? sessionsWidth : 0;
-      const sidebarW = panelVisible.sidebar ? sidebarWidth : 0;
-      const availableWidth = container.offsetWidth - sessionsW - sidebarW;
-      if (availableWidth <= 0) return;
-      // Convert pixel delta to ratio delta
-      const ratioDelta = (delta / availableWidth) * 100;
+  const createCenterResizeHandler = useCallback(
+    (afterPanelId: PanelId) => {
+      return (delta: number) => {
+        const container = containerRef.current;
+        if (!container) return;
+        
+        // Read current state from store at call time
+        const state = useLayout.getState();
+        const { panelVisible: pv, sessionsWidth: sw, sidebarWidth: sbw, centerRatio: cr, panelOrder: po } = state;
+        
+        // Available width = container width minus fixed panels
+        const sessionsW = pv.sessions ? sw : 0;
+        const sidebarW = pv.sidebar ? sbw : 0;
+        const availableWidth = container.offsetWidth - sessionsW - sidebarW;
+        if (availableWidth <= 0) return;
+        // Convert pixel delta to ratio delta
+        const ratioDelta = (delta / availableWidth) * 100;
 
-      // Find which panel is "first" (gets centerRatio) among editor/chat
-      const flexPanels = visiblePanels.filter((p) => p !== "sidebar" && p !== "sessions");
-      const firstPanel = flexPanels[0];
+        // centerRatio is assigned to the FIRST flex panel
+        const visiblePs = po.filter((id) => pv[id]);
+        const flexPanels = visiblePs.filter((p) => p !== "sidebar" && p !== "sessions");
+        const firstPanel = flexPanels[0];
 
-      if (firstPanel === "editor") {
-        setCenterRatio(Math.max(10, Math.min(90, centerRatio + ratioDelta)));
-      } else {
-        setCenterRatio(Math.max(10, Math.min(90, centerRatio + ratioDelta)));
-      }
+        // If afterPanelId === firstPanel, dragging right increases firstPanel
+        // If afterPanelId !== firstPanel, it means firstPanel is on the right, reverse
+        const adjustedRatioDelta = afterPanelId === firstPanel ? ratioDelta : -ratioDelta;
+        state.setCenterRatio(Math.max(10, Math.min(90, cr + adjustedRatioDelta)));
+      };
     },
-    [
-      setCenterRatio,
-      centerRatio,
-      panelVisible,
-      sessionsWidth,
-      sidebarWidth,
-      visiblePanels,
-    ],
+    [], // No dependencies - reads from store at call time
   );
 
   // Determine which resize handler to use based on adjacent panels
@@ -253,12 +257,12 @@ export function Workbench() {
     const index = panelOrder.indexOf(afterPanelId);
     const nextPanelId = panelOrder[index + 1];
     if (afterPanelId === "sessions" || nextPanelId === "sessions") {
-      return onSessionsResize;
+      return createFixedPanelResizeHandler("sessions", afterPanelId);
     }
     if (afterPanelId === "sidebar" || nextPanelId === "sidebar") {
-      return onSidebarResize;
+      return createFixedPanelResizeHandler("sidebar", afterPanelId);
     }
-    return onCenterResize;
+    return createCenterResizeHandler(afterPanelId);
   };
 
   return (
