@@ -1,5 +1,83 @@
 import type { SelectOption } from "@ftre/ui";
 
+// ==================== Model Provider Types ====================
+
+export interface ModelConfig {
+  model_id: string;
+  parallel_tool_calls: boolean;
+  vision: boolean;
+  max_context_length: number;
+}
+
+export interface ProviderConfig {
+  api_key: string;
+  base_url: string;
+  models: Record<string, ModelConfig>; // key = 显示名
+}
+
+export type ProvidersConfig = Record<string, ProviderConfig>; // key = provider 名
+
+// ==================== Mock Data ====================
+
+export const INITIAL_PROVIDERS: ProvidersConfig = {
+  dashscope: {
+    api_key: "sk-REDACTED",
+    base_url: "https://dashscope.aliyuncs.com/compatible-mode/v1",
+    models: {
+      "qwen3-max": {
+        model_id: "qwen3-max-2026-01-23",
+        parallel_tool_calls: true,
+        vision: false,
+        max_context_length: 128000,
+      },
+      "kimi-k2.5": {
+        model_id: "kimi-k2.5",
+        parallel_tool_calls: true,
+        vision: false,
+        max_context_length: 128000,
+      },
+      "qwen-image-2.0": {
+        model_id: "qwen-image-2.0",
+        parallel_tool_calls: false,
+        vision: true,
+        max_context_length: 32000,
+      },
+    },
+  },
+  deepminer: {
+    api_key: "sk-REDACTED",
+    base_url: "https://llm-gateway.REDACTED.example.com/v1",
+    models: {
+      "claude-opus-4-6": {
+        model_id: "claude-opus-4-6",
+        parallel_tool_calls: true,
+        vision: true,
+        max_context_length: 200000,
+      },
+      "claude-opus-4-5": {
+        model_id: "claude-opus-4-5",
+        parallel_tool_calls: true,
+        vision: true,
+        max_context_length: 200000,
+      },
+      "vertexai/claude-opus-4-5": {
+        model_id: "vertexai/claude-opus-4-5",
+        parallel_tool_calls: true,
+        vision: true,
+        max_context_length: 200000,
+      },
+      "vertexai/claude-opus-4-6": {
+        model_id: "vertexai/claude-opus-4-6",
+        parallel_tool_calls: true,
+        vision: true,
+        max_context_length: 200000,
+      },
+    },
+  },
+};
+
+// ==================== Tools Config ====================
+
 export const AVAILABLE_TOOLS: SelectOption[] = [
   // File Operations
   { value: "read", label: "read", group: "File" },
