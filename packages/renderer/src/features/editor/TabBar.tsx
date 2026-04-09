@@ -9,7 +9,7 @@ import { useLayout } from "@/stores/layout";
 import { getFileIcon } from "@/lib/file-icons";
 import { ContextMenu, type ContextMenuItem } from "@/components/ContextMenu";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
-import { getTextModelService } from "@ftre/editor/core";
+import { getTextModelResolverService } from "@ftre/editor";
 import { saveFile } from "@ftre/editor/runtime";
 
 interface TabBarProps {
@@ -442,10 +442,10 @@ export function TabBar({ groupId }: TabBarProps) {
           const fileName =
             file.name ?? pendingClose.split(/[\\/]/).pop() ?? "文件";
           const handleSaveAndClose = () => {
-            const modelService = getTextModelService();
+            const modelService = getTextModelResolverService();
             const content = modelService.isInitialized()
               ? modelService.getContentForSave(file.path)
-              : null;
+              : undefined;
             saveFile(file.path, file.name, () => content ?? file.content)
               .then(() => closeFile(file.path))
               .catch(() => {

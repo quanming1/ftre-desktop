@@ -118,8 +118,8 @@ export class StreamSession {
     this.emitChange();
   }
 
-  startAssistantMessage(): string {
-    const id = nextId();
+  startAssistantMessage(backendId?: string): string {
+    const id = backendId || nextId();
     const msg: ChatMessage = {
       id,
       role: "assistant",
@@ -157,8 +157,9 @@ export class StreamSession {
     toolId: string,
     name: string,
     args: Record<string, unknown>,
+    backendId?: string,
   ): string {
-    const id = nextId();
+    const id = backendId || nextId();
     const msg: ToolCallMessage = {
       id,
       role: "tool",
@@ -668,16 +669,19 @@ class SessionStreamManager {
           break;
         }
         case "message_complete": {
-          const id = session.startAssistantMessage();
+          // 使用后端 event.id 作为消息 ID，确保 replayInto 多次调用时 ID 稳定
+          const id = session.startAssistantMessage(eventId);
           session.appendAssistantContent(id, (data.content as string) || "");
           session.finalizeAssistantMessage(id);
           break;
         }
         case "tool_call":
+          // 使用后端 event.id 作为消息 ID，确保 replayInto 多次调用时 ID 稳定
           session.addToolCall(
             (data.id as string) || "",
             (data.name as string) || "",
             (data.arguments || {}) as Record<string, unknown>,
+            eventId,
           );
           break;
         case "tool_result":
