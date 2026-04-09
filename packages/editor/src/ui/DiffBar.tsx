@@ -52,59 +52,62 @@ export function DiffBar({
   return (
     <div
       data-testid="diff-bar"
-      className="flex items-center gap-2.5 px-3 py-1.5 bg-elevated/90 border-b border-border text-[12px] text-t-secondary shrink-0 font-mono"
+      className="flex items-center gap-3 px-3.5 py-2 bg-elevated border-b border-border/80 text-[12px] text-t-secondary shrink-0 font-mono shadow-sm"
     >
       {/* Approximate warning */}
       {diff.isApproximate && (
         <span
           data-testid="diff-approximate-warning"
-          className="flex items-center gap-1 px-1.5 py-0.5 rounded bg-warning/15 text-warning border border-warning/30"
+          className="flex items-center gap-1 px-2 py-1 rounded-md bg-warning/10 text-warning/90 border border-warning/20"
           title="此 Diff 基于推断构造，可能不完全准确"
         >
           <AlertTriangle size={12} />
-          <span className="text-[11px] leading-none">近似</span>
+          <span className="text-[11px] leading-none font-medium">近似</span>
         </span>
       )}
 
       {/* Diff stats */}
       <span
         data-testid="diff-additions"
-        className="text-green-400 bg-green-500/10 border border-green-500/25 rounded px-1.5 py-0.5 leading-none"
+        className="text-emerald-400 bg-emerald-500/15 rounded-md px-2 py-1 leading-none font-medium tabular-nums"
       >
         +{additions}
       </span>
       <span
         data-testid="diff-deletions"
-        className="text-red-400 bg-red-500/10 border border-red-500/25 rounded px-1.5 py-0.5 leading-none"
+        className="text-rose-400 bg-rose-500/15 rounded-md px-2 py-1 leading-none font-medium tabular-nums"
       >
         -{deletions}
       </span>
 
-      {/* Tool name */}
-      <span className="flex-1 text-t-muted">
-        来源 <span className="text-t-primary">{diff.toolName}</span> · {diff.filePath.split(/[\\/]/).pop()}
+      {/* Tool name and file */}
+      <span className="flex-1 text-t-muted truncate">
+        <span className="text-t-tertiary">来自</span>{" "}
+        <span className="text-t-secondary">{diff.toolName}</span>
+        <span className="text-t-tertiary mx-1.5">·</span>
+        <span className="text-t-primary font-medium">{diff.filePath.split(/[\\/]/).pop()}</span>
       </span>
 
       {/* Mode toggle */}
       <button
         data-testid="diff-toggle-mode"
         onClick={onToggleMode}
-        className="flex items-center justify-center h-7 w-7 text-t-secondary hover:text-t-primary hover:bg-white/6 rounded transition-colors"
+        className="flex items-center justify-center h-7 w-7 text-t-muted hover:text-t-primary hover:bg-white/10 active:bg-white/15 rounded-md transition-all duration-150"
         title={
           renderSideBySide ? "切换到 inline 模式" : "切换到 side-by-side 模式"
         }
       >
-        {renderSideBySide ? <Columns2 size={14} /> : <Rows2 size={14} />}
+        {renderSideBySide ? <Columns2 size={15} /> : <Rows2 size={15} />}
       </button>
 
       {/* Open source file */}
       <button
         data-testid="diff-open-file"
         onClick={() => onOpenSourceFile?.(diff.filePath)}
-        className="flex items-center justify-center h-7 w-7 text-t-secondary hover:text-t-primary hover:bg-white/6 rounded transition-colors"
+        className="flex items-center justify-center h-7 w-7 text-t-muted hover:text-t-primary hover:bg-white/10 active:bg-white/15 rounded-md transition-all duration-150"
         title="打开源文件"
       >
-        <FileText size={14} />
+        <FileText size={15} />
       </button>
     </div>
   );
