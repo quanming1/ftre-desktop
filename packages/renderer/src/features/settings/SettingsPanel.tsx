@@ -6,10 +6,11 @@
  */
 
 import { useState } from "react";
-import { Settings, Keyboard, Palette, Monitor, Code2, Bot, ChevronRight } from "lucide-react";
+import { Settings, Keyboard, Palette, Monitor, Code2, Bot, ChevronRight, Cpu } from "lucide-react";
 import { AgentDefSettings } from "./AgentDefSettings";
+import { ModelSettings } from "./ModelSettings";
 
-type SettingsView = "home" | "agents";
+type SettingsView = "home" | "agents" | "models";
 
 interface SettingsCategoryProps {
   icon: React.ReactNode;
@@ -69,6 +70,27 @@ export function SettingsPanel() {
     );
   }
 
+  if (view === "models") {
+    return (
+      <div className="h-full overflow-auto bg-surface">
+        <div className="max-w-[800px] mx-auto p-8">
+          {/* Back to home */}
+          <button
+            onClick={() => setView("home")}
+            className="flex items-center gap-2 text-[13px] text-t-muted hover:text-t-primary mb-6 transition-colors"
+          >
+            <Settings size={14} />
+            <span>Settings</span>
+            <ChevronRight size={14} />
+            <span className="text-t-primary">Models</span>
+          </button>
+
+          <ModelSettings />
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="h-full overflow-auto bg-surface">
       <div className="max-w-[800px] mx-auto p-8">
@@ -121,6 +143,13 @@ export function SettingsPanel() {
             title="Agents"
             description="Configure AI agents for cross-workspace collaboration."
             onClick={() => setView("agents")}
+          />
+
+          <SettingsCategory
+            icon={<Cpu size={18} />}
+            title="Models"
+            description="Configure AI providers and model settings."
+            onClick={() => setView("models")}
           />
         </div>
 
