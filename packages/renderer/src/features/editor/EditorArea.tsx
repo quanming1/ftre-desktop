@@ -16,9 +16,10 @@ import { useNotification } from "@/stores/notification";
 import { useChat } from "@/stores/chat";
 import {
   CodeEditorWidget,
+  SettingsEditorWidget,
   MonacoDiffViewer,
   DiffBar,
-  getTextModelService,
+  getTextModelResolverService,
   wasRecentlySaved,
 } from "@ftre/editor";
 import { SettingsPanel } from "@/features/settings";
@@ -48,8 +49,8 @@ export function EditorArea() {
       const { oldPath, newPath, isDir } = (e as CustomEvent).detail;
       useEditor.getState().handleFileRenamed(oldPath, newPath, isDir);
 
-      // 同步更新 TextModelService
-      const modelService = getTextModelService();
+      // 同步更新 TextModelResolverService
+      const modelService = getTextModelResolverService();
       if (modelService.isInitialized()) {
         modelService.rename(oldPath, newPath);
       }
@@ -64,10 +65,10 @@ export function EditorArea() {
       const { path, isDir } = (e as CustomEvent).detail;
       useEditor.getState().handleFileDeleted(path, isDir);
 
-      // 同步清理 TextModelService
-      const modelService = getTextModelService();
+      // 同步清理 TextModelResolverService
+      const modelService = getTextModelResolverService();
       if (modelService.isInitialized()) {
-        modelService.dispose(path);
+        modelService.disposeModel(path);
       }
     };
     window.addEventListener("ftre:file-deleted", handler);
@@ -77,13 +78,13 @@ export function EditorArea() {
   // Listen for save-all event
   useEffect(() => {
     const handler = async () => {
-      const modelService = getTextModelService();
+      const modelService = getTextModelResolverService();
       if (!modelService.isInitialized()) return;
 
       const dirtyUris = modelService.getDirtyUris();
       for (const uri of dirtyUris) {
         const content = modelService.getContentForSave(uri);
-        if (content !== null) {
+        if (content !== undefined) {
           const result = await window.desktop.fs.writeFile(uri, content);
           if (result.success) {
             modelService.markSaved(uri);
@@ -115,7 +116,7 @@ export function EditorArea() {
 
         if (!fileEntry) return;
 
-        const modelService = getTextModelService();
+        const modelService = getTextModelResolverService();
         const isDirty =
           modelService.isInitialized() && modelService.isDirty(filePath);
 
@@ -123,7 +124,7 @@ export function EditorArea() {
           try {
             const result = await window.desktop.fs.readFile(filePath);
             if (!result.error) {
-              // 更新 TextModelService
+              // 更新 TextModelResolverService
               if (modelService.isInitialized()) {
                 modelService.updateContent(filePath, result.content);
               }
@@ -144,14 +145,9 @@ export function EditorArea() {
                   try {
                     const result = await window.desktop.fs.readFile(filePath);
                     if (!result.error) {
+                      // 更新 TextModelResolverService（updateContent 会同时更新 savedVersionId）
                       if (modelService.isInitialized()) {
-                        // 强制更新，即使是 dirty
-                        const modelData = modelService.get(filePath);
-                        if (modelData) {
-                          modelData.model.setValue(result.content);
-                          modelData.savedVersionId =
-                            modelData.model.getAlternativeVersionId();
-                        }
+                        modelService.updateContent(filePath, result.content);
                       }
                       useEditor
                         .getState()
@@ -179,11 +175,28 @@ export function EditorArea() {
     useEditor.getState().closeGroup(groupId);
   }, []);
 
-  const handleOpenSourceFile = useCallback((filePath: string) => {
-    // 打开源文件
-    window.dispatchEvent(
-      new CustomEvent("ftre:open-file", { detail: { path: filePath } }),
-    );
+  const handleOpenSourceFile = useCallback(async (filePath: string) => {
+    try {
+      // 1. 读取文件内容
+      const result = await window.desktop.fs.readFile(filePath);
+      if (result.error) {
+        console.error("Failed to read file:", result.error);
+        return;
+      }
+
+      // 2. 关闭 diff tab
+      useEditor.getState().rejectDiff(filePath);
+
+      // 3. 打开源文件
+      useEditor.getState().openFile({
+        path: filePath,
+        name: filePath.split(/[\\/]/).pop() ?? filePath,
+        language: result.language,
+        content: result.content,
+      });
+    } catch (error) {
+      console.error("Failed to open source file:", error);
+    }
   }, []);
 
   const handleSaveFile = useCallback(
@@ -249,34 +262,52 @@ export function EditorArea() {
                     <Breadcrumb groupId={group.id} />
                   )}
                   <div className="flex-1 overflow-hidden relative">
-                    {/* Settings panel */}
-                    {currentFile.path === SETTINGS_PATH && <SettingsPanel />}
+                    {/* Settings editor - keep mounted when Settings tab exists in group */}
+                    {group.openFiles.some(
+                      (f) => f.path === SETTINGS_PATH,
+                    ) && (
+                      <div
+                        className="absolute inset-0"
+                        style={{
+                          display:
+                            currentFile.path === SETTINGS_PATH
+                              ? "block"
+                              : "none",
+                        }}
+                      >
+                        <SettingsEditorWidget
+                          groupId={parseInt(group.id, 10) || 0}
+                          renderSettings={() => <SettingsPanel />}
+                        />
+                      </div>
+                    )}
 
                     {/* Diff viewer */}
-                    {(() => {
-                      const activeDiff = pendingDiffs.find(
-                        (d) => d.tabPath === currentFile.path,
-                      );
-                      if (activeDiff) {
-                        return (
-                          <>
-                            <DiffBar
-                              diff={activeDiff}
-                              renderSideBySide={sideBySide}
-                              onToggleMode={() => setSideBySide(!sideBySide)}
-                              onOpenSourceFile={handleOpenSourceFile}
-                            />
-                            <MonacoDiffViewer
-                              key={activeDiff.id}
-                              diff={activeDiff}
-                              language={currentFile.language}
-                              renderSideBySide={sideBySide}
-                            />
-                          </>
+                    {currentFile.path !== SETTINGS_PATH &&
+                      (() => {
+                        const activeDiff = pendingDiffs.find(
+                          (d) => d.tabPath === currentFile.path,
                         );
-                      }
-                      return null;
-                    })()}
+                        if (activeDiff) {
+                          return (
+                            <>
+                              <DiffBar
+                                diff={activeDiff}
+                                renderSideBySide={sideBySide}
+                                onToggleMode={() => setSideBySide(!sideBySide)}
+                                onOpenSourceFile={handleOpenSourceFile}
+                              />
+                              <MonacoDiffViewer
+                                key={activeDiff.id}
+                                diff={activeDiff}
+                                language={currentFile.language}
+                                renderSideBySide={sideBySide}
+                              />
+                            </>
+                          );
+                        }
+                        return null;
+                      })()}
 
                     {/* Normal file editor */}
                     {currentFile.path !== SETTINGS_PATH &&
