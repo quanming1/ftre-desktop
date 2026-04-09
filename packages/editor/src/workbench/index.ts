@@ -92,6 +92,19 @@ export {
 } from "./textCodeEditorPane";
 
 // ══════════════════════════════════════════════════
+//  SettingsEditorPane — 设置编辑器面板
+// ══════════════════════════════════════════════════
+
+export { SettingsEditorInput } from "./settingsEditorInput";
+
+export {
+  SettingsEditorPane,
+  settingsEditorPaneDescriptor,
+  type SettingsRenderCallback,
+  type SettingsUnmountCallback,
+} from "./settingsEditorPane";
+
+// ══════════════════════════════════════════════════
 //  EditorGroup — 编辑器组
 // ══════════════════════════════════════════════════
 

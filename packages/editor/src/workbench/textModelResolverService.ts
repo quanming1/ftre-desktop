@@ -78,6 +78,11 @@ export interface ITextModelResolverService {
   isDirty(resource: string): boolean;
 
   /**
+   * 获取所有 dirty 模型的 URI
+   */
+  getDirtyUris(): string[];
+
+  /**
    * 标记模型为已保存
    */
   markSaved(resource: string): void;
@@ -311,6 +316,19 @@ export class TextModelResolverService implements ITextModelResolverService {
       return false;
     }
     return data.model.getAlternativeVersionId() !== data.savedVersionId;
+  }
+
+  /**
+   * 获取所有 dirty 模型的 URI
+   */
+  getDirtyUris(): string[] {
+    const dirtyUris: string[] = [];
+    for (const [uri, data] of this._models) {
+      if (data.model.getAlternativeVersionId() !== data.savedVersionId) {
+        dirtyUris.push(uri);
+      }
+    }
+    return dirtyUris;
   }
 
   /**

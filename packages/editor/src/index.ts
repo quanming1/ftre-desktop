@@ -169,6 +169,13 @@ export {
   type ITextEditorOptions,
   type ITextContentProvider,
 
+  // SettingsEditorPane
+  SettingsEditorInput,
+  SettingsEditorPane,
+  settingsEditorPaneDescriptor,
+  type SettingsRenderCallback,
+  type SettingsUnmountCallback,
+
   // EditorGroup
   EditorGroup,
   EditorGroupModel,
@@ -230,6 +237,12 @@ export {
   type CodeEditorFile,
   type CodeEditorWidgetProps,
 } from "./ui/CodeEditorWidget";
+
+// Settings 编辑器组件
+export {
+  SettingsEditorWidget,
+  type SettingsEditorWidgetProps,
+} from "./ui/SettingsEditorWidget";
 
 // EditorPane 工厂
 export {
