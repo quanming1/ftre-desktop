@@ -5,10 +5,15 @@
  * 新增 element 类型时在 switch 里加一个 case 即可。
  */
 import type { RenderElementProps } from "slate-react";
-import type { CodeChipElement, ArchiveChipElement } from "./types";
+import type {
+  CodeChipElement,
+  ArchiveChipElement,
+  SkillChipElement,
+} from "./types";
 import { CodeChipView } from "./elements/CodeChipView";
 import { ParagraphView } from "./elements/ParagraphView";
 import { ArchiveChipView } from "./elements/ArchiveChipView";
+import { SkillChipView } from "./elements/SkillChipView";
 
 export function renderElement(props: RenderElementProps) {
   switch (props.element.type) {
@@ -22,6 +27,10 @@ export function renderElement(props: RenderElementProps) {
           {...props}
           element={props.element as ArchiveChipElement}
         />
+      );
+    case "skill-chip":
+      return (
+        <SkillChipView {...props} element={props.element as SkillChipElement} />
       );
     case "paragraph":
     default:

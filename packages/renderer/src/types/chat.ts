@@ -15,6 +15,12 @@ export interface ArchiveRefData {
   display: string;
 }
 
+/** Skill 引用数据 */
+export interface SkillRefData {
+  id: string;
+  name: string;
+}
+
 /** 邮件消息数据 */
 export interface EmailPartData {
   /** 发送者显示名（如 "Web前端负责人"） */
@@ -34,9 +40,10 @@ export interface EmailPartData {
 /**
  * 消息部分 — 前后端统一的 parts 协议
  *
- * - text:     纯文本段
- * - code_ref: 代码引用段（文件 + 行号 + 代码内容）
- * - email:    邮件消息段（发件人 + 主题 + 正文 + 线程 ID）
+ * - text:      纯文本段
+ * - code_ref:  代码引用段（文件 + 行号 + 代码内容）
+ * - email:     邮件消息段（发件人 + 主题 + 正文 + 线程 ID）
+ * - skill_ref: Skill 引用段（通过 / 触发选择）
  */
 export type MessagePart =
   | { type: "text"; data: string }
@@ -50,7 +57,8 @@ export type MessagePart =
       };
     }
   | { type: "email"; data: EmailPartData }
-  | { type: "archive_ref"; data: ArchiveRefData };
+  | { type: "archive_ref"; data: ArchiveRefData }
+  | { type: "skill_ref"; data: SkillRefData };
 
 export interface ChatMessage {
   id: string;

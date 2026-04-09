@@ -4,6 +4,7 @@
  * 职责：
  * - 创建并持有 Slate editor 实例（含插件链）
  * - 提供内容操作 API（插入 chip、清空、序列化）
+ * - 检测 / 触发词，供 UI 层显示 skill 候选列表
  * - 不依赖 React，可独立测试
  *
  * 设计原则：
@@ -17,15 +18,18 @@ import {
   Editor,
   Descendant,
   Element as SlateElement,
+  Range,
 } from "slate";
 import { withReact, ReactEditor } from "slate-react";
 import { withHistory } from "slate-history";
-import { withCodeChips, withArchiveChips } from "./plugins";
+import { withCodeChips, withArchiveChips, withSkillChips } from "./plugins";
 import type {
   CodeRef,
   CodeChipElement,
   ArchiveRef,
   ArchiveChipElement,
+  SkillRef,
+  SkillChipElement,
 } from "./types";
 import type { MessagePart } from "@/types/chat";
 
@@ -33,6 +37,7 @@ export interface SerializedInput {
   text: string;
   codeRefs: CodeRef[];
   archiveRefs: ArchiveRef[];
+  skillRefs: SkillRef[];
   parts: MessagePart[];
 }
 
@@ -46,9 +51,9 @@ export class ChatInputEditor {
 
   constructor() {
     // 插件链：顺序 = 最内层先应用
-    // withReact → withHistory → withCodeChips → withArchiveChips
-    this.editor = withArchiveChips(
-      withCodeChips(withHistory(withReact(createEditor()))),
+    // withReact → withHistory → withCodeChips → withArchiveChips → withSkillChips
+    this.editor = withSkillChips(
+      withArchiveChips(withCodeChips(withHistory(withReact(createEditor())))),
     );
   }
 
@@ -65,6 +70,47 @@ export class ChatInputEditor {
 
   get initialValue(): Descendant[] {
     return EMPTY_VALUE;
+  }
+
+  // ── / 检测（Skill 触发）──
+
+  /**
+   * 获取当前光标前的 / 搜索词。
+   * 如果光标前有 "/xxx"，返回 "xxx"（可能为空字符串表示刚输入 /）。
+   * 如果没有触发 /，返回 null。
+   */
+  getSkillSearch(): { search: string; range: Range } | null {
+    const { selection } = this.editor;
+    if (!selection || !Range.isCollapsed(selection)) return null;
+
+    const [start] = Range.edges(selection);
+    const lineStart = Editor.before(this.editor, start, { unit: "line" });
+    if (!lineStart) return null;
+
+    const beforeRange: Range = { anchor: lineStart, focus: start };
+    const beforeText = Editor.string(this.editor, beforeRange);
+
+    // 从文本末尾往前找 /，要求 / 前面是空格/行首
+    const slashIndex = beforeText.lastIndexOf("/");
+    if (slashIndex === -1) return null;
+
+    // / 必须在行首或空格/换行符之后
+    if (slashIndex > 0 && !/\s/.test(beforeText[slashIndex - 1])) return null;
+
+    const search = beforeText.slice(slashIndex + 1);
+
+    // 搜索词中不应包含空格（空格表示 / 已结束）
+    if (/\s/.test(search)) return null;
+
+    // 计算 / 符号的精确位置
+    const slashPoint = Editor.before(this.editor, start, {
+      unit: "offset",
+      distance: beforeText.length - slashIndex,
+    });
+    if (!slashPoint) return null;
+
+    const skillRange: Range = { anchor: slashPoint, focus: start };
+    return { search, range: skillRange };
   }
 
   // ── 内容操作 ──
@@ -89,6 +135,23 @@ export class ChatInputEditor {
     };
     Transforms.insertNodes(this.editor, chip);
     Transforms.move(this.editor);
+  }
+
+  /** 在指定 range（/搜索词所在范围）插入 skill chip */
+  insertSkillChip(ref: SkillRef, targetRange: Range): void {
+    const chip: SkillChipElement = {
+      type: "skill-chip",
+      skillRef: ref,
+      children: [{ text: "" }],
+    };
+
+    Transforms.select(this.editor, targetRange);
+    Transforms.delete(this.editor);
+    Transforms.insertNodes(this.editor, chip);
+    Transforms.move(this.editor);
+
+    // 插入一个空格方便继续输入
+    Transforms.insertText(this.editor, " ");
   }
 
   /** 清空编辑器内容，恢复到初始状态 */
@@ -170,9 +233,12 @@ export class ChatInputEditor {
 
   /** 检查当前内容是否为空 */
   get isEmpty(): boolean {
-    const { text, codeRefs, archiveRefs } = this.serialize();
+    const { text, codeRefs, archiveRefs, skillRefs } = this.serialize();
     return (
-      text.length === 0 && codeRefs.length === 0 && archiveRefs.length === 0
+      text.length === 0 &&
+      codeRefs.length === 0 &&
+      archiveRefs.length === 0 &&
+      skillRefs.length === 0
     );
   }
 
@@ -184,6 +250,7 @@ export class ChatInputEditor {
     const textParts: string[] = [];
     const codeRefs: CodeRef[] = [];
     const archiveRefs: ArchiveRef[] = [];
+    const skillRefs: SkillRef[] = [];
     const parts: MessagePart[] = [];
 
     for (const node of nodes) {
@@ -235,6 +302,27 @@ export class ChatInputEditor {
                 display: chip.archiveRef.label || chip.archiveRef.summary,
               },
             });
+          } else if (
+            SlateElement.isElement(child) &&
+            child.type === "skill-chip"
+          ) {
+            const chip = child as SkillChipElement;
+            skillRefs.push(chip.skillRef);
+
+            // flush 累积的文本到 parts
+            if (pendingText) {
+              parts.push({ type: "text", data: pendingText });
+              lineTexts.push(pendingText);
+              pendingText = "";
+            }
+
+            parts.push({
+              type: "skill_ref",
+              data: {
+                id: chip.skillRef.id,
+                name: chip.skillRef.name,
+              },
+            });
           } else if ("text" in child) {
             pendingText += (child as { text: string }).text;
           }
@@ -251,7 +339,8 @@ export class ChatInputEditor {
     }
 
     const fullText = textParts.join("\n").trim();
-    const hasChips = codeRefs.length > 0 || archiveRefs.length > 0;
+    const hasChips =
+      codeRefs.length > 0 || archiveRefs.length > 0 || skillRefs.length > 0;
 
     // 纯文本（无 chip）时简化为单个 text part
     if (!hasChips) {
@@ -259,6 +348,7 @@ export class ChatInputEditor {
         text: fullText,
         codeRefs,
         archiveRefs,
+        skillRefs,
         parts: fullText ? [{ type: "text", data: fullText }] : [],
       };
     }
@@ -272,6 +362,7 @@ export class ChatInputEditor {
       text: fullText,
       codeRefs,
       archiveRefs,
+      skillRefs,
       parts:
         cleanParts.length > 0 ? cleanParts : [{ type: "text", data: fullText }],
     };

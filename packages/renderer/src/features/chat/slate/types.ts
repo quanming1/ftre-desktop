@@ -37,6 +37,14 @@ export interface MentionRef {
   color: string;
 }
 
+// ── Skill 业务数据 ──
+
+export interface SkillRef {
+  id: string;
+  name: string;
+  description: string;
+}
+
 // ── Slate Elements ──
 
 export interface ParagraphElement {
@@ -62,12 +70,19 @@ export interface ArchiveChipElement {
   children: [{ text: "" }];
 }
 
+export interface SkillChipElement {
+  type: "skill-chip";
+  skillRef: SkillRef;
+  children: [{ text: "" }];
+}
+
 // 新增 element 类型时在这里扩展 union
 export type CustomElement =
   | ParagraphElement
   | CodeChipElement
   | MentionChipElement
-  | ArchiveChipElement;
+  | ArchiveChipElement
+  | SkillChipElement;
 
 export type CustomText = { text: string };
 
