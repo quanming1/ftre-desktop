@@ -691,6 +691,10 @@ class SessionStreamManager {
             (data.status as "completed" | "error") || "completed",
           );
           break;
+        case "error": {
+          session.addSystemMessage((data.message as string) || "Unknown error");
+          break;
+        }
       }
     }
 
