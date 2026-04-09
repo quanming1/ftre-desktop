@@ -77,6 +77,7 @@
 | `packages/editor/src/workbench/editorGroupModel.ts` | 编辑器数据模型 | `EditorGroupModel` |
 | `packages/editor/src/workbench/editorMemento.ts` | ViewState 持久化 (LRU + localStorage) | `EditorMemento` |
 | `packages/editor/src/workbench/editorPart.ts` | 多组网格布局管理 | `EditorPart` |
+| `packages/editor/src/workbench/textModelResolverService.ts` | 文本模型解析服务（新架构） | - |
 
 ### UI 集成层
 
@@ -144,6 +145,18 @@ EditorGroup.closeEditor(input)
   → editor.dispose()                  // 触发 onWillDispose
        → editorMemento.onWillDispose  // 清理 ViewState
   → this._closingEditor = undefined   // 清理标记
+```
+
+### 文件外部变更刷新 (fs:fileChanged)
+```
+fs:fileChanged event (packages/electron/src/ipc/watcher.ts)
+  ↓
+EditorArea.tsx onFileChanged 回调
+  → getTextModelResolverService().updateContent(path, newContent)  // ✅ 正确
+  ↓
+TextModelResolverService.updateContent()
+  → 更新 Monaco ITextModel 内容
+  → fire onDidChangeContent
 ```
 
 ---
@@ -234,6 +247,34 @@ private canDispose(editor: EditorInput): boolean {
 - **方案**: 关闭时先 `canDispose()` 检查，只有所有 group 都关闭后才 dispose
 - **VSCode 参考**: `editorPart.ts` → `handleOnDidCloseEditor` → `canDispose`
 
+### 6. ViewState 清理时机选择
+```typescript
+// 方案对比：
+
+// ❌ 不推荐：依赖 onWillDispose
+editor.onWillDispose(() => {
+  this.clearEditorState(resource);
+});
+// 问题：dispose 时机不确定，可能在不需要清理时触发
+
+// ✅ 推荐：在 onWillCloseEditor 时处理
+setEditorVisible(visible: boolean, group: IEditorGroup) {
+  if (!visible) {
+    // 保存 ViewState（文件编辑器保留）
+    this.saveViewState();
+  }
+}
+
+// 或者使用 onWillCloseEditor 回调
+onWillCloseEditor(editor: EditorInput) {
+  // 关闭时执行清理逻辑
+  this.clearEditorState();
+}
+```
+- **VSCode 实践**: 在 `handleOnDidCloseEditor` 或 `setEditorVisible(false)` 时处理 ViewState
+- **文件编辑器**: 保留 ViewState 以便重新打开（通过 `tracksDisposedEditorViewState()` 控制）
+- **非文件编辑器**: 关闭时可选择清理 ViewState
+
 ---
 
 ## 注意事项
@@ -245,6 +286,56 @@ private canDispose(editor: EditorInput): boolean {
 5. **FileReader 接口**: `TextFileModelManager` 依赖宿主层实现文件读写
 6. **EditorInput dispose 时机**: 关闭 tab 时必须调用 `editor.dispose()` 才能触发 ViewState 清理，仅 `model.closeEditor()` 不够
 7. **跨组 Editor 共享**: 同一文件在多个 group 打开时，`canDispose()` 检查必不可少，避免过早 dispose 影响其他 group
+8. **ViewState 清理时机陷阱**: 不要依赖 `onWillDispose` 清理 ViewState，应在 `onWillCloseEditor` 或 `setEditorVisible(false)` 时处理
+9. **文件编辑器保留 ViewState**: 参考 VSCode `tracksDisposedEditorViewState()`，文件关闭后可选择保留 ViewState 以便快速重新打开
+
+### ⚠️ 10. 两套 Model 服务混用陷阱（重点！）
+
+**问题现象**: edit tool 编辑文件后，编辑器内容未刷新。
+
+**根本原因**: 项目中存在多套独立的 Model 管理服务，混用导致 Monaco 实际使用的 model 与更新的 model 不是同一个实例。
+
+| 服务 | 导出路径 | 状态 | 用途 |
+|------|----------|------|------|
+| `getTextModelService()` | `@ftre/editor` (core/text-model.ts) | ❌ 旧架构残留 | 旧版简单封装 |
+| `getTextFileModelManager()` | `@ftre/editor` (core/text-file-model-manager.ts) | ✅ 核心层 | 管理 TextFileModel |
+| `getTextModelResolverService()` | `@ftre/editor` (workbench/textModelResolverService.ts) | ✅ 当前使用 | Workbench 层，Monaco 实际使用 |
+
+**错误代码示例** (`packages/renderer/src/features/editor/EditorArea.tsx`):
+```typescript
+// ❌ 错误：更新的是旧服务的 model
+import { getTextModelService } from "@ftre/editor";
+
+onFileChanged(path) => {
+  const modelService = getTextModelService();
+  if (modelService.isInitialized()) {
+    modelService.updateContent(path, newContent);  // Monaco 不刷新！
+  }
+}
+```
+
+**正确代码**:
+```typescript
+// ✅ 正确：更新 Workbench 层使用的 TextModelResolverService
+import { getTextModelResolverService } from "@ftre/editor";
+
+onFileChanged(path) => {
+  const modelService = getTextModelResolverService();
+  if (modelService.isInitialized()) {
+    modelService.updateContent(path, newContent);  // Monaco 正常刷新
+  }
+}
+```
+
+**修复要点**:
+- 文件监听刷新统一使用 `getTextModelResolverService()`
+- 检查所有调用 `getTextModelService()` 的地方，确认是否应改用 `getTextModelResolverService()`
+- 不同服务管理的 Monaco model 实例不同，混用会导致显示和状态不一致
+- API 差异注意：
+  - `TextModelResolverService` 使用 `disposeModel()` 而非 `dispose()`
+  - `getContentForSave()` 返回 `string \| undefined`，需检查 `!== undefined`
+
+**详细设计文档**: `.ftre/specs/fix-editor-external-file-sync/design.md`
 
 ---
 

@@ -85,6 +85,33 @@ interface ToolCallMessage {
 }
 ```
 
+### 消息 ID 生成策略
+
+**设计决策**：使用后端返回的 `event.id` 作为消息 ID，而非前端自增生成。
+
+```typescript
+// stream-manager.ts
+addToolCall(tool: string, args: Record<string, unknown>, backendId?: string): string {
+  const toolCall: ToolCallMessage = {
+    id: backendId ?? `tool-${this.nextId++}`,  // 优先使用后端 ID
+    role: "tool_call",
+    tool,
+    args,
+    status: "running",
+  };
+  // ...
+}
+
+startAssistantMessage(backendId?: string): string {
+  const id = backendId ?? `msg-${this.nextId++}`;  // 优先使用后端 ID
+  // ...
+}
+```
+
+**原因**：`replayInto()` 可能被多次调用（如快速切换会话），每次调用都会用 `nextId()` 生成新的消息 ID。若 fingerprint 只检查首尾消息 ID，中间消息 ID 变化不会被检测，导致 renderUnits 使用旧 ID 找不到新消息。
+
+**后端 ID 来源**：后端推送的 SSE 事件中，`event.id` 是持久化的数据库 ID，稳定不变。
+
 ### metadata 传递链路
 
 metadata 用于携带后端附加信息（如归档 ID），流转路径：
@@ -144,6 +171,22 @@ if (session.isStreaming && session.streamingMessageId) {
 
 由于 `streamingMessageId === null`，条件 `session.isStreaming && session.streamingMessageId` 不满足，`streamingTail` 保持为空。
 
+### replayInto 多次调用问题
+
+**现象**：在某些会话中，AI 消息一开始渲染正常，但随后突然消失，只显示用户消息。
+
+**根因分析**：
+1. `replayInto` 被调用两次（可能是上层组件重复渲染或竞态条件）
+2. 每次调用都用 `nextId()` 生成新的消息 ID：`msg-87-xxx` → `msg-160-xxx`
+3. 但 `fingerprint` 只检查 `消息数量:首条ID:末条ID`，首尾都是 user 消息（ID 来自后端，两次相同）
+4. `fingerprint` 不变 → `useMemo` 不重新计算 `renderUnits` → 使用旧 ID `msg-87-xxx`
+5. `useMessageById` 在新消息数组中找不到旧 ID → 返回 null → 组件不渲染
+
+**修复方案**：
+- 让 `replayInto` 使用后端 `event.id` 作为消息 ID，保证 ID 稳定
+- 修改 `startAssistantMessage` 和 `addToolCall`，添加可选的 `backendId` 参数
+- 在 `replayInto` 中调用时传入 `event.id`
+
 ## 消息渲染流程
 
 ### 渲染单元类型
@@ -166,6 +209,38 @@ if (session.isStreaming && session.streamingMessageId) {
 ```
 user message → [ai_turn_start → PixelLogo] → tool calls / assistant message
 ```
+
+### useStructuralFingerprint 结构指纹
+
+用于控制 `renderUnits` 的重新计算频率，优化流式期间的性能：
+
+```typescript
+function useStructuralFingerprint(): string {
+  return useChat((s) => {
+    const msgs = s.messages;
+    if (msgs.length === 0) return '';
+    // 检查最后一条 user 消息是否有 diffMeta
+    let hasDiff = 0;
+    for (let i = msgs.length - 1; i >= 0; i--) {
+      if ('role' in msgs[i] && (msgs[i] as any).role === 'user') {
+        hasDiff = (msgs[i] as any).diffMeta ? 1 : 0;
+        break;
+      }
+    }
+    // 关键：包含第二条消息的 ID 以检测中间消息重建
+    return `${msgs.length}:${msgs[0].id}:${msgs[1]?.id ?? '-'}:${msgs[msgs.length - 1].id}:d${hasDiff}`;
+  });
+}
+```
+
+**设计决策**：
+- 流式期间只有最后一条消息的 `content` 变化，ID 和结构不变
+- 指纹只关注「结构变化」（消息数量、ID 组合）而非内容变化
+- 避免每次内容更新都重新分组导致子组件重排
+
+**修复后状态**：
+- 修复消息 ID 生成策略后，fingerprint 可以回滚到只检查首尾消息
+- 因为 `replayInto` 多次调用时 ID 不再变化，不会触发该问题
 
 ## UserMessage 按钮交互设计
 
@@ -415,13 +490,26 @@ Session 管理功能已拆分到独立的 `SessionPanel`，详见 [session-panel
 
 ## 注意事项
 
+- **`replayInto` 多次调用导致消息消失**：`replayInto()` 可能被调用两次（如快速切换会话），每次用 `nextId()` 生成新的消息 ID，但 `fingerprint` 只检查首尾消息 ID（user 消息 ID 来自后端，固定不变）。导致 fingerprint 不变 → renderUnits 不重新计算 → 用旧 ID 找不到新消息 → 不渲染。**修复**：使用后端 `event.id` 作为消息 ID，保证 ID 稳定。
+
 - **切换 session 时 running tool 消息丢失**：`replayInto()` 在从后端历史重建消息时，`streamingTail` 的保留条件只检查 `streamingMessageId`（assistant 消息的 ID），而 tool 执行时这个字段已经是 null。导致切换 session 再切回来时，内存中正在 running 的 tool 消息被清空，UI 丢失。修复方案需要扩展 `streamingTail` 的保留逻辑，同时检查 `isStreaming` 和是否存在 `status === "running"` 的 tool 消息。
+
 - `insertArchiveChip` 需要完整的 `ArchiveRef` 对象，不能只传 `{ id, display }`
 - `ArchiveChipView` 组件依赖 `summary` 字段计算显示文本长度，缺失会导致报错
 - 发送消息时，`message` 数组中包含 `archive_ref` 类型的 part，后端自动加载归档上下文
 - metadata 只在历史回放时存在，实时流中 metadata 为空
 
 ## 历史变更
+
+- **2025-03**: 修复 `replayInto` 消息 ID 不稳定问题
+  - 问题：`replayInto` 多次调用时 `nextId()` 生成不同 ID，与 fingerprint 机制冲突
+  - 修复：使用后端 `event.id` 作为消息 ID，`startAssistantMessage` 和 `addToolCall` 添加 `backendId` 参数
+  - 保留指纹：fingerprint 保持原设计（检查首尾），因为 ID 已稳定
+
+- **2025-02**: 补充 `useStructuralFingerprint` 设计文档
+  - 结构指纹用于控制 renderUnits 重新计算频率
+  - 记录 fingerprint 优化过度导致消息消失的坑及修复方案
+  - 补充消息重建时 ID 变化的说明
 
 - **2025-02**: 补充流式处理架构文档
   - GlobalEventStream → StreamSession → useChat 完整数据链路
