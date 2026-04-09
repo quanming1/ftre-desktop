@@ -91,6 +91,13 @@ export {
 export { Switch, type SwitchProps } from "./Switch";
 export { Checkbox, type CheckboxProps } from "./Checkbox";
 
+// SearchableMultiSelect
+export {
+  SearchableMultiSelect,
+  type SearchableMultiSelectProps,
+  type SelectOption,
+} from "./SearchableMultiSelect";
+
 // Tabs
 export { Tabs, TabsList, TabsTrigger, TabsContent } from "./Tabs";
 
