@@ -5,18 +5,31 @@
  * 当 OpenFile.type === 'settings' 时，EditorArea 会渲染此组件。
  */
 
-import { Settings, Keyboard, Palette, Monitor, Code2 } from "lucide-react";
+import { useState } from "react";
+import { Settings, Keyboard, Palette, Monitor, Code2, Bot, ChevronRight } from "lucide-react";
+import { AgentDefSettings } from "./AgentDefSettings";
+
+type SettingsView = "home" | "agents";
 
 interface SettingsCategoryProps {
   icon: React.ReactNode;
   title: string;
   description: string;
+  onClick?: () => void;
   children?: React.ReactNode;
 }
 
-function SettingsCategory({ icon, title, description, children }: SettingsCategoryProps) {
+function SettingsCategory({ icon, title, description, onClick, children }: SettingsCategoryProps) {
+  const isClickable = !!onClick;
   return (
-    <div className="border border-border rounded-lg p-4 hover:border-border-subtle transition-colors">
+    <div
+      className={`border border-border rounded-lg p-4 transition-colors ${
+        isClickable
+          ? "cursor-pointer hover:border-accent hover:bg-white/[0.02]"
+          : "hover:border-border-subtle"
+      }`}
+      onClick={onClick}
+    >
       <div className="flex items-start gap-3">
         <div className="text-t-muted mt-0.5">{icon}</div>
         <div className="flex-1">
@@ -24,12 +37,38 @@ function SettingsCategory({ icon, title, description, children }: SettingsCatego
           <p className="text-[13px] text-t-secondary">{description}</p>
           {children && <div className="mt-3">{children}</div>}
         </div>
+        {isClickable && (
+          <ChevronRight size={16} className="text-t-muted mt-0.5" />
+        )}
       </div>
     </div>
   );
 }
 
 export function SettingsPanel() {
+  const [view, setView] = useState<SettingsView>("home");
+
+  if (view === "agents") {
+    return (
+      <div className="h-full overflow-auto bg-surface">
+        <div className="max-w-[800px] mx-auto p-8">
+          {/* Back to home */}
+          <button
+            onClick={() => setView("home")}
+            className="flex items-center gap-2 text-[13px] text-t-muted hover:text-t-primary mb-6 transition-colors"
+          >
+            <Settings size={14} />
+            <span>Settings</span>
+            <ChevronRight size={14} />
+            <span className="text-t-primary">Agents</span>
+          </button>
+
+          <AgentDefSettings />
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="h-full overflow-auto bg-surface">
       <div className="max-w-[800px] mx-auto p-8">
@@ -75,6 +114,13 @@ export function SettingsPanel() {
             icon={<Monitor size={18} />}
             title="Window"
             description="Configure window behavior and layout preferences."
+          />
+
+          <SettingsCategory
+            icon={<Bot size={18} />}
+            title="Agents"
+            description="Configure AI agents for cross-workspace collaboration."
+            onClick={() => setView("agents")}
           />
         </div>
 
