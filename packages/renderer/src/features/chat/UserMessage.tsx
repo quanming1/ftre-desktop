@@ -1,8 +1,21 @@
 import { memo, useCallback, useState, useRef } from "react";
-import type { ChatMessage, MessagePart, ArchiveRefData } from "@/types/chat";
+import type {
+  ChatMessage,
+  MessagePart,
+  ArchiveRefData,
+  SkillRefData,
+} from "@/types/chat";
 import { handleOpenFileAtLine } from "./toolActions";
 import { EmailCard } from "./EmailCard";
-import { Archive, RotateCcw, Loader2, Copy, Check, GitFork } from "lucide-react";
+import {
+  Archive,
+  RotateCcw,
+  Loader2,
+  Copy,
+  Check,
+  GitFork,
+  Zap,
+} from "lucide-react";
 import { useChat } from "@/stores/chat";
 import { useEditor } from "@/stores/editor";
 import { useNotification } from "@/stores/notification";
@@ -26,6 +39,22 @@ function ArchiveChip({ data }: { data: ArchiveRefData }) {
     >
       <Archive size={10} className="shrink-0 opacity-70" />
       <span className="truncate max-w-[200px]">{data.display}</span>
+    </span>
+  );
+}
+
+/**
+ * 渲染 skill 引用 chip
+ * 显示琥珀色背景 + ⚡ 图标 + skill 名称
+ */
+function SkillChip({ data }: { data: SkillRefData }) {
+  return (
+    <span
+      className="inline-flex items-center gap-1 px-1.5 py-0.5 mx-0.5 rounded text-[11px] font-mono bg-amber-500/10 text-amber-300/80 border border-amber-500/20 align-baseline"
+      title={`Skill: ${data.name}`}
+    >
+      <Zap size={10} className="shrink-0 opacity-70" />
+      <span className="truncate max-w-[180px]">{data.name}</span>
     </span>
   );
 }
@@ -90,6 +119,9 @@ function PartsContent({ parts }: { parts: MessagePart[] }) {
         if (part.type === "archive_ref") {
           return <ArchiveChip key={i} data={part.data} />;
         }
+        if (part.type === "skill_ref") {
+          return <SkillChip key={i} data={part.data} />;
+        }
         return null;
       })}
     </>
@@ -107,6 +139,7 @@ function getMessageText(message: ChatMessage): string {
           return `[${d.name}:L${d.lines[0]}-L${d.lines[1]}]`;
         }
         if (part.type === "archive_ref") return `[归档: ${part.data.display}]`;
+        if (part.type === "skill_ref") return `[Skill: ${part.data.name}]`;
         return "";
       })
       .join("");
@@ -375,7 +408,9 @@ export const UserMessage = memo(
                   <button
                     onClick={handleFork}
                     className={`flex items-center justify-center w-7 h-7 text-t-ghost hover:text-t-secondary rounded-md hover:bg-white/[0.06] transition-all ${
-                      isHovered ? "opacity-100" : "opacity-0 pointer-events-none"
+                      isHovered
+                        ? "opacity-100"
+                        : "opacity-0 pointer-events-none"
                     }`}
                   >
                     <GitFork size={15} />

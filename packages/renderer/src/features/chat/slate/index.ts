@@ -13,6 +13,8 @@ export type {
   ArchiveChipElement,
   MentionRef,
   MentionChipElement,
+  SkillRef,
+  SkillChipElement,
   CustomElement,
   CustomText,
 } from "./types";

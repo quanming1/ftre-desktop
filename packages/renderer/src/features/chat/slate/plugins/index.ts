@@ -6,3 +6,4 @@
  */
 export { withCodeChips } from "./withCodeChips";
 export { withArchiveChips } from "./withArchiveChips";
+export { withSkillChips } from "./withSkillChips";
