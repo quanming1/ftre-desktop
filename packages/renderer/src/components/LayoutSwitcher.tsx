@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { useCallback, useState } from 'react';
 import { FolderTree, Code2, MessageSquare, MessagesSquare } from 'lucide-react';
 import {
   DndContext,
@@ -17,6 +17,7 @@ import {
   horizontalListSortingStrategy,
 } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
+import { Tooltip, TooltipProvider } from '@ftre/ui';
 import type { PanelId } from '@/stores/layout';
 
 interface LayoutSwitcherProps {
@@ -26,20 +27,21 @@ interface LayoutSwitcherProps {
   onToggleVisible: (panel: PanelId) => void;
 }
 
-const PANEL_INFO: Record<PanelId, { label: string; icon: React.ReactNode }> = {
-  sessions: { label: 'Sessions', icon: <MessagesSquare size={14} strokeWidth={1.5} /> },
-  sidebar: { label: 'Explorer', icon: <FolderTree size={14} strokeWidth={1.5} /> },
-  editor: { label: 'Editor', icon: <Code2 size={14} strokeWidth={1.5} /> },
-  chat: { label: 'Chat', icon: <MessageSquare size={14} strokeWidth={1.5} /> },
+const PANEL_INFO: Record<PanelId, { label: string; icon: typeof MessagesSquare }> = {
+  sessions: { label: 'Sessions', icon: MessagesSquare },
+  sidebar: { label: 'Explorer', icon: FolderTree },
+  editor: { label: 'Editor', icon: Code2 },
+  chat: { label: 'Chat', icon: MessageSquare },
 };
 
 interface SortableItemProps {
   id: PanelId;
   visible: boolean;
   onToggle: () => void;
+  isDragActive: boolean;
 }
 
-function SortableItem({ id, visible, onToggle }: SortableItemProps) {
+function SortableItem({ id, visible, onToggle, isDragActive }: SortableItemProps) {
   const {
     attributes,
     listeners,
@@ -55,38 +57,54 @@ function SortableItem({ id, visible, onToggle }: SortableItemProps) {
   };
 
   const info = PANEL_INFO[id];
+  const Icon = info.icon;
 
-  const handleClick = useCallback((e: React.MouseEvent) => {
+  const handleClick = useCallback(() => {
     if (!isDragging) {
       onToggle();
     }
   }, [isDragging, onToggle]);
 
   return (
-    <div
-      ref={setNodeRef}
-      style={style}
-      {...attributes}
-      {...listeners}
-      onClick={handleClick}
-      className={`
-        flex items-center gap-1.5 px-2.5 py-1.5 rounded cursor-grab select-none
-        transition-colors duration-100
-        ${isDragging ? 'opacity-50' : ''}
-        ${visible
-          ? 'text-t-primary bg-white/[0.08]'
-          : 'text-t-ghost hover:text-t-muted hover:bg-white/[0.04]'
-        }
-      `}
-      title={`${info.label} - Click to ${visible ? 'hide' : 'show'}, drag to reorder`}
-    >
-      {info.icon}
-      <span className="text-[11px] font-mono">{info.label}</span>
-    </div>
+    <Tooltip content={`${visible ? 'Hide' : 'Show'} ${info.label}`} side="bottom">
+      <button
+        ref={setNodeRef}
+        style={style}
+        {...attributes}
+        {...listeners}
+        onClick={handleClick}
+        className={`
+          relative flex items-center justify-center w-7 h-7 rounded select-none
+          transition-all duration-100 ease-out
+          ${isDragging 
+            ? 'z-10 scale-110 shadow-lg shadow-black/40' 
+            : isDragActive 
+              ? 'cursor-grab' 
+              : 'cursor-pointer'
+          }
+          ${visible
+            ? isDragging
+              ? 'text-neon bg-neon/20'
+              : 'text-neon hover:bg-neon/10'
+            : isDragging
+              ? 'text-t-muted bg-white/10'
+              : 'text-t-ghost hover:text-t-muted hover:bg-white/[0.04]'
+          }
+        `}
+      >
+        <Icon size={14} strokeWidth={1.5} />
+        {/* 激活态底部指示条 */}
+        {visible && !isDragging && (
+          <span className="absolute bottom-0.5 left-1/2 -translate-x-1/2 w-2 h-0.5 rounded-full bg-neon/60" />
+        )}
+      </button>
+    </Tooltip>
   );
 }
 
 export function LayoutSwitcher({ panelOrder, panelVisible, onOrderChange, onToggleVisible }: LayoutSwitcherProps) {
+  const [isDragActive, setIsDragActive] = useState(false);
+  
   const sensors = useSensors(
     useSensor(PointerSensor, {
       activationConstraint: {
@@ -98,7 +116,12 @@ export function LayoutSwitcher({ panelOrder, panelVisible, onOrderChange, onTogg
     })
   );
 
+  const handleDragStart = useCallback(() => {
+    setIsDragActive(true);
+  }, []);
+
   const handleDragEnd = useCallback((event: DragEndEvent) => {
+    setIsDragActive(false);
     const { active, over } = event;
 
     if (over && active.id !== over.id) {
@@ -110,23 +133,27 @@ export function LayoutSwitcher({ panelOrder, panelVisible, onOrderChange, onTogg
   }, [panelOrder, onOrderChange]);
 
   return (
-    <div className="flex items-center gap-0.5 px-1.5 py-1 rounded-md border border-border bg-base">
-      <DndContext
-        sensors={sensors}
-        collisionDetection={closestCenter}
-        onDragEnd={handleDragEnd}
-      >
-        <SortableContext items={panelOrder} strategy={horizontalListSortingStrategy}>
-          {panelOrder.map((id) => (
-            <SortableItem
-              key={id}
-              id={id}
-              visible={panelVisible[id]}
-              onToggle={() => onToggleVisible(id)}
-            />
-          ))}
-        </SortableContext>
-      </DndContext>
-    </div>
+    <TooltipProvider>
+      <div className="flex items-center gap-0.5">
+        <DndContext
+          sensors={sensors}
+          collisionDetection={closestCenter}
+          onDragStart={handleDragStart}
+          onDragEnd={handleDragEnd}
+        >
+          <SortableContext items={panelOrder} strategy={horizontalListSortingStrategy}>
+            {panelOrder.map((id) => (
+              <SortableItem
+                key={id}
+                id={id}
+                visible={panelVisible[id]}
+                onToggle={() => onToggleVisible(id)}
+                isDragActive={isDragActive}
+              />
+            ))}
+          </SortableContext>
+        </DndContext>
+      </div>
+    </TooltipProvider>
   );
 }

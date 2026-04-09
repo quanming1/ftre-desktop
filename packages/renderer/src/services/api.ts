@@ -803,6 +803,27 @@ export async function fetchAgentDefs(workspace: string): Promise<AgentDef[]> {
   }
 }
 
+// ── Skill 相关 ──────────────────────────────────────────────────────
+
+export interface SkillDef {
+  id: string;
+  name: string;
+  description: string;
+}
+
+/** 获取指定 workspace 下的 skill 列表（内置 + 工作区 skill 合并） */
+export async function fetchSkills(workspace: string): Promise<SkillDef[]> {
+  try {
+    const res = await fetch(
+      `${BACKEND_URL}/skill/list?workspace=${encodeURIComponent(workspace)}`,
+    );
+    const data = await res.json();
+    return data.skills || [];
+  } catch {
+    return [];
+  }
+}
+
 /** 创建群聊房间 */
 export async function createRoom(
   name: string,

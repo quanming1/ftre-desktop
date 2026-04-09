@@ -484,37 +484,43 @@ export function SessionPanel() {
   return (
     <TooltipProvider>
       <div className="h-full flex flex-col bg-surface text-[13px]">
-        {/* 头部：工作区信息 + 切换按钮 */}
+        {/* 头部：工作区切换 */}
         <div
           ref={workspaceMenuRef}
-          className="shrink-0 px-3 py-2.5 border-b border-border relative"
-          onMouseEnter={() => setHeaderHovered(true)}
-          onMouseLeave={() => setHeaderHovered(false)}
+          className="shrink-0 relative"
         >
-          <div className="flex items-stretch gap-2">
-            <div className="flex-1 min-w-0">
+          <button
+            onClick={() => setWorkspaceMenuOpen((v) => !v)}
+            onMouseEnter={() => setHeaderHovered(true)}
+            onMouseLeave={() => setHeaderHovered(false)}
+            className="w-full px-4 py-3 flex items-center gap-3 hover:bg-white/[0.02] transition-colors border-b border-border/50"
+          >
+            {/* Workspace avatar */}
+            <span
+              className="shrink-0 w-8 h-8 rounded-md text-[12px] font-semibold flex items-center justify-center text-white"
+              style={{ backgroundColor: rootPath ? getWorkspaceColor(rootPath) : '#3c3c3c' }}
+            >
+              {rootPath ? getWorkspaceAbbrev(rootPath) : '?'}
+            </span>
+            {/* Workspace name */}
+            <div className="flex-1 min-w-0 text-left">
               <div className="text-[13px] text-t-primary truncate">
                 {currentWorkspaceName}
               </div>
-              <div className="text-[11px] text-t-ghost truncate mt-0.5">
-                {rootPath || "未打开文件夹"}
-              </div>
             </div>
-            {(headerHovered || workspaceMenuOpen) && (
-              <Tooltip content="切换工作区" side="bottom">
-                <button
-                  onClick={() => setWorkspaceMenuOpen((v) => !v)}
-                  className="shrink-0 h-8 w-8 rounded-md text-t-secondary bg-elevated hover:bg-panel hover:text-neon transition-colors flex items-center justify-center mt-0.5"
-                >
-                  <ChevronsUpDown size={14} />
-                </button>
-              </Tooltip>
-            )}
-          </div>
+            {/* Chevron */}
+            <ChevronsUpDown 
+              size={14} 
+              className={`shrink-0 text-t-ghost transition-colors ${headerHovered || workspaceMenuOpen ? 'text-t-muted' : ''}`} 
+            />
+          </button>
 
           {/* 工作区下拉菜单 */}
           {workspaceMenuOpen && (
-            <div className="absolute left-2 right-2 top-full mt-1 bg-elevated border border-border-subtle rounded-lg shadow-2xl py-1 z-[50]">
+            <div className="absolute left-3 right-3 top-full mt-1 bg-elevated border border-border-subtle rounded-lg shadow-2xl py-2 z-[50]">
+              <div className="px-3 pb-2 mb-2 border-b border-border/50">
+                <span className="text-[11px] text-t-ghost uppercase tracking-wider">Workspaces</span>
+              </div>
               {recentFolders.map((folder) => {
                 const isActive =
                   !!rootPath &&
@@ -524,34 +530,34 @@ export function SessionPanel() {
                   <button
                     key={folder}
                     onClick={() => handleSelectWorkspace(folder)}
-                    className={`w-full flex items-center gap-3 px-3.5 py-2.5 text-[13px] transition-colors ${
+                    className={`w-full flex items-center gap-3 px-3 py-2.5 transition-colors ${
                       isActive
-                        ? "text-neon bg-neon/10"
-                        : "text-t-secondary hover:bg-white/[0.08] hover:text-t-primary"
+                        ? "text-t-primary"
+                        : "text-t-muted hover:text-t-primary hover:bg-white/[0.04]"
                     }`}
                   >
                     <span
-                      className="shrink-0 w-6 h-6 rounded text-[11px] font-bold flex items-center justify-center text-white"
+                      className="shrink-0 w-6 h-6 rounded text-[10px] font-semibold flex items-center justify-center text-white"
                       style={{ backgroundColor: getWorkspaceColor(folder) }}
                     >
                       {getWorkspaceAbbrev(folder)}
                     </span>
-                    <span className="truncate flex-1 text-left">
+                    <span className="truncate flex-1 text-left text-[13px]">
                       {folderName(folder)}
                     </span>
                     {isActive && (
-                      <Check size={14} className="shrink-0 text-neon" />
+                      <span className="w-1.5 h-1.5 rounded-full bg-neon shrink-0" />
                     )}
                   </button>
                 );
               })}
-              <div className="h-px bg-border-subtle my-1" />
+              <div className="h-px bg-border/50 my-2" />
               <button
                 onClick={handleOpenFolder}
-                className="w-full flex items-center gap-2.5 px-3 py-2 text-[12px] text-t-secondary hover:bg-white/[0.08] hover:text-t-primary transition-colors"
+                className="w-full flex items-center gap-3 px-3 py-2 text-[13px] text-t-dim hover:text-t-primary transition-colors"
               >
                 <FolderOpen size={14} />
-                <span>打开文件夹...</span>
+                <span>Open folder...</span>
               </button>
             </div>
           )}
