@@ -1,6 +1,6 @@
 # Settings Tab (设置面板)
 
-> 参考 VSCode 的 EditorInput + EditorPanes 架构实现的 Settings Tab，用于可视化配置 AgentDef 等用户定义
+> 参考 VSCode 的 EditorInput + EditorPanes 架构实现的 Settings Tab，用于可视化配置 AgentDef、模型配置等用户定义
 
 ## 核心文件
 
@@ -10,9 +10,10 @@
 | `packages/editor/src/store/editor-store.ts` | `openSettings()` 方法实现 |
 | `packages/renderer/src/app/TitleBar.tsx` | 右上角设置按钮入口 |
 | `packages/renderer/src/features/editor/EditorArea.tsx` | SettingsPanel 挂载和可见性控制 |
-| `packages/renderer/src/features/settings/SettingsPanel.tsx` | Settings 面板基础组件 |
-| `packages/renderer/src/features/settings/AgentDefSettings.tsx` | AgentDef 配置页面 |
-| `packages/renderer/src/features/settings/constants.ts` | 工具列表常量（暂时写死） |
+| `packages/renderer/src/features/settings/SettingsPanel.tsx` | Settings 面板基础组件，管理 view 路由 |
+| `packages/renderer/src/features/settings/AgentDefSettings.tsx` | AgentDef 配置页面（参考实现） |
+| `packages/renderer/src/features/settings/ModelSettings.tsx` | 模型配置页面（Provider + 模型列表） |
+| `packages/renderer/src/features/settings/constants.ts` | 工具列表、模型配置等硬编码常量 |
 | `packages/ui/src/components/SearchableMultiSelect.tsx` | 可搜索多选组件（参考 ModelSelector 风格） |
 | `packages/editor/src/ui/SettingsEditorWidget.tsx` | Settings Editor Widget（简化版实现） |
 | `.ftre/specs/settings-editor-pane/` | SettingsEditorPane 完整架构规范（方向B） |
@@ -28,7 +29,7 @@ EditorArea
   ├── CodeEditorWidget (正常 EditorPane)
   └── SettingsEditorWidget (React Root 挂载，display 控制显隐)
         └── SettingsPanel
-              └── AgentDefSettings / SkillsSettings / ...
+              └── AgentDefSettings / ModelSettings / ...
 ```
 
 **关键实现**：`SettingsEditorWidget` 组件始终挂载，通过 `display: block/none` 控制显示/隐藏：
@@ -129,7 +130,7 @@ Settings tab 是单例，重复点击设置按钮会聚焦到已有 tab。
 ```typescript
 // useSettingsStore.ts
 interface SettingsViewState {
-  currentView: 'home' | 'agents' | 'skills';
+  currentView: 'home' | 'agents' | 'skills' | 'models';
   agentsSearchQuery: string;
   // ...
 }
@@ -189,27 +190,9 @@ interface ISettingsEditor2State {
 }
 ```
 
-## AgentDef 配置
+## 配置类型
 
-### 核心组件
-
-#### SearchableMultiSelect
-
-```typescript
-// packages/ui/src/components/SearchableMultiSelect.tsx
-interface SelectOption {
-  value: string;
-  label: string;
-  group?: string;
-}
-```
-
-- 下拉面板 + 搜索框（参考 chat 面板 ModelSelector 交互风格）
-- 支持多选、分组显示
-- 已选项以 Tag/Chip 形式显示
-- 键盘导航（↑↓ 移动高亮，Enter 选择，Esc 关闭）
-
-#### AgentDefSettings
+### AgentDef 配置
 
 ```typescript
 interface AgentDefFormData {
@@ -220,12 +203,113 @@ interface AgentDefFormData {
 }
 ```
 
-### 保存机制
-
+**保存机制**：
 - **格式**：YAML frontmatter + Markdown body
 - **路径**：`{workspace}/.ftre/agents_def/{id}/AGENT.md`
 - **方式**：IPC `fs:writeFile`
 - **tools 列表**：前端暂时写死（见 `constants.ts`）
+
+### ModelSettings（模型配置）
+
+```typescript
+// Provider 配置结构
+interface ProviderConfig {
+  api_key: string;
+  base_url: string;
+  models: Record<string, ModelConfig>;
+}
+
+interface ModelConfig {
+  model_id: string;              // 实际模型 ID（调用 API 时使用）
+  parallel_tool_calls: boolean;  // 是否支持工具并发调用
+  vision: boolean;               // 是否支持识别图片
+  max_context_length: number;    // 最大上下文长度
+}
+
+// 硬编码在 constants.ts 中
+type ProviderRegistry = Record<string, ProviderConfig>;
+```
+
+**示例配置**：
+```typescript
+// packages/renderer/src/features/settings/constants.ts
+export const MODEL_REGISTRY: ProviderRegistry = {
+  "dashscope": {
+    "api_key": "sk-1cdcb7b0e7fb40d49bd6b66b8666022e",
+    "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+    "models": {
+      "qwen3-max": {
+        "model_id": "qwen3-max-2026-01-23",
+        "parallel_tool_calls": true,
+        "vision": false,
+        "max_context_length": 128000
+      },
+      "kimi-k2.5": {
+        "model_id": "kimi-k2.5",
+        "parallel_tool_calls": true,
+        "vision": true,
+        "max_context_length": 256000
+      }
+    }
+  }
+};
+```
+
+**UI 交互**：
+1. Settings 首页添加 "Models" 分类卡片
+2. 点击进入 ModelSettings 页面，展示 Provider 列表
+3. 点击 Provider 展开/折叠其模型列表
+4. 每个模型展示：model_id、parallel_tool_calls、vision、max_context_length
+
+## 扩展方式
+
+### 添加新的设置子页面
+
+1. 在 `SettingsPanel.tsx` 中扩展 `SettingsView` 类型
+2. 在首页 `categories` 数组添加新卡片
+3. 创建对应的设置组件（如 `ModelSettings.tsx`）
+4. 在 `view === 'xxx'` 分支添加渲染逻辑
+
+**模式参考**：
+```tsx
+type SettingsView = "home" | "agents" | "models";
+
+// 首页分类卡片
+const categories = [
+  { id: "agents", title: "Agents", icon: Bot, description: "..." },
+  { id: "models", title: "Models", icon: Brain, description: "..." },
+];
+
+// 子页面渲染
+{view === "agents" && <AgentDefSettings onBack={() => setView("home")} />}
+{view === "models" && <ModelSettings onBack={() => setView("home")} />}
+```
+
+### 添加新的特殊编辑器
+
+如需添加类似 Settings 的特殊编辑器（如 Keybindings、Extensions）：
+
+1. 在 `EditorInputType` 添加新类型
+2. 定义虚拟路径常量（如 `KEYBINDINGS_PATH = "ftre://keybindings"`）
+3. 在 `editor-store.ts` 添加打开方法
+4. 在 `EditorArea.tsx` 添加渲染分支（复用 SettingsEditorWidget 模式）
+5. 在 `VIRTUAL_PATH_MAP` 添加图标映射
+6. **未来**：创建对应的 EditorPane 类，纳入 EditorPanes 管理
+
+### Mock 数据管理
+
+后端未就绪时，前端硬编码数据放在 `constants.ts`：
+
+```typescript
+// 命名规范：Xxx_REGISTRY / AVAILABLE_Xxx
+export const AVAILABLE_TOOLS: SelectOption[] = [...];
+export const MODEL_REGISTRY: ProviderRegistry = {...};
+```
+
+切换到真实 API 时：
+1. 将常量改为 fetch 调用
+2. 添加 loading/error 状态
+3. 保留常量作为 fallback 默认值
 
 ## 设计决策
 
@@ -254,25 +338,6 @@ interface AgentDefFormData {
 - 统一处理多 Group、状态持久化
 - 支持复杂编辑器（Diff、Binary 等）的扩展
 - 更好的内存管理（Pane 级生命周期控制）
-
-## 扩展方式
-
-### 添加新的设置子页面
-
-1. 在 `SettingsPanel.tsx` 中注册新路由
-2. 创建对应的设置组件（如 `KeybindingsSettings.tsx`）
-3. 在首页添加入口卡片
-
-### 添加新的特殊编辑器
-
-如需添加类似 Settings 的特殊编辑器（如 Keybindings、Extensions）：
-
-1. 在 `EditorInputType` 添加新类型
-2. 定义虚拟路径常量（如 `KEYBINDINGS_PATH = "ftre://keybindings"`）
-3. 在 `editor-store.ts` 添加打开方法
-4. 在 `EditorArea.tsx` 添加渲染分支（复用 SettingsEditorWidget 模式）
-5. 在 `VIRTUAL_PATH_MAP` 添加图标映射
-6. **未来**：创建对应的 EditorPane 类，纳入 EditorPanes 管理
 
 ## VSCode 参考对照
 
