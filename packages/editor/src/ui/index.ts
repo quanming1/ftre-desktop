@@ -9,6 +9,12 @@ export {
   type CodeEditorWidgetProps,
 } from "./CodeEditorWidget";
 
+// Settings 编辑器组件
+export {
+  SettingsEditorWidget,
+  type SettingsEditorWidgetProps,
+} from "./SettingsEditorWidget";
+
 // EditorPane 工厂
 export {
   CodeEditorPaneFactory,
