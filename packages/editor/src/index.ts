@@ -264,7 +264,7 @@ export {
   registerFtreTheme,
   _resetThemeRegistration,
 } from "./ui/theme-registry";
-export { MonacoDiffViewer } from "./ui/MonacoDiffViewer";
+export { MonacoDiffViewer, type MonacoDiffViewerHandle } from "./ui/MonacoDiffViewer";
 export { DiffBar, computeDiffStats } from "./ui/DiffBar";
 
 // Themes

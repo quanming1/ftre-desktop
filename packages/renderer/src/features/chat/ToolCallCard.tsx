@@ -9,7 +9,7 @@
 import { useState, memo, useMemo, useRef, useEffect } from "react";
 import { FileText, Pencil, Terminal, Search, Brain, Loader2, ChevronRight, Copy, Check, AlertCircle, Ban, Undo2, ExternalLink, Diff } from "lucide-react";
 import { useThrottledValue } from "@/hooks/useThrottledValue";
-import { computeDiffLines, groupIntoSegments, InlineDiffView } from "./diff";
+import { computeDiffLines, groupIntoSegments, InlineDiffView } from "@ftre/ui";
 import type { ToolCallMessage } from "@/types/chat";
 import { isToolCall } from "@/types/chat";
 import { useMessageById } from "@/stores/chat";
@@ -357,13 +357,22 @@ function CardAction({
 // ═══════════════════════════════════════════════════════════════════════
 
 function DiffNavCard({ message }: { message: ToolCallMessage }) {
-  const [expanded, setExpanded] = useState(false);
   const [undoing, setUndoing] = useState(false);
   const [undone, setUndone] = useState(false);
   const [diffLoading, setDiffLoading] = useState(false);
   const fileName = getToolSummary(message);
   const filePath = getToolFilePath(message);
   const isCompleted = message.status === "completed";
+  // edit tool 完成后默认展开 diff
+  const [expanded, setExpanded] = useState(isCompleted);
+  // 当 status 从非 completed 变为 completed 时，自动展开
+  const prevStatusRef = useRef(message.status);
+  useEffect(() => {
+    if (prevStatusRef.current !== "completed" && isCompleted) {
+      setExpanded(true);
+    }
+    prevStatusRef.current = message.status;
+  }, [isCompleted, message.status]);
 
   const handleToggle = () => {
     if (isCompleted) setExpanded(!expanded);
@@ -400,13 +409,23 @@ function DiffNavCard({ message }: { message: ToolCallMessage }) {
     }
   };
 
-  // 从 oldString/newString 计算 diff 分段（惰性，仅展开时使用）
+  // 从 oldString/newString 计算 diff（惰性）
   const oldString = typeof message.arguments?.oldString === "string" ? message.arguments.oldString : "";
   const newString = typeof message.arguments?.newString === "string" ? message.arguments.newString : "";
-  const diffSegments = useMemo(() => {
+  const diffLines = useMemo(() => {
     if (!oldString && !newString) return null;
-    return groupIntoSegments(computeDiffLines(oldString, newString), 3);
+    return computeDiffLines(oldString, newString);
   }, [oldString, newString]);
+
+  // 计算统计信息
+  const diffStats = useMemo(() => {
+    if (!diffLines) return null;
+    const segments = groupIntoSegments(diffLines, 3);
+    const additions = diffLines.filter(l => l.type === "add").length;
+    const deletions = diffLines.filter(l => l.type === "del").length;
+    const changeBlocks = segments.filter(s => s.kind === "collapsed").length;
+    return { additions, deletions, changeBlocks, totalLines: diffLines.length };
+  }, [diffLines]);
 
   const actionButtons = isCompleted ? (
     <>
@@ -445,9 +464,14 @@ function DiffNavCard({ message }: { message: ToolCallMessage }) {
         expanded={expanded}
         actions={actionButtons}
       />
-      {expanded && diffSegments && (
+      {expanded && diffLines && diffLines.length > 0 && (
         <div className="mx-2.5 mb-1.5 rounded-md border border-white/[0.06] overflow-hidden">
-          <InlineDiffView segments={diffSegments} />
+          <InlineDiffView
+            segments={groupIntoSegments(diffLines, 3)}
+            diffLines={diffLines}
+            regroupFn={groupIntoSegments}
+            showControls={true}
+          />
         </div>
       )}
     </div>
