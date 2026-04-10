@@ -83,6 +83,57 @@ Skill 定义文件: `.ftre/skills/spacious-ui/SKILL.md`
 - 状态 badge 改为小圆点（而非数字徽标）
 - 减少文字按钮，优先使用图标 + Tooltip
 
+### ResizeHandle（拖拽分割线）
+**设计要点：**
+- 默认始终可见 2px 灰色分割线
+- Hover/Drag 时切换为半透明霓虹绿高亮
+- 视觉宽度使用 `w-1` (4px) 居中，点击区域通过 `inset` 扩展
+
+**实现模式：**
+```tsx
+<div className={cn(
+  "shrink-0 relative group cursor-col-resize",
+  isH ? "w-1 h-full" : "w-full h-1",
+  "flex items-center justify-center",
+)}>
+  {/* 默认灰色分割线 */}
+  <div className={cn(
+    isH ? "w-[2px] h-full" : "w-full h-[2px]",
+    "bg-[var(--ftre-border)] transition-colors duration-200",
+    showHighlight && "bg-neon/60",
+  )} />
+  {/* 拖拽时高亮覆盖层 */}
+  {showHighlight && (
+    <div className={cn(
+      isH ? "w-[3px] h-full" : "w-full h-[3px]",
+      "absolute bg-neon/60 rounded-full",
+    )} />
+  )}
+  {/* 扩展点击区域 */}
+  <div className={cn(
+    "absolute z-10",
+    isH ? "inset-y-0 -left-1 -right-1" : "inset-x-0 -top-1 -bottom-1",
+  )} />
+</div>
+```
+
+### 工作区选择器（放大版）
+**设计要点：**
+- 头像尺寸：`48×48px` (w-12 h-12)，圆角 `rounded-xl`
+- 整体 padding：`px-5 py-5`
+- 标题字号：`15px`，带副标题显示数量
+- 按钮高度：`h-11`，圆角 `rounded-lg`
+
+**尺寸对比：**
+
+| 元素 | 紧凑版 | Spacious 版 |
+|------|--------|-------------|
+| 头像 | 36×36 | 48×48 |
+| 按钮高度 | h-9 (36px) | h-11 (44px) |
+| 圆角 | rounded-md | rounded-lg |
+| 图标大小 | 15-16px | 17px |
+| 列表项 padding | py-3 | py-3.5 |
+
 ## 交互状态
 
 | 状态 | 样式 |
@@ -113,4 +164,5 @@ Skill 定义文件: `.ftre/skills/spacious-ui/SKILL.md`
 |------|------|
 | `packages/renderer/src/features/settings/AgentDefSettings.tsx` | 表单页面完整示例 |
 | `packages/renderer/src/components/LayoutSwitcher.tsx` | 图标按钮组工具栏 |
-| `packages/renderer/src/features/session/SessionPanel.tsx` | 头部导航 + 下拉菜单 |
+| `packages/renderer/src/features/session/SessionPanel.tsx` | 头部导航 + 下拉菜单 + 工作区选择器 |
+| `packages/ui/src/components/ResizeHandle.tsx` | 拖拽分割线组件 |

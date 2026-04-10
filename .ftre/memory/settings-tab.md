@@ -261,6 +261,45 @@ export const MODEL_REGISTRY: ProviderRegistry = {
 3. 点击 Provider 展开/折叠其模型列表
 4. 每个模型展示：model_id、parallel_tool_calls、vision、max_context_length
 
+**实现反馈**：
+- 用户反馈 Switch 组件尺寸过小（`size="sm"`），需要重新设计
+- 建议：将 Switch 改为 `size="md"`，增加间距，提升可操作性
+
+## Git 提交记录
+
+**ModelSettings 功能实现**：
+```
+commit 6178626
+Author: Agent
+Date:   (implementation day)
+
+feat(settings): add Models config with provider/model CRUD
+
+- 新增 ModelSettings.tsx 组件（Provider + Model 两级 CRUD）
+- 修改 SettingsPanel.tsx 添加入口卡片
+- 修改 constants.ts 添加类型定义和 mock 数据
+- 修改 index.ts 导出新组件
+
+4 files changed, 552 insertions(+), 2 deletions(-)
+```
+
+**文档与错误处理更新**：
+```
+commit 6b4b313
+Author: Agent
+Date:   (implementation day)
+
+docs(memory): update settings-tab with ModelSettings, add archive-system...
+
+- 更新 settings-tab.md 添加 ModelSettings 文档
+- 新增 archive-system.md 归档系统记忆
+- 新增 git-integration.md Git 集成记忆
+- stream-manager.ts 错误消息处理改进
+- 新增 .ftre/specs/model-provider-settings/ 功能规范
+
+8 files changed, 523 insertions(+), 48 deletions(-)
+```
+
 ## 扩展方式
 
 ### 添加新的设置子页面
@@ -347,3 +386,9 @@ export const MODEL_REGISTRY: ProviderRegistry = {...};
 | `SettingsEditor2` | `SettingsPanel` 组件 | `SettingsEditorPane` 类 |
 | EditorPane 复用 | CSS display 控制显隐 | 实例池 + `setVisible()` |
 | EditorMemento | useState 内部保持 | `getViewState()` / `setViewState()` |
+
+## 注意事项
+
+- **Switch 尺寸**：用户反馈 ModelSettings 中 Switch 区域太小，建议使用 `size="md"` 并增加间距
+- **Mock 数据刷新**：硬编码数据在页面刷新后会重置，如需持久化需接入后端 API
+- **Provider 扩展**：新增 Provider 时需在 `MODEL_REGISTRY` 中定义完整结构
