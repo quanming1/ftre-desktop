@@ -37,6 +37,7 @@ export const NotificationStack = memo(function NotificationStack({
         positionClasses[position],
         className,
       )}
+      style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties}
     >
       <AnimatePresence mode="popLayout">
         {visibleNotifications.map((notification) => (
