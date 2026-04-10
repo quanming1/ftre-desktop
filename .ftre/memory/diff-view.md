@@ -1,6 +1,6 @@
 # Diff View (差异对比视图)
 
-> 差异对比存在两套实现：编辑器内使用 Monaco DiffEditor，Chat 消息列表中使用自研 DiffSummaryCard。
+> 差异对比存在两套实现：编辑器内使用 Monaco DiffEditor，Chat 消息列表中使用 DiffSummaryCard。
 
 ## 核心文件
 
@@ -11,43 +11,52 @@
 | `packages/editor/src/ui/MonacoDiffViewer.tsx` | Monaco DiffEditor 封装，渲染差异对比 |
 | `packages/editor/src/ui/themes/darcula.ts` | Monaco Darcula 主题定义 |
 | `packages/renderer/src/features/editor/EditorArea.tsx` | 集成 DiffBar 和 MonacoDiffViewer，管理 diff 状态 |
+| `packages/editor/src/store/editor-store.ts` | addDiff 函数创建 diff 虚拟标签页 |
 
 ### Chat Diff (自研组件)
 | 文件 | 职责 |
 |------|------|
-| `packages/renderer/src/features/chat/diff/DiffView.tsx` | Diff 核心算法：解析、比较、分段 |
-| `packages/ui/src/components/diff-summary/DiffSummaryCard.tsx` | 自研 diff 卡片组件，纯 CSS 样式 |
-| `packages/renderer/src/features/chat/ToolCallCard.tsx` | edit tool 卡片，使用 DiffSummaryCard 展示 diff |
+| `packages/ui/src/components/diff-summary/DiffSummaryCard.tsx` | 文件列表 + diff 展示容器，支持按需加载 |
+| `packages/renderer/src/features/chat/ToolCallCard.tsx` | edit tool 卡片，edit 完成后默认展开 diff |
 
-## 依赖
+### 可复用的 Diff 组件（从 DiffSummaryCard 解耦导出）
+| 组件 | 导出路径 | 职责 |
+|------|----------|------|
+| `InlineDiffView` | `@ftre/ui` | 完整 diff 视图，支持分段折叠、上下文切换、展开控制 |
+| `DiffLineRow` | `@ftre/ui` | 单行 diff 渲染，支持点击行号回调 |
+| `DiffBar` | `@ftre/ui` | 增删比例可视化条 |
+| `DiffStats` | `@ftre/ui` | 增删数字标签 |
+| `parseUnifiedDiffLines` | `@ftre/ui` | 解析 unified diff 文本 |
+| `computeDiffLines` | `@ftre/ui` | 从 old/newString 计算 diff（LCS 算法） |
+| `groupIntoSegments` | `@ftre/ui` | diff 分段折叠 |
+| `computeDiffStats` | `@ftre/ui` | 计算 diff 统计（变更块数、增删行数） |
 
-**无额外依赖** - diff 算法内联在 renderer 包中，UI 组件纯 CSS 实现。
+## 已废弃文件
 
-## 已废弃的依赖
-
-```bash
-# 以下依赖已移除
-npm uninstall react-diff-viewer-continued prism-react-renderer
+```
+packages/renderer/src/features/chat/diff/DiffView.tsx (已删除)
+packages/renderer/src/features/chat/diff/index.ts (已删除)
 ```
 
-移除原因：
-- `prism-react-renderer@2.4.1` 与 React 19 不兼容（`useCallback` null 错误）
-- `react-diff-viewer-continued` 样式不够灵活，用户反馈"丑"
-- 尝试提取 diff 算法到 `@ftre/shared` 后**完全回退**，保持原有架构
+删除原因：与 `DiffSummaryCard` 功能重复，统一使用 `@ftre/ui` 包实现。
 
 ## DiffSummaryCard 架构
 
 ### 数据源
-- unified diff 文本（后端 git diff 输出）
-- 解析函数 `parseUnifiedDiffLines()` 转为 `DiffLine[]` 数组
+```typescript
+interface DiffSummaryCardProps {
+  diffLines: DiffLine[];    // 直接传入解析后的 diff 数据
+  filePath?: string;        // 可选：用于显示文件路径
+}
+```
 
 ### 渲染流程
 ```
 unified diff text
-  ↓ parseUnifiedDiffLines
-DiffLine[] (type: ctx|del|add|hunk)
-  ↓ 按类型渲染
-纯 CSS 样式 diff 行
+  ↓ parseUnifiedDiffLines (调用方处理)
+DiffLine[]
+  ↓ 传入 DiffSummaryCard props
+DiffSummaryCard 纯渲染
 ```
 
 ### 样式实现
@@ -66,7 +75,7 @@ DiffLine[] (type: ctx|del|add|hunk)
 
 ## 核心数据结构
 
-### DiffLine (renderer)
+### DiffLine
 ```typescript
 type DiffLineType = "ctx" | "del" | "add" | "hunk";
 
@@ -74,6 +83,24 @@ interface DiffLine {
   type: DiffLineType;
   text: string;
   lineNo: number | null;
+}
+```
+
+### DiffSegment
+```typescript
+interface DiffSegment {
+  lines: DiffLine[];
+  isCollapsed: boolean;     // 是否折叠
+  canCollapse: boolean;     // 是否可折叠
+}
+```
+
+### DiffStats
+```typescript
+interface DiffStats {
+  segments: number;         // 变更块数
+  additions: number;        // 新增行数
+  deletions: number;        // 删除行数
 }
 ```
 
@@ -95,45 +122,112 @@ interface DiffEntry {
 创建 DiffEntry → 添加到 `pendingDiffs` → `openFile({ path: diffEntry.tabPath, isDiff: true })` → EditorArea 渲染 DiffBar + MonacoDiffViewer
 
 ### Chat Diff
-**DiffSummaryCard**:
-- 数据源: unified diff 文本
-- 解析: `parseUnifiedDiffLines` 转为 `DiffLine[]`
-- 渲染: 纯 CSS 样式，根据 `type` 字段应用不同颜色和背景
+**统一使用 DiffSummaryCard**:
+- edit tool 编辑完成后**默认展开**显示 diff
+- 调用方使用 `parseUnifiedDiffLines()` 或 `computeDiffLines()` 解析 diff 数据
+- 解析结果传入 `InlineDiffView` 或 `DiffSummaryCard` 渲染
 
 ## Diff 核心函数
 
-位于 `packages/renderer/src/features/chat/diff/DiffView.tsx`：
-
 ```typescript
 // 解析 unified diff 文本
-export function parseUnifiedDiffLines(diffText: string): DiffLine[]
+function parseUnifiedDiffLines(diffText: string): DiffLine[]
 
-// 从文件路径检测语言（用于 Monaco 编辑器）
-export function getLanguage(filePath: string): string
+// 从 old/newString 计算 diff（LCS 算法）
+function computeDiffLines(oldString: string, newString: string): DiffLine[]
 
-// LCS 算法计算两行文本的差异
-export function computeDiffLines(oldStr: string, newStr: string): DiffLine[]
+// 分段折叠
+function groupIntoSegments(lines: DiffLine[]): DiffSegment[]
+
+// 计算 diff 统计
+function computeDiffStats(segments: DiffSegment[]): DiffStats
 ```
+
+## Diff 交互控制
+
+### InlineDiffView 控制栏
+```typescript
+interface InlineDiffViewProps {
+  diffLines: DiffLine[];
+  filePath?: string;
+  contextLines?: number;          // 上下文行数：3 | 10 | Infinity
+  defaultCollapsed?: boolean;     // 默认折叠状态
+  onLineClick?: (lineNo: number) => void;  // 点击行号回调
+}
+```
+
+**交互功能：**
+- **上下文切换**: 3 行 / 10 行 / 全部
+- **批量控制**: 展开全部 / 折叠全部
+- **统计展示**: 变更块数、增删行数
+- **行号点击**: 点击行号触发回调（可跳转编辑器）
+- **折叠块 hover**: 显示该块的变更统计
+
+### DiffNavCard (ToolCallCard)
+edit tool 卡片交互：
+- 默认展开 diff（edit 完成后）
+- 显示变更统计（块数、增删行数）
+- 支持展开/折叠全部、上下文切换
 
 ## 设计决策
 
-- **Chat Diff 选型**: 自研实现，放弃 `react-diff-viewer-continued`
-  - 原因: React 19 兼容性问题、样式不够灵活
-  - 方案: 纯 CSS + 内联 diff 算法（位于 renderer 包）
-- **不提取到 shared 包**: 
-  - 原因: 避免引入不必要的依赖复杂度，当前架构已满足需求
-  - 历史: 曾尝试提取到 `packages/shared/src/diff.ts`，后完全回退
-- **样式方案**: Tailwind CSS 纯样式
-  - 原因: 无需额外依赖，与现有设计系统一致
+- **组件统一**: Chat Diff 统一使用 `@ftre/ui` 的 `DiffSummaryCard`
+  - 原因：避免两套实现维护成本，解耦出可复用组件
+  - 废弃 `packages/renderer/src/features/chat/diff/DiffView.tsx`
+- **纯展示组件**: `DiffSummaryCard` / `InlineDiffView` 解耦为纯展示组件
+  - 接收 `DiffLine[]` 作为 props
+  - 不自行调用 API 加载 diff 数据
+  - 导出所有子组件供外部复用
+- **默认展开**: edit tool 编辑完成后默认展开 diff 展示
+  - 原因：用户需要立即看到修改结果
+  - ToolCallCard 中使用 `InlineDiffView` 直接渲染，无需点击"查看 diff"
+- **交互控制**: InlineDiffView 提供上下文切换、批量折叠、行号点击等交互
+  - 原因：提升 diff 浏览效率，支持不同查看需求
 - **编辑器 Diff**: 继续使用 Monaco DiffEditor
   - 原因: 功能完善，与编辑器体验一致
 
+## 已知问题
+
+### MonacoDiffViewer 无语法高亮
+**位置**: `packages/editor/src/store/editor-store.ts` 中 `addDiff` 函数
+**根因**: 创建 diff 虚拟 tab 时 `language` 被硬编码为 `"plaintext"`
+```typescript
+// packages/editor/src/store/editor-store.ts addDiff()
+const virtualFile: OpenFile = {
+  path: diff.tabPath,
+  name: `${fileName} (Diff)`,
+  language: "plaintext",    // ← 硬编码导致 Monaco DiffEditor 无语法高亮
+  content: "",
+  // ...
+};
+```
+**修复方向**: 根据 `diff.filePath` 的扩展名推断语言
+
+### InlineDiffView 行号溢出
+**位置**: `packages/ui/src/components/diff-summary/DiffSummaryCard.tsx` 中 `DiffLineRow` 组件
+**问题**: 行号宽度固定为 `w-[42px]`，当行号为三位数（100+）时可能溢出或重叠
+**代码**:
+```tsx
+<span className="shrink-0 w-[42px] text-right pr-1 ...">
+  {line.lineNo}
+</span>
+```
+**修复方向**: 使用 `min-w-[42px]` 或动态计算行号位数
+
+### InlineDiffView 无语法高亮
+**位置**: `packages/ui/src/components/diff-summary/DiffSummaryCard.tsx`
+**问题**: 代码内容直接渲染为纯文本，仅有增删行的背景色（红/绿），无语法高亮
+**代码**:
+```tsx
+<span className={cn("whitespace-pre pr-4", textClass)}>
+  {line.text}  {/* 纯文本，无高亮 */}
+</span>
+```
+**修复方向**: 集成 `prism-react-renderer` 或 Monaco Editor 的轻量高亮模式
+
 ## 注意事项
 
-- **依赖移除**: `react-diff-viewer-continued` 和 `prism-react-renderer` 已从 `@ftre/ui` 移除
+- **包依赖**: `@ftre/renderer` 使用 `@ftre/ui` 的 `DiffSummaryCard` / `InlineDiffView`
 - **样式配置**: 通过 Tailwind 类名直接控制，无需覆盖第三方库样式
-- **包依赖**: `@ftre/ui` 不依赖 `@ftre/shared` 获取 diff 算法
-- **语言检测**: `getLanguage()` 根据文件扩展名自动检测 30+ 语言
-- **自定义事件陷阱**: 旧代码使用 `ftre:open-file` 自定义事件，但无监听者导致功能失效
+- **语言检测**: 根据文件扩展名自动检测 30+ 语言
 - **DiffEditor 清理**: 关闭 diff tab 时需确保 Monaco DiffEditor 正确清理
-- **React 19 兼容性**: 避免使用 `prism-react-renderer@2.4.1`，存在 Hook 报错

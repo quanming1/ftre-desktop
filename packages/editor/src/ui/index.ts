@@ -1,5 +1,5 @@
 export { registerFtreTheme, _resetThemeRegistration } from "./theme-registry";
-export { MonacoDiffViewer } from "./MonacoDiffViewer";
+export { MonacoDiffViewer, type MonacoDiffViewerHandle } from "./MonacoDiffViewer";
 export { DiffBar, computeDiffStats } from "./DiffBar";
 
 // 新架构编辑器组件
