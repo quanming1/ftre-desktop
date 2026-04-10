@@ -18,6 +18,45 @@ import { buildDiffTabPath, SETTINGS_PATH } from "./types";
 const DEFAULT_GROUP_ID = "default";
 const MAX_RECENT_FILES = 20;
 const EDITOR_KEY_PREFIX = "ftre-editor-state";
+
+// ── Language Detection ───────────────────────────────────────────────
+
+const EXTENSION_LANGUAGE_MAP: Record<string, string> = {
+  ts: "typescript",
+  tsx: "typescriptreact",
+  js: "javascript",
+  jsx: "javascriptreact",
+  json: "json",
+  md: "markdown",
+  css: "css",
+  scss: "scss",
+  less: "less",
+  html: "html",
+  xml: "xml",
+  yaml: "yaml",
+  yml: "yaml",
+  py: "python",
+  rs: "rust",
+  go: "go",
+  java: "java",
+  c: "c",
+  cpp: "cpp",
+  h: "c",
+  hpp: "cpp",
+  sh: "shellscript",
+  bash: "shellscript",
+  sql: "sql",
+  vue: "vue",
+  svelte: "svelte",
+  toml: "toml",
+  ini: "ini",
+};
+
+function detectLanguageFromPath(filePath: string): string {
+  const fileName = filePath.split(/[\\/]/).pop() ?? "";
+  const ext = fileName.split(".").pop()?.toLowerCase() ?? "";
+  return EXTENSION_LANGUAGE_MAP[ext] || "plaintext";
+}
 const EDITOR_PERSIST_DEBOUNCE_MS = 500;
 
 // ── Host Interface ───────────────────────────────────────────────────
@@ -444,7 +483,7 @@ export function createEditorActions(
         const virtualFile: OpenFile = {
           path: diff.tabPath,
           name: `${fileName} (Diff)`,
-          language: "plaintext",
+          language: detectLanguageFromPath(diff.filePath),
           content: "",
           modified: false,
           pinned: false,

@@ -8,7 +8,7 @@
  * - Settings 面板
  */
 
-import { useEffect, useCallback, useState } from "react";
+import { useEffect, useCallback, useState, useRef } from "react";
 import { X, Code2, FileText } from "lucide-react";
 import { useEditor, SETTINGS_PATH } from "@/stores/editor";
 import { useLayout } from "@/stores/layout";
@@ -21,6 +21,7 @@ import {
   DiffBar,
   getTextModelResolverService,
   wasRecentlySaved,
+  type MonacoDiffViewerHandle,
 } from "@ftre/editor";
 import { SettingsPanel } from "@/features/settings";
 import { Breadcrumb } from "./Breadcrumb";
@@ -32,6 +33,7 @@ export function EditorArea() {
   const pendingDiffs = useEditor((s) => s.pendingDiffs);
   const minimapEnabled = useLayout((s) => s.minimapEnabled);
   const [sideBySide, setSideBySide] = useState(true);
+  const diffViewerRef = useRef<MonacoDiffViewerHandle>(null);
 
   // Listen for split-editor event
   useEffect(() => {
@@ -177,23 +179,35 @@ export function EditorArea() {
 
   const handleOpenSourceFile = useCallback(async (filePath: string) => {
     try {
-      // 1. 读取文件内容
+      // 1. 获取当前 diff 视图的行号
+      const currentLine = diffViewerRef.current?.getCurrentLine() ?? 1;
+
+      // 2. 读取文件内容
       const result = await window.desktop.fs.readFile(filePath);
       if (result.error) {
         console.error("Failed to read file:", result.error);
         return;
       }
 
-      // 2. 关闭 diff tab
+      // 3. 关闭 diff tab
       useEditor.getState().rejectDiff(filePath);
 
-      // 3. 打开源文件
+      // 4. 打开源文件
       useEditor.getState().openFile({
         path: filePath,
         name: filePath.split(/[\\/]/).pop() ?? filePath,
         language: result.language,
         content: result.content,
       });
+
+      // 5. 跳转到对应行号（延迟执行，等待编辑器挂载）
+      setTimeout(() => {
+        window.dispatchEvent(
+          new CustomEvent("ftre:reveal-line", {
+            detail: { filePath, line: currentLine, col: 1 },
+          }),
+        );
+      }, 100);
     } catch (error) {
       console.error("Failed to open source file:", error);
     }
@@ -298,6 +312,7 @@ export function EditorArea() {
                                 onOpenSourceFile={handleOpenSourceFile}
                               />
                               <MonacoDiffViewer
+                                ref={diffViewerRef}
                                 key={activeDiff.id}
                                 diff={activeDiff}
                                 language={currentFile.language}

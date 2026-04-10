@@ -1,3 +1,9 @@
+/**
+ * Diff 渲染核心 — 纯展示组件库
+ *
+ * 提供 unified diff 解析、分段折叠、单行渲染、增删比例条等能力，
+ * 供 DiffSummaryCard 和 edit tool 的 DiffNavCard 复用。
+ */
 import {
   Fragment,
   memo,
@@ -6,44 +12,46 @@ import {
   useState,
   type MouseEvent,
 } from "react";
-import { ChevronRight, ExternalLink, FileCode, GitCommitVertical, Loader2, Minus, Plus, UnfoldVertical } from "lucide-react";
+import {
+  ChevronRight,
+  ExternalLink,
+  FileCode,
+  GitCommitVertical,
+  GitMerge,
+  Loader2,
+  Minus,
+  Plus,
+  UnfoldVertical,
+  Minimize2,
+  Maximize2,
+  ChevronsUpDown,
+} from "lucide-react";
 import { cn } from "../../utils/cn";
 
-export interface DiffSummaryFile {
-  file: string;
-  additions: number;
-  deletions: number;
-}
+// ═══════════════════════════════════════════════════════════════════════
+// 数据结构
+// ═══════════════════════════════════════════════════════════════════════
 
-export interface DiffSummaryMeta {
-  files: DiffSummaryFile[];
-  total_additions?: number;
-  total_deletions?: number;
-  total_files?: number;
-}
+export type DiffLineType = "ctx" | "del" | "add" | "hunk";
 
-export interface DiffSummaryCardProps {
-  diffMeta: DiffSummaryMeta;
-  onLoadFileDiff?: (filePath: string) => Promise<string | null | undefined>;
-  onOpenFileDiff?: (filePath: string) => Promise<void> | void;
-  className?: string;
-}
-
-type DiffLineType = "ctx" | "del" | "add";
-
-interface DiffLine {
+export interface DiffLine {
   type: DiffLineType;
   text: string;
   lineNo: number | null;
 }
 
-type DiffSegment =
+export type DiffSegment =
   | { kind: "visible"; lines: DiffLine[] }
   | { kind: "collapsed"; lines: DiffLine[] };
 
-function parseUnifiedDiffLines(diffText: string): DiffLine[] {
+// ═══════════════════════════════════════════════════════════════════════
+// 工具函数
+// ═══════════════════════════════════════════════════════════════════════
+
+/** 解析 unified diff 文本为 flat DiffLine 数组 */
+export function parseUnifiedDiffLines(diffText: string): DiffLine[] {
   if (!diffText) return [];
-  const lines: DiffLine[] = [];
+  const result: DiffLine[] = [];
   let oldNo = 0;
   let newNo = 0;
 
@@ -66,14 +74,14 @@ function parseUnifiedDiffLines(diffText: string): DiffLine[] {
     }
 
     if (line.startsWith("-")) {
-      lines.push({ type: "del", text: line.slice(1), lineNo: oldNo++ });
+      result.push({ type: "del", text: line.slice(1), lineNo: oldNo++ });
       continue;
     }
     if (line.startsWith("+")) {
-      lines.push({ type: "add", text: line.slice(1), lineNo: newNo++ });
+      result.push({ type: "add", text: line.slice(1), lineNo: newNo++ });
       continue;
     }
-    lines.push({
+    result.push({
       type: "ctx",
       text: line.startsWith(" ") ? line.slice(1) : line,
       lineNo: newNo,
@@ -82,32 +90,74 @@ function parseUnifiedDiffLines(diffText: string): DiffLine[] {
     newNo++;
   }
 
-  return lines;
+  return result;
 }
 
-function groupIntoSegments(lines: DiffLine[], contextLines = 3): DiffSegment[] {
-  if (lines.length === 0) return [];
+/**
+ * 从 oldString / newString 计算 DiffLine[]（LCS 算法）。
+ */
+export function computeDiffLines(oldStr: string, newStr: string): DiffLine[] {
+  const oldLines = oldStr.split("\n");
+  const newLines = newStr.split("\n");
+  const m = oldLines.length;
+  const n = newLines.length;
 
-  const showMask = new Uint8Array(lines.length);
-  for (let i = 0; i < lines.length; i++) {
-    if (lines[i].type === "ctx") continue;
-    for (
-      let c = Math.max(0, i - contextLines);
-      c <= Math.min(lines.length - 1, i + contextLines);
-      c++
-    ) {
-      showMask[c] = 1;
+  const dp: number[][] = Array.from({ length: m + 1 }, () => Array(n + 1).fill(0));
+  for (let i = 1; i <= m; i++) {
+    for (let j = 1; j <= n; j++) {
+      dp[i][j] = oldLines[i - 1] === newLines[j - 1]
+        ? dp[i - 1][j - 1] + 1
+        : Math.max(dp[i - 1][j], dp[i][j - 1]);
+    }
+  }
+
+  const raw: { type: DiffLineType; text: string; newNo: number }[] = [];
+  let i = m, j = n;
+  while (i > 0 || j > 0) {
+    if (i > 0 && j > 0 && oldLines[i - 1] === newLines[j - 1]) {
+      raw.push({ type: "ctx", text: oldLines[i - 1], newNo: j });
+      i--; j--;
+    } else if (i > 0 && (j === 0 || dp[i - 1][j] >= dp[i][j - 1])) {
+      raw.push({ type: "del", text: oldLines[i - 1], newNo: 0 });
+      i--;
+    } else {
+      raw.push({ type: "add", text: newLines[j - 1], newNo: j });
+      j--;
+    }
+  }
+  raw.reverse();
+
+  return raw.map((r) => ({
+    type: r.type,
+    text: r.text,
+    lineNo: r.type === "del" ? null : r.newNo,
+  }));
+}
+
+/** 按 contextLines 将 flat DiffLine[] 分为可见段和折叠段 */
+export function groupIntoSegments(allLines: DiffLine[], contextLines = 3): DiffSegment[] {
+  if (allLines.length === 0) return [];
+
+  const showMask = new Uint8Array(allLines.length);
+  for (let k = 0; k < allLines.length; k++) {
+    if (allLines[k].type !== "ctx") {
+      for (
+        let c = Math.max(0, k - contextLines);
+        c <= Math.min(allLines.length - 1, k + contextLines);
+        c++
+      ) {
+        showMask[c] = 1;
+      }
     }
   }
 
   const segments: DiffSegment[] = [];
-  let i = 0;
-  while (i < lines.length) {
-    const currentVisible = showMask[i] === 1;
+  let k = 0;
+  while (k < allLines.length) {
+    const currentVisible = showMask[k] === 1;
     const block: DiffLine[] = [];
-    while (i < lines.length && (showMask[i] === 1) === currentVisible) {
-      block.push(lines[i]);
-      i++;
+    while (k < allLines.length && (showMask[k] === 1) === currentVisible) {
+      block.push(allLines[k++]);
     }
     segments.push({
       kind: currentVisible ? "visible" : "collapsed",
@@ -117,7 +167,45 @@ function groupIntoSegments(lines: DiffLine[], contextLines = 3): DiffSegment[] {
   return segments;
 }
 
-function DiffBar({ additions, deletions }: { additions: number; deletions: number }) {
+/** 计算 diff 统计信息 */
+export function computeDiffStats(segments: DiffSegment[]): {
+  additions: number;
+  deletions: number;
+  changeBlocks: number;
+  totalLines: number;
+} {
+  let additions = 0;
+  let deletions = 0;
+  let changeBlocks = 0;
+  let totalLines = 0;
+
+  for (const seg of segments) {
+    let hasChange = false;
+    for (const line of seg.lines) {
+      totalLines++;
+      if (line.type === "add") {
+        additions++;
+        hasChange = true;
+      } else if (line.type === "del") {
+        deletions++;
+        hasChange = true;
+      }
+    }
+    // 折叠的块算作一个变更块
+    if (seg.kind === "collapsed" && hasChange) {
+      changeBlocks++;
+    }
+  }
+
+  return { additions, deletions, changeBlocks, totalLines };
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// 展示组件
+// ═══════════════════════════════════════════════════════════════════════
+
+/** 增删比例条 */
+export function DiffBar({ additions, deletions }: { additions: number; deletions: number }) {
   const total = additions + deletions;
   if (total === 0) return null;
   const blocks = 5;
@@ -142,7 +230,8 @@ function DiffBar({ additions, deletions }: { additions: number; deletions: numbe
   );
 }
 
-function DiffStats({ additions, deletions }: { additions: number; deletions: number }) {
+/** 增删数字标签 */
+export function DiffStats({ additions, deletions }: { additions: number; deletions: number }) {
   return (
     <div className="flex items-center gap-2 shrink-0 text-[12px]">
       {additions > 0 && (
@@ -161,12 +250,23 @@ function DiffStats({ additions, deletions }: { additions: number; deletions: num
   );
 }
 
-const DiffLineRow = memo(function DiffLineRow({ line }: { line: DiffLine }) {
+/** 单行 Diff 渲染 */
+export const DiffLineRow = memo(function DiffLineRow({
+  line,
+  onLineClick,
+}: {
+  line: DiffLine;
+  onLineClick?: (lineNo: number | null, type: DiffLineType) => void;
+}) {
+  const handleClick = useCallback(() => {
+    onLineClick?.(line.lineNo, line.type);
+  }, [onLineClick, line.lineNo, line.type]);
+
   const rowClass =
     line.type === "del"
-      ? "bg-[var(--ftre-error,#f85149)]/10 hover:bg-[var(--ftre-error,#f85149)]/15"
+      ? "bg-[var(--ftre-error,#f85149)]/10 hover:bg-[var(--ftre-error,#f85149)]/15 cursor-pointer"
       : line.type === "add"
-        ? "bg-[var(--ftre-success,#00ff88)]/10 hover:bg-[var(--ftre-success,#00ff88)]/15"
+        ? "bg-[var(--ftre-success,#00ff88)]/10 hover:bg-[var(--ftre-success,#00ff88)]/15 cursor-pointer"
         : "hover:bg-white/[0.03]";
   const textClass =
     line.type === "del"
@@ -183,7 +283,10 @@ const DiffLineRow = memo(function DiffLineRow({ line }: { line: DiffLine }) {
   const sign = line.type === "del" ? "-" : line.type === "add" ? "+" : " ";
 
   return (
-    <div className={cn("flex w-max min-w-full transition-colors", rowClass)}>
+    <div
+      className={cn("flex w-max min-w-full transition-colors", rowClass)}
+      onClick={handleClick}
+    >
       <span className="shrink-0 w-[42px] text-right pr-1 text-[var(--ftre-text-ghost,#888e98)]/45 select-none border-r border-white/[0.04]">
         {line.lineNo}
       </span>
@@ -196,56 +299,226 @@ const DiffLineRow = memo(function DiffLineRow({ line }: { line: DiffLine }) {
   );
 });
 
-function InlineDiffView({ segments: initialSegments }: { segments: DiffSegment[] }) {
-  const [segments, setSegments] = useState(initialSegments);
-
-  useEffect(() => {
-    setSegments(initialSegments);
-  }, [initialSegments]);
-
-  const handleExpand = useCallback((segmentIndex: number) => {
-    setSegments((prev) => {
-      const next = [...prev];
-      const target = next[segmentIndex];
-      if (target.kind === "collapsed") {
-        next[segmentIndex] = { kind: "visible", lines: target.lines };
-      }
-      return next;
-    });
-  }, []);
-
+/** 折叠区域按钮 */
+function CollapsedBlock({
+  lineCount,
+  onExpand,
+  changeLines,
+}: {
+  lineCount: number;
+  onExpand: () => void;
+  changeLines?: { additions: number; deletions: number };
+}) {
   return (
-    <div className="text-[12px] font-mono leading-[22px] overflow-x-auto max-h-[400px] overflow-y-auto bg-[var(--ftre-base,#1e1e1e)]">
-      {segments.map((segment, segmentIndex) => {
-        if (segment.kind === "collapsed") {
-          return (
-            <button
-              key={`c-${segmentIndex}`}
-              type="button"
-              onClick={() => handleExpand(segmentIndex)}
-              className="w-full flex items-center gap-1.5 px-2 py-[3px] bg-white/[0.02] hover:bg-white/[0.05] transition-colors border-y border-white/[0.04]"
-            >
-              <UnfoldVertical size={11} className="text-[var(--ftre-text-ghost,#888e98)]" />
-              <span className="text-[11px] text-[var(--ftre-text-ghost,#888e98)]">
-                展开 {segment.lines.length} 行
-              </span>
-            </button>
-          );
-        }
-
-        return (
-          <Fragment key={`v-${segmentIndex}`}>
-            {segment.lines.map((line, lineIndex) => (
-              <DiffLineRow
-                key={`${segmentIndex}-${lineIndex}-${line.type}-${line.lineNo ?? "n"}`}
-                line={line}
-              />
-            ))}
-          </Fragment>
-        );
-      })}
+    <div
+      className="w-full flex items-center justify-between px-2 py-[3px] bg-white/[0.02] hover:bg-white/[0.05] cursor-pointer select-none transition-colors border-y border-white/[0.04] group"
+      onClick={onExpand}
+    >
+      <div className="flex items-center gap-1.5">
+        <UnfoldVertical size={11} className="text-[var(--ftre-text-ghost,#888e98)]" />
+        <span className="text-[11px] text-[var(--ftre-text-ghost,#888e98)]">
+          展开 {lineCount} 行
+        </span>
+      </div>
+      {changeLines && (
+        <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+          {changeLines.additions > 0 && (
+            <span className="text-[10px] text-[var(--ftre-success,#00ff88)]">
+              +{changeLines.additions}
+            </span>
+          )}
+          {changeLines.deletions > 0 && (
+            <span className="text-[10px] text-[var(--ftre-error,#f85149)]">
+              -{changeLines.deletions}
+            </span>
+          )}
+        </div>
+      )}
     </div>
   );
+}
+
+type ContextLevel = 3 | 10 | 99;
+
+export interface InlineDiffViewProps {
+  segments: DiffSegment[];
+  /** 上下文行数 */
+  contextLines?: ContextLevel;
+  /** 点击行号时的回调 */
+  onLineClick?: (lineNo: number | null, type: DiffLineType) => void;
+  /** 是否显示控制栏 */
+  showControls?: boolean;
+  /** 重新计算分段用的回调（用于外部传入 groupIntoSegments） */
+  regroupFn?: (lines: DiffLine[], context: number) => DiffSegment[];
+  /** 原始 diffLines（用于重新计算分段） */
+  diffLines?: DiffLine[];
+  className?: string;
+}
+
+/** 完整 Diff 视图（带折叠段和控制栏） */
+export function InlineDiffView({
+  segments: initialSegments,
+  contextLines = 3,
+  onLineClick,
+  showControls = true,
+  regroupFn,
+  diffLines,
+  className,
+}: InlineDiffViewProps) {
+  const [segments, setSegments] = useState(initialSegments);
+  const [context, setContext] = useState<ContextLevel>(contextLines);
+
+  // 当 context 变化时，重新分组
+  useEffect(() => {
+    if (regroupFn && diffLines) {
+      setSegments(regroupFn(diffLines, context));
+    } else {
+      setSegments(initialSegments);
+    }
+  }, [context, regroupFn, diffLines, initialSegments]);
+
+  const handleExpand = useCallback((segIdx: number) => {
+    setSegments((prev) =>
+      prev.map((seg, i) =>
+        i === segIdx && seg.kind === "collapsed"
+          ? { kind: "visible" as const, lines: seg.lines }
+          : seg
+      )
+    );
+  }, []);
+
+  const expandAll = useCallback(() => {
+    setSegments((prev) =>
+      prev.map((seg) => (seg.kind === "collapsed" ? { kind: "visible" as const, lines: seg.lines } : seg)),
+    );
+  }, []);
+
+  const collapseAll = useCallback(() => {
+    if (!regroupFn || !diffLines) return;
+    setSegments(regroupFn(diffLines, context));
+  }, [regroupFn, diffLines, context]);
+
+  const stats = computeDiffStats(segments);
+  const hasCollapsed = segments.some((s) => s.kind === "collapsed");
+
+  return (
+    <div className={cn("flex flex-col", className)}>
+      {/* 控制栏 */}
+      {showControls && (
+        <div className="flex items-center justify-between px-2 py-1.5 bg-[var(--ftre-surface,#252526)] border-b border-white/[0.04]">
+          <div className="flex items-center gap-3 text-[11px] text-[var(--ftre-text-ghost,#888e98)]">
+            <span className="flex items-center gap-1">
+              <GitMerge size={10} />
+              {stats.changeBlocks} 个变更块
+            </span>
+            {stats.additions > 0 && (
+              <span className="text-[var(--ftre-success,#00ff88)]">+{stats.additions}</span>
+            )}
+            {stats.deletions > 0 && (
+              <span className="text-[var(--ftre-error,#f85149)]">-{stats.deletions}</span>
+            )}
+          </div>
+
+          <div className="flex items-center gap-1">
+            {/* 上下文切换 */}
+            <div className="flex items-center gap-0.5 mr-2">
+              <ChevronsUpDown size={10} className="text-[var(--ftre-text-ghost,#888e98)]" />
+              <select
+                value={context}
+                onChange={(e) => setContext(Number(e.target.value) as ContextLevel)}
+                className="bg-transparent text-[10px] text-[var(--ftre-text-ghost,#888e98)] border-none outline-none cursor-pointer"
+              >
+                <option value={3}>±3 行</option>
+                <option value={10}>±10 行</option>
+                <option value={99}>全部</option>
+              </select>
+            </div>
+
+            {/* 展开/折叠 */}
+            {hasCollapsed && (
+              <>
+                <button
+                  onClick={expandAll}
+                  className="p-1 hover:bg-white/[0.06] rounded transition-colors"
+                  title="展开全部"
+                >
+                  <Maximize2 size={10} className="text-[var(--ftre-text-ghost,#888e98)]" />
+                </button>
+                <button
+                  onClick={collapseAll}
+                  className="p-1 hover:bg-white/[0.06] rounded transition-colors"
+                  title="折叠全部"
+                >
+                  <Minimize2 size={10} className="text-[var(--ftre-text-ghost,#888e98)]" />
+                </button>
+              </>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Diff 内容 */}
+      <div className="text-[12px] font-mono leading-[22px] overflow-x-auto max-h-[400px] overflow-y-auto bg-[var(--ftre-base,#1e1e1e)]">
+        {segments.map((seg, segIdx) => {
+          if (seg.kind === "collapsed") {
+            const changeLines = seg.lines.reduce(
+              (acc, l) => {
+                if (l.type === "add") acc.additions++;
+                else if (l.type === "del") acc.deletions++;
+                return acc;
+              },
+              { additions: 0, deletions: 0 },
+            );
+            return (
+              <CollapsedBlock
+                key={`c-${segIdx}`}
+                lineCount={seg.lines.length}
+                onExpand={() => handleExpand(segIdx)}
+                changeLines={changeLines}
+              />
+            );
+          }
+
+          return (
+            <Fragment key={`v-${segIdx}`}>
+              {seg.lines.map((line, lineIdx) => (
+                <DiffLineRow
+                  key={`${segIdx}-${lineIdx}-${line.type}-${line.lineNo ?? "n"}`}
+                  line={line}
+                  onLineClick={onLineClick}
+                />
+              ))}
+            </Fragment>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// DiffSummaryCard — 文件列表 + 按需加载 Diff
+// ═══════════════════════════════════════════════════════════════════════
+
+export interface DiffSummaryFile {
+  file: string;
+  additions: number;
+  deletions: number;
+}
+
+export interface DiffSummaryMeta {
+  files: DiffSummaryFile[];
+  total_additions?: number;
+  total_deletions?: number;
+  total_files?: number;
+}
+
+export interface DiffSummaryCardProps {
+  diffMeta: DiffSummaryMeta;
+  onLoadFileDiff?: (filePath: string) => Promise<string | null | undefined>;
+  onOpenFileDiff?: (filePath: string) => Promise<void> | void;
+  onLineClick?: (filePath: string, lineNo: number | null) => void;
+  className?: string;
 }
 
 const DiffSummaryFileRow = memo(function DiffSummaryFileRow({
@@ -254,12 +527,14 @@ const DiffSummaryFileRow = memo(function DiffSummaryFileRow({
   onExpandedChange,
   onLoadFileDiff,
   onOpenFileDiff,
+  onLineClick,
 }: {
   file: DiffSummaryFile;
   expanded: boolean;
   onExpandedChange: (next: boolean) => void;
   onLoadFileDiff?: (filePath: string) => Promise<string | null | undefined>;
   onOpenFileDiff?: (filePath: string) => Promise<void> | void;
+  onLineClick?: (filePath: string, lineNo: number | null) => void;
 }) {
   const [loading, setLoading] = useState(false);
   const [diffLines, setDiffLines] = useState<DiffLine[] | null>(null);
@@ -269,7 +544,6 @@ const DiffSummaryFileRow = memo(function DiffSummaryFileRow({
   const fileName = file.file.split(/[\\/]/).pop() ?? file.file;
   const lastSlashIndex = Math.max(file.file.lastIndexOf("/"), file.file.lastIndexOf("\\"));
   const dirPath = lastSlashIndex > 0 ? file.file.slice(0, lastSlashIndex) : "";
-  const diffSegments = diffLines ? groupIntoSegments(diffLines, 3) : null;
 
   const loadDiff = useCallback(async () => {
     if (!onLoadFileDiff || loading) return;
@@ -315,6 +589,13 @@ const DiffSummaryFileRow = memo(function DiffSummaryFileRow({
     [onOpenFileDiff, file.file],
   );
 
+  const handleLineClick = useCallback(
+    (lineNo: number | null) => {
+      onLineClick?.(file.file, lineNo);
+    },
+    [onLineClick, file.file],
+  );
+
   return (
     <div>
       <div
@@ -341,56 +622,51 @@ const DiffSummaryFileRow = memo(function DiffSummaryFileRow({
           size={13}
           className="shrink-0 text-[var(--ftre-text-ghost,#888e98)] group-hover:text-[var(--ftre-text-muted,#aab0b8)] transition-colors"
         />
-        <span className="text-[13px] text-[var(--ftre-text-primary,#e8e8e8)] truncate">
+        <span className="text-[13px] text-[var(--ftre-text-muted,#aab0b8)] font-mono truncate max-w-[180px]">
           {fileName}
         </span>
         {dirPath && (
-          <span className="text-[12px] text-[var(--ftre-text-ghost,#888e98)] truncate">
+          <span className="text-[11px] text-[var(--ftre-text-ghost,#888e98)] truncate">
             {dirPath}
           </span>
         )}
-        <span className="flex-1" />
-        {loading && (
-          <Loader2
-            size={12}
-            className="animate-spin text-[var(--ftre-text-ghost,#888e98)] shrink-0"
-          />
-        )}
-        {onOpenFileDiff && (
-          <button
-            type="button"
-            onClick={handleOpenDiff}
-            className="shrink-0 p-1 rounded-[4px] text-[var(--ftre-text-ghost,#888e98)] hover:text-[var(--ftre-text-secondary,#cccccc)] hover:bg-white/[0.06] focus-visible:bg-white/[0.06] transition-colors opacity-0 group-hover:opacity-100 group-focus-within:opacity-100"
-            title="在 Diff 编辑器中查看完整文件"
-            aria-label="在 Diff 编辑器中查看完整文件"
-          >
-            <ExternalLink size={12} />
-          </button>
-        )}
+        <div className="flex-1" />
         <DiffStats additions={file.additions} deletions={file.deletions} />
-        <DiffBar additions={file.additions} deletions={file.deletions} />
+        <button
+          onClick={handleOpenDiff}
+          onKeyDown={(e) => e.stopPropagation()}
+          className="shrink-0 p-1 rounded opacity-0 group-hover:opacity-100 hover:bg-white/[0.06] transition-all"
+          title="在编辑器中打开"
+        >
+          <ExternalLink size={11} className="text-[var(--ftre-text-ghost,#888e98)]" />
+        </button>
       </div>
-
-      {expanded && diffSegments && (
-        <div className="ml-6 mr-2 mb-1 rounded-md border border-white/[0.06] overflow-hidden">
-          <InlineDiffView segments={diffSegments} />
-        </div>
-      )}
-      {expanded && !loading && loadFailed && (
-        <div className="ml-6 mr-2 mb-1 px-3 py-2 text-[12px] text-[var(--ftre-error,#f85149)] bg-[var(--ftre-error,#f85149)]/8 rounded-md border border-[var(--ftre-error,#f85149)]/30 flex items-center justify-between gap-3">
-          <span>Diff 加载失败，请稍后重试</span>
-          <button
-            type="button"
-            onClick={() => void loadDiff()}
-            className="px-2 py-1 rounded-sm border border-[var(--ftre-error,#f85149)]/40 hover:bg-[var(--ftre-error,#f85149)]/15 transition-colors"
-          >
-            重试
-          </button>
-        </div>
-      )}
-      {expanded && !loading && !loadFailed && loadAttempted && !diffSegments && (
-        <div className="ml-6 mr-2 mb-1 px-3 py-2 text-[12px] text-[var(--ftre-text-dim,#969ca6)] bg-white/[0.02] rounded-md border border-white/[0.06]">
-          无可展示的 Diff 内容
+      {/* Diff 内容 */}
+      {expanded && (
+        <div className="mx-3 mb-2 rounded-md border border-white/[0.06] overflow-hidden">
+          {loading && (
+            <div className="flex items-center justify-center h-[40px] bg-[var(--ftre-base,#1e1e1e)]">
+              <Loader2 size={14} className="animate-spin text-[var(--ftre-text-ghost,#888e98)]" />
+            </div>
+          )}
+          {loadFailed && !loading && (
+            <div className="flex items-center justify-center h-[40px] bg-[var(--ftre-base,#1e1e1e)] text-[var(--ftre-text-ghost,#888e98)] text-[12px]">
+              加载失败
+            </div>
+          )}
+          {!loading && loadAttempted && !diffLines && !loadFailed && (
+            <div className="flex items-center justify-center h-[40px] bg-[var(--ftre-base,#1e1e1e)] text-[var(--ftre-text-ghost,#888e98)] text-[12px]">
+              无变更
+            </div>
+          )}
+          {diffLines && (
+            <InlineDiffView
+              segments={groupIntoSegments(diffLines, 3)}
+              diffLines={diffLines}
+              regroupFn={groupIntoSegments}
+              onLineClick={handleLineClick}
+            />
+          )}
         </div>
       )}
     </div>
@@ -401,74 +677,64 @@ export const DiffSummaryCard = memo(function DiffSummaryCard({
   diffMeta,
   onLoadFileDiff,
   onOpenFileDiff,
+  onLineClick,
   className,
 }: DiffSummaryCardProps) {
-  const {
-    files,
-    total_additions = 0,
-    total_deletions = 0,
-    total_files = 0,
-  } = diffMeta;
-  const displayTotalFiles = total_files || files.length;
-  const [expanded, setExpanded] = useState(false);
-  const [expandedFileMap, setExpandedFileMap] = useState<Record<string, boolean>>({});
-  const handleToggle = useCallback(() => setExpanded((prev) => !prev), []);
-  const setFileExpanded = useCallback((filePath: string, next: boolean) => {
-    setExpandedFileMap((prev) => {
-      if (prev[filePath] === next) return prev;
-      return { ...prev, [filePath]: next };
-    });
-  }, []);
-
-  if (!files || files.length === 0) return null;
+  const { files = [], total_additions = 0, total_deletions = 0 } = diffMeta;
 
   return (
-    <div className={cn("text-[13px]", className)}>
-      <button
-        type="button"
-        onClick={handleToggle}
-        aria-expanded={expanded}
-        className="w-full text-left group flex items-center gap-2 px-3 py-2 rounded-md cursor-pointer hover:bg-white/[0.03] transition-colors"
-      >
-        <ChevronRight
-          size={12}
-          className={cn(
-            "text-[var(--ftre-text-ghost,#888e98)] transition-transform",
-            expanded && "rotate-90",
-          )}
-        />
-        <GitCommitVertical
-          size={14}
-          className="shrink-0 text-[var(--ftre-text-ghost,#888e98)]"
-        />
-        <span className="text-[var(--ftre-text-muted,#aab0b8)]">本轮变更</span>
-        <span className="text-[var(--ftre-text-dim,#969ca6)] truncate">
-          {displayTotalFiles} 个文件
-        </span>
-        <span className="flex-1" />
-        <div className="flex items-center gap-2 text-[12px]">
-          <span className="text-[var(--ftre-success,#00ff88)]">+{total_additions}</span>
-          <span className="text-[var(--ftre-error,#f85149)]">-{total_deletions}</span>
-          <DiffBar additions={total_additions} deletions={total_deletions} />
-        </div>
-      </button>
-
-      {expanded && (
-        <div className="ml-3 border-l border-[var(--ftre-border-subtle,#454545)]">
-          <div className="max-h-[500px] overflow-y-auto">
-            {files.map((file) => (
-              <DiffSummaryFileRow
-                key={file.file}
-                file={file}
-                expanded={!!expandedFileMap[file.file]}
-                onExpandedChange={(next) => setFileExpanded(file.file, next)}
-                onLoadFileDiff={onLoadFileDiff}
-                onOpenFileDiff={onOpenFileDiff}
-              />
-            ))}
-          </div>
-        </div>
+    <div
+      className={cn(
+        "flex flex-col rounded-lg border border-white/[0.06] overflow-hidden bg-[var(--ftre-surface,#252526)]",
+        className,
       )}
+    >
+      {/* Header */}
+      <div className="flex items-center gap-3 px-3 py-2 border-b border-white/[0.04] bg-[var(--ftre-title,#2d2d2d)]">
+        <GitCommitVertical size={13} className="text-[var(--ftre-text-ghost,#888e98)]" />
+        <span className="text-[12px] font-mono text-[var(--ftre-text-dim,#969ca6)]">
+          {files.length} 个文件变更
+        </span>
+        <div className="flex-1" />
+        <DiffStats additions={total_additions} deletions={total_deletions} />
+      </div>
+      {/* File list */}
+      <div className="flex flex-col divide-y divide-white/[0.03]">
+        {files.map((file) => (
+          <DiffSummaryFileRowWithState
+            key={file.file}
+            file={file}
+            onLoadFileDiff={onLoadFileDiff}
+            onOpenFileDiff={onOpenFileDiff}
+            onLineClick={onLineClick}
+          />
+        ))}
+      </div>
     </div>
+  );
+});
+
+// 内部状态包装器
+const DiffSummaryFileRowWithState = memo(function DiffSummaryFileRowWithState({
+  file,
+  onLoadFileDiff,
+  onOpenFileDiff,
+  onLineClick,
+}: {
+  file: DiffSummaryFile;
+  onLoadFileDiff?: (filePath: string) => Promise<string | null | undefined>;
+  onOpenFileDiff?: (filePath: string) => Promise<void> | void;
+  onLineClick?: (filePath: string, lineNo: number | null) => void;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  return (
+    <DiffSummaryFileRow
+      file={file}
+      expanded={expanded}
+      onExpandedChange={setExpanded}
+      onLoadFileDiff={onLoadFileDiff}
+      onOpenFileDiff={onOpenFileDiff}
+      onLineClick={onLineClick}
+    />
   );
 });

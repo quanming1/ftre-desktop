@@ -1,6 +1,18 @@
 export {
   DiffSummaryCard,
+  InlineDiffView,
+  DiffLineRow,
+  DiffBar,
+  DiffStats,
+  parseUnifiedDiffLines,
+  computeDiffLines,
+  groupIntoSegments,
+  computeDiffStats,
   type DiffSummaryCardProps,
   type DiffSummaryMeta,
   type DiffSummaryFile,
+  type DiffLine,
+  type DiffLineType,
+  type DiffSegment,
+  type InlineDiffViewProps,
 } from "./DiffSummaryCard";

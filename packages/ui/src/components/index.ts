@@ -119,9 +119,19 @@ export { ConfirmDialog, type DialogButton, type ConfirmDialogProps } from "./Con
 // Diff summary
 export {
   DiffSummaryCard,
+  InlineDiffView,
+  DiffLineRow,
+  DiffBar,
+  DiffStats,
+  parseUnifiedDiffLines,
+  computeDiffLines,
+  groupIntoSegments,
   type DiffSummaryCardProps,
   type DiffSummaryMeta,
   type DiffSummaryFile,
+  type DiffLine,
+  type DiffLineType,
+  type DiffSegment,
 } from "./diff-summary";
 
 // Error Boundary

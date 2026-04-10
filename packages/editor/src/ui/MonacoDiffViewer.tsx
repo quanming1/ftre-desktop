@@ -1,5 +1,5 @@
 import { DiffEditor } from "@monaco-editor/react";
-import { useCallback, useRef, useEffect } from "react";
+import { useCallback, useRef, useEffect, useImperativeHandle, forwardRef } from "react";
 import type { editor } from "monaco-editor";
 import type * as Monaco from "monaco-editor";
 import { registerFtreTheme } from "./theme-registry";
@@ -15,17 +15,18 @@ function toMonacoLanguage(lang: string): string {
   return MONACO_LANG_MAP[lang] ?? lang;
 }
 
+export interface MonacoDiffViewerHandle {
+  getCurrentLine: () => number;
+}
+
 interface MonacoDiffViewerProps {
   diff: DiffEntry;
   language: string;
   renderSideBySide: boolean;
 }
 
-export function MonacoDiffViewer({
-  diff,
-  language,
-  renderSideBySide,
-}: MonacoDiffViewerProps) {
+export const MonacoDiffViewer = forwardRef<MonacoDiffViewerHandle, MonacoDiffViewerProps>(
+  function MonacoDiffViewer({ diff, language, renderSideBySide }, ref) {
   const monacoLang = toMonacoLanguage(language);
   const editorRef = useRef<editor.IStandaloneDiffEditor | null>(null);
   const monacoRef = useRef<typeof Monaco | null>(null);
@@ -118,6 +119,16 @@ export function MonacoDiffViewer({
     };
   }, []);
 
+  // 暴露获取当前行号的方法
+  useImperativeHandle(ref, () => ({
+    getCurrentLine: () => {
+      const diffEditor = editorRef.current;
+      if (!diffEditor) return 1;
+      const position = diffEditor.getModifiedEditor().getPosition();
+      return position?.lineNumber ?? 1;
+    },
+  }), []);
+
   return (
     <DiffEditor
       height="100%"
@@ -141,7 +152,8 @@ export function MonacoDiffViewer({
         hideCursorInOverviewRuler: true,
         overviewRulerBorder: false,
         glyphMargin: false,
-        lineNumbersMinChars: 3,
+        // inline 模式下有两列行号，需要更多空间避免三位数重叠
+        lineNumbersMinChars: renderSideBySide ? 3 : 5,
         folding: false,
         automaticLayout: true,
         scrollbar: {
@@ -151,4 +163,4 @@ export function MonacoDiffViewer({
       }}
     />
   );
-}
+});
