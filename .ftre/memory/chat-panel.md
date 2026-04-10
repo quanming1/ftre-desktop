@@ -7,8 +7,9 @@
 | 文件 | 职责 |
 |------|------|
 | `packages/renderer/src/features/chat/ChatPanel.tsx` | 纯聊天面板，仅包含 MessageList + ChatInput |
-| `packages/renderer/src/features/chat/MessageList.tsx` | 消息列表展示，包含消息分组和 AI turn start 渲染 |
-| `packages/renderer/src/features/chat/ChatInput.tsx` | 输入框组件，支持拖拽 archive_ref |
+| `packages/renderer/src/features/chat/MessageList.tsx` | 消息列表展示，包含消息分组、system 错误消息重试按钮 |
+| `packages/renderer/src/features/chat/ChatInput.tsx` | 输入框组件，支持拖拽 archive_ref，集成 RetryPanel |
+| `packages/renderer/src/features/chat/RetryPanel.tsx` | LLM 重试状态面板，显示在输入框上方 |
 | `packages/renderer/src/features/chat/ToolCallCard.tsx` | Tool 调用结果渲染（含 EditDiffCard/InlineDiffView） |
 | `packages/renderer/src/features/chat/diff/index.ts` | Diff 组件导出（DiffBar, InlineDiffView, computeDiffLines） |
 | `packages/renderer/src/features/chat/diff/DiffView.tsx` | 自研 diff 渲染组件（含 InlineDiffView 实现） |
@@ -20,7 +21,7 @@
 | `packages/renderer/src/components/PixelLogo.tsx` | 像素风格 Logo 组件 |
 | `packages/renderer/src/stores/session.ts` | Session store，管理会话状态 |
 | `packages/renderer/src/stores/chat.ts` | Chat store，UI 层数据源 |
-| `packages/renderer/src/services/api.ts` | rollbackSession / branchSession / fetchArchiveDetail API |
+| `packages/renderer/src/services/api.ts` | chat API：sendChat / cancelChat / retryChat / rollbackSession / branchSession |
 | `packages/renderer/src/services/stream-manager.ts` | 流管理器，管理 StreamSession 生命周期 |
 | `packages/renderer/src/services/global-event-stream.ts` | 全局 SSE 连接，接收所有 session 的事件 |
 | `packages/renderer/src/types/chat.ts` | ChatMessage 等类型定义 |
@@ -40,12 +41,38 @@ useChat store (chat.ts)
 React UI (ChatPanel → MessageList)
 ```
 
+### SSE 事件类型
+
+`global-event-stream.ts` 监听的事件类型：
+
+```typescript
+const eventTypes = [
+  "connected",
+  "session_started",
+  "user_input",
+  "message",
+  "message_complete",
+  "tool_call",
+  "tool_call_streaming",
+  "tool_result",
+  "tool_cancelled",
+  "tool_timed_out",
+  "usage_update",
+  "done",
+  "error",
+  "retry",        // ← LLM 后端自动重试事件
+  "interrupt",
+  "diff_meta",
+];
+```
+
 ### SessionStreamManager
 
 全局单例，管理多个 `StreamSession` 实例：
 - `getOrCreate(sessionId)` - 获取或创建 StreamSession
 - `switchTo(sessionId)` - 切换 active session，绑定回调
 - `isSessionStreaming(sessionId)` - 检查指定 session 是否在流式中
+- `retryLastMessage(model?)` - 调用 retry API，不复用消息
 
 ### StreamSession
 
@@ -53,6 +80,165 @@ React UI (ChatPanel → MessageList)
 - `messages: AnyMessage[]` - 消息列表
 - `isStreaming: boolean` - session 级别流式状态
 - `streamingMessageId: string | null` - 当前正在流式的 assistant 消息 ID
+- `retryState: RetryState | null` - LLM 重试状态（后端自动重试时推送）
+
+**新增方法**：
+- `setRetryState(state)` - 设置重试状态，触发 UI 更新
+
+## LLM 重试功能
+
+### 两种重试机制
+
+| 机制 | 触发方式 | 说明 |
+|------|----------|------|
+| **后端自动重试** | 后端 CodeAgent 在失败时自动重试 | 推送 `retry` SSE 事件，前端展示 RetryPanel |
+| **用户手动重试** | 点击错误消息下方的「重试」按钮 | 调用 `POST /chat/retry` 接口 |
+
+### 后端自动重试（RetryPanel）
+
+后端 LLM 调用失败时自动重试，通过 SSE 推送 `retry` 事件。
+
+#### RetryState 数据结构
+
+```typescript
+// packages/renderer/src/services/stream-manager.ts
+export interface RetryState {
+  code: string;           // 错误码: timeout | network | api_error | rate_limit | unknown
+  message: string;        // 错误信息，如 "请求超时"
+  attempt: number;        // 当前第几次重试 (1-based)
+  maxAttempts: number;    // 最大重试次数
+}
+
+// StreamSession 中的状态
+export class StreamSession {
+  retryState: RetryState | null = null;
+  
+  setRetryState(state: RetryState | null) {
+    this.retryState = state;
+    this.emitChange();
+  }
+}
+```
+
+#### 事件处理链路
+
+```
+global-event-stream.ts
+    ↓ 收到 retry 事件
+    ↓ payload: { code, message, attempt, max_attempts }
+    ↓ session.setRetryState({...})
+stream-manager.ts
+    ↓ emitChange() 触发 onChanged 回调
+chat.ts
+    ↓ syncFrom() 同步 retryState
+ChatInput.tsx
+    ↓ retryState && <RetryPanel retry={retryState} />
+```
+
+#### RetryState 清除时机
+
+在以下事件中清除 `retryState`（重试成功或失败）：
+
+| 事件 | 清除逻辑 | 说明 |
+|------|----------|------|
+| `message` | `if (session.retryState) session.setRetryState(null)` | 重试成功，开始正常流式输出 |
+| `done` | 同上 | 流式结束 |
+| `error` | 同上 | 重试失败（超过 maxAttempts）|
+| `tool_call` | 同上 | 重试成功后直接执行 tool |
+| `tool_call_streaming` | 同上 | 重试成功后流式输出 tool |
+
+#### RetryPanel UI
+
+**位置**：ChatInput 正上方，宽度比输入框窄（`max-w-[600px]`）
+
+**交互**：可展开/收起，点击箭头切换
+
+**样式要点**：
+- 背景：深色半透明（`bg-panel/80`）
+- 圆角：顶部 `rounded-t-2xl`，与 ChatInput 连接
+- ChatInput 在有重试状态时去除顶部圆角（`rounded-b-2xl border-t-0`）
+
+**显示示例**：
+- 收起：「正在重试 (2/10) ▼」
+- 展开：显示详细错误信息和重试策略
+
+### 用户手动重试（MessageList 重试按钮）
+
+当 LLM 调用失败，后端推送 `error` 事件并结束流式后，前端显示错误消息并提供重试按钮。
+
+#### API 接口
+
+```typescript
+// packages/renderer/src/services/api.ts
+export async function retryChat(params: {
+  sessionId: string;
+  model?: string | null;  // 可选，换模型重试
+}): Promise<{ session_id: string }> {
+  const res = await fetch(`${BACKEND_URL}/chat/retry`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      session_id: params.sessionId,
+      model: params.model,
+    }),
+  });
+  if (!res.ok) {
+    throw new Error(`retryChat failed: ${res.status}`);
+  }
+  return res.json();
+}
+```
+
+#### 业务流程
+
+```
+LLM 调用失败
+    ↓
+收到 error 事件 → global-event-stream.ts
+    ↓
+session.addSystemMessage(errorMessage) → 显示红色错误文本
+    ↓
+MessageList.tsx 检测到 system 消息且是最后一条、非流式状态
+    ↓
+在错误消息下方显示「重试」按钮
+    ↓
+用户点击重试
+    ↓
+streamManager.retryLastMessage()
+    ↓
+直接调用 api.retryChat({ sessionId, model? }) → POST /chat/retry
+    ↓
+后端截去失败的 AI 回复，重新调用 LLM
+    ↓
+正常 SSE 事件流（message/tool_call/done）
+```
+
+#### MessageList 重试按钮逻辑
+
+```typescript
+// MessageList.tsx MessageItem
+if (message.role === "system") {
+  const canRetry = isLast && !isStreaming;
+  return (
+    <div>
+      <div className="text-[13px] text-danger p-3 bg-danger/[0.08] rounded-lg font-mono">
+        {message.content}
+      </div>
+      {canRetry && (
+        <button onClick={() => streamManager.retryLastMessage()}>
+          <RotateCwIcon /> 重试
+        </button>
+      )}
+    </div>
+  );
+}
+```
+
+**设计决策**：
+- 仅在最后一条消息且非流式时显示重试按钮
+- **前端不清理任何消息**——重试是"继续"而不是"重来"
+- 后端会自动处理消息截断（截去失败的 AI 回复）
+- 支持换模型重试（通过 `model` 参数）
 
 ## 消息数据结构
 
@@ -539,6 +725,8 @@ ChatPanel 现在是一个纯聊天面板：
 │                             │
 │                             │
 ├─────────────────────────────┤
+│      RetryPanel (可选)      │
+├─────────────────────────────┤
 │         ChatInput           │
 └─────────────────────────────┘
 ```
@@ -547,9 +735,13 @@ Session 管理功能已拆分到独立的 `SessionPanel`，详见 [session-panel
 
 ## 注意事项
 
-- **`replayInto` 多次调用导致消息消失**：`replayInto()` 可能被调用两次（如快速切换会话），每次用 `nextId()` 生成新的消息 ID，但 `fingerprint` 只检查首尾消息 ID（user 消息 ID 来自后端，固定不变）。导致 fingerprint 不变 → renderUnits 不重新计算 → 用旧 ID 找不到新消息 → 不渲染。**修复**：使用后端 `event.id` 作为消息 ID，保证 ID 稳定。
+- **retryState 清除时机**：必须在 `message`、`done`、`error`、`tool_call`、`tool_call_streaming` 事件中清除，确保重试成功或失败后 UI 及时更新
 
-- **切换 session 时 running tool 消息丢失**：`replayInto()` 在从后端历史重建消息时，`streamingTail` 的保留条件只检查 `streamingMessageId`（assistant 消息的 ID），而 tool 执行时这个字段已经是 null。导致切换 session 再切回来时，内存中正在 running 的 tool 消息被清空，UI 丢失。修复方案需要扩展 `streamingTail` 的保留逻辑，同时检查 `isStreaming` 和是否存在 `status === "running"` 的 tool 消息。
+- **重试不清理消息**：重试是"继续"执行，不是"重新来过"。前端不应移除任何消息（包括 system 错误消息），后端会自动处理消息截断
+
+- **`replayInto` 多次调用导致消息消失**：`replayInto()` 可能被调用两次（如快速切换会话），每次用 `nextId()` 生成新的消息 ID，但 `fingerprint` 只检查首尾消息 ID（user 消息 ID 来自后端，固定不变）。导致 fingerprint 不变 → renderUnits 不重新计算 → 用旧 ID 找不到新消息 → 不渲染。**修复**：使用后端 `event.id` 作为消息 ID，`startAssistantMessage` 和 `addToolCall` 添加 `backendId` 参数
+
+- **切换 session 时 running tool 消息丢失**：`replayInto()` 在从后端历史重建消息时，`streamingTail` 的保留条件只检查 `streamingMessageId`（assistant 消息的 ID），而 tool 执行时这个字段已经是 null。导致切换 session 再切回来时，内存中正在 running 的 tool 消息被清空，UI 丢失。修复方案需要扩展 `streamingTail` 的保留逻辑，同时检查 `isStreaming` 和是否存在 `status === "running"` 的 tool 消息
 
 - `insertArchiveChip` 需要完整的 `ArchiveRef` 对象，不能只传 `{ id, display }`
 - `ArchiveChipView` 组件依赖 `summary` 字段计算显示文本长度，缺失会导致报错
@@ -558,56 +750,46 @@ Session 管理功能已拆分到独立的 `SessionPanel`，详见 [session-panel
 
 ## 历史变更
 
+- **2025-03**: 修正重试功能设计决策
+  - 重试不应清理消息——前端不调用 `removeLastSystemMessage`
+  - 重试是"继续"执行，后端自动处理消息截断
+  - `retryLastMessage()` 直接调用 API，不修改消息列表
+
+- **2025-03**: 新增用户手动重试功能（POST /chat/retry）
+  - 新增 `retryChat()` API 函数，调用 `POST /chat/retry { session_id, model? }`
+  - StreamSession 新增 `retryLastMessage()` 方法
+  - MessageList 在 system 错误消息下方显示「重试」按钮（仅最后一条 + 非流式时）
+  - 支持换模型重试（通过 `model` 参数）
+
+- **2025-03**: 新增 RetryPanel 组件
+  - RetryPanel 独立组件，位置在 ChatInput 上方
+  - 支持展开/收起，使用箭头图标
+  - 清除 retryState 的时机：message/done/error/tool_call/tool_call_streaming
+
+- **2025-03**: 新增 LLM 重试事件（retry）处理
+  - 后端通过 SSE 推送 retry 事件通知前端重试状态
+  - RetryPayload 包含 code, message, attempt, max_attempts
+  - 错误码：timeout | network | api_error | rate_limit | unknown
+  - CodeAgent 最大重试 10 次，其他 Agent 3 次，间隔固定 3 秒
+  - 需要在 global-event-stream.ts 添加 retry 到 eventTypes 数组
+
 - **2025-03**: 补充 EditDiffCard 文档
   - edit tool 使用 `InlineDiffView` 自研组件渲染 diff
   - 核心算法在 `packages/shared/src/diff.ts`（computeDiffLines, diffLinesToUnifiedText）
   - React 19 与第三方库不兼容，放弃 `prism-react-renderer` 和 `react-diff-viewer-continued`
-  - 修复 `ToolCallCard.tsx` 中误用 `@ftre/ui` 的 `DiffSummaryCard` 问题
+  - 修复 `ToolCallCard.tsx` 中误用 `@atomOneDark` 主题的问题
 
-- **2025-03**: 修复 `replayInto` 消息 ID 不稳定问题
-  - 问题：`replayInto` 多次调用时 `nextId()` 生成不同 ID，与 fingerprint 机制冲突
-  - 修复：使用后端 `event.id` 作为消息 ID，`startAssistantMessage` 和 `addToolCall` 添加 `backendId` 参数
-  - 保留指纹：fingerprint 保持原设计（检查首尾），因为 ID 已稳定
+- **2025-02**: MessageList 重构
+  - 将 AI 品牌标识（PixelLogo）提取为独立的 `ai_turn_start` 渲染单元
+  - 在每轮对话开始时显示一次 PixelLogo，而非每个 tool_call 前都显示
+  - 优化消息分组逻辑，支持连续同类型 tool_call 分组
 
-- **2025-02**: 补充 `useStructuralFingerprint` 设计文档
-  - 结构指纹用于控制 renderUnits 重新计算频率
-  - 记录 fingerprint 优化过度导致消息消失的坑及修复方案
-  - 补充消息重建时 ID 变化的说明
+- **2025-02**: 新增 Fork 会话功能
+  - 支持从任意一轮对话分叉创建新会话
+  - 新会话自动携带归档摘要作为上下文
+  - 通过 CustomEvent `ftre:insert-archive-ref` 实现跨组件通信
 
-- **2025-02**: 补充流式处理架构文档
-  - GlobalEventStream → StreamSession → useChat 完整数据链路
-  - Session 切换时的数据流（switchSession → switchTo → replayInto）
-  - replayInto streamingTail 保留逻辑及 BUG 根因
-  - 注意事项记录切换 session 时 running tool 消息丢失问题
-
-- **2025-01**: 新增 Fork 会话功能
-  - UserMessage 添加 Fork 按钮（仅当 metadata.archive_id 存在时显示）
-  - 点击 Fork 跳转到新会话并自动插入归档引用
-  - 新增 `ftre:insert-archive-ref` CustomEvent 用于跨组件通信
-  - `insertArchiveChip` 需要完整 ArchiveRef 对象（含 summary, turnCount, totalMessages, label, createdAt）
-  - 补充 ChatMessage.metadata 类型定义
-  - stream-manager.ts 中 metadata 传递链路：replayInto → addUserMessage
-
-- **2025-01**: UserMessage 按钮布局重构
-  - 按钮位置从消息下方右侧移至左侧顶部对齐
-  - 默认状态仅显示回滚按钮，hover 显示复制+回滚
-  - 按钮水平排列：复制在左，回滚在右
-  - 引入 `@ftre/ui` Tooltip 组件
-
-- **2024-xx**: 新增 Rollback 功能
-  - UserMessage 添加 rollback/branch 按钮
-  - RollbackConfirmDialog 确认对话框
-  - api.ts 新增 rollbackSession/branchSession 接口
-  - stream-manager.ts 支持回滚状态清理
-
-- **2024-xx**: 输入框支持拖拽
-  - ChatInput 支持 onDrop 事件
-  - ChatInputEditor.insertArchiveRef 方法
-
-- **2024-xx**: SessionSidebar 从 ChatPanel 内部组件提升为独立顶层面板（sessions）
-  - 四模块布局：`sessions` | `sidebar` | `editor` | `chat`
-  - ChatPanel 回归纯聊天功能
-
-- **2024-xx**: 消息显示优化
-  - 移除 user 消息的 "你" 标签
-  - 新增 `ai_turn_start` 渲染单元，在每轮 AI 回复开始时显示 PixelLogo
+- **2025-02**: 新增 Rollback 功能
+  - 支持回滚到任意用户消息
+  - 支持分支创建（保留原会话）
+  - 回滚按钮常驻显示，Fork 按钮 hover 滑入
