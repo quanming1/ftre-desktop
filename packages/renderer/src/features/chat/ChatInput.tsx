@@ -286,7 +286,7 @@ export function ChatInput() {
   }, [workspace]);
 
   return (
-    <div className="px-4 pb-3 pt-2">
+    <div className="px-6 pb-4 pt-3">
       <div className="mx-auto w-full max-w-[960px]">
         <div className="relative bg-panel rounded-2xl border border-border-subtle focus-within:border-neon/30 transition-colors shadow-sm">
           {/* Skill 弹窗 */}
@@ -310,7 +310,7 @@ export function ChatInput() {
               renderElement={renderElement}
               onKeyDown={onKeyDown}
               placeholder="描述你想要做什么... 输入 / 选择 Skill"
-              className="w-full bg-transparent text-[14px] text-t-primary outline-none resize-none px-4 py-4 font-sans overflow-y-auto overflow-x-hidden"
+              className="w-full bg-transparent text-[14px] text-t-primary outline-none resize-none px-5 py-4 font-sans overflow-y-auto overflow-x-hidden"
               style={{
                 minHeight: 64,
                 maxHeight: 180,
@@ -321,7 +321,7 @@ export function ChatInput() {
           </Slate>
 
           {/* 工具栏 */}
-          <div className="flex items-center justify-between px-3 py-2.5">
+          <div className="flex items-center justify-between px-4 py-3">
             {/* 左侧：Agent & 模型选择 */}
             <div className="flex items-center gap-1">
               <AgentSelector />
@@ -336,7 +336,7 @@ export function ChatInput() {
                 title={
                   autoFollow ? "自动跟踪文件变更: 开" : "自动跟踪文件变更: 关"
                 }
-                className={`flex items-center h-8 w-8 justify-center rounded-lg transition-colors ${
+                className={`flex items-center h-9 w-9 justify-center rounded-lg transition-colors ${
                   autoFollow
                     ? "text-neon/70 hover:text-neon hover:bg-neon-ghost"
                     : "text-t-ghost hover:text-t-muted hover:bg-white/[0.06]"
@@ -360,13 +360,13 @@ export function ChatInput() {
               ) : (
                 <button
                   onClick={handleSend}
-                  className={`h-8 w-8 flex items-center justify-center rounded-lg transition-all ${
+                  className={`h-9 w-9 flex items-center justify-center rounded-lg transition-all ${
                     !inputEditor.isEmpty
                       ? "bg-neon text-base hover:bg-neon/80 shadow-[0_0_8px_rgba(var(--neon-rgb,56,189,248),0.22)]"
                       : "bg-white/[0.06] text-t-ghost"
                   }`}
                 >
-                  <ArrowUp size={15} />
+                  <ArrowUp size={16} />
                 </button>
               )}
             </div>

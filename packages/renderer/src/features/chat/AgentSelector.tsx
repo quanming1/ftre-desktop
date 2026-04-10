@@ -63,7 +63,7 @@ export const AgentSelector = memo(function AgentSelector() {
   // scheduled session：锁定展示，不可切换
   if (isScheduled) {
     return (
-      <div className="flex items-center gap-1 text-[13px] h-7 px-2.5 rounded-md font-mono text-t-dim cursor-default" title="任务会话，不可切换 Agent">
+      <div className="flex items-center gap-1.5 text-[13px] h-9 px-3 rounded-md font-mono text-t-dim cursor-default" title="任务会话，不可切换 Agent">
         {current?.name || agentId}
         <Lock size={10} className="shrink-0 text-t-ghost" />
       </div>
@@ -74,7 +74,7 @@ export const AgentSelector = memo(function AgentSelector() {
     <div className="relative" ref={panelRef}>
       <button
         onClick={() => setOpen(!open)}
-        className="flex items-center gap-1 text-[13px] h-7 px-2.5 rounded-md font-mono transition-colors duration-150 text-t-muted hover:text-t-primary hover:bg-white/[0.05]"
+        className="flex items-center gap-1.5 text-[13px] h-9 px-3 rounded-md font-mono transition-colors duration-150 text-t-muted hover:text-t-primary hover:bg-white/[0.05]"
       >
         {current?.name || "Code Agent"}
         <svg width="6" height="4" viewBox="0 0 6 4" className="shrink-0">
