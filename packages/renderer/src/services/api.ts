@@ -86,6 +86,26 @@ export async function cancelChat(sessionId: string): Promise<void> {
   });
 }
 
+/** 重试上一轮 LLM 调用（fire-and-forget，事件通过全局 SSE 推送） */
+export async function retryChat(params: {
+  sessionId: string;
+  model?: string | null;
+}): Promise<{ session_id: string }> {
+  const res = await fetch(`${BACKEND_URL}/chat/retry`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      session_id: params.sessionId,
+      ...(params.model ? { model: params.model } : {}),
+    }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ error: "Request failed" }));
+    throw new Error(err.error || `HTTP ${res.status}`);
+  }
+  return res.json();
+}
+
 /** 发送消息（fire-and-forget，事件通过全局 SSE 推送） */
 export async function sendChat(params: {
   message: Array<{ type: string; data: unknown }>;

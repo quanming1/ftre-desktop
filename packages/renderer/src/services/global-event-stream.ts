@@ -111,6 +111,7 @@ class GlobalEventStream {
       "error",
       "interrupt",
       "diff_meta",
+      "retry",
     ];
 
     for (const eventType of eventTypes) {
@@ -201,6 +202,10 @@ class GlobalEventStream {
         break;
       }
       case "message": {
+        // 重试成功，清除 retry 状态
+        if (session.retryState) {
+          session.setRetryState(null);
+        }
         if (!session.currentAssistantId) {
           session.startAssistantMessage();
         }
@@ -217,6 +222,9 @@ class GlobalEventStream {
         break;
       }
       case "tool_call_streaming": {
+        if (session.retryState) {
+          session.setRetryState(null);
+        }
         const toolCalls = payload.tool_calls as Array<{
           index: number;
           id?: string;
@@ -231,6 +239,9 @@ class GlobalEventStream {
         break;
       }
       case "tool_call": {
+        if (session.retryState) {
+          session.setRetryState(null);
+        }
         if (session.currentAssistantId) {
           session.finalizeAssistantMessage(session.currentAssistantId);
         }
@@ -335,6 +346,10 @@ class GlobalEventStream {
           session.finalizeAssistantMessage(session.currentAssistantId);
         }
         session.setStreaming(false);
+        // 清除 retry 状态
+        if (session.retryState) {
+          session.setRetryState(null);
+        }
 
         const sid = session.sessionId;
         if (sid) {
@@ -348,12 +363,25 @@ class GlobalEventStream {
           (payload.message as string) || "Unknown error",
         );
         session.setStreaming(false);
+        // 清除 retry 状态
+        if (session.retryState) {
+          session.setRetryState(null);
+        }
         break;
       }
       case "diff_meta": {
         session.attachDiffMetaToLastUserMessage(
           payload as unknown as import("@/types/chat").DiffMeta,
         );
+        break;
+      }
+      case "retry": {
+        session.setRetryState({
+          code: (payload.code as string) || "unknown",
+          message: (payload.message as string) || "正在重试",
+          attempt: (payload.attempt as number) || 1,
+          maxAttempts: (payload.max_attempts as number) || 3,
+        });
         break;
       }
       // tool_cancelled, tool_timed_out 等生命周期事件目前不需要前端特殊处理

@@ -17,7 +17,7 @@ import { useChat } from "@/stores/chat";
 import { useSession } from "@/stores/session";
 import { useWorkspace } from "@/stores/workspace";
 import { useEditor } from "@/stores/editor";
-import { sendChat, cancelChat } from "./api";
+import { sendChat, cancelChat, retryChat } from "./api";
 import { parse as parsePartialJson } from "partial-json";
 
 /** 同步读取当前工作区路径 */
@@ -46,6 +46,14 @@ export interface DeferredEditorAction {
   newContent: string;
 }
 
+/** LLM 重试状态 */
+export interface RetryState {
+  code: string;
+  message: string;
+  attempt: number;
+  maxAttempts: number;
+}
+
 export class StreamSession {
   sessionId: string | null;
   /** 此 session 所属的工作区路径 */
@@ -54,6 +62,8 @@ export class StreamSession {
   isStreaming = false;
   streamingMessageId: string | null = null;
   contextTokens = 0;
+  /** LLM 重试状态，null 表示无重试 */
+  retryState: RetryState | null = null;
 
   // SSE 内部状态
   currentAssistantId: string | null = null;
@@ -237,6 +247,11 @@ export class StreamSession {
 
   setContextTokens(n: number): void {
     this.contextTokens = n;
+    this.emitChange();
+  }
+
+  setRetryState(state: RetryState | null): void {
+    this.retryState = state;
     this.emitChange();
   }
 
@@ -526,6 +541,25 @@ class SessionStreamManager {
     }
   }
 
+  // ── 重试上一轮 ────────────────────────────────────────────────
+
+  async retryLastMessage(model?: string | null): Promise<void> {
+    const session = this.getActive();
+    if (!session?.sessionId) return;
+    if (session.isStreaming) return;
+
+    try {
+      await retryChat({
+        sessionId: session.sessionId,
+        model,
+      });
+    } catch (err: unknown) {
+      if (err instanceof Error) {
+        session.addSystemMessage(err.message || "Retry failed");
+      }
+    }
+  }
+
   // ── 删除 / 清理 ────────────────────────────────────────────────
 
   removeSession(sessionId: string): void {
@@ -758,6 +792,7 @@ class SessionStreamManager {
       isStreaming: session.isStreaming,
       streamingMessageId: session.streamingMessageId,
       contextTokens: session.contextTokens,
+      retryState: session.retryState,
     });
   }
 }

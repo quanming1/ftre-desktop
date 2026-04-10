@@ -8,6 +8,7 @@ import type {
   CodeRef,
   MessagePart,
 } from "@/types/chat";
+import type { RetryState } from "@/services/stream-manager";
 
 let msgCounter = 0;
 function nextId() {
@@ -21,6 +22,7 @@ export interface SyncData {
   isStreaming: boolean;
   streamingMessageId: string | null;
   contextTokens: number;
+  retryState: RetryState | null;
 }
 
 export type ChatMode = "chat" | "plan";
@@ -32,6 +34,7 @@ interface ChatState {
   streamingMessageId: string | null;
   model: string | null;
   contextTokens: number;
+  retryState: RetryState | null;
   agentId: string;
   mode: ChatMode;
 
@@ -75,6 +78,7 @@ export const useChat = create<ChatState>((set, get) => ({
   streamingMessageId: null,
   model: localStorage.getItem("selectedModel") || null,
   contextTokens: 0,
+  retryState: null,
   agentId: "code_agent",
   mode: "chat",
 
@@ -177,6 +181,7 @@ export const useChat = create<ChatState>((set, get) => ({
       contextTokens: 0,
       isStreaming: false,
       streamingMessageId: null,
+      retryState: null,
       agentId: "code_agent",
     }),
 
@@ -187,7 +192,8 @@ export const useChat = create<ChatState>((set, get) => ({
       cur.isStreaming === data.isStreaming &&
       cur.streamingMessageId === data.streamingMessageId &&
       cur.contextTokens === data.contextTokens &&
-      cur.sessionId === data.sessionId
+      cur.sessionId === data.sessionId &&
+      cur.retryState === data.retryState
     )
       return;
     set({
@@ -196,6 +202,7 @@ export const useChat = create<ChatState>((set, get) => ({
       isStreaming: data.isStreaming,
       streamingMessageId: data.streamingMessageId,
       contextTokens: data.contextTokens,
+      retryState: data.retryState,
     });
   },
 

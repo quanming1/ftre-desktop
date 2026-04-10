@@ -16,11 +16,12 @@ import { ArrowUp, Eye, EyeOff, Zap } from "lucide-react";
 import { useChat } from "@/stores/chat";
 import { useLayout } from "@/stores/layout";
 import { useWorkspace } from "@/stores/workspace";
-import { streamManager } from "@/services/stream-manager";
+import { streamManager, type RetryState } from "@/services/stream-manager";
 import { fetchSkills, type SkillDef } from "@/services/api";
 import { AgentSelector } from "./AgentSelector";
 import { ModelSelector } from "./ModelSelector";
 import { TokenRing } from "./TokenRing";
+import { RetryPanel } from "./RetryPanel";
 import { ChatInputEditor, renderElement } from "./slate";
 import type { CodeRef, ArchiveRef, SkillRef } from "./slate";
 
@@ -79,6 +80,8 @@ export function ChatInput() {
 
   // 细粒度选择器：仅订阅各自需要的字段，避免无关状态变化触发重渲染
   const isStreaming = useChat((s) => s.isStreaming);
+  const retryState = useChat((s) => s.retryState);
+  const [retryExpanded, setRetryExpanded] = useState(false);
   const workspace = useWorkspace((s) => s.rootPath);
   const autoFollow = useLayout((s) => s.autoFollowFiles);
   const toggleAutoFollow = useLayout((s) => s.toggleAutoFollowFiles);
@@ -288,7 +291,18 @@ export function ChatInput() {
   return (
     <div className="px-6 pb-4 pt-3">
       <div className="mx-auto w-full max-w-[960px]">
-        <div className="relative bg-panel rounded-2xl border border-border-subtle focus-within:border-neon/30 transition-colors shadow-sm">
+        {/* RetryPanel - 在输入框上方 */}
+        {retryState && (
+          <RetryPanel retry={retryState} onExpandChange={setRetryExpanded} />
+        )}
+
+        <div
+          className={`relative bg-panel border border-border-subtle focus-within:border-neon/30 transition-colors shadow-sm ${
+            retryState && retryExpanded
+              ? "rounded-b-2xl border-t-0"
+              : "rounded-2xl"
+          }`}
+        >
           {/* Skill 弹窗 */}
           {skillSearch && skillCandidates.length > 0 && (
             <div className="absolute left-4 bottom-full z-50">
