@@ -94,7 +94,7 @@ NotificationStackProps: {
 
 | Position | 样式类 |
 |----------|--------|
-| `bottom-left` (默认) | `bottom-8 left-6` |
+| `bottom-left` (默认) | `bottom-10 left-4` |
 | `bottom-right` | `bottom-8 right-6` |
 | `top-right` | `top-10 right-6` |
 | `top-left` | `top-10 left-6` |
@@ -184,3 +184,5 @@ interface UseDragToDismissOptions {
 - `useDragToDismiss` 可复用于其他需要拖拽关闭的组件
 - **framer-motion x/y 偏移必须同时绑定**，否则拖拽方向受限
 - NotificationCard 拖拽时禁用过渡动画 (`duration: 0`)，获得更跟手的体验
+- **Electron 点击穿透问题**：如果 TitleBar 使用了 `-webkit-app-region: drag`，该属性会在操作系统层面拦截鼠标事件，即使通知弹窗有更高的 z-index 也无法点击。修复方案是在通知容器上添加 `WebkitAppRegion: "no-drag"`
+- **iconColor 误用**：`iconColor` 是颜色值（如 `#58a6ff`），不应作为 className 使用，应以内联样式 `style={{ color: config.iconColor }}` 应用
