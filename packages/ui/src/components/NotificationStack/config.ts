@@ -45,7 +45,7 @@ export const positionClasses: Record<
   string
 > = {
   "bottom-right": "bottom-8 right-6",
-  "bottom-left": "bottom-8 left-6",
+  "bottom-left": "bottom-12 left-6",
   "top-right": "top-10 right-6",
   "top-left": "top-10 left-6",
 };

@@ -126,7 +126,8 @@ export const NotificationCard = memo(function NotificationCard({
       <div className="flex items-center gap-2">
         <Icon
           size={16}
-          className={cn("shrink-0", config.iconColor)}
+          className="shrink-0"
+          style={{ color: config.iconColor }}
           aria-label={config.label}
         />
         <p className={cn("flex-1", CARD_STYLES.message)}>
