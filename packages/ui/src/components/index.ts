@@ -109,6 +109,7 @@ export {
   NotificationStack,
   type NotificationItem,
   type NotificationAction,
+  type NotificationLevel,
   type NotificationStackProps,
 } from "./NotificationStack";
 
