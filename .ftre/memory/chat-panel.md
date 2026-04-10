@@ -9,6 +9,9 @@
 | `packages/renderer/src/features/chat/ChatPanel.tsx` | 纯聊天面板，仅包含 MessageList + ChatInput |
 | `packages/renderer/src/features/chat/MessageList.tsx` | 消息列表展示，包含消息分组和 AI turn start 渲染 |
 | `packages/renderer/src/features/chat/ChatInput.tsx` | 输入框组件，支持拖拽 archive_ref |
+| `packages/renderer/src/features/chat/ToolCallCard.tsx` | Tool 调用结果渲染（含 EditDiffCard/InlineDiffView） |
+| `packages/renderer/src/features/chat/diff/index.ts` | Diff 组件导出（DiffBar, InlineDiffView, computeDiffLines） |
+| `packages/renderer/src/features/chat/diff/DiffView.tsx` | 自研 diff 渲染组件（含 InlineDiffView 实现） |
 | `packages/renderer/src/features/chat/UserMessage.tsx` | 用户消息渲染 + 操作按钮（复制/回滚/Fork） |
 | `packages/renderer/src/features/chat/RollbackConfirmDialog.tsx` | 回滚确认对话框，支持分支选项 |
 | `packages/renderer/src/features/chat/AssistantMessage.tsx` | AI 消息渲染（Markdown） |
@@ -241,6 +244,60 @@ function useStructuralFingerprint(): string {
 **修复后状态**：
 - 修复消息 ID 生成策略后，fingerprint 可以回滚到只检查首尾消息
 - 因为 `replayInto` 多次调用时 ID 不再变化，不会触发该问题
+
+## Tool UI 渲染
+
+### EditDiffCard 组件（edit tool）
+
+`ToolCallCard.tsx` 中的 `EditDiffCard` 专门用于渲染 edit tool（代码编辑工具）的执行结果。
+
+**实现链路：**
+```
+ToolCallCard.tsx:EditDiffCard
+       ↓ 导入 computeDiffLines, diffLinesToUnifiedText
+packages/renderer/src/features/chat/diff/index.ts
+       ↓ 重新导出
+packages/shared/src/diff.ts（核心 diff 算法）
+```
+
+**关键实现：**
+```typescript
+// ToolCallCard.tsx:EditDiffCard
+const oldString = message.arguments?.oldString ?? "";
+const newString = message.arguments?.newString ?? "";
+
+// 从 oldString/newString 计算 additions/deletions 和 unified diff
+const diffLines = useMemo(() => {
+  if (!oldString && !newString) return null;
+  return computeDiffLines(oldString, newString);
+}, [oldString, newString]);
+
+// 渲染：使用 InlineDiffView（自研组件）
+<InlineDiffView
+  oldCode={oldString}
+  newCode={newString}
+  filename={filePath}
+  onFilenameClick={() => handleShowDiff(message)}
+/>
+```
+
+**设计决策：使用自研 InlineDiffView，而非第三方库**
+- React 19 与 `prism-react-renderer`/`react-diff-viewer-continued` 不兼容
+- 自研组件位于 `packages/renderer/src/features/chat/diff/DiffView.tsx`
+- 核心 diff 算法已提取到 `packages/shared/src/diff.ts`
+
+**注意事项：**
+- edit tool 使用 `InlineDiffView`，不是 `DiffSummaryCard`
+- `InlineDiffView` 直接展示行级 diff 对比（类似 `diff -u`）
+- `DiffSummaryCard` 用于展示整体的 diff 统计（+/- 行数）
+
+### Tool 状态处理
+
+| 状态 | 行为 |
+|------|------|
+| `running` | diff 区域不可交互，等待执行完成 |
+| `completed` | diff 区域可展开/折叠，默认应展开 |
+| `error` | 显示错误信息 |
 
 ## UserMessage 按钮交互设计
 
@@ -500,6 +557,12 @@ Session 管理功能已拆分到独立的 `SessionPanel`，详见 [session-panel
 - metadata 只在历史回放时存在，实时流中 metadata 为空
 
 ## 历史变更
+
+- **2025-03**: 补充 EditDiffCard 文档
+  - edit tool 使用 `InlineDiffView` 自研组件渲染 diff
+  - 核心算法在 `packages/shared/src/diff.ts`（computeDiffLines, diffLinesToUnifiedText）
+  - React 19 与第三方库不兼容，放弃 `prism-react-renderer` 和 `react-diff-viewer-continued`
+  - 修复 `ToolCallCard.tsx` 中误用 `@ftre/ui` 的 `DiffSummaryCard` 问题
 
 - **2025-03**: 修复 `replayInto` 消息 ID 不稳定问题
   - 问题：`replayInto` 多次调用时 `nextId()` 生成不同 ID，与 fingerprint 机制冲突

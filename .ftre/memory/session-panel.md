@@ -1,6 +1,6 @@
 # Session 面板 (会话管理)
 
-> 顶层面板，展示所有工作区的会话列表，按 Workspace → Source 两级分组。**设计原则：彩色卡片区分工作区 + 粘性定位提升长列表体验 + 信息熵控制 + 时间感知视觉**
+> 顶层面板，展示所有工作区的会话列表，按 Workspace → Source 两级分组。**设计原则：彩色卡片区分工作区 + 粘性定位提升长列表体验 + 信息熵控制 + 时间感知视觉 + Spacious UI 大方布局**
 
 ## 核心文件
 
@@ -25,22 +25,61 @@ Session 面板是最左侧的顶层面板，和 sidebar/editor/chat 同级：
 └──────────────┴─────────────┴───────────────────┴────────────┘
 ```
 
-## 面板 Header 布局
+## 面板 Header 布局 (Spacious UI)
 
-SessionPanel 顶部整合工作区切换功能，替代 TitleBar 的工作区选择器：
+SessionPanel 顶部整合工作区切换功能，采用 **Spacious UI 大方布局** 设计：
 
 ```
 ┌─────────────────────────────────────────┐
 │ SessionPanel Header                     │
 ├─────────────────────────────────────────┤
-│ ftre-desktop                    [切换] │  ← 工作区名 + 切换按钮
-│ E:/binn/ftre-desktop                    │  ← 完整路径（灰色小字）
+│ [👤 48px] ftre-desktop         [切换 ▼] │  ← 工作区名 + 切换按钮 (h-11)
+│           E:/binn/ftre-desktop          │  ← 完整路径（灰色小字，15px）
 ├─────────────────────────────────────────┤
 │ [+] 新增会话              [🔍] [↻]     │  ← 新增 + 搜索 + 刷新
 ├─────────────────────────────────────────┤
 │ (搜索框 - 展开时显示)                   │
 └─────────────────────────────────────────┘
 ```
+
+### Spacious UI 尺寸规范
+
+基于 `@ftre/spacious-ui` 技能的设计规范，SessionPanel 采用以下尺寸：
+
+**工作区切换器：**
+- 头像: `w-12 h-12 rounded-xl` (48px)，`text-[15px]`
+- 按钮容器: `px-5 py-5 gap-4`
+- 下边框: `border-b border-border/40`
+
+**下拉菜单：**
+- 菜单容器: `py-3`，`rounded-xl`
+- 菜单项: `px-4 py-3`，`gap-3`
+- 列表项头像: `w-10 h-10 rounded-lg`
+
+**工具栏（新增会话 + 搜索 + 刷新）：**
+- 容器: `px-4 py-4 gap-3`
+- 新增按钮: `h-11 rounded-lg text-[14px]`，`gap-2`
+- 图标按钮: `h-11 w-11 rounded-lg`
+- 图标尺寸: `size={17}`
+- 过滤按钮 badge: `min-w-[15px] h-[15px] text-[9px]`
+
+**搜索框：**
+- 容器: `px-4 py-3`
+- 输入框: `h-9 px-4 rounded-lg`，`text-[13px]`
+
+**会话列表项：**
+- 容器: `px-4 py-3 gap-3`，`rounded-lg`
+- 标题: `text-[13px]`，`font-normal`
+- 时间区域: `gap-2`
+- loading 图标: `size={11}`
+- 更多按钮: `p-1.5`，图标 `size={15}`
+
+**分组标签：**
+- 标签文字: `text-[11px] uppercase tracking-wider`
+- 分组间距: `mb-3`
+
+**"展开全部"按钮：**
+- `w-full mt-3 py-2 text-[12px]`
 
 ### 工作区切换按钮设计
 
@@ -130,7 +169,7 @@ SessionPanel 顶部整合工作区切换功能，替代 TitleBar 的工作区选
   - 超过 5 个时显示「Show all (N)」按钮
   - 点击展开显示全部，按钮变为「Show less」
   - 状态管理：`expandedFullSources` (Set<string>)
-- **默认展开策略**: 展开工作区时默认只展开 `User` source，其他 source 保持折叠
+- **默认展开策略**: 展开工作区时默认只展开 `user` source，其他 source 保持折叠
 
 ### Session 列表项
 
@@ -138,7 +177,7 @@ SessionPanel 顶部整合工作区切换功能，替代 TitleBar 的工作区选
 会话标题                    [⋯] 2h
 ```
 
-- **标题**: 单行截断，`text-[12px]`
+- **标题**: 单行截断，`text-[13px]`
 - **流式状态**: 正在输出时左侧显示旋转 loading 图标 (`Loader2` + `animate-spin`)
 - **时间**: 相对时间（now/2h/1d），颜色渐变：越新越亮 (opacity 1.0)，越旧越暗 (opacity 0.4)
 - **操作菜单**: `⋯` hover 显示，支持重命名、归档、删除会话
@@ -347,6 +386,13 @@ type PanelId = 'sessions' | 'sidebar' | 'editor' | 'chat'
 - **Header**: `rounded-t-lg`（折叠时加 `rounded-b-lg`）
 - **Content**: `rounded-b-lg overflow-hidden` 确保内容不溢出圆角
 - **颜色**: 边框使用 `${color}50`（50% 透明度），柔和不刺眼
+
+### Spacious UI 设计原则
+SessionPanel 采用 **Spacious UI** 设计技能规范：
+- **主角突出**: 工作区切换器是视觉焦点，头像 48px，标题 15px
+- **大量留白**: 列表项 py-3，工具栏 py-4，元素之间有充足呼吸空间
+- **完整交互**: 所有按钮考虑 hover、focus、disabled 状态
+- **尺寸规范**: 按钮 h-11 (44px)，图标 17px，分组标签 11px uppercase
 
 ### 功能架构
 - **融合 Activity Bar**: 工作区切换整合到 SessionPanel，消除左侧多余栏位
