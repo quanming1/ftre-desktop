@@ -203,6 +203,7 @@ describe('chat store — syncFrom', () => {
             isStreaming: false,
             streamingMessageId: null,
             contextTokens: 999,
+            retryState: null,
         });
 
         const s = useChat.getState();
@@ -224,6 +225,7 @@ describe('chat store — syncFrom', () => {
             isStreaming: false,
             streamingMessageId: null,
             contextTokens: 0,
+            retryState: null,
         });
 
         expect(useChat.getState().model).toBe('gpt-4');

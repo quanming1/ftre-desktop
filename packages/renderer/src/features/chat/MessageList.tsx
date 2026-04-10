@@ -10,6 +10,8 @@ import { PixelLogo } from "@/components/PixelLogo";
 import { ToolCallCard, ToolCallGroup } from "./ToolCallCard";
 import { ActionButton } from "./ActionButton";
 import { DiffSummaryCard } from "./DiffSummaryCard";
+import { streamManager } from "@/services/stream-manager";
+import { RotateCcw } from "lucide-react";
 
 const MSG_ITEM_STYLE: React.CSSProperties = {
   contentVisibility: "auto",
@@ -255,7 +257,10 @@ export function MessageList() {
             ) : unit.type === "diff_summary" ? (
               <DiffSummaryCard diffMeta={unit.diffMeta} />
             ) : (
-              <MessageItem messageId={unit.id} />
+              <MessageItem
+                messageId={unit.id}
+                isLast={unit === renderUnits[renderUnits.length - 1]}
+              />
             )}
           </div>
         ))}
@@ -276,8 +281,15 @@ const GroupedToolCalls = memo(function GroupedToolCalls({
   return <ToolCallGroup toolName={toolName} messageIds={messageIds} />;
 });
 
-const MessageItem = memo(function MessageItem({ messageId }: { messageId: string }) {
+const MessageItem = memo(function MessageItem({
+  messageId,
+  isLast = false,
+}: {
+  messageId: string;
+  isLast?: boolean;
+}) {
   const message = useMessageById(messageId);
+  const isStreaming = useIsStreaming();
 
   if (!message) return null;
 
@@ -294,7 +306,22 @@ const MessageItem = memo(function MessageItem({ messageId }: { messageId: string
     return <AssistantMessage message={message as ChatMessage} />;
   }
   if (message.role === "system") {
-    return <div className="text-[13px] text-danger p-3 bg-danger/[0.08] rounded-lg font-mono">{message.content}</div>;
+    return (
+      <div className="flex flex-col gap-2">
+        <div className="text-[13px] text-danger p-3 bg-danger/[0.08] rounded-lg font-mono">
+          {message.content}
+        </div>
+        {isLast && !isStreaming && (
+          <button
+            onClick={() => streamManager.retryLastMessage()}
+            className="inline-flex items-center gap-1.5 self-start px-3 py-1.5 text-xs text-t-secondary bg-white/[0.06] hover:bg-white/[0.10] rounded-lg transition-colors"
+          >
+            <RotateCcw size={12} />
+            重试
+          </button>
+        )}
+      </div>
+    );
   }
   return null;
 });
