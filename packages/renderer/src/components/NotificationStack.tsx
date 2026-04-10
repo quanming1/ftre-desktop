@@ -9,7 +9,6 @@ export function NotificationStack() {
     <BaseNotificationStack
       notifications={notifications}
       onDismiss={removeNotification}
-      position="bottom-right"
     />
   );
 }
