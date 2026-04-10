@@ -284,7 +284,7 @@ export function Workbench() {
         )}
         {panelVisible.sessions && isResizeHandleVisible("sessions") && (
           <div
-            className="h-full"
+            className="h-full shrink-0"
             style={{ order: getResizeHandleOrder("sessions") }}
           >
             <ResizeHandle
@@ -307,7 +307,7 @@ export function Workbench() {
         )}
         {panelVisible.sidebar && isResizeHandleVisible("sidebar") && (
           <div
-            className="h-full"
+            className="h-full shrink-0"
             style={{ order: getResizeHandleOrder("sidebar") }}
           >
             <ResizeHandle
@@ -332,7 +332,7 @@ export function Workbench() {
         )}
         {panelVisible.editor && isResizeHandleVisible("editor") && (
           <div
-            className="h-full"
+            className="h-full shrink-0"
             style={{ order: getResizeHandleOrder("editor") }}
           >
             <ResizeHandle
@@ -352,7 +352,7 @@ export function Workbench() {
         )}
         {panelVisible.chat && isResizeHandleVisible("chat") && (
           <div
-            className="h-full"
+            className="h-full shrink-0"
             style={{ order: getResizeHandleOrder("chat") }}
           >
             <ResizeHandle

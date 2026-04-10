@@ -17,8 +17,8 @@ export function TokenRing() {
       content={`${Math.round(pct)}% · ${contextTokens.toLocaleString()} / ${MAX_TOKENS.toLocaleString()} 令牌`}
       side="top"
     >
-      <div className="flex items-center cursor-default px-1">
-        <svg width="16" height="16" viewBox="0 0 36 36" className="shrink-0">
+      <div className="flex items-center cursor-default px-1.5">
+        <svg width="20" height="20" viewBox="0 0 36 36" className="shrink-0">
           <circle cx="18" cy="18" r="15.5" fill="none" strokeWidth="3.5" className="stroke-white/20" />
           <circle
             cx="18"
