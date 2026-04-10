@@ -59,25 +59,19 @@ export function ResizeHandle({
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
       className={cn(
-        "shrink-0 relative group",
-        isH ? "w-px h-full cursor-col-resize" : "w-full h-px cursor-row-resize",
+        "shrink-0 relative flex items-center justify-center",
+        isH ? "w-[6px] h-full cursor-col-resize" : "w-full h-[6px] cursor-row-resize",
         className,
       )}
     >
-      {/* Visible highlight bar - uses inline style for color */}
+      {/* Divider line */}
       <div
         className={cn(
-          "absolute transition-opacity duration-150 pointer-events-none",
-          isH ? "inset-y-0 w-1 -left-px" : "inset-x-0 h-1 -top-px",
-          showHighlight ? "opacity-100" : "opacity-0",
-        )}
-        style={{ backgroundColor: "rgba(0, 255, 136, 0.5)" }}
-      />
-      {/* Extended click area */}
-      <div
-        className={cn(
-          "absolute",
-          isH ? "inset-y-0 -left-2 -right-2" : "inset-x-0 -top-2 -bottom-2",
+          "transition-colors duration-100",
+          isH ? "h-full w-[4px]" : "w-full h-[4px]",
+          showHighlight
+            ? "bg-[#555]"
+            : "bg-[var(--ftre-border,#3c3c3c)]",
         )}
       />
     </div>

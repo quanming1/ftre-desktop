@@ -493,25 +493,22 @@ export function SessionPanel() {
             onClick={() => setWorkspaceMenuOpen((v) => !v)}
             onMouseEnter={() => setHeaderHovered(true)}
             onMouseLeave={() => setHeaderHovered(false)}
-            className="w-full px-4 py-3 flex items-center gap-3 hover:bg-white/[0.02] transition-colors border-b border-border/50"
+            className="w-full px-4 py-3.5 flex items-center gap-3 hover:bg-white/[0.02] transition-colors border-b border-border/50"
           >
-            {/* Workspace avatar */}
             <span
-              className="shrink-0 w-8 h-8 rounded-md text-[12px] font-semibold flex items-center justify-center text-white"
+              className="shrink-0 w-9 h-9 rounded-lg text-[12px] font-semibold flex items-center justify-center text-white"
               style={{ backgroundColor: rootPath ? getWorkspaceColor(rootPath) : '#3c3c3c' }}
             >
               {rootPath ? getWorkspaceAbbrev(rootPath) : '?'}
             </span>
-            {/* Workspace name */}
             <div className="flex-1 min-w-0 text-left">
-              <div className="text-[13px] text-t-primary truncate">
+              <div className="text-[13px] text-t-primary truncate font-medium">
                 {currentWorkspaceName}
               </div>
             </div>
-            {/* Chevron */}
-            <ChevronsUpDown 
-              size={14} 
-              className={`shrink-0 text-t-ghost transition-colors ${headerHovered || workspaceMenuOpen ? 'text-t-muted' : ''}`} 
+            <ChevronsUpDown
+              size={15}
+              className={`shrink-0 text-t-ghost transition-colors ${headerHovered || workspaceMenuOpen ? 'text-t-muted' : ''}`}
             />
           </button>
 
@@ -530,14 +527,14 @@ export function SessionPanel() {
                   <button
                     key={folder}
                     onClick={() => handleSelectWorkspace(folder)}
-                    className={`w-full flex items-center gap-3 px-3 py-2.5 transition-colors ${
+                    className={`w-full flex items-center gap-3 px-3 py-3 relative transition-all duration-150 ease-out ${
                       isActive
-                        ? "text-t-primary"
-                        : "text-t-muted hover:text-t-primary hover:bg-white/[0.04]"
+                        ? "text-neon bg-neon/[0.06]"
+                        : "text-t-muted hover:text-t-primary hover:bg-white/[0.04] active:scale-[0.98] active:duration-100"
                     }`}
                   >
                     <span
-                      className="shrink-0 w-6 h-6 rounded text-[10px] font-semibold flex items-center justify-center text-white"
+                      className="shrink-0 w-7 h-7 rounded-md text-[11px] font-semibold flex items-center justify-center text-white"
                       style={{ backgroundColor: getWorkspaceColor(folder) }}
                     >
                       {getWorkspaceAbbrev(folder)}
@@ -545,9 +542,6 @@ export function SessionPanel() {
                     <span className="truncate flex-1 text-left text-[13px]">
                       {folderName(folder)}
                     </span>
-                    {isActive && (
-                      <span className="w-1.5 h-1.5 rounded-full bg-neon shrink-0" />
-                    )}
                   </button>
                 );
               })}
@@ -564,25 +558,25 @@ export function SessionPanel() {
         </div>
 
         {/* 新增会话 + 搜索 + 刷新 */}
-        <div className="shrink-0 px-3 py-2 flex items-center gap-2">
+        <div className="shrink-0 px-3 py-2.5 flex items-center gap-2">
           <button
             onClick={(e) => handleNewSession(e, rootPath || "")}
             disabled={!rootPath}
-            className="flex-1 h-8 rounded-md text-[12px] border border-border-subtle bg-elevated hover:bg-panel text-t-secondary hover:text-neon transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-1.5"
+            className="flex-1 h-9 rounded-md text-[12px] border border-border-subtle bg-elevated hover:bg-panel text-t-secondary hover:text-neon transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-1.5"
           >
-            <Plus size={14} />
+            <Plus size={15} />
             <span>新增会话</span>
           </button>
           <Tooltip content="搜索会话" side="bottom">
             <button
               onClick={handleSearchToggle}
-              className={`flex items-center justify-center h-8 w-8 rounded transition-colors ${
+              className={`flex items-center justify-center h-9 w-9 rounded transition-colors ${
                 searchOpen
                   ? "text-neon bg-neon/10"
                   : "text-t-secondary bg-elevated hover:bg-panel hover:text-neon"
               }`}
             >
-              <Search size={14} />
+              <Search size={15} />
             </button>
           </Tooltip>
           <TooltipPrimitive.Root
@@ -608,7 +602,7 @@ export function SessionPanel() {
               >
                 <Filter size={15} />
                 <span
-                  className={`absolute -right-0.5 -top-0.5 min-w-[12px] h-[12px] px-[2px] rounded-full text-[8px] leading-[12px] text-center font-semibold ${
+                  className={`absolute -right-0.5 -top-0.5 min-w-[13px] h-[13px] px-[2px] rounded-full text-[9px] leading-[13px] text-center font-semibold ${
                     selectedSource !== "all"
                       ? "bg-neon/25 text-neon border border-neon/40"
                       : "bg-white/[0.14] text-t-dim border border-white/[0.2]"
@@ -631,23 +625,23 @@ export function SessionPanel() {
           <Tooltip content="刷新会话" side="bottom">
             <button
               onClick={handleRefreshWorkspace}
-              className="flex items-center justify-center h-8 w-8 rounded text-t-secondary bg-elevated hover:bg-panel hover:text-neon transition-colors"
+              className="flex items-center justify-center h-9 w-9 rounded text-t-secondary bg-elevated hover:bg-panel hover:text-neon transition-colors"
             >
-              <RefreshCw size={14} />
+              <RefreshCw size={15} />
             </button>
           </Tooltip>
         </div>
 
         {/* 搜索框（展开时显示） */}
         {searchOpen && (
-          <div className="shrink-0 px-2.5 py-1.5 border-b border-border">
+          <div className="shrink-0 px-3 py-2 border-b border-border">
             <input
               ref={searchInputRef}
               type="text"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               placeholder="Search sessions..."
-              className="w-full h-7 px-3 rounded bg-elevated border border-neon/30 focus:border-neon/50 text-[12px] text-t-primary placeholder:text-t-ghost outline-none transition-colors"
+              className="w-full h-8 px-3 rounded bg-elevated border border-border/50 focus:border-neon/50 text-[12px] text-t-primary placeholder:text-t-ghost outline-none transition-colors"
             />
           </div>
         )}
@@ -700,7 +694,7 @@ export function SessionPanel() {
                           }
                           onMouseLeave={() => setHoveredSession(null)}
                           className={`
-                          mt-1 flex items-center gap-2 px-3 py-2 cursor-pointer select-none transition-colors rounded-md border border-transparent
+                          mt-1 flex items-center gap-2 px-3 py-2.5 cursor-pointer select-none transition-colors rounded-md border border-transparent
                           ${
                             isSessionActive
                               ? "bg-white/[0.06]"
@@ -710,7 +704,7 @@ export function SessionPanel() {
                         >
                           <div className="flex-1 min-w-0">
                             <div
-                              className={`truncate text-[12px] ${
+                              className={`truncate text-[13px] ${
                                 isSessionActive
                                   ? "text-t-primary"
                                   : "text-t-secondary"
@@ -720,7 +714,7 @@ export function SessionPanel() {
                             </div>
                             <div className="flex items-center gap-1.5 mt-0.5">
                               <span
-                                className="text-[10px]"
+                                className="text-[11px]"
                                 style={{
                                   opacity: time.opacity,
                                   color: "var(--color-t-dim)",

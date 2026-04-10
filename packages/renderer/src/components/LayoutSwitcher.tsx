@@ -74,29 +74,21 @@ function SortableItem({ id, visible, onToggle, isDragActive }: SortableItemProps
         {...listeners}
         onClick={handleClick}
         className={`
-          relative flex items-center justify-center w-7 h-7 rounded select-none
+          h-full px-3 flex items-center justify-center select-none
           transition-all duration-100 ease-out
-          ${isDragging 
-            ? 'z-10 scale-110 shadow-lg shadow-black/40' 
-            : isDragActive 
-              ? 'cursor-grab' 
+          ${isDragging
+            ? 'z-10 scale-105 shadow-lg shadow-black/40'
+            : isDragActive
+              ? 'cursor-grab'
               : 'cursor-pointer'
           }
           ${visible
-            ? isDragging
-              ? 'text-neon bg-neon/20'
-              : 'text-neon hover:bg-neon/10'
-            : isDragging
-              ? 'text-t-muted bg-white/10'
-              : 'text-t-ghost hover:text-t-muted hover:bg-white/[0.04]'
+            ? 'text-t-primary bg-white/[0.06]'
+            : 'text-t-dim hover:bg-white/[0.06] hover:text-t-muted'
           }
         `}
       >
         <Icon size={14} strokeWidth={1.5} />
-        {/* 激活态底部指示条 */}
-        {visible && !isDragging && (
-          <span className="absolute bottom-0.5 left-1/2 -translate-x-1/2 w-2 h-0.5 rounded-full bg-neon/60" />
-        )}
       </button>
     </Tooltip>
   );
@@ -134,7 +126,7 @@ export function LayoutSwitcher({ panelOrder, panelVisible, onOrderChange, onTogg
 
   return (
     <TooltipProvider>
-      <div className="flex items-center gap-0.5">
+      <div className="flex items-center h-full">
         <DndContext
           sensors={sensors}
           collisionDetection={closestCenter}
