@@ -215,7 +215,7 @@ function InlineDiffView({ segments: initialSegments }: { segments: DiffSegment[]
   }, []);
 
   return (
-    <div className="text-[12px] font-mono leading-[22px] overflow-x-auto max-h-[400px] overflow-y-auto bg-[var(--ftre-base,#1a1b1d)]">
+    <div className="text-[12px] font-mono leading-[22px] overflow-x-auto max-h-[400px] overflow-y-auto bg-[var(--ftre-base,#1e1e1e)]">
       {segments.map((segment, segmentIndex) => {
         if (segment.kind === "collapsed") {
           return (
