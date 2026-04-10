@@ -51,12 +51,12 @@ export const ModelSelector = memo(function ModelSelector() {
     <div className="relative" ref={panelRef}>
       <button
         onClick={() => setOpen(!open)}
-        className="flex items-center gap-1.5 text-[13px] h-7 px-2.5 rounded-md font-mono transition-colors duration-150 text-t-muted hover:text-t-primary hover:bg-white/[0.05]"
+        className="flex items-center gap-1.5 text-[13px] h-9 px-3 rounded-md font-mono transition-colors duration-150 text-t-muted hover:text-t-primary hover:bg-white/[0.05]"
       >
+        {displayName}
         <svg width="6" height="4" viewBox="0 0 6 4" className="shrink-0">
           <path d="M0.5 0.5L3 3.5L5.5 0.5" fill="none" stroke="currentColor" strokeWidth="1" strokeLinecap="round" strokeLinejoin="round" />
         </svg>
-        {displayName}
       </button>
 
       {open && (
