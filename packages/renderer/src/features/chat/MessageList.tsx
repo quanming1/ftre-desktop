@@ -33,14 +33,20 @@ type RenderUnit =
       finalHash: string;
       workspace: string;
       key: string;
+      /** 是否是最后一轮（刚结束的轮次），用于自动加载 */
+      isLastTurn: boolean;
     }
   | { type: "ai_turn_start"; key: string };
 
 /**
  * 将消息列表分组：连续相同名称的可分组工具调用合并为一个 RenderUnit。
  * 只有连续 2+ 个相同工具名的才合并，单个的保持原样。
+ * @param isStreaming 是否正在流式输出，如果是则不显示最后一轮的变更按钮
  */
-function groupMessages(messages: AnyMessage[]): RenderUnit[] {
+function groupMessages(
+  messages: AnyMessage[],
+  isStreaming: boolean,
+): RenderUnit[] {
   const units: RenderUnit[] = [];
   let i = 0;
   // 追踪上一条 user 消息的 diff 信息，在本轮结束时（下一个 user 之前或列表末尾）插入
@@ -65,6 +71,7 @@ function groupMessages(messages: AnyMessage[]): RenderUnit[] {
           type: "diff_summary",
           ...pendingDiff,
           key: pendingDiffKey,
+          isLastTurn: false,
         });
         pendingDiff = null;
       }
@@ -130,9 +137,14 @@ function groupMessages(messages: AnyMessage[]): RenderUnit[] {
     }
   }
 
-  // 列表结束，最后一轮的 diff 信息
-  if (pendingDiff) {
-    units.push({ type: "diff_summary", ...pendingDiff, key: pendingDiffKey });
+  // 列表结束，最后一轮的 diff 信息（流式输出中不显示，因为轮次还没结束）
+  if (pendingDiff && !isStreaming) {
+    units.push({
+      type: "diff_summary",
+      ...pendingDiff,
+      key: pendingDiffKey,
+      isLastTurn: true,
+    });
   }
 
   return units;
@@ -200,8 +212,8 @@ export function MessageList() {
   // 只在结构变化时重新分组 — 通过 getState() 读取避免订阅 messages 引用变化
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const renderUnits = useMemo(
-    () => groupMessages(useChat.getState().messages),
-    [fingerprint],
+    () => groupMessages(useChat.getState().messages, isStreaming),
+    [fingerprint, isStreaming],
   );
 
   // ① 核心 hook：deps=[sessionId] 切换会话时重置锁
@@ -303,6 +315,7 @@ export function MessageList() {
                 baseHash={unit.baseHash}
                 finalHash={unit.finalHash}
                 workspace={unit.workspace}
+                autoLoad={unit.isLastTurn}
               />
             ) : (
               <MessageItem
