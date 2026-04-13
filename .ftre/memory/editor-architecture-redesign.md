@@ -1,6 +1,6 @@
 # 编辑器架构 (VSCode 风格)
 
-> 已完全采用 VSCode 三层架构（Model → Widget → Pane）。旧架构代码（Document + SlotPool）已删除。
+> 已完全采用 VSCode 三层架构（Model → Widget → Pane）。旧架构代码（Document + SlotPool，以及 TextModelService）已彻底删除。
 
 **📄 正式设计文档：** `.ftre/specs/editor-vscode-architecture/design.md`
 
@@ -77,7 +77,7 @@
 | `packages/editor/src/workbench/editorGroupModel.ts` | 编辑器数据模型 | `EditorGroupModel` |
 | `packages/editor/src/workbench/editorMemento.ts` | ViewState 持久化 (LRU + localStorage) | `EditorMemento` |
 | `packages/editor/src/workbench/editorPart.ts` | 多组网格布局管理 | `EditorPart` |
-| `packages/editor/src/workbench/textModelResolverService.ts` | 文本模型解析服务（新架构） | - |
+| `packages/editor/src/workbench/textModelResolverService.ts` | 文本模型解析服务 | - |
 
 ### UI 集成层
 
@@ -152,7 +152,7 @@ EditorGroup.closeEditor(input)
 fs:fileChanged event (packages/electron/src/ipc/watcher.ts)
   ↓
 EditorArea.tsx onFileChanged 回调
-  → getTextModelResolverService().updateContent(path, newContent)  // ✅ 正确
+  → getTextModelResolverService().updateContent(path, newContent)
   ↓
 TextModelResolverService.updateContent()
   → 更新 Monaco ITextModel 内容
@@ -289,57 +289,46 @@ onWillCloseEditor(editor: EditorInput) {
 8. **ViewState 清理时机陷阱**: 不要依赖 `onWillDispose` 清理 ViewState，应在 `onWillCloseEditor` 或 `setEditorVisible(false)` 时处理
 9. **文件编辑器保留 ViewState**: 参考 VSCode `tracksDisposedEditorViewState()`，文件关闭后可选择保留 ViewState 以便快速重新打开
 
-### ⚠️ 10. 两套 Model 服务混用陷阱（重点！）
-
-**问题现象**: edit tool 编辑文件后，编辑器内容未刷新。
-
-**根本原因**: 项目中存在多套独立的 Model 管理服务，混用导致 Monaco 实际使用的 model 与更新的 model 不是同一个实例。
-
-| 服务 | 导出路径 | 状态 | 用途 |
-|------|----------|------|------|
-| `getTextModelService()` | `@ftre/editor` (core/text-model.ts) | ❌ 旧架构残留 | 旧版简单封装 |
-| `getTextFileModelManager()` | `@ftre/editor` (core/text-file-model-manager.ts) | ✅ 核心层 | 管理 TextFileModel |
-| `getTextModelResolverService()` | `@ftre/editor` (workbench/textModelResolverService.ts) | ✅ 当前使用 | Workbench 层，Monaco 实际使用 |
-
-**错误代码示例** (`packages/renderer/src/features/editor/EditorArea.tsx`):
-```typescript
-// ❌ 错误：更新的是旧服务的 model
-import { getTextModelService } from "@ftre/editor";
-
-onFileChanged(path) => {
-  const modelService = getTextModelService();
-  if (modelService.isInitialized()) {
-    modelService.updateContent(path, newContent);  // Monaco 不刷新！
-  }
-}
-```
-
-**正确代码**:
-```typescript
-// ✅ 正确：更新 Workbench 层使用的 TextModelResolverService
-import { getTextModelResolverService } from "@ftre/editor";
-
-onFileChanged(path) => {
-  const modelService = getTextModelResolverService();
-  if (modelService.isInitialized()) {
-    modelService.updateContent(path, newContent);  // Monaco 正常刷新
-  }
-}
-```
-
-**修复要点**:
-- 文件监听刷新统一使用 `getTextModelResolverService()`
-- 检查所有调用 `getTextModelService()` 的地方，确认是否应改用 `getTextModelResolverService()`
-- 不同服务管理的 Monaco model 实例不同，混用会导致显示和状态不一致
-- API 差异注意：
-  - `TextModelResolverService` 使用 `disposeModel()` 而非 `dispose()`
-  - `getContentForSave()` 返回 `string \| undefined`，需检查 `!== undefined`
-
-**详细设计文档**: `.ftre/specs/fix-editor-external-file-sync/design.md`
-
 ---
 
 ## 历史版本
+
+### v2: TextModelService → TextModelResolverService 迁移（已删除）
+**删除时间**: 架构重构完成后
+**删除的文件**: `packages/editor/src/core/text-model.ts`, `packages/editor/src/core/code-editor.ts`
+
+这两份文件是旧架构残留，与当前 Workbench 层的 `TextModelResolverService` 并行存在，混用会导致：
+- edit tool 编辑后编辑器不刷新（旧服务有 isDirty 检查且 model 不在其 Map 中）
+- 关闭 Tab 后重开仍是旧内容
+
+**已迁移的使用者**:
+- `packages/editor/src/store/editor-store.ts` - refreshFile, closeFile, save, rename, delete
+- `packages/editor/src/runtime/save-file.ts` - untitled 文件保存后的 dispose
+- `packages/renderer/src/app/main.tsx` - 初始化
+- `packages/renderer/src/features/explorer/FileTreeItem.tsx` - 移除预取逻辑
+- `packages/renderer/src/services/memory-monitor.ts` - dirty 统计
+
+**API 差异**:
+| 旧 (TextModelService) | 新 (TextModelResolverService) | 说明 |
+|----------------------|------------------------------|------|
+| `getTextModelService()` | `getTextModelResolverService()` | 导入路径不同 |
+| `dispose(uri)` | `disposeModel(uri)` | 方法名变化 |
+| `disposeAll()` | `disposeAllModels()` | 方法名变化 |
+| `has(uri)` | `hasModel(uri)` | 方法名变化 |
+| `get(uri)` | `getModel(uri)` | 方法名变化 |
+
+**导出路径变化**:
+```typescript
+// 旧（已删除）
+import { getTextModelService } from "@ftre/editor/core";
+
+// 新
+import { getTextModelResolverService } from "@ftre/editor/workbench";
+```
+
+**相关 issue**: edit tool 编辑文件后编辑器内容不更新，根因是 `refreshFile` 仍调用旧服务。
+
+---
 
 ### v1: Document + SlotPool 架构（已删除）
 - 按路径缓存最多 8 个 Slot

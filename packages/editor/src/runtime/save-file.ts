@@ -3,7 +3,7 @@
  * 处理普通文件 + untitled 另存为两种场景。
  */
 
-import { getTextModelService } from "../core/text-model";
+import { getTextModelResolverService } from "../workbench/textModelResolverService";
 import { getHostBridge } from "./host-bridge";
 import { markSaved as markRecentlySaved } from "./save-tracker";
 
@@ -61,7 +61,7 @@ export async function saveFile(
   onDirtyReset?: () => void,
 ): Promise<void> {
   const host = getHostBridge();
-  const modelService = getTextModelService();
+  const modelService = getTextModelResolverService();
 
   // untitled 文件另存为
   if (filePath.startsWith("untitled:")) {
@@ -76,7 +76,7 @@ export async function saveFile(
 
       // 关闭旧的 untitled Model
       if (modelService.isInitialized()) {
-        modelService.dispose(filePath);
+        modelService.disposeModel(filePath);
       }
       host.closeFile(filePath);
 

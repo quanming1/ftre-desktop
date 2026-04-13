@@ -110,7 +110,6 @@ class GlobalEventStream {
       "done",
       "error",
       "interrupt",
-      "diff_meta",
       "retry",
     ];
 
@@ -369,12 +368,7 @@ class GlobalEventStream {
         }
         break;
       }
-      case "diff_meta": {
-        session.attachDiffMetaToLastUserMessage(
-          payload as unknown as import("@/types/chat").DiffMeta,
-        );
-        break;
-      }
+
       case "retry": {
         session.setRetryState({
           code: (payload.code as string) || "unknown",

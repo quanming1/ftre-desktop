@@ -232,7 +232,7 @@ describe('handleShowDiff', () => {
         expect(useEditor.getState().pendingDiffs).toHaveLength(0);
         const notifs = useNotification.getState().notifications;
         expect(notifs).toHaveLength(1);
-        expect(notifs[0].message).toContain('无法构造差异视图');
+        expect(notifs[0].message).toContain('文件内容已变更');
     });
 
     it('shows error notification when file read fails', async () => {

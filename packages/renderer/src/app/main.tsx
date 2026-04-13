@@ -32,7 +32,7 @@ window.addEventListener("error", (event) => {
 });
 
 import * as monaco from "monaco-editor";
-import { getTextModelService } from "@ftre/editor/core";
+import { getTextModelResolverService } from "@ftre/editor/workbench";
 import { registerFtreTheme, getActiveThemeId } from "@ftre/editor/ui";
 import { initEditorHostBridge } from "../features/editor/editor-host-bridge";
 import React from "react";
@@ -51,7 +51,7 @@ import "overlayscrollbars/styles/overlayscrollbars.css";
 initEditorHostBridge();
 
 // 初始化编辑器架构（必须在 Monaco Workers 配置之后、渲染之前）
-const textModelService = getTextModelService();
+const textModelService = getTextModelResolverService();
 textModelService.init(monaco);
 
 // 预注册主题（在编辑器创建前完成，避免首帧白色闪烁）
