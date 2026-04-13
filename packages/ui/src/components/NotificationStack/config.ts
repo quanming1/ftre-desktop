@@ -55,13 +55,13 @@ export const positionClasses: Record<
 export const MAX_VISIBLE = 3;
 
 export const CARD_STYLES = {
-  base: "w-80 flex flex-col gap-2 rounded border p-3 shadow-xl bg-[#1a1b1d] border-[#3c3c3c]",
-  message: "text-sm text-[#e8e8e8] break-words leading-relaxed",
+  base: "w-[640px] min-h-[80px] flex flex-col gap-3 rounded-lg border p-5 shadow-xl bg-[#1a1b1d] border-[#3c3c3c]",
+  message: "text-base text-[#e8e8e8] break-words leading-relaxed",
   closeButton: {
-    default: "shrink-0 w-6 h-6 flex items-center justify-center rounded transition-all text-[#888888] hover:text-[#e8e8e8]",
+    default: "shrink-0 w-7 h-7 flex items-center justify-center rounded transition-all text-[#888888] hover:text-[#e8e8e8]",
     hovered: "bg-[rgba(255,255,255,0.08)] text-[#e8e8e8]",
   },
-  actionButton: "text-xs font-medium px-3 py-1.5 rounded bg-[#333333] hover:bg-[#3c3c3c] text-[#e8e8e8] transition-colors",
+  actionButton: "text-sm font-medium px-4 py-2 rounded bg-[#333333] hover:bg-[#3c3c3c] text-[#e8e8e8] transition-colors",
 };
 
 export const ANIMATION = {

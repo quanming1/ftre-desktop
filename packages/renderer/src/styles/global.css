@@ -68,3 +68,34 @@
 .tabbar-scroll-area .os-scrollbar.os-scrollbar-pressed .os-scrollbar-handle {
   background: rgba(255, 255, 255, 0.34);
 }
+
+/* ===== Sonner Toast 样式覆盖 ===== */
+[data-sonner-toaster] [data-sonner-toast] {
+  display: flex !important;
+  align-items: center !important;
+  min-height: 56px !important;
+  padding: 14px 16px !important;
+}
+
+[data-sonner-toaster] [data-content] {
+  flex: 1 !important;
+  min-width: 0 !important;
+}
+
+[data-sonner-toaster] [data-close-button] {
+  order: 99 !important;
+  margin-left: 12px !important;
+  flex-shrink: 0 !important;
+  width: 28px !important;
+  height: 28px !important;
+  border: none !important;
+  background: rgba(255, 255, 255, 0.08) !important;
+  color: #888 !important;
+  border-radius: 6px !important;
+  cursor: pointer !important;
+}
+
+[data-sonner-toaster] [data-close-button]:hover {
+  background: rgba(255, 255, 255, 0.16) !important;
+  color: #e8e8e8 !important;
+}
