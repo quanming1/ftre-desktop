@@ -159,6 +159,21 @@ TextModelResolverService.updateContent()
   → fire onDidChangeContent
 ```
 
+### 状态恢复后点击非 active tab（延迟加载）
+```
+App 启动 → 从 localStorage restore 编辑器状态
+  ↓
+所有文件 loaded: false（仅 active 文件会 hydrate）
+  ↓
+用户点击非 active tab → setActive(path)
+  ↓
+EditorArea.tsx hydrateFileIfNeeded() effect
+  → 检测 loaded === false 且 activeFile === path
+  → 调用 fs.readFile() 读取内容
+  → hydrateFileContent(path, content) 更新 store
+  → loaded: true，编辑器正常显示
+```
+
 ---
 
 ## 设计决策
@@ -275,6 +290,68 @@ onWillCloseEditor(editor: EditorInput) {
 - **文件编辑器**: 保留 ViewState 以便重新打开（通过 `tracksDisposedEditorViewState()` 控制）
 - **非文件编辑器**: 关闭时可选择清理 ViewState
 
+### 7. 延迟加载策略（loaded 字段）
+```typescript
+// OpenFile 结构中的 loaded 字段
+interface OpenFile {
+  path: string;
+  name: string;
+  language: string;
+  content: string;
+  modified: boolean;
+  pinned: boolean;
+  loaded: boolean;  // 是否已加载文件内容
+}
+```
+- **目的**: 避免 App 启动时加载所有历史 tab 的内容
+- **策略**: restore 时仅 hydrate active 文件，其他文件标记为 `loaded: false`
+- **UI 层处理**: `EditorArea.tsx` 通过 effect 检测未加载的 activeFile 并触发加载
+- **实现位置**: `EditorArea.tsx` 中的 `hydrateFileIfNeeded()` 和对应的 `useEffect`
+
+### 8. 延迟加载修复方案（历史文件 tab 一直 loading）
+
+**问题根因**: 状态恢复时只有 activeFile 会被加载，其他 tab 切换到它们时不会自动加载内容
+
+**修复位置**: `packages/renderer/src/features/editor/EditorArea.tsx`
+
+**修复逻辑**:
+```typescript
+// EditorArea.tsx 添加 hydrateFileIfNeeded effect
+useEffect(() => {
+  hydrateFileIfNeeded(activeFilePath);
+}, [activeFilePath]);
+
+// hydrateFileIfNeeded 实现
+async function hydrateFileIfNeeded(filePath: string) {
+  if (!filePath) return;
+  
+  const group = groups.find(g => g.id === activeGroupId);
+  const file = group?.openFiles.find(f => f.path === filePath);
+  
+  // 只有未加载且是当前 active 的文件才加载
+  if (!file || file.loaded || activeFile !== filePath) return;
+  
+  try {
+    const result = await window.desktop.fs.readFile(filePath);
+    if (!result.error) {
+      useEditor.getState().hydrateFileContent(
+        filePath, 
+        result.content, 
+        result.language
+      );
+    }
+  } catch (error) {
+    console.error("Failed to hydrate file:", error);
+  }
+}
+```
+
+**关键点**:
+- 监听 `activeFile` 变化触发加载
+- 检查 `file.loaded === false` 才触发读取
+- 通过 `hydrateFileContent()` 更新 store 状态
+- 注意：还需处理文件不存在等边界情况
+
 ---
 
 ## 注意事项
@@ -288,6 +365,7 @@ onWillCloseEditor(editor: EditorInput) {
 7. **跨组 Editor 共享**: 同一文件在多个 group 打开时，`canDispose()` 检查必不可少，避免过早 dispose 影响其他 group
 8. **ViewState 清理时机陷阱**: 不要依赖 `onWillDispose` 清理 ViewState，应在 `onWillCloseEditor` 或 `setEditorVisible(false)` 时处理
 9. **文件编辑器保留 ViewState**: 参考 VSCode `tracksDisposedEditorViewState()`，文件关闭后可选择保留 ViewState 以便快速重新打开
+10. **延迟加载陷阱**: App 恢复时非 active tab 显示 Loading... 是正常的，需要在 `EditorArea.tsx` 添加 effect 自动加载未 hydrate 的文件内容。具体实现参考上面的"延迟加载修复方案"
 
 ---
 
