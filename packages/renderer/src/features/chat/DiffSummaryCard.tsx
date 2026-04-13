@@ -153,6 +153,11 @@ export const DiffSummaryCard = memo(function DiffSummaryCard({
 
   const handleLoadFileDiff = useCallback(
     async (filePath: string) => {
+      // 参数不完整时直接返回 null，避免无效请求
+      if (!workspace || !baseHash || !finalHash) {
+        console.warn("[DiffSummaryCard] 缺少必要参数，跳过加载", { workspace, baseHash, finalHash });
+        return null;
+      }
       try {
         const result = await fetchSnapshotFileDiff(
           workspace,
@@ -171,6 +176,11 @@ export const DiffSummaryCard = memo(function DiffSummaryCard({
 
   const handleOpenFileDiff = useCallback(
     async (filePath: string) => {
+      // 参数不完整时直接返回，避免无效请求
+      if (!workspace || !baseHash || !finalHash) {
+        console.warn("[DiffSummaryCard] 缺少必要参数，跳过打开", { workspace, baseHash, finalHash });
+        return;
+      }
       try {
         const result = await fetchSnapshotFileContent(
           workspace,
@@ -214,22 +224,24 @@ export const DiffSummaryCard = memo(function DiffSummaryCard({
             </button>
           </Tooltip>
 
-          {/* 查看变更按钮 */}
-          <Tooltip content={showDiff ? "收起变更" : "查看变更"} side="top">
-            <button
-              onClick={handleToggleDiff}
-              disabled={loading}
-              className="flex items-center justify-center w-7 h-7 text-t-ghost hover:text-t-secondary rounded-md hover:bg-white/[0.06] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              {loading ? (
-                <Loader2 size={15} className="animate-spin" />
-              ) : showDiff ? (
-                <ChevronUp size={15} />
-              ) : (
-                <GitCompare size={15} />
-              )}
-            </button>
-          </Tooltip>
+          {/* 查看变更按钮 - 仅当 hash 齐全且不同时显示 */}
+          {baseHash && finalHash && baseHash !== finalHash && (
+            <Tooltip content={showDiff ? "收起变更" : "查看变更"} side="top">
+              <button
+                onClick={handleToggleDiff}
+                disabled={loading}
+                className="flex items-center justify-center w-7 h-7 text-t-ghost hover:text-t-secondary rounded-md hover:bg-white/[0.06] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {loading ? (
+                  <Loader2 size={15} className="animate-spin" />
+                ) : showDiff ? (
+                  <ChevronUp size={15} />
+                ) : (
+                  <GitCompare size={15} />
+                )}
+              </button>
+            </Tooltip>
+          )}
 
           {/* 加载错误提示 */}
           {error && (

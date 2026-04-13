@@ -46,6 +46,7 @@ import "../styles/markdown.css";
 import "highlight.js/styles/github-dark.min.css";
 import "@ftre/ui/styles.css";
 import "overlayscrollbars/styles/overlayscrollbars.css";
+import "sonner/dist/styles.css";
 
 // 初始化编辑器 host bridge
 initEditorHostBridge();

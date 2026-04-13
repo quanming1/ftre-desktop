@@ -13,7 +13,7 @@ import { TaskDropdown } from "@/features/task/TaskDropdown";
 import { FilePalette } from "@/components/FilePalette";
 import { CommandPalette } from "@/components/CommandPalette";
 import { GlobalSearchPalette } from "@/features/global-search/GlobalSearchPalette";
-import { NotificationStack } from "@/components/NotificationStack";
+import { Toaster } from "sonner";
 import { ResizeHandle } from "@/components/ResizeHandle";
 import { useLayout, type PanelId } from "@/stores/layout";
 import { useWorkspace } from "@/stores/workspace";
@@ -383,7 +383,14 @@ export function Workbench() {
         onClose={() => setCommandPaletteOpen(false)}
       />
       <GlobalSearchPalette />
-      <NotificationStack />
+      <Toaster
+        position="bottom-left"
+        theme="dark"
+        richColors
+        closeButton
+        expand={false}
+        style={{ fontFamily: "var(--font-sans)" }}
+      />
     </div>
   );
 }
