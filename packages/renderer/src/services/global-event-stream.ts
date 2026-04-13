@@ -22,7 +22,7 @@ import {
   resolveFilePath,
   normalizePathForCompare,
 } from "@/utils/pathUtils";
-import { fetchUsage } from "./api";
+import { fetchUsage, fetchSessionMessages } from "./api";
 
 const BACKEND_URL = "http://localhost:9988";
 const RECONNECT_DELAY = 3000;
@@ -90,6 +90,71 @@ class GlobalEventStream {
             .catch(() => {
               /* ignore */
             });
+        }
+      } catch {
+        /* ignore */
+      }
+    });
+
+    // session 创建（多端同步）
+    source.addEventListener("session_created", (e) => {
+      try {
+        const raw = JSON.parse((e as MessageEvent).data);
+        const payload = raw.payload || raw;
+        const sessionId = payload.session_id;
+        const workspace = payload.workspace || "";
+
+        if (!sessionId) return;
+
+        const currentWorkspace = useWorkspace.getState().rootPath;
+        if (
+          currentWorkspace &&
+          normalizePathForCompare(workspace) ===
+            normalizePathForCompare(currentWorkspace)
+        ) {
+          useSession.getState().loadSessions(currentWorkspace);
+        }
+      } catch {
+        /* ignore */
+      }
+    });
+
+    // session 状态变更（idle ↔ running）
+    source.addEventListener("session_status_change", (e) => {
+      try {
+        const raw = JSON.parse((e as MessageEvent).data);
+        const payload = raw.payload || raw;
+        const sessionId = payload.session_id;
+        const status = payload.status as "idle" | "running";
+
+        if (!sessionId) return;
+
+        const session = streamManager.get(sessionId);
+        if (session) {
+          session.setStreaming(status === "running");
+
+          // 刷新该工作区的 sessionList
+          const workspace = session.workspace;
+          const currentWorkspace = useWorkspace.getState().rootPath;
+          if (
+            workspace &&
+            currentWorkspace &&
+            normalizePathForCompare(workspace) ===
+              normalizePathForCompare(currentWorkspace)
+          ) {
+            useSession.getState().loadSessions(currentWorkspace);
+          }
+        }
+
+        // 如果用户当前处于该 session，刷新消息列表
+        const active = streamManager.getActive();
+        if (active?.sessionId === sessionId) {
+          fetchSessionMessages(sessionId).then((events) => {
+            streamManager.replayInto(sessionId, events);
+          });
+          fetchUsage(sessionId).then((tokens) => {
+            if (active) active.setContextTokens(tokens);
+          });
         }
       } catch {
         /* ignore */

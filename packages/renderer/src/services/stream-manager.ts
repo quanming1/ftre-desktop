@@ -420,6 +420,11 @@ class SessionStreamManager {
 
   // ── 获取 session ────────────────────────────────────────────────
 
+  /** 按 ID 获取 session 实例（不存在则返回 undefined） */
+  get(sessionId: string): StreamSession | undefined {
+    return this.sessions.get(sessionId);
+  }
+
   /** 按 ID 获取或创建 session 实例 */
   getOrCreate(sessionId: string): StreamSession {
     let session = this.sessions.get(sessionId);
