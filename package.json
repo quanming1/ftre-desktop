@@ -20,9 +20,12 @@
     "clean": "pnpm --filter @ftre/shared clean && pnpm --filter @ftre/editor clean && pnpm --filter @ftre/electron clean && pnpm --filter @ftre/renderer clean && rm -rf node_modules",
     "pack": "npm run build && electron-builder --win --dir",
     "pack:full": "npm run build && npm run bundle-backend && electron-builder --win --dir -c electron-builder-full.json",
+    "pack:quick": "npm run bundle-backend && electron-builder --win --dir -c electron-builder-full.json",
     "dist": "npm run build && electron-builder --win",
     "dist:full": "npm run build && npm run bundle-backend && electron-builder --win -c electron-builder-full.json",
+    "dist:quick": "npm run bundle-backend && electron-builder --win -c electron-builder-full.json",
     "bundle-backend": "node scripts/bundle-backend.js",
+    "bundle-backend:clean": "node scripts/bundle-backend.js --clean",
     "test": "pnpm --filter @ftre/renderer test"
   },
   "devDependencies": {

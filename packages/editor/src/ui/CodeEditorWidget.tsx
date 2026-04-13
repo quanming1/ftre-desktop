@@ -135,6 +135,9 @@ export const CodeEditorWidget = memo(
     // 当前文件信息（用于内容存储）
     const currentFileRef = useRef<CodeEditorFile | null>(null);
 
+    // 待处理的文件（用于在初始化完成后切换）
+    const pendingFileRef = useRef<CodeEditorFile | null>(null);
+
     // 回调 refs（避免依赖问题）
     const callbacksRef = useRef({
       onContentChange,
@@ -310,6 +313,12 @@ export const CodeEditorWidget = memo(
 
       initializedRef.current = true;
 
+      // 初始化完成后，如果有待处理的文件，立即切换
+      if (pendingFileRef.current?.loaded) {
+        switchToFile(pendingFileRef.current);
+        pendingFileRef.current = null;
+      }
+
       return () => {
         // 保存所有 ViewState
         saveAllEditorMementos();
@@ -379,7 +388,15 @@ export const CodeEditorWidget = memo(
 
     // 文件切换 effect
     useEffect(() => {
-      if (!initializedRef.current || !file.loaded) {
+      // 如果文件未加载，保存为待处理
+      if (!file.loaded) {
+        pendingFileRef.current = file;
+        return;
+      }
+
+      // 如果编辑器未初始化完成，保存为待处理（会在初始化后自动切换）
+      if (!initializedRef.current) {
+        pendingFileRef.current = file;
         return;
       }
 
