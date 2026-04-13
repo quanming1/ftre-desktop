@@ -8,7 +8,7 @@
  * 3. 实现 EditorStoreHost 接口并注册
  */
 
-import { getTextModelService } from "../core/text-model";
+import { getTextModelResolverService } from "../workbench/textModelResolverService";
 import { workspaceHash } from "../utils/path-utils";
 import type { OpenFile, DiffEntry, EditorGroup, EditorSnapshot } from "./types";
 import { buildDiffTabPath, SETTINGS_PATH } from "./types";
@@ -324,8 +324,8 @@ export function createEditorActions(
         g.openFiles.some((f) => f.path === path),
       );
       if (!stillOpen) {
-        const modelService = getTextModelService();
-        modelService.dispose(path);
+        const modelService = getTextModelResolverService();
+        modelService.disposeModel(path);
       }
     },
 
@@ -355,7 +355,7 @@ export function createEditorActions(
       const state = get();
 
       // 标记 Model 为已保存
-      const modelService = getTextModelService();
+      const modelService = getTextModelResolverService();
       if (modelService.isInitialized()) {
         modelService.markSaved(path);
       }
@@ -401,8 +401,8 @@ export function createEditorActions(
       );
       if (!exists) return;
 
-      // 刷新 Model
-      const modelService = getTextModelService();
+      // 刷新 Model（使用新架构的 TextModelResolverService）
+      const modelService = getTextModelResolverService();
       if (modelService.isInitialized()) {
         modelService.updateContent(path, newContent);
       }
@@ -465,12 +465,19 @@ export function createEditorActions(
         (d) => d.filePath === diff.filePath,
       );
 
+      // 确保每次内容更新时 id 都变化，强制 DiffViewer 重新挂载
+      // @monaco-editor/react 的 DiffEditor 对 original/modified props 变化响应不完善
+      const newDiff = {
+        ...diff,
+        id: `${diff.id}:${Date.now()}`,
+      };
+
       if (existingIdx !== -1) {
         const updated = [...pendingDiffs];
-        updated[existingIdx] = diff;
+        updated[existingIdx] = newDiff;
         set({ pendingDiffs: updated });
       } else {
-        set({ pendingDiffs: [...pendingDiffs, diff] });
+        set({ pendingDiffs: [...pendingDiffs, newDiff] });
       }
 
       // Ensure diff virtual tab exists and is active
@@ -702,13 +709,13 @@ export function createEditorActions(
       });
 
       // 清理不再打开的文件
-      const modelService = getTextModelService();
+      const modelService = getTextModelResolverService();
       for (const removedPath of removedPaths) {
         const stillOpen = groups.some((g) =>
           g.openFiles.some((f) => f.path === removedPath),
         );
         if (!stillOpen) {
-          modelService.dispose(removedPath);
+          modelService.disposeModel(removedPath);
         }
       }
     },
@@ -746,13 +753,13 @@ export function createEditorActions(
       });
 
       // 清理不再打开的文件
-      const modelService = getTextModelService();
+      const modelService = getTextModelResolverService();
       for (const removedPath of removedPaths) {
         const stillOpen = groups.some((g) =>
           g.openFiles.some((f) => f.path === removedPath),
         );
         if (!stillOpen) {
-          modelService.dispose(removedPath);
+          modelService.disposeModel(removedPath);
         }
       }
     },
@@ -788,13 +795,13 @@ export function createEditorActions(
       });
 
       // 清理不再打开的文件
-      const modelService = getTextModelService();
+      const modelService = getTextModelResolverService();
       for (const removedPath of removedPaths) {
         const stillOpen = groups.some((g) =>
           g.openFiles.some((f) => f.path === removedPath),
         );
         if (!stillOpen) {
-          modelService.dispose(removedPath);
+          modelService.disposeModel(removedPath);
         }
       }
     },
@@ -903,7 +910,7 @@ export function createEditorActions(
       });
 
       // 新架构：关闭旧路径的 Model，让编辑器重新加载新路径
-      const modelService = getTextModelService();
+      const modelService = getTextModelResolverService();
       if (modelService.isInitialized()) {
         if (isDir) {
           // 目录重命名：需要遍历所有打开的文件
@@ -914,12 +921,12 @@ export function createEditorActions(
                 file.path.startsWith(oldPath + "/") ||
                 file.path.startsWith(oldPath + "\\")
               ) {
-                modelService.dispose(file.path);
+                modelService.disposeModel(file.path);
               }
             }
           }
         } else {
-          modelService.dispose(oldPath);
+          modelService.disposeModel(oldPath);
         }
       }
     },
@@ -968,13 +975,13 @@ export function createEditorActions(
       });
 
       // 删除 Model（仅当文件不在任何 group 中打开时）
-      const modelService = getTextModelService();
+      const modelService = getTextModelResolverService();
       for (const deletedFilePath of deletedFilePaths) {
         const stillOpen = groups.some((g) =>
           g.openFiles.some((f) => f.path === deletedFilePath),
         );
         if (!stillOpen) {
-          modelService.dispose(deletedFilePath);
+          modelService.disposeModel(deletedFilePath);
         }
       }
     },
@@ -1026,14 +1033,14 @@ export function createEditorActions(
       });
 
       // 销毁所有 Model
-      const modelService = getTextModelService();
+      const modelService = getTextModelResolverService();
       if (modelService.isInitialized()) {
         modelService.disposeAll();
       }
     },
 
     hasUnsavedChanges: () => {
-      const modelService = getTextModelService();
+      const modelService = getTextModelResolverService();
       return modelService.getDirtyUris().length > 0;
     },
 

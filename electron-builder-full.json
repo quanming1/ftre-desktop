@@ -1,28 +1,24 @@
 {
   "appId": "com.ftre.desktop",
-  "productName": "AI IDE",
+  "productName": "ftre",
   "directories": {
     "output": "release"
   },
   "files": [
     "packages/electron/dist/**/*",
+    "node_modules/node-pty/**/*",
     "packages/renderer/dist/**/*",
     "package.json"
   ],
+
   "extraResources": [
     {
       "from": "backend",
       "to": "backend",
-      "filter": [
-        "**/*",
-        "!**/__pycache__/**",
-        "!**/*.pyc"
-      ]
+      "filter": ["**/*", "!**/__pycache__/**", "!**/*.pyc"]
     }
   ],
-  "asarUnpack": [
-    "node_modules/node-pty/**/*"
-  ],
+  "asarUnpack": ["node_modules/node-pty/**/*"],
   "win": {
     "target": [
       {

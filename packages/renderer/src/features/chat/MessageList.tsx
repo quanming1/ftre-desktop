@@ -26,7 +26,14 @@ const MSG_ITEM_STYLE: React.CSSProperties = {
 type RenderUnit =
   | { type: "single"; id: string }
   | { type: "group"; toolName: string; ids: string[]; key: string }
-  | { type: "diff_summary"; diffMeta: DiffMeta; key: string }
+  | {
+      type: "diff_summary";
+      messageId: string;
+      baseHash: string;
+      finalHash: string;
+      workspace: string;
+      key: string;
+    }
   | { type: "ai_turn_start"; key: string };
 
 /**
@@ -36,8 +43,13 @@ type RenderUnit =
 function groupMessages(messages: AnyMessage[]): RenderUnit[] {
   const units: RenderUnit[] = [];
   let i = 0;
-  // 追踪上一条 user 消息的 diffMeta，在本轮结束时（下一个 user 之前或列表末尾）插入
-  let pendingDiffMeta: DiffMeta | null = null;
+  // 追踪上一条 user 消息的 diff 信息，在本轮结束时（下一个 user 之前或列表末尾）插入
+  let pendingDiff: {
+    messageId: string;
+    baseHash: string;
+    finalHash: string;
+    workspace: string;
+  } | null = null;
   let pendingDiffKey = "";
   // 追踪本轮是否需要插入 AI turn start 标记
   let needAiTurnStart = false;
@@ -46,16 +58,25 @@ function groupMessages(messages: AnyMessage[]): RenderUnit[] {
   while (i < messages.length) {
     const msg = messages[i];
 
-    // 遇到新的 user 消息 → 先把上一轮的 diffMeta 插入（如果有），并标记需要插入 AI turn start
+    // 遇到新的 user 消息 → 先把上一轮的 diff 信息插入（如果有），并标记需要插入 AI turn start
     if ("role" in msg && msg.role === "user") {
-      if (pendingDiffMeta) {
-        units.push({ type: "diff_summary", diffMeta: pendingDiffMeta, key: pendingDiffKey });
-        pendingDiffMeta = null;
+      if (pendingDiff) {
+        units.push({
+          type: "diff_summary",
+          ...pendingDiff,
+          key: pendingDiffKey,
+        });
+        pendingDiff = null;
       }
-      // 记录这条 user 消息的 diffMeta（如果有），等本轮结束时插入
+      // 记录这条 user 消息的 diff 信息（如果有），等本轮结束时插入
       const chatMsg = msg as import("@/types/chat").ChatMessage;
       if (chatMsg.diffMeta) {
-        pendingDiffMeta = chatMsg.diffMeta;
+        pendingDiff = {
+          messageId: msg.id,
+          baseHash: chatMsg.diffMeta.base_hash,
+          finalHash: chatMsg.diffMeta.final_hash,
+          workspace: chatMsg.diffMeta.workspace,
+        };
         pendingDiffKey = `diff-${msg.id}`;
       }
       needAiTurnStart = true;
@@ -80,7 +101,11 @@ function groupMessages(messages: AnyMessage[]): RenderUnit[] {
 
       while (j < messages.length) {
         const next = messages[j];
-        if (isToolCall(next) && isGroupableTool(next.name) && getGroupKey(next.name) === groupKey) {
+        if (
+          isToolCall(next) &&
+          isGroupableTool(next.name) &&
+          getGroupKey(next.name) === groupKey
+        ) {
           groupIds.push(next.id);
           j++;
         } else {
@@ -105,9 +130,9 @@ function groupMessages(messages: AnyMessage[]): RenderUnit[] {
     }
   }
 
-  // 列表结束，最后一轮的 diffMeta
-  if (pendingDiffMeta) {
-    units.push({ type: "diff_summary", diffMeta: pendingDiffMeta, key: pendingDiffKey });
+  // 列表结束，最后一轮的 diff 信息
+  if (pendingDiff) {
+    units.push({ type: "diff_summary", ...pendingDiff, key: pendingDiffKey });
   }
 
   return units;
@@ -154,11 +179,11 @@ const StreamingIndicator = memo(function StreamingIndicator() {
 function useStructuralFingerprint(): string {
   return useChat((s) => {
     const msgs = s.messages;
-    if (msgs.length === 0) return '';
+    if (msgs.length === 0) return "";
     // 检查最后一条 user 消息是否有 diffMeta（避免 O(N) filter）
     let hasDiff = 0;
     for (let i = msgs.length - 1; i >= 0; i--) {
-      if ('role' in msgs[i] && (msgs[i] as any).role === 'user') {
+      if ("role" in msgs[i] && (msgs[i] as any).role === "user") {
         hasDiff = (msgs[i] as any).diffMeta ? 1 : 0;
         break;
       }
@@ -174,7 +199,10 @@ export function MessageList() {
 
   // 只在结构变化时重新分组 — 通过 getState() 读取避免订阅 messages 引用变化
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  const renderUnits = useMemo(() => groupMessages(useChat.getState().messages), [fingerprint]);
+  const renderUnits = useMemo(
+    () => groupMessages(useChat.getState().messages),
+    [fingerprint],
+  );
 
   // ① 核心 hook：deps=[sessionId] 切换会话时重置锁
   const { ref, scrollToBottom, resetLock } = useAutoScrollToBottom([sessionId]);
@@ -206,7 +234,11 @@ export function MessageList() {
     const observer = new MutationObserver(() => {
       scheduleScrollToBottom();
     });
-    observer.observe(el, { childList: true, subtree: true, characterData: true });
+    observer.observe(el, {
+      childList: true,
+      subtree: true,
+      characterData: true,
+    });
     return () => {
       observer.disconnect();
     };
@@ -231,10 +263,13 @@ export function MessageList() {
   }, []);
 
   // ⑤ 合并 ref（hook 的 ref 负责事件绑定，containerRef 供 observer 使用）
-  const mergedRef = useCallback((el: HTMLDivElement | null) => {
-    containerRef.current = el;
-    ref(el);
-  }, [ref]);
+  const mergedRef = useCallback(
+    (el: HTMLDivElement | null) => {
+      containerRef.current = el;
+      ref(el);
+    },
+    [ref],
+  );
 
   return (
     <div
@@ -244,18 +279,31 @@ export function MessageList() {
     >
       <div className="mx-auto w-full max-w-[960px] space-y-2 break-words">
         {renderUnits.length === 0 && (
-          <div className="flex-1 flex items-center justify-center text-t-dim text-[14px] font-mono pt-20">描述你想要构建的内容</div>
+          <div className="flex-1 flex items-center justify-center text-t-dim text-[14px] font-mono pt-20">
+            描述你想要构建的内容
+          </div>
         )}
         {renderUnits.map((unit) => (
-          <div key={unit.type === "single" ? unit.id : unit.key} style={MSG_ITEM_STYLE}>
+          <div
+            key={unit.type === "single" ? unit.id : unit.key}
+            style={MSG_ITEM_STYLE}
+          >
             {unit.type === "ai_turn_start" ? (
               <div className="mt-4 mb-1 flex items-center h-[20px]">
                 <PixelLogo size={2} />
               </div>
             ) : unit.type === "group" ? (
-              <GroupedToolCalls toolName={unit.toolName} messageIds={unit.ids} />
+              <GroupedToolCalls
+                toolName={unit.toolName}
+                messageIds={unit.ids}
+              />
             ) : unit.type === "diff_summary" ? (
-              <DiffSummaryCard diffMeta={unit.diffMeta} />
+              <DiffSummaryCard
+                messageId={unit.messageId}
+                baseHash={unit.baseHash}
+                finalHash={unit.finalHash}
+                workspace={unit.workspace}
+              />
             ) : (
               <MessageItem
                 messageId={unit.id}

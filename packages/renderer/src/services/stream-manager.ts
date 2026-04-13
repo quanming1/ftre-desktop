@@ -12,6 +12,7 @@ import type {
   ActionButtonMessage,
   CodeRef,
   MessagePart,
+  DiffMeta,
 } from "@/types/chat";
 import { useChat } from "@/stores/chat";
 import { useSession } from "@/stores/session";
@@ -200,16 +201,17 @@ export class StreamSession {
     this.emitChange();
   }
 
-  attachDiffMetaToLastUserMessage(data: import("@/types/chat").DiffMeta): void {
-    // 找到最后一条 user 消息，把 diff_meta 挂上去
+  /**
+   * 将 diffMeta 附加到最后一条 user 消息上
+   * 用于 replayInto 时从后端事件恢复 diff_meta 信息
+   */
+  attachDiffMetaToLastUserMessage(diffMeta: DiffMeta): void {
     for (let i = this.messages.length - 1; i >= 0; i--) {
       const msg = this.messages[i];
       if ("role" in msg && msg.role === "user") {
-        this.messages = this.messages.map((m, idx) =>
-          idx === i && "role" in m && m.role === "user"
-            ? ({ ...m, diffMeta: data } as any)
-            : m,
-        );
+        const newArr = this.messages.slice();
+        newArr[i] = { ...msg, diffMeta } as ChatMessage;
+        this.messages = newArr;
         this.emitChange();
         return;
       }

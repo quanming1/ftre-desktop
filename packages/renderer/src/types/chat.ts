@@ -107,10 +107,6 @@ export interface DiffMeta {
   base_hash: string;
   final_hash: string;
   workspace: string;
-  files: DiffFileSummary[];
-  total_additions: number;
-  total_deletions: number;
-  total_files: number;
 }
 
 export type AnyMessage = ChatMessage | ToolCallMessage | ActionButtonMessage;

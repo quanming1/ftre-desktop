@@ -2,7 +2,18 @@
   "name": "ftre-desktop",
   "version": "0.1.0",
   "description": "AI Agent Desktop Client - Monorepo",
+  "main": "packages/electron/dist/main.js",
   "private": true,
+  "dependencies": {
+    "node-pty": "^1.1.0"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "electron",
+      "esbuild",
+      "node-pty"
+    ]
+  },
   "scripts": {
     "dev": "concurrently \"pnpm --filter @ftre/shared dev\" \"pnpm --filter @ftre/editor dev\" \"pnpm --filter @ftre/electron dev\" \"pnpm --filter @ftre/renderer dev\" \"wait-on http://localhost:5173 && electron packages/electron/dist/main.js\"",
     "build": "pnpm --filter @ftre/shared build && pnpm --filter @ftre/editor build && pnpm --filter @ftre/electron build && pnpm --filter @ftre/renderer build",
@@ -22,13 +33,14 @@
   },
   "build": {
     "appId": "com.ftre.desktop",
-    "productName": "AI IDE",
+    "productName": "ftre",
     "directories": {
       "output": "release"
     },
     "files": [
       "packages/electron/dist/**/*",
       "packages/renderer/dist/**/*",
+      "node_modules/node-pty/**/*",
       "package.json"
     ],
     "asarUnpack": [

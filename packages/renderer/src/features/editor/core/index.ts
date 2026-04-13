@@ -1,3 +1,3 @@
 // Re-export from @ftre/editor
-export { getTextModelService } from "@ftre/editor/core";
+export { getTextModelResolverService } from "@ftre/editor/workbench";
 export { saveFile } from "@ftre/editor/runtime";

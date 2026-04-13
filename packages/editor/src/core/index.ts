@@ -1,23 +1,8 @@
 /**
  * Core 模块导出
  *
- * 简化版 VSCode 风格编辑器核心
+ * 已废弃：请使用 workbench 模块的 TextModelResolverService
  */
 
-// TextModel 服务
-export {
-  getTextModelService,
-  disposeTextModelService,
-  _resetTextModelService,
-  type ITextModelOptions,
-  type IViewState,
-  type ITextModelData,
-} from "./text-model";
-
-// CodeEditor 组件
-export {
-  CodeEditor,
-  createCodeEditor,
-  type ICodeEditorOptions,
-  type ICodeEditorCallbacks,
-} from "./code-editor";
+// 为兼容性保留空导出
+export {};

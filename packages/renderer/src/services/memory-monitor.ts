@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import { getTextModelService } from "@ftre/editor";
+import { getTextModelResolverService } from "@ftre/editor";
 
 // ══════════════════════════════════════════════════
 //  类型定义
@@ -113,7 +113,7 @@ async function collectSample(): Promise<MemorySample> {
   let editorActiveSlot: string | null = null;
 
   try {
-    const modelService = getTextModelService();
+    const modelService = getTextModelResolverService();
     if (modelService.isInitialized()) {
       const dirtyUris = modelService.getDirtyUris();
       editorPreloadedModelCount = dirtyUris.length;

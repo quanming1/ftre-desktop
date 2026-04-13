@@ -209,26 +209,6 @@ export {
 } from "./workbench";
 
 // ══════════════════════════════════════════════════
-//  Core 模块
-// ══════════════════════════════════════════════════
-
-export {
-  getTextModelService,
-  disposeTextModelService,
-  _resetTextModelService,
-  type ITextModelOptions,
-  type IViewState,
-  type ITextModelData,
-} from "./core/text-model";
-
-export {
-  CodeEditor,
-  createCodeEditor,
-  type ICodeEditorOptions,
-  type ICodeEditorCallbacks,
-} from "./core/code-editor";
-
-// ══════════════════════════════════════════════════
 //  UI 组件
 // ══════════════════════════════════════════════════
 

@@ -4,7 +4,7 @@ import {
   formatBytes,
   formatKB,
 } from "@/services/memory-monitor";
-import { getTextModelService } from "@ftre/editor/core";
+import { getTextModelResolverService } from "@ftre/editor/workbench";
 
 // ══════════════════════════════════════════════════
 //  类型定义
@@ -37,7 +37,7 @@ interface EditorStats {
 
 function getEditorStats(): EditorStats | null {
   try {
-    const textModelService = getTextModelService();
+    const textModelService = getTextModelResolverService();
     if (!textModelService.isInitialized()) {
       return null;
     }
