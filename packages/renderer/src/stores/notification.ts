@@ -1,68 +1,76 @@
-import { create } from 'zustand';
+import { create } from "zustand";
+import { toast } from "sonner";
 
 export interface NotificationItem {
-    id: string;
-    level: 'info' | 'warning' | 'error';
-    message: string;
-    actions?: { label: string; onClick: () => void }[];
-    createdAt: number;
+  id: string;
+  level: "info" | "warning" | "error" | "success";
+  message: string;
+  actions?: { label: string; onClick: () => void }[];
+  createdAt: number;
 }
 
 export interface NotificationState {
-    notifications: NotificationItem[];
-    addNotification: (
-        notification: Omit<NotificationItem, 'id' | 'createdAt'>,
-    ) => string;
-    removeNotification: (id: string) => void;
-    clearAll: () => void;
+  notifications: NotificationItem[];
+  addNotification: (
+    notification: Omit<NotificationItem, "id" | "createdAt">,
+  ) => string;
+  removeNotification: (id: string) => void;
+  clearAll: () => void;
 }
-
-const MAX_NOTIFICATIONS = 10;
 
 let counter = 0;
 
 function generateId(): string {
-    counter += 1;
-    return `notif-${counter}-${Date.now()}`;
+  counter += 1;
+  return `notif-${counter}-${Date.now()}`;
 }
 
+const sonnerMap = new Map<string, string>();
+
 export const useNotification = create<NotificationState>((set) => ({
-    notifications: [],
+  notifications: [],
 
-    addNotification: (notification) => {
-        const id = generateId();
-        const item: NotificationItem = {
-            ...notification,
-            id,
-            createdAt: Date.now(),
-        };
+  addNotification: (notification) => {
+    const id = generateId();
+    const item: NotificationItem = {
+      ...notification,
+      id,
+      createdAt: Date.now(),
+    };
 
-        set((state) => {
-            const updated = [...state.notifications, item];
+    // 使用 sonner 显示 toast
+    const sonnerId = toast(notification.message, {
+      id,
+      duration:
+        notification.level === "error" ? Infinity : notification.level === "warning" ? 8000 : 5000,
+    });
 
-            if (updated.length > MAX_NOTIFICATIONS) {
-                // Find the oldest non-error notification and remove it
-                const oldestNonErrorIndex = updated.findIndex(
-                    (n) => n.level !== 'error',
-                );
-                if (oldestNonErrorIndex !== -1) {
-                    updated.splice(oldestNonErrorIndex, 1);
-                }
-            }
+    // 记录 sonner id 映射
+    sonnerMap.set(id, sonnerId as string);
 
-            return { notifications: updated };
-        });
+    set((state) => ({
+      notifications: [...state.notifications, item].slice(-10),
+    }));
 
-        return id;
-    },
+    return id;
+  },
 
-    removeNotification: (id) => {
-        set((state) => ({
-            notifications: state.notifications.filter((n) => n.id !== id),
-        }));
-    },
+  removeNotification: (id) => {
+    // 同时 dismiss sonner toast
+    const sonnerId = sonnerMap.get(id);
+    if (sonnerId) {
+      toast.dismiss(sonnerId);
+      sonnerMap.delete(id);
+    }
 
-    clearAll: () => {
-        set({ notifications: [] });
-    },
+    set((state) => ({
+      notifications: state.notifications.filter((n) => n.id !== id),
+    }));
+  },
+
+  clearAll: () => {
+    toast.dismiss();
+    sonnerMap.clear();
+    set({ notifications: [] });
+  },
 }));
