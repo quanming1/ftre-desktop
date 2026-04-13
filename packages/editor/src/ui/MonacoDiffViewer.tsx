@@ -1,5 +1,11 @@
 import { DiffEditor } from "@monaco-editor/react";
-import { useCallback, useRef, useEffect, useImperativeHandle, forwardRef } from "react";
+import {
+  useCallback,
+  useRef,
+  useEffect,
+  useImperativeHandle,
+  forwardRef,
+} from "react";
 import type { editor } from "monaco-editor";
 import type * as Monaco from "monaco-editor";
 import { registerFtreTheme } from "./theme-registry";
@@ -25,12 +31,13 @@ interface MonacoDiffViewerProps {
   renderSideBySide: boolean;
 }
 
-export const MonacoDiffViewer = forwardRef<MonacoDiffViewerHandle, MonacoDiffViewerProps>(
-  function MonacoDiffViewer({ diff, language, renderSideBySide }, ref) {
+export const MonacoDiffViewer = forwardRef<
+  MonacoDiffViewerHandle,
+  MonacoDiffViewerProps
+>(function MonacoDiffViewer({ diff, language, renderSideBySide }, ref) {
   const monacoLang = toMonacoLanguage(language);
   const editorRef = useRef<editor.IStandaloneDiffEditor | null>(null);
   const monacoRef = useRef<typeof Monaco | null>(null);
-  // Track if we've already cleaned up to avoid double cleanup
   const cleanedUpRef = useRef(false);
 
   const handleMount = useCallback(
@@ -68,10 +75,27 @@ export const MonacoDiffViewer = forwardRef<MonacoDiffViewerHandle, MonacoDiffVie
   const filePathRef = useRef(diff.filePath);
   filePathRef.current = diff.filePath;
 
+  // @monaco-editor/react DiffEditor 不响应 original/modified props 变化
+  // 需要手动更新 model 内容
+  useEffect(() => {
+    const diffEditor = editorRef.current;
+    const monaco = monacoRef.current;
+    if (!diffEditor || !monaco) return;
+
+    const origModel = diffEditor.getOriginalEditor().getModel();
+    const modModel = diffEditor.getModifiedEditor().getModel();
+
+    if (origModel && origModel.getValue() !== diff.originalContent) {
+      origModel.setValue(diff.originalContent);
+    }
+    if (modModel && modModel.getValue() !== diff.newContent) {
+      modModel.setValue(diff.newContent);
+    }
+  }, [diff.originalContent, diff.newContent]);
+
   // 组件卸载时安全释放模型，避免已知 DiffEditor dispose 报错
   useEffect(() => {
     return () => {
-      // Prevent double cleanup
       if (cleanedUpRef.current) {
         return;
       }
@@ -82,20 +106,14 @@ export const MonacoDiffViewer = forwardRef<MonacoDiffViewerHandle, MonacoDiffVie
 
       if (diffEditor && monaco) {
         try {
-          // Check if the editor is still valid (not disposed)
           const modifiedEditor = diffEditor.getModifiedEditor();
-
-          // Try to get model - if it throws, editor is already disposed
           const modModel = modifiedEditor.getModel();
           if (!modModel) {
             return;
           }
 
-          // 在 DiffEditor dispose 之前，用空模型替换当前模型
-          // 这可以避免 "TextModel got disposed before DiffEditorWidget model got reset" 错误
           const origModel = diffEditor.getOriginalEditor().getModel();
 
-          // Only proceed if both models exist
           if (origModel && modModel) {
             const emptyOriginal = monaco.editor.createModel("", "plaintext");
             const emptyModified = monaco.editor.createModel("", "plaintext");
@@ -105,7 +123,6 @@ export const MonacoDiffViewer = forwardRef<MonacoDiffViewerHandle, MonacoDiffVie
               modified: emptyModified,
             });
 
-            // Dispose the old models manually to prevent the error
             origModel.dispose();
             modModel.dispose();
           }
@@ -120,14 +137,18 @@ export const MonacoDiffViewer = forwardRef<MonacoDiffViewerHandle, MonacoDiffVie
   }, []);
 
   // 暴露获取当前行号的方法
-  useImperativeHandle(ref, () => ({
-    getCurrentLine: () => {
-      const diffEditor = editorRef.current;
-      if (!diffEditor) return 1;
-      const position = diffEditor.getModifiedEditor().getPosition();
-      return position?.lineNumber ?? 1;
-    },
-  }), []);
+  useImperativeHandle(
+    ref,
+    () => ({
+      getCurrentLine: () => {
+        const diffEditor = editorRef.current;
+        if (!diffEditor) return 1;
+        const position = diffEditor.getModifiedEditor().getPosition();
+        return position?.lineNumber ?? 1;
+      },
+    }),
+    [],
+  );
 
   return (
     <DiffEditor
@@ -140,7 +161,6 @@ export const MonacoDiffViewer = forwardRef<MonacoDiffViewerHandle, MonacoDiffVie
       options={{
         readOnly: true,
         originalEditable: false,
-        // Git 变更里经常包含空白调整，默认忽略会出现“有统计但无高亮”
         ignoreTrimWhitespace: false,
         fontSize: 14,
         fontFamily: "'JetBrains Mono', 'Cascadia Code', 'Consolas', monospace",
@@ -152,7 +172,6 @@ export const MonacoDiffViewer = forwardRef<MonacoDiffViewerHandle, MonacoDiffVie
         hideCursorInOverviewRuler: true,
         overviewRulerBorder: false,
         glyphMargin: false,
-        // inline 模式下有两列行号，需要更多空间避免三位数重叠
         lineNumbersMinChars: renderSideBySide ? 3 : 5,
         folding: false,
         automaticLayout: true,

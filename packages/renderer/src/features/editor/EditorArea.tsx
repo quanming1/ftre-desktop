@@ -27,6 +27,97 @@ import { SettingsPanel } from "@/features/settings";
 import { Breadcrumb } from "./Breadcrumb";
 import { TabBar } from "./TabBar";
 
+/**
+ * 加载未 hydrate 的文件内容
+ * 当从持久化状态恢复时，非 active 的 tab 的 loaded 为 false
+ * 用户点击这些 tab 时需要加载文件内容
+ */
+
+// 当前正在进行的 hydrate 请求 ID，用于竞态控制
+let currentHydrateRequestId = 0;
+const pendingHydrate = new Map<string, Promise<void>>();
+
+async function hydrateFileIfNeeded(filePath: string) {
+  // 检查是否已有进行中的请求
+  if (pendingHydrate.has(filePath)) {
+    return pendingHydrate.get(filePath);
+  }
+
+  const requestId = ++currentHydrateRequestId;
+
+  const hydratePromise = (async () => {
+    try {
+      const state = useEditor.getState();
+      let file: { loaded: boolean; language: string } | undefined;
+
+      for (const group of state.groups) {
+        const found = group.openFiles.find((f) => f.path === filePath);
+        if (found) {
+          file = found;
+          break;
+        }
+      }
+
+      if (!file || file.loaded) return;
+
+      // 跳过虚拟路径
+      if (
+        filePath.startsWith("ftre://") ||
+        filePath.startsWith("diff:") ||
+        filePath.startsWith("untitled:")
+      ) {
+        return;
+      }
+
+      // 读取文件内容
+      let content: string;
+      let language: string | undefined;
+
+      try {
+        const result = await window.desktop.fs.readFile(filePath);
+        if (result.error) {
+          // 文件不存在或无法读取
+          console.warn(`Failed to load file ${filePath}:`, result.error);
+          // 标记为已加载（加载失败）但保持空内容，避免一直 Loading
+          useEditor
+            .getState()
+            .hydrateFileContent(filePath, "", file.language);
+          
+          // 可选：显示通知
+          useNotification.getState().addNotification({
+            level: "warning",
+            message: `无法加载文件：${filePath}`,
+          });
+          return;
+        }
+        content = result.content;
+        language = result.language;
+      } catch (error) {
+        console.error(`Error reading file ${filePath}:`, error);
+        // 标记为已加载（加载失败）
+        useEditor
+          .getState()
+          .hydrateFileContent(filePath, "", file.language);
+        return;
+      }
+
+      // 检查是否被后续请求覆盖（竞态控制）
+      if (requestId !== currentHydrateRequestId) {
+        return;
+      }
+
+      useEditor
+        .getState()
+        .hydrateFileContent(filePath, content, language || file.language);
+    } finally {
+      pendingHydrate.delete(filePath);
+    }
+  })();
+
+  pendingHydrate.set(filePath, hydratePromise);
+  return hydratePromise;
+}
+
 export function EditorArea() {
   const groups = useEditor((s) => s.groups);
   const activeGroupId = useEditor((s) => s.activeGroupId);
@@ -34,6 +125,18 @@ export function EditorArea() {
   const minimapEnabled = useLayout((s) => s.minimapEnabled);
   const [sideBySide, setSideBySide] = useState(true);
   const diffViewerRef = useRef<MonacoDiffViewerHandle>(null);
+
+  // Hydrate unloaded files when they become active
+  useEffect(() => {
+    for (const group of groups) {
+      if (group.activeFile) {
+        const file = group.openFiles.find((f) => f.path === group.activeFile);
+        if (file && !file.loaded) {
+          hydrateFileIfNeeded(group.activeFile);
+        }
+      }
+    }
+  }, [groups]);
 
   // Listen for split-editor event
   useEffect(() => {
