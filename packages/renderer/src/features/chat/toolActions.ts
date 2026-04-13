@@ -151,14 +151,36 @@ export async function handleShowDiff(message: ToolCallMessage): Promise<void> {
 
   // 2. 回退：基于当前文件内容和参数构造
   const filePath = getToolFilePath(message);
-  const oldString = message.arguments?.oldString as string;
-  const newString = message.arguments?.newString as string;
-  if (
-    !filePath ||
-    typeof oldString !== "string" ||
-    typeof newString !== "string"
-  )
+  const oldString = message.arguments?.oldString as string | undefined;
+  const newString = message.arguments?.newString as string | undefined;
+
+  // 行号模式没有 oldString，无法回退构造 diff
+  if (!filePath || typeof newString !== "string") {
+    useNotification.getState().addNotification({
+      level: "error",
+      message: "无法显示差异：服务端未记录该编辑的快照数据",
+    });
     return;
+  }
+
+  // 行号模式（有 startLine/endLine 但无 oldString）无法回退
+  const startLine = message.arguments?.startLine;
+  const endLine = message.arguments?.endLine;
+  if ((startLine != null || endLine != null) && typeof oldString !== "string") {
+    useNotification.getState().addNotification({
+      level: "error",
+      message: "无法显示差异：行号模式编辑需要服务端快照支持",
+    });
+    return;
+  }
+
+  if (typeof oldString !== "string") {
+    useNotification.getState().addNotification({
+      level: "error",
+      message: "无法显示差异：缺少原始内容参数",
+    });
+    return;
+  }
 
   const fullPath = resolveFilePath(filePath);
   const diffId = buildDiffId(callId, fullPath);
@@ -197,7 +219,7 @@ export async function handleShowDiff(message: ToolCallMessage): Promise<void> {
     } else {
       useNotification.getState().addNotification({
         level: "error",
-        message: "无法构造差异视图：未在文件中找到匹配的原始内容",
+        message: "无法构造差异视图：文件内容已变更，找不到匹配的编辑内容",
       });
       return;
     }

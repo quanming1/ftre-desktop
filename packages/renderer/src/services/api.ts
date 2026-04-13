@@ -532,6 +532,36 @@ export async function fetchSnapshotFileDiff(
   }
 }
 
+/** 获取指定消息的文件变更统计 */
+interface DiffStatResponse {
+  message_id: string;
+  base_hash: string;
+  final_hash: string;
+  workspace: string;
+  files: Array<{
+    file: string;
+    additions: number;
+    deletions: number;
+  }>;
+  total_additions: number;
+  total_deletions: number;
+  total_files: number;
+}
+
+export async function fetchDiffStat(
+  messageId: string,
+): Promise<DiffStatResponse | null> {
+  try {
+    const res = await fetch(
+      `${BACKEND_URL}/diff/stat?message_id=${encodeURIComponent(messageId)}`,
+    );
+    if (!res.ok) return null;
+    return res.json();
+  } catch {
+    return null;
+  }
+}
+
 /** 获取单文件 before/after 全文内容（用于 Monaco diff editor） */
 export async function fetchSnapshotFileContent(
   workspace: string,

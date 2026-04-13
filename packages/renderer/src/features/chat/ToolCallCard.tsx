@@ -652,6 +652,17 @@ const GroupChip = memo(function GroupChip({ messageId }: { messageId: string }) 
   const [loading, setLoading] = useState(false);
   const [expanded, setExpanded] = useState(false);
 
+  // grep/glob 结果摘要 - 必须在条件返回之前调用
+  const resultSummary = useMemo(() => {
+    if (!message || !isToolCall(message)) return null;
+    if (message.status !== "completed" || !message.result) return null;
+    if (message.name === "grep" || message.name === "glob") {
+      const lines = message.result.split("\n").filter(Boolean);
+      return `${lines.length}`;
+    }
+    return null;
+  }, [message]);
+
   if (!message || !isToolCall(message)) return null;
 
   const label = getGroupItemLabel(message);
@@ -702,16 +713,6 @@ const GroupChip = memo(function GroupChip({ messageId }: { messageId: string }) 
   ) : (
     <Search size={11} className="text-t-ghost shrink-0 transition-colors group-hover/chip:text-t-dim" />
   );
-
-  // grep/glob 结果摘要
-  const resultSummary = useMemo(() => {
-    if (!isCompleted || !message.result) return null;
-    if (message.name === "grep" || message.name === "glob") {
-      const lines = message.result.split("\n").filter(Boolean);
-      return `${lines.length}`;
-    }
-    return null;
-  }, [isCompleted, message.result, message.name]);
 
   return (
     <div className="flex flex-col">

@@ -10,7 +10,7 @@ import {
   Terminal,
   FolderOpen,
 } from "lucide-react";
-import { getTextModelService } from "@ftre/editor/core";
+
 import { useEditor } from "@/stores/editor";
 import { useWorkspace } from "@/stores/workspace";
 import { useNotification } from "@/stores/notification";
@@ -164,7 +164,6 @@ export const FileTreeItem = memo(function FileTreeItem({
   useEffect(() => {
     return () => {
       if (autoExpandTimerRef.current) clearTimeout(autoExpandTimerRef.current);
-      if (prefetchTimerRef.current) clearTimeout(prefetchTimerRef.current);
     };
   }, []);
 
@@ -235,49 +234,6 @@ export const FileTreeItem = memo(function FileTreeItem({
     onToggle(entry.path);
   }, [entry.isDir, entry.path, onToggle]);
 
-  // 预读取：鼠标悬停文件时提前加载内容到缓存（减少点击时的等待）
-  const prefetchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const prefetchedRef = useRef(false);
-
-  const handleMouseEnter = useCallback(() => {
-    // 只对文件生效，跳过目录
-    if (entry.isDir) return;
-    // 已经缓存过则跳过
-    const modelService = getTextModelService();
-    if (!modelService.isInitialized()) return;
-    if (modelService.has(entry.path)) return;
-    // 已经预读取过则跳过
-    if (prefetchedRef.current) return;
-
-    // 延迟 150ms 再预读取，避免快速划过时的无效请求
-    prefetchTimerRef.current = setTimeout(async () => {
-      if (modelService.has(entry.path)) return;
-      try {
-        const result = await window.desktop.fs.readFile(entry.path);
-        if (!result.error) {
-          // 预加载到 TextModelService
-          const ext = entry.name.split(".").pop() || "";
-          const language = extToLanguage(ext);
-          modelService.getOrCreate(entry.path, {
-            content: result.content,
-            language,
-          });
-          prefetchedRef.current = true;
-        }
-      } catch {
-        // 预读取失败静默忽略，不影响正常流程
-      }
-    }, 150);
-  }, [entry.path, entry.isDir, entry.name]);
-
-  const handleMouseLeave = useCallback(() => {
-    // 取消未完成的预读取
-    if (prefetchTimerRef.current) {
-      clearTimeout(prefetchTimerRef.current);
-      prefetchTimerRef.current = null;
-    }
-  }, []);
-
   const handleClick = useCallback(async () => {
     onFocusChange?.(entry.path);
     if (entry.isDir) {
@@ -285,24 +241,7 @@ export const FileTreeItem = memo(function FileTreeItem({
       return;
     }
 
-    // 优先使用预读取的缓存内容
-    const modelService = getTextModelService();
-    if (modelService.isInitialized()) {
-      const cachedModel = modelService.get(entry.path);
-      if (cachedModel) {
-        const ext = entry.name.split(".").pop() || "";
-        const language = extToLanguage(ext);
-        openFile({
-          path: entry.path,
-          name: entry.name,
-          language,
-          content: cachedModel.model.getValue(),
-        });
-        return;
-      }
-    }
-
-    // 没有缓存则正常读取
+    // 读取文件内容
     const result = await window.desktop.fs.readFile(entry.path);
     if (!result.error) {
       openFile({
@@ -688,8 +627,6 @@ export const FileTreeItem = memo(function FileTreeItem({
         draggable
         onClick={handleClick}
         onContextMenu={handleContextMenu}
-        onMouseEnter={handleMouseEnter}
-        onMouseLeave={handleMouseLeave}
         onDragStart={handleDragStart}
         onDragOver={handleDragOver}
         onDragLeave={handleDragLeave}
