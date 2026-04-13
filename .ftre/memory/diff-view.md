@@ -11,15 +11,16 @@
 | `packages/editor/src/ui/MonacoDiffViewer.tsx` | Monaco DiffEditor 封装，渲染差异对比 |
 | `packages/editor/src/ui/themes/darcula.ts` | Monaco Darcula 主题定义 |
 | `packages/renderer/src/features/editor/EditorArea.tsx` | 集成 DiffBar 和 MonacoDiffViewer，管理 diff 状态 |
-| `packages/editor/src/store/editor-store.ts` | addDiff 函数创建 diff 虚拟标签页 |
+| `packages/editor/src/store/editor-store.ts` | `addDiff` 函数创建 diff 虚拟标签页 |
 
 ### Chat Diff (自研组件)
 | 文件 | 职责 |
 |------|------|
-| `packages/ui/src/components/diff-summary/DiffSummaryCard.tsx` | 文件列表 + diff 展示容器，支持按需加载 |
-| `packages/renderer/src/features/chat/DiffSummaryCard.tsx` | 对 UI 组件的包装，处理 API 调用 |
+| `packages/ui/src/components/diff-summary/DiffSummaryCard.tsx` | 文件列表 + diff 展示容器，纯展示组件 |
+| `packages/renderer/src/features/chat/DiffSummaryCard.tsx` | 包装组件，处理 API 调用和按需加载逻辑 |
 | `packages/renderer/src/features/chat/ToolCallCard.tsx` | edit tool 卡片，edit 完成后默认展开 diff |
-| `packages/renderer/src/services/api.ts` | API 调用，包括 `fetchDiffStat` |
+| `packages/renderer/src/services/api.ts` | `fetchDiffStat` 等 API 调用 |
+| `packages/renderer/src/features/chat/MessageList.tsx` | 渲染 `diff_summary` 类型的 RenderUnit |
 
 ### 可复用的 Diff 组件（从 DiffSummaryCard 解耦导出）
 | 组件 | 导出路径 | 职责 |
@@ -33,16 +34,18 @@
 | `groupIntoSegments` | `@ftre/ui` | diff 分段折叠 |
 | `computeDiffStats` | `@ftre/ui` | 计算 diff 统计（变更块数、增删行数） |
 
-### 已废弃文件
+### 已废弃文件/方法
 ```
 packages/renderer/src/features/chat/diff/DiffView.tsx (已删除)
 packages/renderer/src/features/chat/diff/index.ts (已删除)
+attachDiffMetaToLastUserMessage (已从 stream-manager.ts 删除)
+diff_meta SSE 事件 (已从 global-event-stream.ts 删除)
 ```
-删除原因：与 `DiffSummaryCard` 功能重复，统一使用 `@ftre/ui` 包实现。
+删除原因：与 `DiffSummaryCard` 功能重复，统一使用 `@ftre/ui` 包实现；Diff 统计改为按需 API 调用而非 SSE 推送。
 
 ## 关键数据结构
 
-### DiffMeta (简化后)
+### DiffMeta (精简后)
 ```typescript
 interface DiffMeta {
   base_hash: string;
@@ -62,12 +65,32 @@ interface DiffStatResponse {
   files: DiffStatFile[];       // 文件变更列表
   total_additions: number;
   total_deletions: number;
+  total_files: number;
 }
 
 interface DiffStatFile {
   file: string;
   additions: number;
   deletions: number;
+}
+```
+
+### RenderUnit (MessageList)
+```typescript
+type RenderUnit =
+  | { type: "ai_turn_start" }
+  | { type: "single"; id: string }
+  | { type: "group"; key: string; toolName: string; ids: string[] }
+  | { type: "diff_summary"; messageId: string; baseHash: string; finalHash: string; workspace: string };
+```
+
+### DiffSummaryCard 包装组件 Props
+```typescript
+interface DiffSummaryCardProps {
+  messageId: string;    // 用于调用 /diff/stat 接口
+  baseHash: string;     // snapshot base hash
+  finalHash: string;    // snapshot final hash
+  workspace: string;    // 工作区路径
 }
 ```
 
@@ -111,12 +134,16 @@ interface DiffEntry {
 ### Chat Diff - DiffSummaryCard (按需加载)
 ```
 MessageList 渲染消息
-  ↓ 消息包含 diffMeta (仅含 hash 和 workspace)
-DiffSummaryCard 渲染
-  ↓ 组件内调用 fetchDiffStat(messageId)
-获取 files 列表
-  ↓ 用户点击文件
-调用 fetchSnapshotFileDiff 获取 diff 内容
+  ↓ 消息包含 diffMeta (base_hash/final_hash/workspace)
+  ↓ 构建 diff_summary RenderUnit
+DiffSummaryCard 渲染 (只显示操作按钮)
+  ↓ 用户点击"查看变更"按钮
+调用 fetchDiffStat(messageId)
+  ↓ 获取 files/additions/deletions 列表
+展开显示文件列表
+  ↓ 用户点击具体文件
+调用 fetchSnapshotFileDiff 获取 diff 内容 → InlineDiffView 渲染
+或调用 fetchSnapshotFileContent → 打开编辑器 Diff Tab
 ```
 
 ### API 接口
@@ -124,19 +151,28 @@ DiffSummaryCard 渲染
 **获取 Diff 统计信息：**
 ```
 GET /diff/stat?message_id={user_input_message_id}
+Response: DiffStatResponse
 ```
 
 **获取文件 Diff 内容：**
 ```
 POST /snapshot/file-diff
 Body: { workspace, base_hash, final_hash, file_path }
+Response: { diff: string }
+```
+
+**获取文件完整内容（用于编辑器 Diff）：**
+```
+POST /snapshot/file-content
+Body: { workspace, from_hash, to_hash, file_path }
+Response: { before_content: string, after_content: string }
 ```
 
 ## Diff 核心函数
 
 ```typescript
 // 获取 diff 统计信息（按 message_id 查询）
-function fetchDiffStat(messageId: string): Promise<DiffStatResponse>
+function fetchDiffStat(messageId: string): Promise<DiffStatResponse | null>
 
 // 获取文件 diff 内容
 function fetchSnapshotFileDiff(
@@ -144,7 +180,15 @@ function fetchSnapshotFileDiff(
   baseHash: string,
   finalHash: string,
   filePath: string
-): Promise<{ diff: string }>
+): Promise<{ diff: string } | null>
+
+// 获取文件完整内容
+function fetchSnapshotFileContent(
+  workspace: string,
+  fromHash: string,
+  toHash: string,
+  filePath: string
+): Promise<{ before_content: string; after_content: string } | null>
 
 // 解析 unified diff 文本
 function parseUnifiedDiffLines(diffText: string): DiffLine[]
@@ -197,6 +241,10 @@ edit tool 卡片交互：
   - **实现**: `DiffMeta` 只保留 `base_hash`, `final_hash`, `workspace`，files 列表通过 API 获取
   - **删除**: `diff_meta` SSE 事件、`attachDiffMetaToLastUserMessage` 方法
 
+- **按需加载策略**: DiffSummaryCard 默认只显示操作按钮，首次点击"查看变更"时才调用 API
+  - 原因：避免不必要的请求，提升消息列表渲染性能
+  - 实现：组件内维护 `showDiff` 和 `files` 状态
+
 - **纯展示组件**: `DiffSummaryCard` / `InlineDiffView` 解耦为纯展示组件
   - 接收 `DiffLine[]` 作为 props
   - 不自行调用 API 加载 diff 数据
@@ -212,6 +260,7 @@ edit tool 卡片交互：
 
 - **DiffMeta 变化**: 只存储精简数据（hash + workspace），files 列表需调用 API
 - **SSE 事件已移除**: `diff_meta` 不再通过 SSE 推送
+- **按需加载**: DiffSummaryCard 点击后才加载数据，首次点击有 loading 状态
 - **包依赖**: `@ftre/renderer` 使用 `@ftre/ui` 的 `DiffSummaryCard` / `InlineDiffView`
 - **样式配置**: 通过 Tailwind 类名直接控制
 - **DiffEditor 清理**: 关闭 diff tab 时需确保 Monaco DiffEditor 正确清理

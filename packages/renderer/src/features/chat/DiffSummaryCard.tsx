@@ -1,4 +1,4 @@
-import { memo, useCallback, useState } from "react";
+import { memo, useCallback, useState, useEffect, useRef } from "react";
 import { DiffSummaryCard as UiDiffSummaryCard } from "@ftre/ui";
 import {
   fetchSnapshotFileDiff,
@@ -22,6 +22,8 @@ interface DiffSummaryCardProps {
   baseHash: string;
   finalHash: string;
   workspace: string;
+  /** 是否自动加载（用于刚结束的轮次），静默模式不弹窗 */
+  autoLoad?: boolean;
 }
 
 /**
@@ -54,6 +56,7 @@ export const DiffSummaryCard = memo(function DiffSummaryCard({
   baseHash,
   finalHash,
   workspace,
+  autoLoad = false,
 }: DiffSummaryCardProps) {
   const [copied, setCopied] = useState(false);
   const [showDiff, setShowDiff] = useState(false);
@@ -63,6 +66,7 @@ export const DiffSummaryCard = memo(function DiffSummaryCard({
   const [totalDeletions, setTotalDeletions] = useState(0);
   const [totalFiles, setTotalFiles] = useState(0);
   const [error, setError] = useState<string | null>(null);
+  const autoLoadedRef = useRef(false);
 
   // 复制本轮对话内容
   const handleCopy = useCallback(async () => {
@@ -87,50 +91,65 @@ export const DiffSummaryCard = memo(function DiffSummaryCard({
     }
   }, [messageId]);
 
-  // 加载并显示变更列表
+  // 加载 diff 数据的核心逻辑，silent=true 时不弹窗
+  const loadDiffData = useCallback(
+    async (silent: boolean) => {
+      setLoading(true);
+      setError(null);
+
+      try {
+        const result = await fetchDiffStat(messageId);
+        if (result) {
+          setFiles(result.files ?? []);
+          setTotalAdditions(result.total_additions ?? 0);
+          setTotalDeletions(result.total_deletions ?? 0);
+          setTotalFiles(result.total_files ?? result.files?.length ?? 0);
+
+          if (result.files && result.files.length > 0) {
+            setShowDiff(true);
+          } else if (!silent) {
+            useNotification.getState().addNotification({
+              level: "info",
+              message: "本轮没有文件变更",
+            });
+          }
+        } else if (!silent) {
+          setError("无法加载变更统计");
+        }
+      } catch (err) {
+        console.warn("[DiffSummaryCard] 加载 Diff 统计失败", err);
+        if (!silent) {
+          setError("加载变更统计时出错");
+        }
+      } finally {
+        setLoading(false);
+      }
+    },
+    [messageId],
+  );
+
+  // 自动加载（仅最后一轮，静默模式）
+  useEffect(() => {
+    if (autoLoad && !autoLoadedRef.current) {
+      autoLoadedRef.current = true;
+      loadDiffData(true);
+    }
+  }, [autoLoad, loadDiffData]);
+
+  // 手动点击加载/切换
   const handleToggleDiff = useCallback(async () => {
     if (showDiff) {
-      // 已经展开，收起
       setShowDiff(false);
       return;
     }
 
-    // 如果已经加载过数据，直接展开
     if (files.length > 0) {
       setShowDiff(true);
       return;
     }
 
-    // 首次加载
-    setLoading(true);
-    setError(null);
-
-    try {
-      const result = await fetchDiffStat(messageId);
-      if (result) {
-        setFiles(result.files ?? []);
-        setTotalAdditions(result.total_additions ?? 0);
-        setTotalDeletions(result.total_deletions ?? 0);
-        setTotalFiles(result.total_files ?? result.files?.length ?? 0);
-
-        if (result.files && result.files.length > 0) {
-          setShowDiff(true);
-        } else {
-          useNotification.getState().addNotification({
-            level: "info",
-            message: "本轮没有文件变更",
-          });
-        }
-      } else {
-        setError("无法加载变更统计");
-      }
-    } catch (err) {
-      console.warn("[DiffSummaryCard] 加载 Diff 统计失败", err);
-      setError("加载变更统计时出错");
-    } finally {
-      setLoading(false);
-    }
-  }, [showDiff, files.length, messageId]);
+    await loadDiffData(false);
+  }, [showDiff, files.length, loadDiffData]);
 
   const handleLoadFileDiff = useCallback(
     async (filePath: string) => {
