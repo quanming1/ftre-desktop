@@ -1,6 +1,6 @@
 # Spec-Kit 中文版 🇨🇳
 
-> GitHub Spec-Kit 的完整中文汉化版本 | 规范驱动开发工具包
+> GitHub Spec-Kit 的完整中文汉化版本 | 规范驱动开发工具包 | 测试时间: 2026-04-14 11:15
 
 [![GitHub](https://img.shields.io/badge/GitHub-spec--kit-blue)](https://github.com/github/spec-kit)
 [![Language](https://img.shields.io/badge/语言-中文-red)](README.md)
