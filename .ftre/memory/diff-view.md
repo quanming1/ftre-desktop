@@ -405,51 +405,57 @@ const handleLoadFileDiff = useCallback(
 );
 ```
 
+### ⚠️ Monaco DiffEditor 不响应 props 变化（重要坑点）
+
+**问题**: `@monaco-editor/react` v4.7.0 的 `DiffEditor` 组件存在已知 bug：`original` 和 `modified` props 变化时不会重新渲染差异对比，导致 diff view 直接展示原始文件而没有高亮变更内容。
+
+**现象**: 
+- 控制台日志显示 `changesCount: 0`，即使内容明显不同（`originalLen !== newLen`）
+- Monaco DiffEditor 计算出的差异数量为 0
+
+**影响文件**:
+- `packages/editor/src/ui/MonacoDiffViewer.tsx`
+- `packages/renderer/src/features/editor/EditorArea.tsx`
+
+**解决方案**: 在 `MonacoDiffViewer.tsx` 中使用 `useEffect` 监听 diff 内容变化，手动获取 Monaco model 并调用 `setValue()` 更新：
+
+```typescript
+// MonacoDiffViewer.tsx
+const diffEditorRef = useRef<monaco.editor.IStandaloneDiffEditor | null>(null);
+
+useEffect(() => {
+  if (!diffEditorRef.current) return;
+  
+  const originalModel = diffEditorRef.current.getOriginalEditor().getModel();
+  const modifiedModel = diffEditorRef.current.getModifiedEditor().getModel();
+  
+  if (originalModel && modifiedModel) {
+    originalModel.setValue(props.original);
+    modifiedModel.setValue(props.modified);
+  }
+}, [props.original, props.modified]);
+
+// 在 DiffEditor onMount 中保存 ref
+<DiffEditor
+  onMount={(editor) => {
+    diffEditorRef.current = editor;
+  }}
+  original={props.original}
+  modified={props.modified}
+  ...
+/>
+```
+
+**关键实现细节**:
+- 通过 `onMount` 回调保存 `diffEditorRef`
+- `useEffect` 监听 `original` 和 `modified` props 变化
+- 直接操作 Monaco Editor 的 model，绕过 React 组件的 props 传递机制
+
 ## 已知问题
 
 ### MonacoDiffViewer 无语法高亮
 **位置**: `packages/editor/src/store/editor-store.ts` 中 `addDiff` 函数
 **根因**: 创建 diff 虚拟 tab 时 `language` 被硬编码为 `"plaintext"`
-
-### MonacoDiffViewer 显示原始文件而非差异（调试案例）
-**现象**: 点击 diff 卡片后，diff view 直接展示原始文件内容，没有显示差异对比
-
-**排查方法**:
-1. 检查 `EditorArea.tsx` 中的路径匹配逻辑：
-   ```typescript
-   const activeDiff = pendingDiffs.find((d) => d.tabPath === currentFile.path);
-   ```
-
-2. 添加调试日志验证数据流：
-   ```typescript
-   console.log('[EditorArea] diff tab detected:', {
-     currentFilePath: currentFile.path,
-     pendingDiffsCount: pendingDiffs.length,
-     pendingDiffTabPaths: pendingDiffs.map(d => d.tabPath),
-     activeDiffFound: !!activeDiff,
-     activeDiffId: activeDiff?.id,
-     hasOriginal: !!activeDiff?.originalContent,
-     hasNew: !!activeDiff?.newContent,
-     originalLen: activeDiff?.originalContent?.length,
-     newLen: activeDiff?.newContent?.length,
-   });
-   ```
-
-3. 检查 `MonacoDiffViewer.tsx` 的 `onMount` 回调：
-   ```typescript
-   const disposable = diffEditor.onDidUpdateDiff(() => {
-     const changes = diffEditor.getLineChanges();
-     console.log('[MonacoDiffViewer] onDidUpdateDiff:', {
-       changesCount: changes?.length ?? 0,
-       changes: changes?.slice(0, 3), // 前3个变更
-     });
-   });
-   ```
-
-**可能原因**:
-- `activeDiffFound: true` + `hasOriginal/hasNew: true` + 内容长度不同 → 数据正确，可能是 Monaco DiffEditor 本身渲染问题
-- `activeDiffFound: false` → 路径匹配问题，检查 `tabPath` 和 `currentFile.path` 的格式是否一致（都应该是 `diff:${filePath}` 格式）
-- 后端返回的 `before_content` 和 `after_content` 实际相同 → 检查后端 diff 数据
 
 ### InlineDiffView 行号溢出
 **位置**: `packages/ui/src/components/diff-summary/DiffSummaryCard.tsx` 中 `DiffLineRow` 组件

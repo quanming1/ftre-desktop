@@ -4,6 +4,8 @@
 
 ## 核心文件
 
+### 前端
+
 | 文件 | 职责 |
 |------|------|
 | `packages/renderer/src/features/chat/ChatPanel.tsx` | 纯聊天面板，仅包含 MessageList + ChatInput |
@@ -11,7 +13,7 @@
 | `packages/renderer/src/features/chat/ChatInput.tsx` | 输入框组件，支持拖拽 archive_ref，集成 RetryPanel |
 | `packages/renderer/src/features/chat/RetryPanel.tsx` | LLM 重试状态面板，显示在输入框上方 |
 | `packages/renderer/src/features/chat/ToolCallCard.tsx` | Tool 调用结果渲染（含 EditDiffCard/InlineDiffView） |
-| `packages/renderer/src/features/chat/DiffSummaryCard.tsx` | Diff 统计卡片，展示本轮变更摘要（支持 autoLoad 静默加载） |
+| `packages/renderer/src/features/chat/DiffSummaryCard.tsx` | Diff 统计卡片，展示本轮变更摘要（支持 autoLoad 静默加载，hover 展开操作按钮） |
 | `packages/renderer/src/features/chat/diff/index.ts` | Diff 组件导出（DiffBar, InlineDiffView, computeDiffLines） |
 | `packages/renderer/src/features/chat/diff/DiffView.tsx` | 自研 diff 渲染组件（含 InlineDiffView 实现） |
 | `packages/renderer/src/features/chat/UserMessage.tsx` | 用户消息渲染 + 操作按钮（复制/回滚/Fork） |
@@ -26,6 +28,13 @@
 | `packages/renderer/src/services/stream-manager.ts` | 流管理器，管理 StreamSession 生命周期 |
 | `packages/renderer/src/services/global-event-stream.ts` | 全局 SSE 连接，接收所有 session 的事件 |
 | `packages/renderer/src/types/chat.ts` | ChatMessage 等类型定义 |
+
+### 后端
+
+| 文件 | 职责 |
+|------|------|
+| `backend/server/app/runtime/event_bus.py` | EventBus 全局事件总线，提供 `publish_session_created()` 等方法 |
+| `backend/server/app/runtime/manager.py` | SessionManager，创建 session 后调用 `publish_session_created()` |
 
 ## 流式处理架构
 
@@ -49,9 +58,8 @@ React UI (ChatPanel → MessageList)
 ```typescript
 const eventTypes = [
   "connected",
-  "session_started",
   "session_status_change",  // ← idle ↔ running 状态变更
-  "session_created",        // ← 多端同步：新 session 创建
+  "session_created",        // ← 多端同步：新 session 创建（同时处理 pendingSession 注册）
   "user_input",
   "message",
   "message_complete",
@@ -120,40 +128,51 @@ source.addEventListener("session_status_change", (e) => {
     });
   }
   
-  // 3. 刷新当前工作区的 sessionList
-  const currentWorkspace = useWorkspace.getState().rootPath;
-  if (session?.workspace && normalizePathForCompare(session.workspace) === 
-      normalizePathForCompare(currentWorkspace)) {
-    useSession.getState().loadSessions(currentWorkspace);
-  }
+  // 3. 刷新会话列表（使用 loadAllSessions 确保 SessionPanel 更新）
+  useSession.getState().loadAllSessions();
 });
 ```
 
 ### Session 创建 (`session_created`)
 
-用于多端同步：当其他客户端创建新 session 时，后端推送此事件。
+用于多端同步：当其他客户端创建新 session 时，后端推送此事件。同时也处理当前客户端的 pendingSession 注册。
 
-```
-后端推送 session_created
-       ↓
-解析 session_id 和 workspace
-       ↓
-如果 workspace 匹配当前工作区：
-  └─ loadSessions() 刷新 session 列表
+**后端实现** (`event_bus.py` + `manager.py`)：
+```python
+# event_bus.py
+async def publish_session_created(self, session_id: str, workspace: str) -> None:
+    """通知前端：一个新的 session 被创建了（用于多端同步）"""
+    await self.publish(session_id, "session_created", {
+        "workspace": workspace,
+    })
+
+# manager.py
+async def create_session(self, ...) -> Session:
+    session = Session(...)
+    await session.save(db_session)
+    await db_session.commit()  # 数据库提交
+    # 发送事件通知其他客户端
+    await self.event_bus.publish_session_created(session.session_id, workspace)
 ```
 
-**工作区匹配逻辑**：
+**前端处理** (`global-event-stream.ts`)：
 ```typescript
 source.addEventListener("session_created", (e) => {
   const { session_id, workspace } = parseEvent(e);
-  const currentWorkspace = useWorkspace.getState().rootPath;
   
-  if (currentWorkspace && 
-      normalizePathForCompare(workspace) === normalizePathForCompare(currentWorkspace)) {
-    useSession.getState().loadSessions(currentWorkspace);
+  // 1. 处理 pendingSession（用户刚发消息时创建的临时 session）
+  const pending = streamManager.getActive();
+  if (pending && !pending.sessionId) {
+    streamManager.registerSessionId(pending, session_id);
   }
+  
+  // 2. 多端同步：刷新会话列表
+  // ⚠️ 必须使用 loadAllSessions，因为 SessionPanel 使用 allSessions 状态
+  useSession.getState().loadAllSessions();
 });
 ```
+
+**重要**: `session_created` 事件处理必须使用 `loadAllSessions()` 而非 `loadSessions()`，因为 `SessionPanel` 组件绑定的是 `allSessions` 状态。
 
 ### 工作区路径规范化
 
@@ -164,7 +183,7 @@ source.addEventListener("session_created", (e) => {
 
 ## Diff 统计卡片（DiffSummaryCard）
 
-展示本轮对话产生的代码变更统计，支持**静默自动加载**。
+展示本轮对话产生的代码变更统计，支持**静默自动加载**和**hover 展开操作按钮**交互。
 
 ### 核心实现
 
@@ -198,6 +217,46 @@ useEffect(() => {
   }
 }, [autoLoad, loadDiffData]);
 ```
+
+### 操作按钮交互设计（Spacious UI）
+
+**问题**：用户反馈底部操作按钮（复制、查看变更）太小，难以精准点击。
+
+**解决思路**：不单纯放大按钮，而是采用 **hover 展开** 模式：
+
+```tsx
+<div className="flex items-center gap-1 group">
+  {/* 复制按钮 */}
+  <button
+    onClick={handleCopy}
+    className="flex items-center gap-1.5 px-2 py-1 text-[12px] text-t-ghost hover:text-t-secondary rounded-md hover:bg-white/[0.06] transition-all"
+  >
+    {copied ? (
+      <Check size={14} className="text-green-500" />
+    ) : (
+      <Copy size={14} />
+    )}
+    {/* 文字标签默认隐藏，hover 整行时显示 */}
+    <span className="hidden group-hover:inline">复制</span>
+  </button>
+
+  {/* 查看变更按钮 */}
+  <button
+    onClick={handleToggleDiff}
+    className="flex items-center gap-1.5 px-2 py-1 text-[12px] text-t-ghost hover:text-t-secondary rounded-md hover:bg-white/[0.06] transition-all"
+  >
+    <GitCompare size={14} />
+    <span className="hidden group-hover:inline">变更</span>
+  </button>
+</div>
+```
+
+**设计要点**：
+- 移除 Tooltip（Tooltip 需要悬停等待，交互慢）
+- 使用 `group` + `group-hover:inline` 实现整行 hover 显示文字
+- 按钮从固定尺寸 `w-7 h-7` 改为内边距 `px-2 py-1`，增大点击区域
+- 文字标签默认隐藏（`hidden`），保持简洁默认状态
+- hover 整行时所有按钮的文字标签同时显示
 
 ### RenderUnit 标记
 
@@ -390,8 +449,25 @@ UserMessage:hover 显示 Fork 按钮
 - **切换 session 时 running tool 消息丢失**：`streamingTail` 只检查 `streamingMessageId`（assistant 消息），不追踪 tool 消息
 - **多端同步路径匹配**：必须使用 `normalizePathForCompare()` 统一格式后再比较，避免大小写差异导致同步失败
 - **session_status_change 刷新时机**：只在用户当前处于该 session 时才刷新 messageList，避免不必要的重渲染
+- **session_created 必须使用 loadAllSessions**：`SessionPanel` 使用 `allSessions` 状态，调用 `loadSessions()` 只更新 `sessions` 状态，导致 UI 不更新
+- **DiffSummaryCard 按钮交互**：采用 `group-hover` 实现 hover 展开文字标签，替代 Tooltip，增大点击区域的同时保持界面简洁
 
 ## 历史变更
+
+- **2025-04**: 优化 DiffSummaryCard 按钮交互
+  - 从固定尺寸按钮（`w-7 h-7`）改为内边距布局（`px-2 py-1`）
+  - 使用 `group-hover:inline` 实现文字标签 hover 显示
+  - 移除 Tooltip，提升交互响应速度
+
+- **2025-03**: 修复 `session_created` 事件处理
+  - 将 `loadSessions` 改为 `loadAllSessions`，修复 SessionPanel 不显示新会话的问题
+  - 合并 `session_started` 和 `session_created` 事件处理逻辑到 `session_created`
+  - 删除独立的 `session_started` 事件监听器
+
+- **2025-03**: 后端实现 `session_created` 事件
+  - `event_bus.py` 新增 `publish_session_created()` 方法
+  - `manager.py` 在 `create_session()` 数据库 commit 后立即发送事件
+  - 事件名规范：`session_status_change` (idle ↔ running) / `session_created` (多端同步)
 
 - **2025-03**: 新增多端同步机制
   - `session_created` 事件：其他客户端创建 session 时同步刷新列表

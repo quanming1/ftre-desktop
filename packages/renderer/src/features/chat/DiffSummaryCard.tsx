@@ -9,7 +9,6 @@ import { useEditor } from "@/stores/editor";
 import { useChat } from "@/stores/chat";
 import { useNotification } from "@/stores/notification";
 import { Copy, Check, GitCompare, Loader2, ChevronUp } from "lucide-react";
-import { Tooltip, TooltipProvider } from "@ftre/ui";
 
 interface DiffFileSummary {
   file: string;
@@ -208,47 +207,48 @@ export const DiffSummaryCard = memo(function DiffSummaryCard({
   return (
     <div className="mt-2 mb-1">
       {/* 操作按钮栏 */}
-      <TooltipProvider>
-        <div className="flex items-center gap-1">
-          {/* 复制按钮 */}
-          <Tooltip content="复制本轮回复" side="top">
-            <button
-              onClick={handleCopy}
-              className="flex items-center justify-center w-7 h-7 text-t-ghost hover:text-t-secondary rounded-md hover:bg-white/[0.06] transition-colors"
-            >
-              {copied ? (
-                <Check size={15} className="text-green-500" />
-              ) : (
-                <Copy size={15} />
-              )}
-            </button>
-          </Tooltip>
-
-          {/* 查看变更按钮 - 仅当 hash 齐全且不同时显示 */}
-          {baseHash && finalHash && baseHash !== finalHash && (
-            <Tooltip content={showDiff ? "收起变更" : "查看变更"} side="top">
-              <button
-                onClick={handleToggleDiff}
-                disabled={loading}
-                className="flex items-center justify-center w-7 h-7 text-t-ghost hover:text-t-secondary rounded-md hover:bg-white/[0.06] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                {loading ? (
-                  <Loader2 size={15} className="animate-spin" />
-                ) : showDiff ? (
-                  <ChevronUp size={15} />
-                ) : (
-                  <GitCompare size={15} />
-                )}
-              </button>
-            </Tooltip>
+      <div className="flex items-center gap-1">
+        {/* 复制按钮 */}
+        <button
+          onClick={handleCopy}
+          className="flex items-center gap-1.5 px-2 py-1 min-w-[60px] text-[12px] text-t-ghost hover:text-t-secondary rounded-md hover:bg-white/[0.06] transition-colors"
+        >
+          {copied ? (
+            <Check size={14} className="text-green-500" />
+          ) : (
+            <Copy size={14} />
           )}
+          <span>{copied ? "已复制" : "复制"}</span>
+        </button>
 
-          {/* 加载错误提示 */}
-          {error && (
-            <span className="text-xs text-amber-500 ml-2">{error}</span>
-          )}
-        </div>
-      </TooltipProvider>
+        {/* 查看变更按钮 - 仅当 hash 齐全且不同时显示 */}
+        {baseHash && finalHash && baseHash !== finalHash && (
+          <button
+            onClick={handleToggleDiff}
+            disabled={loading}
+            className="flex items-center gap-1.5 px-2 py-1 min-w-[60px] text-[12px] text-t-ghost hover:text-t-secondary rounded-md hover:bg-white/[0.06] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            {loading ? (
+              <Loader2 size={14} className="animate-spin" />
+            ) : showDiff ? (
+              <>
+                <ChevronUp size={14} />
+                <span>收起</span>
+              </>
+            ) : (
+              <>
+                <GitCompare size={14} />
+                <span>查看变更</span>
+              </>
+            )}
+          </button>
+        )}
+
+        {/* 加载错误提示 */}
+        {error && (
+          <span className="text-xs text-amber-500 ml-2">{error}</span>
+        )}
+      </div>
 
       {/* 变更列表（展开时显示） */}
       {showDiff && files.length > 0 && (
