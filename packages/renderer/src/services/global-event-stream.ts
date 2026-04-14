@@ -51,13 +51,18 @@ class GlobalEventStream {
       console.log("[GlobalEventStream] connected");
     });
 
-    // session 开始执行
-    source.addEventListener("session_started", (e) => {
+    // session 创建
+    source.addEventListener("session_created", (e) => {
       try {
         const raw = JSON.parse((e as MessageEvent).data);
         const payload = raw.payload || raw;
         const sessionId = payload.session_id || raw.session_id;
         const workspace = payload.workspace || "";
+        const eventTimestamp = Date.now();
+
+        console.log(`[session_created] 收到事件 时间戳=${eventTimestamp} sessionId=${sessionId} workspace=${workspace}`);
+
+        if (!sessionId) return;
 
         // 如果有 pendingSession（用户刚发消息），先注册 session_id
         const pending = streamManager.getActive();
@@ -72,7 +77,6 @@ class GlobalEventStream {
         if (!session.workspace && workspace) {
           session.workspace = workspace;
         }
-        session.setStreaming(true);
 
         // 如果是当前 workspace 的 session，刷新列表 + 自动加入 openTabs
         const currentWorkspace = useWorkspace.getState().rootPath;
@@ -83,36 +87,20 @@ class GlobalEventStream {
         ) {
           useSession
             .getState()
-            .loadSessions(currentWorkspace)
+            .loadAllSessions()
             .then(() => {
+              const loadTimestamp = Date.now();
+              const allSessions = useSession.getState().allSessions;
+              const found = allSessions.find(s => s.session_id === sessionId);
+              console.log(`[session_created] loadAllSessions完成 时间戳=${loadTimestamp} 耗时=${loadTimestamp - eventTimestamp}ms sessionId=${sessionId} 列表长度=${allSessions.length} 是否包含新session=${!!found}`);
+              if (!found) {
+                console.log(`[session_created] 列表中所有session:`, allSessions.map(s => ({ id: s.session_id, title: s.title })));
+              }
               useSession.getState().openTab(sessionId);
             })
             .catch(() => {
               /* ignore */
             });
-        }
-      } catch {
-        /* ignore */
-      }
-    });
-
-    // session 创建（多端同步）
-    source.addEventListener("session_created", (e) => {
-      try {
-        const raw = JSON.parse((e as MessageEvent).data);
-        const payload = raw.payload || raw;
-        const sessionId = payload.session_id;
-        const workspace = payload.workspace || "";
-
-        if (!sessionId) return;
-
-        const currentWorkspace = useWorkspace.getState().rootPath;
-        if (
-          currentWorkspace &&
-          normalizePathForCompare(workspace) ===
-            normalizePathForCompare(currentWorkspace)
-        ) {
-          useSession.getState().loadSessions(currentWorkspace);
         }
       } catch {
         /* ignore */
@@ -142,7 +130,7 @@ class GlobalEventStream {
             normalizePathForCompare(workspace) ===
               normalizePathForCompare(currentWorkspace)
           ) {
-            useSession.getState().loadSessions(currentWorkspace);
+            useSession.getState().loadAllSessions();
           }
         }
 
