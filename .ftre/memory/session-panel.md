@@ -13,6 +13,7 @@
 | `packages/renderer/src/stores/stream.ts` | Stream store，`isSessionStreaming()` 检测流式状态 |
 | `packages/renderer/src/components/LayoutSwitcher.tsx` | 面板管理器：平铺式、可拖拽、点击显隐 |
 | `packages/renderer/src/app/TitleBar.tsx` | 承载 LayoutSwitcher |
+| `packages/renderer/src/services/global-event-stream.ts` | 全局事件流，`session_created`/`session_status_change` 事件处理 |
 
 ## 布局位置
 
@@ -286,8 +287,30 @@ function timeAgo(ts: number): { text: string; opacity: number } {
 - 只请求指定工作区的会话列表
 - 合并策略：从 `allSessions` 中移除该工作区的旧会话，添加新会话
 
+**事件驱动刷新**（全局事件流）
+- 触发条件：`session_created` 或 `session_status_change` 事件
+- 事件源：`global-event-stream.ts`
+- **重要**: 必须使用 `loadAllSessions()` 而非 `loadSessions()`
+- 原因：`SessionPanel` 组件使用 `allSessions` 状态，调用 `loadSessions()` 只更新 `sessions` 状态，导致 UI 不更新
+
 ```typescript
 // SessionPanel.tsx
+const allSessions = useSession((s) => s.allSessions);
+
+// global-event-stream.ts - session_created 事件处理
+source.addEventListener("session_created", (e) => {
+  // ...
+  const currentWorkspace = useWorkspace.getState().rootPath;
+  if (/* 是当前工作区 */) {
+    // ✅ 正确：使用 loadAllSessions 更新 allSessions 状态
+    useSession.getState().loadAllSessions();
+    
+    // ❌ 错误：loadSessions 只更新 sessions 状态，SessionPanel 看不到更新
+    // useSession.getState().loadSessions(currentWorkspace);
+  }
+});
+
+// SessionPanel.tsx - 工作区变化时刷新
 const recentFoldersCount = recentFolders.length;
 useEffect(() => {
   loadAllSessions();
@@ -423,7 +446,7 @@ SessionPanel 采用 **Spacious UI** 设计技能规范：
 - **默认只展 User**: 展开工作区时默认只展示 User source
 - **时间颜色渐变**: 用视觉强度暗示新鲜度，无需阅读具体数字
 - **分割线样式**: Source 分组不再占用过多视觉层级
-- **渐进式披露**: 信息按需展示，而非一次性暴露所有内容
+- **渐进式披露**: 信息按需展示，而非一次性暴露所有信息
 
 ### 按需刷新策略
 - **展开时刷新**: 展开工作区时自动异步请求该工作区的最新会话列表
@@ -459,3 +482,4 @@ SessionPanel 采用 **Spacious UI** 设计技能规范：
 - **sessionRefs 内存泄漏**: ref 回调需要处理 `el === null` 的情况，及时调用 `delete` 清理已移除的 session 引用
 - **setState 反模式**: 不要在 `setState((prev) => { ... })` 的回调内部调用另一个 `setState`，这样会导致不可预期的重渲染行为；应使用闭包变量记录状态变化，在 setState 外部处理副作用
 - **定位功能实现**: `handleLocateCurrentSession` 需要先展开 session 所在的工作区和 source，等待 DOM 更新后再滚动；使用 `setTimeout(..., 50)` 确保展开状态已应用
+- **loadAllSessions vs loadSessions**: `SessionPanel` 使用 `allSessions` 状态，全局事件流中的 `session_created`/`session_status_change` 事件处理必须调用 `loadAllSessions()` 而非 `loadSessions()`，否则新创建的会话不会出现在列表中
