@@ -986,7 +986,7 @@ export async function sendRoomMessage(
 export interface LLMProvider {
   vendor: string;
   base_url: string;
-  api_key?: string;
+  api_key: string;
   models: Record<string, string>;
   api_type?: string;
 }
