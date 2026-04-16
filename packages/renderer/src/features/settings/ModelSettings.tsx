@@ -37,7 +37,7 @@ function emptyForm(): ProviderFormData {
 function providerToForm(provider: LLMProvider): ProviderFormData {
   return {
     vendor: provider.vendor,
-    api_key: "",
+    api_key: provider.api_key,
     base_url: provider.base_url,
     api_type: provider.api_type || "completions",
     models: Object.entries(provider.models).map(([alias, model_name]) => ({
@@ -195,8 +195,8 @@ export function ModelSettings() {
       setError("Provider name is required");
       return;
     }
-    if (!editingVendor && !form.api_key.trim()) {
-      setError("API key is required for new providers");
+    if (!form.api_key.trim()) {
+      setError("API key is required");
       return;
     }
     if (!form.base_url.trim()) {
@@ -285,7 +285,7 @@ export function ModelSettings() {
 
           <div>
             <label className="block text-[11px] text-t-ghost uppercase tracking-wider mb-3">
-              API Key {editingVendor && "(leave empty to keep current)"}
+              API Key
             </label>
             <Input
               value={form.api_key}
