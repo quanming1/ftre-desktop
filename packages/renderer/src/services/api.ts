@@ -980,3 +980,89 @@ export async function sendRoomMessage(
     return null;
   }
 }
+
+// ─── LLM Provider API ────────────────────────────────────────────
+
+export interface LLMProvider {
+  vendor: string;
+  base_url: string;
+  api_key?: string;
+  models: Record<string, string>;
+  api_type?: string;
+}
+
+export interface LLMProviderPayload {
+  api_key: string;
+  base_url: string;
+  models: Record<string, string>;
+  api_type?: string;
+}
+
+/** 获取所有 LLM 供应商 */
+export async function fetchLLMProviders(): Promise<LLMProvider[]> {
+  try {
+    const res = await fetch(`${BACKEND_URL}/llm/providers`);
+    if (!res.ok) return [];
+    const data = await res.json();
+    return data.providers || [];
+  } catch {
+    return [];
+  }
+}
+
+/** 新增 LLM 供应商 */
+export async function createLLMProvider(
+  vendor: string,
+  payload: LLMProviderPayload,
+): Promise<LLMProvider | null> {
+  try {
+    const res = await fetch(
+      `${BACKEND_URL}/llm/providers?vendor=${encodeURIComponent(vendor)}`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      },
+    );
+    if (!res.ok) return null;
+    return res.json();
+  } catch {
+    return null;
+  }
+}
+
+/** 更新 LLM 供应商 */
+export async function updateLLMProvider(
+  vendor: string,
+  payload: LLMProviderPayload,
+): Promise<LLMProvider | null> {
+  try {
+    const res = await fetch(
+      `${BACKEND_URL}/llm/providers/${encodeURIComponent(vendor)}`,
+      {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      },
+    );
+    if (!res.ok) return null;
+    return res.json();
+  } catch {
+    return null;
+  }
+}
+
+/** 删除 LLM 供应商 */
+export async function deleteLLMProvider(vendor: string): Promise<boolean> {
+  try {
+    const res = await fetch(
+      `${BACKEND_URL}/llm/providers/${encodeURIComponent(vendor)}`,
+      {
+        method: "DELETE",
+      },
+    );
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
