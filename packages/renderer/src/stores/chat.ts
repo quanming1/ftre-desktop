@@ -1,257 +1,143 @@
+/**
+ * Chat store — syncs state from ws-stream-manager.
+ */
 import { create } from "zustand";
 import { useShallow } from "zustand/shallow";
-import type {
-  AnyMessage,
-  ChatMessage,
-  ToolCallMessage,
-  ActionButtonMessage,
-  CodeRef,
-  MessagePart,
-} from "@/types/chat";
-import type { RetryState } from "@/services/stream-manager";
+import {
+  streamManager,
+  type ChatMessage,
+  type ChatSession,
+} from "@/services/ws-stream-manager";
 
-let msgCounter = 0;
-function nextId() {
-  return `msg-${++msgCounter}-${Date.now()}`;
-}
-
-/** StreamSession 同步过来的数据 */
-export interface SyncData {
-  sessionId: string | null;
-  messages: AnyMessage[];
-  isStreaming: boolean;
-  streamingMessageId: string | null;
-  contextTokens: number;
-  retryState: RetryState | null;
+/** Retry state — placeholder for future WS-based retry */
+export interface RetryState {
+  attempt: number;
+  maxAttempts: number;
+  message: string;
 }
 
 export type ChatMode = "chat" | "plan";
 
 interface ChatState {
-  sessionId: string | null;
-  messages: AnyMessage[];
+  messages: ChatMessage[];
   isStreaming: boolean;
-  streamingMessageId: string | null;
+  error: string | null;
+  activeChatId: string | null;
+  /** Alias for activeChatId — backwards compatibility */
+  sessionId: string | null;
+  connected: boolean;
   model: string | null;
-  contextTokens: number;
-  retryState: RetryState | null;
   agentId: string;
   mode: ChatMode;
+  retryState: RetryState | null;
+  contextTokens: number;
 
-  setSessionId: (id: string) => void;
+  // Actions
+  sendMessage: (content: string) => void;
+  newChat: () => void;
+  switchChat: (chatId: string) => void;
+  setConnected: (v: boolean) => void;
   setModel: (model: string | null) => void;
-  setMode: (mode: ChatMode) => void;
   setAgentId: (id: string) => void;
-  addUserMessage: (
-    content: string,
-    codeRefs?: CodeRef[],
-    parts?: MessagePart[],
-  ) => void;
-  startAssistantMessage: () => string;
-  appendAssistantContent: (id: string, content: string) => void;
-  finalizeAssistantMessage: (id: string) => void;
-  addToolCall: (
-    toolId: string,
-    name: string,
-    args: Record<string, unknown>,
-  ) => string;
-  updateToolResult: (
-    toolId: string,
-    result: string,
-    status?: "completed" | "error" | "cancelled",
-  ) => void;
-  addSystemMessage: (content: string) => void;
-  addActionButton: (label: string, step: string, summary: string) => void;
-  setStreaming: (v: boolean) => void;
-  setContextTokens: (n: number) => void;
+  setMode: (mode: ChatMode) => void;
   clearMessages: () => void;
-  /** 从 StreamSession 同步全部状态（视图层同步） */
-  syncFrom: (data: SyncData) => void;
-  getMessageById: (id: string) => AnyMessage | undefined;
-  getMessageIds: () => string[];
 }
 
-export const useChat = create<ChatState>((set, get) => ({
-  sessionId: null,
-  messages: [],
-  isStreaming: false,
-  streamingMessageId: null,
-  model: localStorage.getItem("selectedModel") || null,
-  contextTokens: 0,
-  retryState: null,
-  agentId: "code_agent",
-  mode: "chat",
-
-  setSessionId: (id) => set({ sessionId: id }),
-  setModel: (model) => {
-    localStorage.setItem("selectedModel", model || "");
-    set({ model });
-  },
-  setMode: (mode) => set({ mode }),
-  setAgentId: (agentId) => set({ agentId }),
-
-  addUserMessage: (content, codeRefs, parts) => {
-    const msg: ChatMessage = {
-      id: nextId(),
-      role: "user",
-      content,
-      codeRefs,
-      parts,
-    };
-    set({ messages: [...get().messages, msg] });
-  },
-
-  startAssistantMessage: () => {
-    const id = nextId();
-    const msg: ChatMessage = {
-      id,
-      role: "assistant",
-      content: "",
-      streaming: true,
-    };
-    set({ messages: [...get().messages, msg], streamingMessageId: id });
-    return id;
-  },
-
-  appendAssistantContent: (id, content) => {
+export const useChat = create<ChatState>((set, get) => {
+  // Subscribe to stream manager changes
+  streamManager.onChange((session: ChatSession) => {
     set({
-      messages: get().messages.map((m) =>
-        m.id === id && "content" in m
-          ? { ...m, content: m.content + content }
-          : m,
-      ),
+      messages: [...session.messages],
+      isStreaming: session.isStreaming,
+      error: session.error,
+      activeChatId: session.chatId,
+      sessionId: session.chatId,
     });
-  },
+  });
 
-  finalizeAssistantMessage: (id) => {
-    set({
-      messages: get().messages.map((m) =>
-        m.id === id ? { ...m, streaming: false } : m,
-      ),
-      streamingMessageId: null,
-    });
-  },
+  return {
+    messages: [],
+    isStreaming: false,
+    error: null,
+    activeChatId: null,
+    sessionId: null,
+    connected: false,
+    model: localStorage.getItem("selectedModel") || null,
+    agentId: "code_agent",
+    mode: "chat",
+    retryState: null,
+    contextTokens: 0,
 
-  addToolCall: (toolId, name, args) => {
-    const id = nextId();
-    const msg: ToolCallMessage = {
-      id,
-      role: "tool",
-      toolId,
-      name,
-      arguments: args,
-      status: "running",
-    };
-    set({ messages: [...get().messages, msg] });
-    return id;
-  },
+    sendMessage: (content: string) => {
+      if (!content.trim()) return;
+      streamManager.sendMessage(content);
+    },
 
-  updateToolResult: (toolId, result, status = "completed") => {
-    set({
-      messages: get().messages.map((m) =>
-        "toolId" in m && m.toolId === toolId ? { ...m, result, status } : m,
-      ),
-    });
-  },
+    newChat: () => {
+      streamManager.newChat();
+    },
 
-  addSystemMessage: (content) => {
-    const msg: ChatMessage = { id: nextId(), role: "system", content };
-    set({ messages: [...get().messages, msg] });
-  },
+    switchChat: (chatId: string) => {
+      streamManager.switchChat(chatId);
+    },
 
-  addActionButton: (label, step, summary) => {
-    const msg: ActionButtonMessage = {
-      id: nextId(),
-      role: "action_button",
-      label,
-      step,
-      summary,
-    };
-    set({ messages: [...get().messages, msg] });
-  },
+    setConnected: (v: boolean) => set({ connected: v }),
 
-  setStreaming: (v) => set({ isStreaming: v }),
+    setModel: (model: string | null) => {
+      localStorage.setItem("selectedModel", model || "");
+      set({ model });
+    },
 
-  setContextTokens: (n) => set({ contextTokens: n }),
+    setAgentId: (id: string) => set({ agentId: id }),
 
-  clearMessages: () =>
-    set({
-      messages: [],
-      sessionId: null,
-      contextTokens: 0,
-      isStreaming: false,
-      streamingMessageId: null,
-      retryState: null,
-      agentId: "code_agent",
-    }),
+    setMode: (mode: ChatMode) => set({ mode }),
 
-  syncFrom: (data) => {
-    const cur = get();
-    if (
-      cur.messages === data.messages &&
-      cur.isStreaming === data.isStreaming &&
-      cur.streamingMessageId === data.streamingMessageId &&
-      cur.contextTokens === data.contextTokens &&
-      cur.sessionId === data.sessionId &&
-      cur.retryState === data.retryState
-    )
-      return;
-    set({
-      sessionId: data.sessionId,
-      messages: data.messages,
-      isStreaming: data.isStreaming,
-      streamingMessageId: data.streamingMessageId,
-      contextTokens: data.contextTokens,
-      retryState: data.retryState,
-    });
-  },
+    clearMessages: () => {
+      set({
+        messages: [],
+        isStreaming: false,
+        error: null,
+        activeChatId: null,
+        sessionId: null,
+        retryState: null,
+        contextTokens: 0,
+        agentId: "code_agent",
+      });
+    },
+  };
+});
 
-  getMessageById: (id) => get().messages.find((m) => m.id === id),
-
-  getMessageIds: () => get().messages.map((m) => m.id),
-}));
-
-// ── O(1) 消息索引缓存 ──
-// 当 messages 引用变化时重建 Map，后续 selector 调用 O(1) 查找
-let _cachedMsgs: AnyMessage[] | null = null;
-let _cachedIndex: Map<string, AnyMessage> | null = null;
-
-function getIndex(messages: AnyMessage[]): Map<string, AnyMessage> {
-  if (messages !== _cachedMsgs) {
-    _cachedMsgs = messages;
-    _cachedIndex = new Map();
-    for (const m of messages) _cachedIndex.set(m.id, m);
-  }
-  return _cachedIndex!;
-}
-
-// ── 专用选择器 Hooks ──
+// ── Selector Hooks ──
 
 /** 获取消息 ID 列表（使用 shallow 比较避免不必要的重渲染） */
 export const useMessageIds = (): string[] =>
   useChat(useShallow((s) => s.messages.map((m) => m.id)));
 
-/** 根据 ID 获取单条消息（O(1) Map 查找） */
+/** 根据 ID 获取单条消息 */
 export const useMessageById = (id: string) =>
-  useChat((s) => getIndex(s.messages).get(id));
+  useChat((s) => s.messages.find((m) => m.id === id));
 
 /** 获取流式状态 */
 export const useIsStreaming = () => useChat((s) => s.isStreaming);
-
-/** 获取当前流式消息 ID */
-export const useStreamingMessageId = () => useChat((s) => s.streamingMessageId);
-
-/** 获取上下文 token 数量 */
-export const useContextTokens = () => useChat((s) => s.contextTokens);
 
 /** 获取当前模型 */
 export const useModel = () => useChat((s) => s.model);
 
 /** 获取当前会话 ID */
-export const useSessionId = () => useChat((s) => s.sessionId);
+export const useSessionId = () => useChat((s) => s.activeChatId);
 
 /** 获取当前 Agent ID */
 export const useAgentId = () => useChat((s) => s.agentId);
 
 /** 获取当前聊天模式 */
 export const useMode = () => useChat((s) => s.mode);
+
+/** 获取上下文 token 数量 */
+export const useContextTokens = () => useChat((s) => s.contextTokens);
+
+/** 获取当前流式消息 ID (last streaming msg) */
+export const useStreamingMessageId = () =>
+  useChat((s) => {
+    const streaming = s.messages.find((m) => m.streaming);
+    return streaming?.id ?? null;
+  });

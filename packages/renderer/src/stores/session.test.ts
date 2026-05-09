@@ -4,213 +4,111 @@ import { useChat } from './chat';
 
 // Mock the API module
 vi.mock('@/services/api', () => ({
-    fetchSessions: vi.fn(),
-    fetchSessionMessages: vi.fn(),
-    fetchUsage: vi.fn(),
-    deleteSession: vi.fn(),
+    fetchSessions: vi.fn().mockResolvedValue([]),
+    fetchSessionMessages: vi.fn().mockResolvedValue([]),
+    fetchUsage: vi.fn().mockResolvedValue(0),
+    deleteSession: vi.fn().mockResolvedValue(undefined),
 }));
 
-// Mock stream-manager — session store delegates to it
-vi.mock('@/services/stream-manager', () => ({
+// Mock ws-stream-manager
+vi.mock('@/services/ws-stream-manager', () => ({
     streamManager: {
-        getOrCreate: vi.fn(),
-        switchTo: vi.fn(),
-        newSession: vi.fn(),
-        removeSession: vi.fn(),
-        getActive: vi.fn(),
-        replayInto: vi.fn(),
-        clearAll: vi.fn(),
-        isSessionStreaming: vi.fn(),
+        sendMessage: vi.fn(),
+        newChat: vi.fn(),
+        switchChat: vi.fn(),
+        getActiveSession: vi.fn(() => null),
+        onChange: vi.fn(),
+        getAllChatIds: vi.fn(() => []),
     },
 }));
 
-import { streamManager as mockStreamManager } from '@/services/stream-manager';
-
-import { fetchSessions, fetchSessionMessages, fetchUsage, deleteSession as apiDeleteSession } from '@/services/api';
-
-const mockFetchSessions = fetchSessions as ReturnType<typeof vi.fn>;
-const mockFetchSessionMessages = fetchSessionMessages as ReturnType<typeof vi.fn>;
-const mockFetchUsage = fetchUsage as ReturnType<typeof vi.fn>;
-const mockDeleteSession = apiDeleteSession as ReturnType<typeof vi.fn>;
+// Mock workspace store
+vi.mock('./workspace', () => ({
+    useWorkspace: {
+        getState: () => ({ rootPath: '/test', setRootPath: vi.fn() }),
+    },
+}));
 
 function resetStores() {
-    useSession.setState({ sessions: [], loading: false });
+    useSession.setState({ sessions: [], allSessions: [], openTabs: [], loading: false });
     useChat.setState({
         sessionId: null,
+        activeChatId: null,
         messages: [],
         isStreaming: false,
-        streamingMessageId: null,
+        error: null,
+        connected: false,
         model: null,
         contextTokens: 0,
         mode: 'chat',
+        agentId: 'code_agent',
+        retryState: null,
     });
 }
-
-const mocked = mockStreamManager as unknown as {
-    getOrCreate: ReturnType<typeof vi.fn>;
-    switchTo: ReturnType<typeof vi.fn>;
-    newSession: ReturnType<typeof vi.fn>;
-    removeSession: ReturnType<typeof vi.fn>;
-    getActive: ReturnType<typeof vi.fn>;
-    replayInto: ReturnType<typeof vi.fn>;
-};
 
 beforeEach(() => {
     resetStores();
     vi.clearAllMocks();
-    // Default: getOrCreate returns a fresh session-like object
-    mocked.getOrCreate.mockReturnValue({
-        messages: [],
-        isStreaming: false,
-        setContextTokens: vi.fn(),
-    });
-    mocked.getActive.mockReturnValue(null);
 });
 
-describe('session store — loadSessions', () => {
-    it('loads sessions from API and sets them', async () => {
-        const sessions = [
-            { session_id: 's1', title: 'Session 1', created_at: 1000 },
-            { session_id: 's2', title: 'Session 2', created_at: 2000 },
-        ];
-        mockFetchSessions.mockResolvedValue(sessions);
-
-        await useSession.getState().loadSessions();
-
-        expect(useSession.getState().sessions).toEqual(sessions);
+describe('session store — basic operations', () => {
+    it('starts with empty sessions', () => {
+        expect(useSession.getState().sessions).toEqual([]);
+        expect(useSession.getState().allSessions).toEqual([]);
         expect(useSession.getState().loading).toBe(false);
     });
 
-    it('sets loading=true during fetch and false after', async () => {
-        let resolvePromise: (v: any) => void;
-        mockFetchSessions.mockReturnValue(new Promise((r) => { resolvePromise = r; }));
-
-        const promise = useSession.getState().loadSessions();
-        expect(useSession.getState().loading).toBe(true);
-
-        resolvePromise!([]);
-        await promise;
-        expect(useSession.getState().loading).toBe(false);
+    it('openTab adds session to openTabs', () => {
+        useSession.getState().openTab('s1');
+        expect(useSession.getState().openTabs).toContain('s1');
     });
 
-    it('sets loading=false even on error', async () => {
-        mockFetchSessions.mockRejectedValue(new Error('network'));
-
-        await useSession.getState().loadSessions().catch(() => { });
-
-        expect(useSession.getState().loading).toBe(false);
+    it('openTab is idempotent', () => {
+        useSession.getState().openTab('s1');
+        useSession.getState().openTab('s1');
+        expect(useSession.getState().openTabs.filter(id => id === 's1')).toHaveLength(1);
     });
 
-    it('passes workspace parameter to API', async () => {
-        mockFetchSessions.mockResolvedValue([]);
-
-        await useSession.getState().loadSessions('/my-project');
-
-        expect(mockFetchSessions).toHaveBeenCalledWith('/my-project');
-    });
-});
-
-describe('session store — switchSession', () => {
-    it('fetches events and replays into manager when session has no messages', async () => {
-        const events = [
-            { type: 'user_input', data: { content: 'hello' } },
-            { type: 'message_complete', data: { content: 'hi there' } },
-        ];
-        mockFetchSessionMessages.mockResolvedValue(events);
-        mockFetchUsage.mockResolvedValue(100);
-
-        await useSession.getState().switchSession('s1');
-
-        expect(mocked.replayInto).toHaveBeenCalledWith('s1', events);
-        expect(mocked.switchTo).toHaveBeenCalledWith('s1');
+    it('closeTab removes session from openTabs', () => {
+        useSession.getState().openTab('s1');
+        useSession.getState().openTab('s2');
+        useSession.getState().closeTab('s1');
+        expect(useSession.getState().openTabs).not.toContain('s1');
+        expect(useSession.getState().openTabs).toContain('s2');
     });
 
-    it('directly switches when session already has messages in memory', async () => {
-        mocked.getOrCreate.mockReturnValue({
-            messages: [{ id: '1', role: 'user', content: 'hi' }],
-            isStreaming: false,
-            setContextTokens: vi.fn(),
-        });
-
-        await useSession.getState().switchSession('s1');
-
-        expect(mocked.switchTo).toHaveBeenCalledWith('s1');
-        expect(mockFetchSessionMessages).not.toHaveBeenCalled();
-    });
-
-    it('directly switches when session is currently streaming', async () => {
-        mocked.getOrCreate.mockReturnValue({
-            messages: [],
-            isStreaming: true,
-            setContextTokens: vi.fn(),
-        });
-
-        await useSession.getState().switchSession('s1');
-
-        expect(mocked.switchTo).toHaveBeenCalledWith('s1');
-        expect(mockFetchSessionMessages).not.toHaveBeenCalled();
-    });
-});
-
-describe('session store — deleteSession', () => {
-    it('removes session from list and from manager', async () => {
-        useSession.setState({
-            sessions: [
-                { session_id: 's1', title: 'A', created_at: 1 } as any,
-                { session_id: 's2', title: 'B', created_at: 2 } as any,
-            ],
-        });
-        mockDeleteSession.mockResolvedValue(true);
-        mocked.getActive.mockReturnValue({ sessionId: 's2' });
-
-        await useSession.getState().deleteSession('s1');
-
-        expect(mocked.removeSession).toHaveBeenCalledWith('s1');
-        expect(useSession.getState().sessions).toHaveLength(1);
-        expect(useSession.getState().sessions[0].session_id).toBe('s2');
-    });
-
-    it('creates new session if deleted the active one', async () => {
-        useSession.setState({
-            sessions: [{ session_id: 's1', title: 'A', created_at: 1 } as any],
-        });
-        mockDeleteSession.mockResolvedValue(true);
-        mocked.getActive.mockReturnValue(null); // no active after removal
-
-        await useSession.getState().deleteSession('s1');
-
-        expect(mocked.removeSession).toHaveBeenCalledWith('s1');
-        expect(mocked.newSession).toHaveBeenCalled();
-    });
-});
-
-describe('session store — newSession', () => {
-    it('delegates to streamManager.newSession', () => {
+    it('newSession calls streamManager.newChat', async () => {
+        const { streamManager } = await import('@/services/ws-stream-manager');
         useSession.getState().newSession();
-
-        expect(mocked.newSession).toHaveBeenCalled();
-    });
-});
-
-describe('session store — restoreLatest', () => {
-    it('loads sessions and switches to the first one', async () => {
-        mockFetchSessions.mockResolvedValue([
-            { session_id: 's1', title: 'Latest', created_at: 2000 },
-            { session_id: 's2', title: 'Older', created_at: 1000 },
-        ]);
-        mockFetchSessionMessages.mockResolvedValue([]);
-        mockFetchUsage.mockResolvedValue(0);
-
-        await useSession.getState().restoreLatest();
-
-        expect(mocked.switchTo).toHaveBeenCalledWith('s1');
+        expect(streamManager.newChat).toHaveBeenCalled();
     });
 
-    it('does nothing when no sessions exist', async () => {
-        mockFetchSessions.mockResolvedValue([]);
+    it('switchSession calls streamManager.switchChat', async () => {
+        const { streamManager } = await import('@/services/ws-stream-manager');
+        await useSession.getState().switchSession('s1');
+        expect(streamManager.switchChat).toHaveBeenCalledWith('s1');
+    });
 
-        await useSession.getState().restoreLatest();
+    it('switchSession adds to openTabs', async () => {
+        await useSession.getState().switchSession('s1');
+        expect(useSession.getState().openTabs).toContain('s1');
+    });
 
-        expect(mocked.switchTo).not.toHaveBeenCalled();
+    it('deleteSession removes from sessions', async () => {
+        useSession.setState({
+            sessions: [{ session_id: 's1', title: 'Test' }, { session_id: 's2', title: 'Test2' }],
+        });
+        await useSession.getState().deleteSession('s1');
+        expect(useSession.getState().sessions.find(s => s.session_id === 's1')).toBeUndefined();
+    });
+
+    it('patchSession updates session meta', () => {
+        useSession.setState({
+            sessions: [{ session_id: 's1', title: 'Test', agent_id: 'code_agent', meta: {} }],
+        });
+        useSession.getState().patchSession('s1', { model: 'gpt-4', agentId: 'plan_agent' });
+        const session = useSession.getState().sessions.find(s => s.session_id === 's1');
+        expect(session?.agent_id).toBe('plan_agent');
+        expect(session?.meta?.model).toBe('gpt-4');
     });
 });

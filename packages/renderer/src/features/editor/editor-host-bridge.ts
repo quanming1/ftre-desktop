@@ -32,7 +32,7 @@ const hostBridgeImpl: HostBridge = {
     useEditor.getState().setModified(path, modified),
   setFileLanguage: (path, language) =>
     useEditor.getState().setFileLanguage(path, language),
-  addUserMessage: (message) => useChat.getState().addUserMessage(message),
+  addUserMessage: (message) => useChat.getState().sendMessage(message),
   getActiveFile: () => useEditor.getState().activeFile,
   getMinimapEnabled: () => useLayout.getState().minimapEnabled,
 

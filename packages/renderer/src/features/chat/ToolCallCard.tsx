@@ -13,6 +13,10 @@ import { computeDiffLines, groupIntoSegments, InlineDiffView } from "@ftre/ui";
 import type { ToolCallMessage } from "@/types/chat";
 import { isToolCall } from "@/types/chat";
 import { useMessageById } from "@/stores/chat";
+// Note: useMessageById returns ChatMessage from ws-stream-manager.
+// ToolCallCard will only render if the message is actually a ToolCallMessage
+// (which won't happen in pure WS mode, but keeps backward compat).
+type AnyMsg = import("@/types/chat").AnyMessage;
 import { handleOpenFile, handleShowDiff } from "./toolActions";
 import { revertDiff } from "@/services/api";
 import { getToolFilePath, getToolSummary, getGroupItemLabel, TOOL_CATEGORY_MAP, GROUP_DISPLAY_TITLE, getGroupKey } from "./toolClassification";
@@ -648,7 +652,7 @@ function getChipTooltip(message: ToolCallMessage): string | undefined {
 
 /** 分组中单个 item 的 chip — 独立订阅 store，可点击打开文件 */
 const GroupChip = memo(function GroupChip({ messageId }: { messageId: string }) {
-  const message = useMessageById(messageId);
+  const message = useMessageById(messageId) as unknown as AnyMsg | undefined;
   const [loading, setLoading] = useState(false);
   const [expanded, setExpanded] = useState(false);
 

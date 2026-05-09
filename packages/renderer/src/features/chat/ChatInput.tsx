@@ -13,10 +13,10 @@ import { useCallback, useEffect, useMemo, useState, useRef } from "react";
 import { Slate, Editable } from "slate-react";
 import { Range } from "slate";
 import { ArrowUp, Eye, EyeOff, Zap } from "lucide-react";
-import { useChat } from "@/stores/chat";
+import { useChat, type RetryState } from "@/stores/chat";
 import { useLayout } from "@/stores/layout";
 import { useWorkspace } from "@/stores/workspace";
-import { streamManager, type RetryState } from "@/services/stream-manager";
+import { streamManager } from "@/services/ws-stream-manager";
 import { fetchSkills, type SkillDef } from "@/services/api";
 import { AgentSelector } from "./AgentSelector";
 import { ModelSelector } from "./ModelSelector";
@@ -161,20 +161,14 @@ export function ChatInput() {
     inputEditor.clear();
     setSkillSearch(null);
 
-    await streamManager.sendMessage({
-      message: parts,
-      text,
-      codeRefs: codeRefs.length > 0 ? codeRefs : undefined,
-      parts,
-      model: state.model,
-      workspace,
-      agentId: state.agentId,
-    });
-  }, [workspace, inputEditor]);
+    // Send via ws-stream-manager (text only for now)
+    streamManager.sendMessage(text);
+  }, [inputEditor]);
 
   // ── 取消 ──
-  const handleCancel = useCallback(async () => {
-    await streamManager.cancelStream();
+  const handleCancel = useCallback(() => {
+    // TODO: implement cancel via WS
+    console.warn("cancelStream not yet implemented");
   }, []);
 
   // ── 键盘 ──
@@ -272,21 +266,12 @@ export function ChatInput() {
       if (!step) return;
       const confirmText =
         step === "execute" ? "确认任务，开始执行" : `确认，进入下一步: ${step}`;
-      const parts = [{ type: "text" as const, data: confirmText }];
-      const state = useChat.getState();
 
-      streamManager.sendMessage({
-        message: parts,
-        text: confirmText,
-        parts,
-        model: state.model,
-        workspace,
-        agentId: state.agentId,
-      });
+      streamManager.sendMessage(confirmText);
     };
     window.addEventListener("ftre:plan-next-step", handler);
     return () => window.removeEventListener("ftre:plan-next-step", handler);
-  }, [workspace]);
+  }, []);
 
   return (
     <div className="px-6 pb-4 pt-3">

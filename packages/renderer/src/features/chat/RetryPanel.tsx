@@ -6,7 +6,7 @@
  */
 import { useState, useEffect } from "react";
 import { ChevronUp, ChevronDown } from "lucide-react";
-import type { RetryState } from "@/services/stream-manager";
+import type { RetryState } from "@/stores/chat";
 
 interface RetryPanelProps {
   retry: RetryState;

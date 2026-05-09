@@ -332,7 +332,7 @@ export function EditorArea() {
   }, []);
 
   const handleAddToChat = useCallback((message: string) => {
-    useChat.getState().addUserMessage(message);
+    useChat.getState().sendMessage(message);
   }, []);
 
   return (

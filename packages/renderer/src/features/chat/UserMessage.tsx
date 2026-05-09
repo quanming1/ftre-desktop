@@ -1,10 +1,18 @@
 import { memo, useCallback, useState, useRef } from "react";
 import type {
-  ChatMessage,
   MessagePart,
   ArchiveRefData,
   SkillRefData,
 } from "@/types/chat";
+import type { ChatMessage as WsChatMessage } from "@/services/ws-stream-manager";
+
+/** Extended message type for UserMessage — supports both WS messages and legacy rich messages */
+interface ChatMessage extends WsChatMessage {
+  parts?: MessagePart[];
+  codeRefs?: any[];
+  diffMeta?: { base_hash: string; final_hash: string; workspace: string };
+  metadata?: Record<string, unknown>;
+}
 import { handleOpenFileAtLine } from "./toolActions";
 import { EmailCard } from "./EmailCard";
 import {
@@ -22,7 +30,6 @@ import { useNotification } from "@/stores/notification";
 import { useSession } from "@/stores/session";
 import { previewRollback, executeRollback } from "@/services/api";
 import { fetchSessionMessages, fetchArchiveDetail } from "@/services/api";
-import { streamManager } from "@/services/stream-manager";
 import { RollbackConfirmDialog } from "./RollbackConfirmDialog";
 import { ContextMenu, type ContextMenuItem } from "@/components/ContextMenu";
 import { Tooltip, TooltipProvider } from "@ftre/ui";
@@ -262,9 +269,8 @@ export const UserMessage = memo(
             editorState.rejectDiff(diff.filePath);
           }
 
-          // 刷新消息列表
-          const events = await fetchSessionMessages(sessionId);
-          streamManager.replayInto(sessionId, events);
+          // 刷新消息列表 (TODO: implement via WS)
+          await fetchSessionMessages(sessionId);
 
           // 通过全局事件回填输入框（与 ftre:insert-code-ref 模式一致）
           if (result.refill_message?.parts) {
@@ -321,9 +327,9 @@ export const UserMessage = memo(
           detail: {
             id: archive.id,
             summary: archive.summary,
-            turnCount: archive.meta.turn_count,
-            totalMessages: archive.meta.total_messages,
-            label: archive.meta.label,
+            turnCount: archive.meta?.turn_count,
+            totalMessages: archive.meta?.total_messages,
+            label: archive.meta?.label,
             createdAt: archive.created_at,
           },
         }),
