@@ -77,7 +77,7 @@ export function SessionList({ onClose }: { onClose: () => void }) {
               }`}
             />
             <div className="flex-1 min-w-0 text-t-secondary truncate">{s.title}</div>
-            <div className="text-[11px] text-t-ghost shrink-0">{timeAgo(s.updated_at)}</div>
+            <div className="text-[11px] text-t-ghost shrink-0">{timeAgo(s.updated_at ?? 0)}</div>
             <button
               onClick={(e) => handleDelete(e, s.session_id)}
               disabled={deletingId === s.session_id}

@@ -18,9 +18,19 @@ export const ModelSelector = memo(function ModelSelector() {
   useEffect(() => {
     if (!open || providers.length > 0) return;
     setLoading(true);
-    fetch("http://localhost:9988/providers")
+    fetch("http://localhost:9988/llm/providers")
       .then((r) => r.json())
-      .then((data) => setProviders(data.providers || []))
+      .then((data) => {
+        // 转换 models 从 { alias: model_name } 对象到 [{ alias, key }] 数组
+        const transformed = (data.providers || []).map((p: { vendor: string; models: Record<string, string> }) => ({
+          vendor: p.vendor,
+          models: Object.keys(p.models).map((alias) => ({
+            alias,
+            key: `${p.vendor}.${alias}`,
+          })),
+        }));
+        setProviders(transformed);
+      })
       .catch(() => {})
       .finally(() => setLoading(false));
   }, [open, providers.length]);

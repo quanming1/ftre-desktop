@@ -51,6 +51,15 @@ import "sonner/dist/styles.css";
 // 初始化编辑器 host bridge
 initEditorHostBridge();
 
+// ── WebSocket 连接初始化 ──
+import { initConnection } from "@/services/api";
+import { wsClient } from "@/services/websocket-client";
+import { useChat } from "@/stores/chat";
+
+initConnection();
+wsClient.onConnect(() => useChat.getState().setConnected(true));
+wsClient.onDisconnect(() => useChat.getState().setConnected(false));
+
 // 初始化编辑器架构（必须在 Monaco Workers 配置之后、渲染之前）
 const textModelService = getTextModelResolverService();
 textModelService.init(monaco);

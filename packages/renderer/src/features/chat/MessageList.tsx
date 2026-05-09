@@ -1,150 +1,49 @@
-import { useEffect, useRef, memo, useMemo, useCallback } from "react";
+import { useEffect, useLayoutEffect, useRef, memo, useMemo, useCallback } from "react";
 import { useMessageById, useIsStreaming, useChat } from "@/stores/chat";
 import { useAutoScrollToBottom } from "@/hooks/auto-scroll";
-import { isToolCall, isActionButton } from "@/types/chat";
-import type { AnyMessage, DiffMeta, ChatMessage } from "@/types/chat";
-import { isGroupableTool, getGroupKey } from "./toolClassification";
+import type { ChatMessage } from "@/services/ws-stream-manager";
 import { UserMessage } from "./UserMessage";
 import { AssistantMessage } from "./AssistantMessage";
 import { PixelLogo } from "@/components/PixelLogo";
-import { ToolCallCard, ToolCallGroup } from "./ToolCallCard";
-import { ActionButton } from "./ActionButton";
-import { DiffSummaryCard } from "./DiffSummaryCard";
-import { streamManager } from "@/services/stream-manager";
 import { RotateCcw } from "lucide-react";
 
-const MSG_ITEM_STYLE: React.CSSProperties = {
-  contentVisibility: "auto",
-  containIntrinsicSize: "auto 120px",
-};
+/** 获取消息项样式，流式消息禁用 contentVisibility 以确保准确的高度计算 */
+function getItemStyle(isLastAndStreaming: boolean): React.CSSProperties {
+  if (isLastAndStreaming) {
+    return { containIntrinsicSize: "auto 120px" };
+  }
+  return {
+    contentVisibility: "auto",
+    containIntrinsicSize: "auto 120px",
+  };
+}
 
 // ═══════════════════════════════════════════════════════════════════════
-// 消息分组逻辑
+// 消息分组逻辑（简化版：只区分 user / assistant turn）
 // ═══════════════════════════════════════════════════════════════════════
 
-/** 渲染单元：单条消息 / 一组连续同类型工具调用 / diff 摘要卡片 / AI回复开始标记 */
 type RenderUnit =
   | { type: "single"; id: string }
-  | { type: "group"; toolName: string; ids: string[]; key: string }
-  | {
-      type: "diff_summary";
-      messageId: string;
-      baseHash: string;
-      finalHash: string;
-      workspace: string;
-      key: string;
-      /** 是否是最后一轮（刚结束的轮次），用于自动加载 */
-      isLastTurn: boolean;
-    }
   | { type: "ai_turn_start"; key: string };
 
-/**
- * 将消息列表分组：连续相同名称的可分组工具调用合并为一个 RenderUnit。
- * 只有连续 2+ 个相同工具名的才合并，单个的保持原样。
- * @param isStreaming 是否正在流式输出，如果是则不显示最后一轮的变更按钮
- */
-function groupMessages(
-  messages: AnyMessage[],
-  isStreaming: boolean,
-): RenderUnit[] {
+function groupMessages(messages: ChatMessage[]): RenderUnit[] {
   const units: RenderUnit[] = [];
-  let i = 0;
-  // 追踪上一条 user 消息的 diff 信息，在本轮结束时（下一个 user 之前或列表末尾）插入
-  let pendingDiff: {
-    messageId: string;
-    baseHash: string;
-    finalHash: string;
-    workspace: string;
-  } | null = null;
-  let pendingDiffKey = "";
-  // 追踪本轮是否需要插入 AI turn start 标记
   let needAiTurnStart = false;
   let lastUserId = "";
 
-  while (i < messages.length) {
-    const msg = messages[i];
-
-    // 遇到新的 user 消息 → 先把上一轮的 diff 信息插入（如果有），并标记需要插入 AI turn start
-    if ("role" in msg && msg.role === "user") {
-      if (pendingDiff) {
-        units.push({
-          type: "diff_summary",
-          ...pendingDiff,
-          key: pendingDiffKey,
-          isLastTurn: false,
-        });
-        pendingDiff = null;
-      }
-      // 记录这条 user 消息的 diff 信息（如果有），等本轮结束时插入
-      const chatMsg = msg as import("@/types/chat").ChatMessage;
-      if (chatMsg.diffMeta) {
-        pendingDiff = {
-          messageId: msg.id,
-          baseHash: chatMsg.diffMeta.base_hash,
-          finalHash: chatMsg.diffMeta.final_hash,
-          workspace: chatMsg.diffMeta.workspace,
-        };
-        pendingDiffKey = `diff-${msg.id}`;
-      }
+  for (const msg of messages) {
+    if (msg.role === "user") {
       needAiTurnStart = true;
       lastUserId = msg.id;
     }
 
-    // user 消息之后、AI 开始回复前，插入 AI turn start 标记
-    if (needAiTurnStart && "role" in msg && msg.role !== "user") {
-      units.push({ type: "ai_turn_start", key: `ai-start-${lastUserId}` });
-      needAiTurnStart = false;
-    }
-    if (needAiTurnStart && isToolCall(msg)) {
+    // Insert AI turn start marker before first non-user message after a user message
+    if (needAiTurnStart && msg.role !== "user") {
       units.push({ type: "ai_turn_start", key: `ai-start-${lastUserId}` });
       needAiTurnStart = false;
     }
 
-    // 检查是否是可分组的工具调用（read/glob/grep 统一归入 explore 组）
-    if (isToolCall(msg) && isGroupableTool(msg.name)) {
-      const groupKey = getGroupKey(msg.name);
-      const groupIds: string[] = [msg.id];
-      let j = i + 1;
-
-      while (j < messages.length) {
-        const next = messages[j];
-        if (
-          isToolCall(next) &&
-          isGroupableTool(next.name) &&
-          getGroupKey(next.name) === groupKey
-        ) {
-          groupIds.push(next.id);
-          j++;
-        } else {
-          break;
-        }
-      }
-
-      if (groupIds.length >= 2) {
-        units.push({
-          type: "group",
-          toolName: groupKey,
-          ids: groupIds,
-          key: `group-${groupIds[0]}`,
-        });
-      } else {
-        units.push({ type: "single", id: msg.id });
-      }
-      i = j;
-    } else {
-      units.push({ type: "single", id: msg.id });
-      i++;
-    }
-  }
-
-  // 列表结束，最后一轮的 diff 信息（流式输出中不显示，因为轮次还没结束）
-  if (pendingDiff && !isStreaming) {
-    units.push({
-      type: "diff_summary",
-      ...pendingDiff,
-      key: pendingDiffKey,
-      isLastTurn: true,
-    });
+    units.push({ type: "single", id: msg.id });
   }
 
   return units;
@@ -186,40 +85,31 @@ const StreamingIndicator = memo(function StreamingIndicator() {
 
 /**
  * 结构指纹：只在消息数量或 ID 组合变化时才重新分组。
- * 流式期间只有最后一条消息的 content 在变，结构不变 → 不重新分组 → 不重排子组件。
  */
 function useStructuralFingerprint(): string {
   return useChat((s) => {
     const msgs = s.messages;
     if (msgs.length === 0) return "";
-    // 检查最后一条 user 消息是否有 diffMeta（避免 O(N) filter）
-    let hasDiff = 0;
-    for (let i = msgs.length - 1; i >= 0; i--) {
-      if ("role" in msgs[i] && (msgs[i] as any).role === "user") {
-        hasDiff = (msgs[i] as any).diffMeta ? 1 : 0;
-        break;
-      }
-    }
-    return `${msgs.length}:${msgs[0].id}:${msgs[msgs.length - 1].id}:d${hasDiff}`;
+    return `${msgs.length}:${msgs[0].id}:${msgs[msgs.length - 1].id}`;
   });
 }
 
 export function MessageList() {
   const fingerprint = useStructuralFingerprint();
-  const sessionId = useChat((s) => s.sessionId);
+  const activeChatId = useChat((s) => s.activeChatId);
   const isStreaming = useIsStreaming();
 
-  // 只在结构变化时重新分组 — 通过 getState() 读取避免订阅 messages 引用变化
+  // 只在结构变化时重新分组
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const renderUnits = useMemo(
-    () => groupMessages(useChat.getState().messages, isStreaming),
-    [fingerprint, isStreaming],
+    () => groupMessages(useChat.getState().messages),
+    [fingerprint],
   );
 
-  // ① 核心 hook：deps=[sessionId] 切换会话时重置锁
-  const { ref, scrollToBottom, resetLock } = useAutoScrollToBottom([sessionId]);
+  // ① 核心 hook：deps=[activeChatId] 切换会话时重置锁
+  const { ref, scrollToBottom, resetLock } = useAutoScrollToBottom([activeChatId]);
 
-  // 统一滚动调度：同一帧内只执行一次，避免切换会话时多观察器重复触发导致抖动
+  // 统一滚动调度
   const scrollRafRef = useRef<number | null>(null);
   const scheduleScrollToBottom = useCallback(() => {
     if (scrollRafRef.current != null) return;
@@ -229,7 +119,7 @@ export function MessageList() {
     });
   }, [scrollToBottom]);
 
-  // ② 新一轮流开始时重置锁（用户可能在上方浏览历史后发送消息）
+  // ② 新一轮流开始时重置锁
   const prevStreaming = useRef(false);
   useEffect(() => {
     if (isStreaming && !prevStreaming.current) {
@@ -238,7 +128,7 @@ export function MessageList() {
     prevStreaming.current = isStreaming;
   }, [isStreaming, resetLock]);
 
-  // ③ MutationObserver：DOM 变化时 scrollToBottom（rAF 合并）
+  // ③ MutationObserver
   const containerRef = useRef<HTMLElement | null>(null);
   useEffect(() => {
     const el = containerRef.current;
@@ -256,7 +146,7 @@ export function MessageList() {
     };
   }, [scheduleScrollToBottom]);
 
-  // ④ ResizeObserver：容器尺寸变化时保持底部
+  // ④ ResizeObserver
   useEffect(() => {
     const el = containerRef.current;
     if (!el) return;
@@ -264,6 +154,14 @@ export function MessageList() {
     ro.observe(el);
     return () => ro.disconnect();
   }, [scheduleScrollToBottom]);
+
+  // ⑤ 初始滚动
+  useLayoutEffect(() => {
+    const timer = setTimeout(() => {
+      scrollToBottom();
+    }, 50);
+    return () => clearTimeout(timer);
+  }, [activeChatId, scrollToBottom]);
 
   useEffect(() => {
     return () => {
@@ -274,7 +172,7 @@ export function MessageList() {
     };
   }, []);
 
-  // ⑤ 合并 ref（hook 的 ref 负责事件绑定，containerRef 供 observer 使用）
+  // 合并 ref
   const mergedRef = useCallback(
     (el: HTMLDivElement | null) => {
       containerRef.current = el;
@@ -295,52 +193,28 @@ export function MessageList() {
             描述你想要构建的内容
           </div>
         )}
-        {renderUnits.map((unit) => (
-          <div
-            key={unit.type === "single" ? unit.id : unit.key}
-            style={MSG_ITEM_STYLE}
-          >
-            {unit.type === "ai_turn_start" ? (
-              <div className="mt-4 mb-1 flex items-center h-[20px]">
-                <PixelLogo size={2} />
-              </div>
-            ) : unit.type === "group" ? (
-              <GroupedToolCalls
-                toolName={unit.toolName}
-                messageIds={unit.ids}
-              />
-            ) : unit.type === "diff_summary" ? (
-              <DiffSummaryCard
-                messageId={unit.messageId}
-                baseHash={unit.baseHash}
-                finalHash={unit.finalHash}
-                workspace={unit.workspace}
-                autoLoad={unit.isLastTurn}
-              />
-            ) : (
-              <MessageItem
-                messageId={unit.id}
-                isLast={unit === renderUnits[renderUnits.length - 1]}
-              />
-            )}
-          </div>
-        ))}
+        {renderUnits.map((unit, index) => {
+          const isLast = index === renderUnits.length - 1;
+          return (
+            <div
+              key={unit.type === "single" ? unit.id : unit.key}
+              style={getItemStyle(isLast && isStreaming)}
+            >
+              {unit.type === "ai_turn_start" ? (
+                <div className="mt-4 mb-1 flex items-center h-[20px]">
+                  <PixelLogo size={2} />
+                </div>
+              ) : (
+                <MessageItem messageId={unit.id} isLast={isLast} />
+              )}
+            </div>
+          );
+        })}
         <StreamingIndicator />
       </div>
     </div>
   );
 }
-
-/** 渲染一组合并的工具调用 — 直接传 messageIds 给 ToolCallGroup，每个 chip 独立订阅 */
-const GroupedToolCalls = memo(function GroupedToolCalls({
-  toolName,
-  messageIds,
-}: {
-  toolName: string;
-  messageIds: string[];
-}) {
-  return <ToolCallGroup toolName={toolName} messageIds={messageIds} />;
-});
 
 const MessageItem = memo(function MessageItem({
   messageId,
@@ -354,17 +228,11 @@ const MessageItem = memo(function MessageItem({
 
   if (!message) return null;
 
-  if (isToolCall(message)) {
-    return <ToolCallCard message={message} />;
-  }
-  if (isActionButton(message)) {
-    return <ActionButton message={message} />;
-  }
   if (message.role === "user") {
-    return <UserMessage message={message as ChatMessage} />;
+    return <UserMessage message={message} />;
   }
   if (message.role === "assistant") {
-    return <AssistantMessage message={message as ChatMessage} />;
+    return <AssistantMessage message={message} />;
   }
   if (message.role === "system") {
     return (
@@ -374,7 +242,7 @@ const MessageItem = memo(function MessageItem({
         </div>
         {isLast && !isStreaming && (
           <button
-            onClick={() => streamManager.retryLastMessage()}
+            onClick={() => console.warn("retryLastMessage not yet implemented")}
             className="inline-flex items-center gap-1.5 self-start px-3 py-1.5 text-xs text-t-secondary bg-white/[0.06] hover:bg-white/[0.10] rounded-lg transition-colors"
           >
             <RotateCcw size={12} />

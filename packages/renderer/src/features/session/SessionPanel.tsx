@@ -16,7 +16,6 @@ import { useSession } from "@/stores/session";
 import { useChat } from "@/stores/chat";
 import { useWorkspace } from "@/stores/workspace";
 import { useNotification } from "@/stores/notification";
-import { streamManager } from "@/services/stream-manager";
 import { triggerCompaction, updateSession } from "@/services/api";
 import { ContextMenu, type ContextMenuItem } from "@/components/ContextMenu";
 import { Tooltip, TooltipProvider } from "@ftre/ui";
@@ -143,7 +142,7 @@ function buildWorkspaceGroup(
 
   [...knownSources, ...unknownSources].forEach((src) => {
     const list = bySource.get(src)!;
-    list.sort((a, b) => b.updated_at - a.updated_at);
+    list.sort((a, b) => (b.updated_at ?? 0) - (a.updated_at ?? 0));
     sourceGroups.push({
       source: src,
       label: getSourceLabel(src),
@@ -413,7 +412,7 @@ export function SessionPanel() {
     if (selectedSource === "all") {
       return currentWorkspace.sourceGroups
         .flatMap((group) => group.sessions)
-        .sort((a, b) => b.updated_at - a.updated_at);
+        .sort((a, b) => (b.updated_at ?? 0) - (a.updated_at ?? 0));
     }
     const selectedGroup = currentWorkspace.sourceGroups.find(
       (group) => group.source === selectedSource,
@@ -434,8 +433,8 @@ export function SessionPanel() {
       long_ago: [],
     };
     displayedSessions.forEach((session) => {
-      const isRunning = streamManager.isSessionStreaming(session.session_id);
-      const bucket = getSessionTimeBucket(session.updated_at, isRunning);
+      const isRunning = false; // TODO: check streaming state via ws-stream-manager
+      const bucket = getSessionTimeBucket(session.updated_at ?? 0, isRunning);
       grouped[bucket].push(session);
     });
     return SESSION_TIME_BUCKETS.map((bucket) => ({
@@ -671,10 +670,8 @@ export function SessionPanel() {
                         session.session_id === currentSessionId;
                       const isSessionHovered =
                         hoveredSession === session.session_id;
-                      const isStreaming = streamManager.isSessionStreaming(
-                        session.session_id,
-                      );
-                      const time = timeAgo(session.updated_at);
+                      const isStreaming = false; // TODO: check via ws-stream-manager
+                      const time = timeAgo(session.updated_at ?? 0);
 
                       return (
                         <div
