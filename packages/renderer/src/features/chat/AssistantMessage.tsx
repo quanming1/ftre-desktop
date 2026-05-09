@@ -1,7 +1,7 @@
 import { memo, useEffect, useRef } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import type { ChatMessage } from "@/types/chat";
+import type { ChatMessage } from "@/services/ws-stream-manager";
 import { CodeBlock } from "./CodeBlock";
 import { useThrottledValue } from "@/hooks/useThrottledValue";
 

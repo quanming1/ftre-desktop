@@ -6,7 +6,6 @@ import { useDiagnostics } from "./diagnostics";
 import { useOutput } from "./output";
 import { useNotification } from "./notification";
 import { useGlobalSearch } from "./global-search";
-import { streamManager } from "@/services/stream-manager";
 import { terminalManager } from "@/services/terminal";
 import { saveAllViewStates } from "@ftre/editor";
 import { normalizePathForCompare } from "@/utils/pathUtils";
@@ -110,8 +109,7 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
       terminalManager.switchWorkspace(path);
       // Spec: open_folder — 侧边栏切换到 Explorer 视图
       useLayout.getState().setActiveSidebarView("explorer");
-      // Spec: open_folder — 切换工作区视角，后台流不中断
-      streamManager.switchWorkspace();
+      // Note: workspace switching for chat is handled by session store
       // 清空诊断信息（文件路径属于旧工作区）
       useDiagnostics.getState().clear();
       // 清空输出频道（旧工作区的日志不应留在新工作区）
