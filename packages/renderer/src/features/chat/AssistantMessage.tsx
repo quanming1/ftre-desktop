@@ -1,9 +1,10 @@
 import { memo, useCallback, useEffect, useRef } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import type { ChatMessage } from "@/services/ws-stream-manager";
+import type { ChatMessage, InlineToolCall } from "@/services/ws-stream-manager";
 import { CodeBlock } from "./CodeBlock";
 import { useThrottledValue } from "@/hooks/useThrottledValue";
+import { InlineToolCallCard } from "./InlineToolCallCard";
 
 /** Markdown 渲染组件映射（稳定引用，不会导致重渲染） */
 const markdownComponents = {
@@ -184,6 +185,14 @@ export const AssistantMessage = memo(
                 {displayContent}
               </ReactMarkdown>
             </div>
+            {/* 内联工具调用（历史消息） */}
+            {message.toolCalls && message.toolCalls.length > 0 && (
+              <div className="mt-2 space-y-2">
+                {message.toolCalls.map((tc) => (
+                  <InlineToolCallCard key={tc.call_id} toolCall={tc} />
+                ))}
+              </div>
+            )}
             {/* 媒体内容 */}
             {message.media_urls && <MediaList urls={message.media_urls} />}
             {/* 按钮 */}
@@ -203,5 +212,6 @@ export const AssistantMessage = memo(
     prev.message.content === next.message.content &&
     prev.message.streaming === next.message.streaming &&
     prev.message.media_urls === next.message.media_urls &&
-    prev.message.buttons === next.message.buttons,
+    prev.message.buttons === next.message.buttons &&
+    prev.message.toolCalls === next.message.toolCalls,
 );

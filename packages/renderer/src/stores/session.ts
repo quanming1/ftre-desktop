@@ -4,6 +4,7 @@
  */
 import { create } from "zustand";
 import { streamManager } from "@/services/ws-stream-manager";
+import type { ChatMessage, InlineToolCall } from "@/services/ws-stream-manager";
 import type { SessionSummary } from "@/services/api";
 import { fetchSessions, fetchSessionMessages } from "@/services/api";
 import { useWorkspace } from "./workspace";
@@ -11,6 +12,100 @@ import { useChat } from "./chat";
 import { workspaceHash, normalizePathForCompare } from "@/utils/pathUtils";
 
 export type { SessionSummary };
+
+// ─── History Message Conversion ─────────────────────────────────────
+
+let histIdCounter = 0;
+function histId(): string {
+  return `hist_${Date.now()}_${++histIdCounter}`;
+}
+
+/**
+ * Convert OpenAI-format messages from the REST API into ChatMessage[].
+ * Pairs assistant tool_calls with subsequent tool results inline.
+ */
+function convertHistoryMessages(msgs: any[]): ChatMessage[] {
+  const result: ChatMessage[] = [];
+
+  for (let i = 0; i < msgs.length; i++) {
+    const m = msgs[i];
+
+    if (m.role === 'user') {
+      let content = '';
+      if (typeof m.content === 'string') {
+        content = m.content;
+      } else if (Array.isArray(m.content)) {
+        content = m.content
+          .filter((b: any) => b.type === 'text')
+          .map((b: any) => b.text)
+          .join('\n');
+      }
+      if (!content) continue;
+      result.push({
+        id: histId(),
+        role: 'user',
+        content,
+        timestamp: m.timestamp ? new Date(m.timestamp).getTime() : Date.now(),
+      });
+    } else if (m.role === 'assistant') {
+      // Extract text content
+      let content = '';
+      if (typeof m.content === 'string') {
+        content = m.content;
+      } else if (Array.isArray(m.content)) {
+        content = m.content
+          .filter((b: any) => b.type === 'text')
+          .map((b: any) => b.text)
+          .join('\n');
+      }
+
+      // Pair tool_calls with subsequent tool results
+      let inlineToolCalls: InlineToolCall[] | undefined;
+      if (m.tool_calls?.length) {
+        inlineToolCalls = m.tool_calls.map((tc: any) => {
+          let args: Record<string, unknown> = {};
+          try {
+            args = JSON.parse(tc.function?.arguments || '{}');
+          } catch { /* malformed args */ }
+
+          // Find matching tool result in subsequent messages
+          let toolResult: string | undefined;
+          let toolStatus: 'ok' | 'error' = 'ok';
+          for (let j = i + 1; j < msgs.length && j <= i + m.tool_calls.length; j++) {
+            if (msgs[j].role === 'tool' && msgs[j].tool_call_id === tc.id) {
+              toolResult = msgs[j].content || '';
+              break;
+            }
+          }
+
+          return {
+            call_id: tc.id || histId(),
+            name: tc.function?.name || 'unknown',
+            arguments: args,
+            status: toolStatus,
+            result: toolResult,
+          };
+        });
+      }
+
+      // Skip assistant messages that have no content AND no tool calls
+      if (!content && !inlineToolCalls?.length) continue;
+
+      result.push({
+        id: histId(),
+        role: 'assistant',
+        content,
+        timestamp: m.timestamp ? new Date(m.timestamp).getTime() : Date.now(),
+        toolCalls: inlineToolCalls,
+      });
+    }
+    // Skip role:"tool" — they're consumed by the assistant pairing above
+  }
+
+  return result;
+}
+
+// ─── Storage Keys ───────────────────────────────────────────────────
 
 const SESSION_KEY_PREFIX = "ftre-active-session";
 const TABS_KEY_PREFIX = "ftre-open-tabs";
@@ -126,29 +221,8 @@ export const useSession = create<SessionState>((set, get) => ({
     fetchSessionMessages(sessionId)
       .then((msgs) => {
         if (!msgs || msgs.length === 0) return;
-        const chatMessages = msgs
-          .filter((m: any) => m.role === 'user' || m.role === 'assistant')
-          .map((m: any) => {
-            // content can be string, null, or array (multimodal)
-            let content = '';
-            if (typeof m.content === 'string') {
-              content = m.content;
-            } else if (Array.isArray(m.content)) {
-              // Multimodal: extract text blocks
-              content = m.content
-                .filter((b: any) => b.type === 'text')
-                .map((b: any) => b.text)
-                .join('\n');
-            }
-            // content is null when assistant only has tool_calls — skip or show placeholder
-            return {
-              id: m.id || `hist_${Date.now()}_${Math.random().toString(36).slice(2)}`,
-              role: m.role as 'user' | 'assistant',
-              content,
-              timestamp: m.timestamp ? new Date(m.timestamp).getTime() : Date.now(),
-            };
-          })
-          .filter((m: any) => m.content); // Drop empty-content messages (pure tool_calls)
+        const chatMessages = convertHistoryMessages(msgs);
+        if (chatMessages.length === 0) return;
         // syncHistory only emits if data actually changed
         streamManager.syncHistory(sessionId, chatMessages);
       })

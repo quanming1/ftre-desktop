@@ -32,6 +32,17 @@ export interface ChatMessage {
   buttons?: string[][];
   button_prompt?: string;
   reply_to?: string;
+  // Inline tool calls (from history loading — paired with their results)
+  toolCalls?: InlineToolCall[];
+}
+
+/** Tool call embedded in a history message (assistant declared + tool result paired) */
+export interface InlineToolCall {
+  call_id: string;
+  name: string;
+  arguments: Record<string, unknown>;
+  status: "ok" | "error";
+  result?: string;
 }
 
 export interface ToolCall {
@@ -234,6 +245,25 @@ class WsStreamManager {
       session.messages = messages;
       this.emitChange(session);
     }
+  }
+
+  /**
+   * Replace session messages with fresh data from the server.
+   * Only emits change if the content actually differs (avoids unnecessary re-renders).
+   */
+  syncHistory(chatId: string, messages: ChatMessage[]): boolean {
+    const session = this.getSession(chatId);
+    // Quick check: if count matches and last message id matches, skip
+    if (
+      session.messages.length === messages.length &&
+      session.messages.length > 0 &&
+      session.messages[session.messages.length - 1].id === messages[messages.length - 1].id
+    ) {
+      return false;
+    }
+    session.messages = messages;
+    this.emitChange(session);
+    return true;
   }
 
   // ─── Change Subscription ────────────────────────────────────────
