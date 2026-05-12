@@ -1,10 +1,11 @@
-import { memo, useCallback, useEffect, useRef } from "react";
+import { memo, useCallback, useEffect, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import type { ChatMessage, InlineToolCall } from "@/services/ws-stream-manager";
 import { CodeBlock } from "./CodeBlock";
 import { useThrottledValue } from "@/hooks/useThrottledValue";
 import { InlineToolCallCard } from "./InlineToolCallCard";
+import { ChevronDown, ChevronRight, Brain } from "lucide-react";
 
 /** Markdown 渲染组件映射（稳定引用，不会导致重渲染） */
 const markdownComponents = {
@@ -133,6 +134,28 @@ function ButtonMatrix({
   );
 }
 
+/** Collapsible reasoning/thinking block */
+function ReasoningBlock({ text }: { text: string }) {
+  const [expanded, setExpanded] = useState(false);
+  return (
+    <div className="mb-2">
+      <button
+        onClick={() => setExpanded((p) => !p)}
+        className="flex items-center gap-1.5 text-[12px] text-t-dim hover:text-t-secondary transition-colors"
+      >
+        <Brain size={13} className="text-t-ghost" />
+        <span>思考过程</span>
+        {expanded ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
+      </button>
+      {expanded && (
+        <div className="mt-1.5 pl-5 border-l-2 border-white/8 text-[12px] text-t-dim leading-relaxed whitespace-pre-wrap max-h-[300px] overflow-y-auto">
+          {text}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export const AssistantMessage = memo(
   function AssistantMessage({ message }: { message: ChatMessage }) {
     const isStreaming = message.streaming ?? false;
@@ -177,14 +200,19 @@ export const AssistantMessage = memo(
       <div className="flex justify-start">
         <div className="max-w-[90%]">
           <div className="text-[14px] leading-relaxed text-t-primary font-sans break-words">
-            <div className="markdown-body" ref={mdRef}>
-              <ReactMarkdown
-                remarkPlugins={[remarkGfm]}
-                components={markdownComponents}
-              >
-                {displayContent}
-              </ReactMarkdown>
-            </div>
+            {/* 推理过程（折叠） */}
+            {message.reasoning && <ReasoningBlock text={message.reasoning} />}
+            {/* 正文 */}
+            {displayContent && (
+              <div className="markdown-body" ref={mdRef}>
+                <ReactMarkdown
+                  remarkPlugins={[remarkGfm]}
+                  components={markdownComponents}
+                >
+                  {displayContent}
+                </ReactMarkdown>
+              </div>
+            )}
             {/* 内联工具调用（历史消息） */}
             {message.toolCalls && message.toolCalls.length > 0 && (
               <div className="mt-2 space-y-2">
@@ -213,5 +241,6 @@ export const AssistantMessage = memo(
     prev.message.streaming === next.message.streaming &&
     prev.message.media_urls === next.message.media_urls &&
     prev.message.buttons === next.message.buttons &&
-    prev.message.toolCalls === next.message.toolCalls,
+    prev.message.toolCalls === next.message.toolCalls &&
+    prev.message.reasoning === next.message.reasoning,
 );

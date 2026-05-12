@@ -34,6 +34,8 @@ export interface ChatMessage {
   reply_to?: string;
   // Inline tool calls (from history loading — paired with their results)
   toolCalls?: InlineToolCall[];
+  // Model reasoning/thinking content (DeepSeek-R1, Kimi-K2, etc.)
+  reasoning?: string;
 }
 
 /** Tool call embedded in a history message (assistant declared + tool result paired) */

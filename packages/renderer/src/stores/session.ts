@@ -21,6 +21,54 @@ function histId(): string {
 }
 
 /**
+ * Parse text-encoded tool calls (used by models without native function calling).
+ * Format: <|tool_calls_section_begin|> <|tool_call_begin|> {id} <|tool_call_argument_begin|> {json} <|tool_call_end|> ... <|tool_calls_section_end|>
+ * Returns parsed tool calls and the remaining text content (without the tool section).
+ */
+function parseTextEncodedToolCalls(content: string): {
+  textContent: string;
+  toolCalls: InlineToolCall[];
+} {
+  const sectionRegex = /<\|tool_calls_section_begin\|>([\s\S]*?)<\|tool_calls_section_end\|>/;
+  const match = content.match(sectionRegex);
+  if (!match) return { textContent: content, toolCalls: [] };
+
+  // Remove the tool section from display content
+  const textContent = content.replace(sectionRegex, '').trim();
+
+  // Parse individual tool calls
+  const toolCalls: InlineToolCall[] = [];
+  const callRegex = /<\|tool_call_begin\|>\s*(\S+)\s*<\|tool_call_argument_begin\|>\s*([\s\S]*?)\s*<\|tool_call_end\|>/g;
+  let callMatch: RegExpExecArray | null;
+  while ((callMatch = callRegex.exec(match[1])) !== null) {
+    const callId = callMatch[1];
+    const argsStr = callMatch[2].trim();
+    let args: Record<string, unknown> = {};
+    let name = 'unknown';
+    try {
+      args = JSON.parse(argsStr);
+      // Try to infer tool name from the call_id pattern (e.g. "functions.exec:0" → "exec")
+      // or from common argument patterns
+      if ('command' in args) name = 'exec';
+      else if ('path' in args && 'max_entries' in args) name = 'list_dir';
+      else if ('path' in args) name = 'read_file';
+      else if ('action' in args) name = 'my';
+      else if ('query' in args) name = 'web_search';
+    } catch { /* malformed args */ }
+
+    toolCalls.push({
+      call_id: callId,
+      name,
+      arguments: args,
+      status: 'ok',
+      result: undefined,
+    });
+  }
+
+  return { textContent, toolCalls };
+}
+
+/**
  * Convert OpenAI-format messages from the REST API into ChatMessage[].
  * Pairs assistant tool_calls with subsequent tool results inline.
  */
@@ -59,8 +107,26 @@ function convertHistoryMessages(msgs: any[]): ChatMessage[] {
           .join('\n');
       }
 
-      // Pair tool_calls with subsequent tool results
+      // Check for text-encoded tool calls (models without native function calling)
       let inlineToolCalls: InlineToolCall[] | undefined;
+      if (content.includes('<|tool_calls_section_begin|>')) {
+        const parsed = parseTextEncodedToolCalls(content);
+        content = parsed.textContent;
+        if (parsed.toolCalls.length > 0) {
+          // Try to pair with subsequent tool results
+          inlineToolCalls = parsed.toolCalls.map((tc) => {
+            for (let j = i + 1; j < msgs.length; j++) {
+              if (msgs[j].role === 'tool' && msgs[j].tool_call_id === tc.call_id) {
+                return { ...tc, result: msgs[j].content || '', status: 'ok' as const };
+              }
+              if (msgs[j].role === 'user') break; // stop at next user message
+            }
+            return tc;
+          });
+        }
+      }
+
+      // Pair native tool_calls with subsequent tool results
       if (m.tool_calls?.length) {
         inlineToolCalls = m.tool_calls.map((tc: any) => {
           let args: Record<string, unknown> = {};
@@ -71,11 +137,12 @@ function convertHistoryMessages(msgs: any[]): ChatMessage[] {
           // Find matching tool result in subsequent messages
           let toolResult: string | undefined;
           let toolStatus: 'ok' | 'error' = 'ok';
-          for (let j = i + 1; j < msgs.length && j <= i + m.tool_calls.length; j++) {
+          for (let j = i + 1; j < msgs.length; j++) {
             if (msgs[j].role === 'tool' && msgs[j].tool_call_id === tc.id) {
               toolResult = msgs[j].content || '';
               break;
             }
+            if (msgs[j].role === 'user') break;
           }
 
           return {
@@ -88,8 +155,11 @@ function convertHistoryMessages(msgs: any[]): ChatMessage[] {
         });
       }
 
-      // Skip assistant messages that have no content AND no tool calls
-      if (!content && !inlineToolCalls?.length) continue;
+      // Extract reasoning content
+      const reasoning = m.reasoning_content || undefined;
+
+      // Skip assistant messages that have no content AND no tool calls AND no reasoning
+      if (!content && !inlineToolCalls?.length && !reasoning) continue;
 
       result.push({
         id: histId(),
@@ -97,6 +167,7 @@ function convertHistoryMessages(msgs: any[]): ChatMessage[] {
         content,
         timestamp: m.timestamp ? new Date(m.timestamp).getTime() : Date.now(),
         toolCalls: inlineToolCalls,
+        reasoning,
       });
     }
     // Skip role:"tool" — they're consumed by the assistant pairing above
