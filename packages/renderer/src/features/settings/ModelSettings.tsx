@@ -77,7 +77,9 @@ function maskKey(key: string | null | undefined): string {
 
 async function readConfig(): Promise<AiBaseConfig> {
   try {
-    const raw = await window.desktop.fs.readFile(CONFIG_PATH);
+    const result = await window.desktop.fs.readFile(CONFIG_PATH);
+    const raw = typeof result === "string" ? result : result?.content || "";
+    if (!raw) return {};
     return JSON.parse(raw);
   } catch {
     return {};

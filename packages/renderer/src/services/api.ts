@@ -154,7 +154,10 @@ const AI_BASE_CONFIG_PATH = "~/.ai-base/config.json";
 
 async function readAiBaseConfig(): Promise<Record<string, any>> {
   try {
-    const raw = await window.desktop.fs.readFile(AI_BASE_CONFIG_PATH);
+    const result = await window.desktop.fs.readFile(AI_BASE_CONFIG_PATH);
+    // IPC returns { content: string, language?: string } or { content: "", error: string }
+    const raw = typeof result === "string" ? result : result?.content || "";
+    if (!raw) return {};
     return JSON.parse(raw);
   } catch {
     return {};

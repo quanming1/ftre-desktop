@@ -1,7 +1,16 @@
 import { ipcMain, dialog, shell } from "electron";
 import * as path from "path";
 import * as fs from "fs";
+import * as os from "os";
 import { getMainWindow } from "../app-state";
+
+/** Expand ~ to the user's home directory */
+function expandHome(filePath: string): string {
+  if (filePath.startsWith("~/") || filePath.startsWith("~\\")) {
+    return path.join(os.homedir(), filePath.slice(2));
+  }
+  return filePath;
+}
 
 const TREE_SKIP_DIRS = new Set([".git"]);
 
@@ -78,8 +87,9 @@ export function registerFsIPC(): void {
     "fs:readFile",
     async (_event, { filePath }: { filePath: string }) => {
       try {
-        const content = await fs.promises.readFile(filePath, "utf-8");
-        const ext = path.extname(filePath).slice(1);
+        const resolved = expandHome(filePath);
+        const content = await fs.promises.readFile(resolved, "utf-8");
+        const ext = path.extname(resolved).slice(1);
         return { content, language: extToLanguage(ext) };
       } catch (err: any) {
         return { content: "", error: err.message };
@@ -94,8 +104,9 @@ export function registerFsIPC(): void {
       { filePath, content }: { filePath: string; content: string },
     ) => {
       try {
-        await fs.promises.mkdir(path.dirname(filePath), { recursive: true });
-        await fs.promises.writeFile(filePath, content, "utf-8");
+        const resolved = expandHome(filePath);
+        await fs.promises.mkdir(path.dirname(resolved), { recursive: true });
+        await fs.promises.writeFile(resolved, content, "utf-8");
         return { success: true };
       } catch (err: any) {
         return { success: false, error: err.message };

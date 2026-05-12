@@ -18,7 +18,9 @@ interface ConfigSnapshot {
 
 async function readConfigSnapshot(): Promise<ConfigSnapshot> {
   try {
-    const raw = await window.desktop.fs.readFile(AI_BASE_CONFIG_PATH);
+    const result = await window.desktop.fs.readFile(AI_BASE_CONFIG_PATH);
+    const raw = typeof result === "string" ? result : result?.content || "";
+    if (!raw) return { model: "", provider: "auto", providerNames: [] };
     const config = JSON.parse(raw);
     return {
       model: config.agents?.defaults?.model || "",
@@ -32,8 +34,9 @@ async function readConfigSnapshot(): Promise<ConfigSnapshot> {
 
 async function writeModelToConfig(model: string, provider?: string): Promise<void> {
   try {
-    const raw = await window.desktop.fs.readFile(AI_BASE_CONFIG_PATH);
-    const config = JSON.parse(raw);
+    const result = await window.desktop.fs.readFile(AI_BASE_CONFIG_PATH);
+    const raw = typeof result === "string" ? result : result?.content || "";
+    const config = raw ? JSON.parse(raw) : {};
     if (!config.agents) config.agents = { defaults: {} };
     if (!config.agents.defaults) config.agents.defaults = {};
     config.agents.defaults.model = model;
