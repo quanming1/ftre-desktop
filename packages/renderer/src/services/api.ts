@@ -86,11 +86,20 @@ export async function fetchSessions(
   }
 }
 
+/**
+ * Encode a session key for use in REST API URLs.
+ * The backend expects base64url encoding (no padding).
+ */
+function encodeSessionKey(sessionId: string): string {
+  const key = `websocket:${sessionId}`;
+  return btoa(key).replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
+}
+
 export async function fetchSessionMessages(sessionId: string): Promise<any[]> {
   try {
-    const key = encodeURIComponent(`websocket:${sessionId}`);
+    const encoded = encodeSessionKey(sessionId);
     const res = await fetch(
-      `http://127.0.0.1:18790/api/sessions/${key}/messages`,
+      `http://127.0.0.1:18790/api/sessions/${encoded}/messages`,
     );
     if (!res.ok) return [];
     const data = await res.json();
@@ -104,8 +113,13 @@ export async function fetchUsage(_sessionId: string): Promise<number> {
   return 0;
 }
 
-export async function deleteSession(_sessionId: string): Promise<void> {
-  console.warn("[api] deleteSession not implemented");
+export async function deleteSession(sessionId: string): Promise<void> {
+  try {
+    const encoded = encodeSessionKey(sessionId);
+    await fetch(`http://127.0.0.1:18790/api/sessions/${encoded}/delete`);
+  } catch {
+    // Silent failure
+  }
 }
 
 export async function updateSession(
@@ -449,11 +463,11 @@ export async function createScheduledTask(
   return { id: "", type: "scheduled", status: "pending" };
 }
 
-export async function deleteScheduledTask(_taskId: string): Promise<void> {}
+export async function deleteScheduledTask(_taskId: string): Promise<void> { }
 
-export async function triggerScheduledTask(_taskId: string): Promise<void> {}
+export async function triggerScheduledTask(_taskId: string): Promise<void> { }
 
-export async function cancelScheduledTask(_taskId: string): Promise<void> {}
+export async function cancelScheduledTask(_taskId: string): Promise<void> { }
 
 export async function fetchScheduledTaskRuns(
   _taskId: string,
@@ -516,4 +530,4 @@ export async function sendRoomMessage(
   _content: string,
   _senderId?: string,
   _targetAgentIds?: string[],
-): Promise<void> {}
+): Promise<void> { }
