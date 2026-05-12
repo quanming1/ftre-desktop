@@ -88,18 +88,17 @@ export async function fetchSessions(
 
 /**
  * Encode a session key for use in REST API URLs.
- * The backend expects base64url encoding (no padding).
+ * The backend accepts the raw key (e.g. "websocket:uuid") directly in the path.
  */
 function encodeSessionKey(sessionId: string): string {
-  const key = `websocket:${sessionId}`;
-  return btoa(key).replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
+  return `websocket:${sessionId}`;
 }
 
 export async function fetchSessionMessages(sessionId: string): Promise<any[]> {
   try {
-    const encoded = encodeSessionKey(sessionId);
+    const key = encodeSessionKey(sessionId);
     const res = await fetch(
-      `http://127.0.0.1:18790/api/sessions/${encoded}/messages`,
+      `http://127.0.0.1:18790/api/sessions/${key}/messages`,
     );
     if (!res.ok) return [];
     const data = await res.json();
@@ -115,8 +114,8 @@ export async function fetchUsage(_sessionId: string): Promise<number> {
 
 export async function deleteSession(sessionId: string): Promise<void> {
   try {
-    const encoded = encodeSessionKey(sessionId);
-    await fetch(`http://127.0.0.1:18790/api/sessions/${encoded}/delete`);
+    const key = encodeSessionKey(sessionId);
+    await fetch(`http://127.0.0.1:18790/api/sessions/${key}/delete`);
   } catch {
     // Silent failure
   }
