@@ -1,41 +1,73 @@
-import { useState, useEffect, useRef, memo } from "react";
-import { useChat } from "@/stores/chat";
-import { fetchLLMProviders } from "@/services/api";
+/**
+ * ModelSelector — Quick model switcher below the chat input.
+ *
+ * Reads current model from ~/.ai-base/config.json via fetchLLMProviders.
+ * Shows current model name; click to open a panel to switch.
+ */
 
-interface ProviderGroup {
-  vendor: string;
-  models: Array<{ alias: string; key: string }>;
+import { useState, useEffect, useRef, memo, useCallback } from "react";
+import { useChat } from "@/stores/chat";
+
+const AI_BASE_CONFIG_PATH = "~/.ai-base/config.json";
+
+interface ConfigSnapshot {
+  model: string;
+  provider: string;
+  providerNames: string[];
+}
+
+async function readConfigSnapshot(): Promise<ConfigSnapshot> {
+  try {
+    const raw = await window.desktop.fs.readFile(AI_BASE_CONFIG_PATH);
+    const config = JSON.parse(raw);
+    return {
+      model: config.agents?.defaults?.model || "",
+      provider: config.agents?.defaults?.provider || "auto",
+      providerNames: Object.keys(config.providers || {}),
+    };
+  } catch {
+    return { model: "", provider: "auto", providerNames: [] };
+  }
+}
+
+async function writeModelToConfig(model: string, provider?: string): Promise<void> {
+  try {
+    const raw = await window.desktop.fs.readFile(AI_BASE_CONFIG_PATH);
+    const config = JSON.parse(raw);
+    if (!config.agents) config.agents = { defaults: {} };
+    if (!config.agents.defaults) config.agents.defaults = {};
+    config.agents.defaults.model = model;
+    if (provider) config.agents.defaults.provider = provider;
+    await window.desktop.fs.writeFile(AI_BASE_CONFIG_PATH, JSON.stringify(config, null, 2));
+  } catch (e) {
+    console.error("[ModelSelector] Failed to write config:", e);
+  }
 }
 
 export const ModelSelector = memo(function ModelSelector() {
-  const model = useChat((s) => s.model);
-  const setModel = useChat((s) => s.setModel);
   const [open, setOpen] = useState(false);
-  const [providers, setProviders] = useState<ProviderGroup[]>([]);
-  const [search, setSearch] = useState("");
-  const [loading, setLoading] = useState(false);
+  const [currentModel, setCurrentModel] = useState("");
+  const [currentProvider, setCurrentProvider] = useState("auto");
+  const [providerNames, setProviderNames] = useState<string[]>([]);
+  const [inputValue, setInputValue] = useState("");
   const panelRef = useRef<HTMLDivElement>(null);
 
-  useEffect(() => {
-    if (!open || providers.length > 0) return;
-    setLoading(true);
-    fetchLLMProviders()
-      .then((data) => {
-        const transformed = data
-          .filter((p) => p.vendor && p.models && typeof p.models === "object" && !Array.isArray(p.models))
-          .map((p) => ({
-            vendor: p.vendor!,
-            models: Object.keys(p.models as Record<string, string>).map((alias) => ({
-              alias,
-              key: `${p.vendor}.${alias}`,
-            })),
-          }));
-        setProviders(transformed);
-      })
-      .catch(() => {})
-      .finally(() => setLoading(false));
-  }, [open, providers.length]);
+  // Load config on mount and when panel opens
+  const loadConfig = useCallback(async () => {
+    const snap = await readConfigSnapshot();
+    setCurrentModel(snap.model);
+    setCurrentProvider(snap.provider);
+    setProviderNames(snap.providerNames);
+    setInputValue(snap.model);
+  }, []);
 
+  useEffect(() => { loadConfig(); }, [loadConfig]);
+
+  useEffect(() => {
+    if (open) loadConfig();
+  }, [open, loadConfig]);
+
+  // Click outside to close
   useEffect(() => {
     if (!open) return;
     const handler = (e: MouseEvent) => {
@@ -47,16 +79,25 @@ export const ModelSelector = memo(function ModelSelector() {
     return () => document.removeEventListener("mousedown", handler);
   }, [open]);
 
-  const displayName = model || "默认模型";
+  const handleSave = async () => {
+    const newModel = inputValue.trim();
+    if (!newModel) return;
+    await writeModelToConfig(newModel);
+    setCurrentModel(newModel);
+    setOpen(false);
+  };
 
-  const filtered = providers
-    .map((p) => ({
-      ...p,
-      models: p.models.filter(
-        (m) => !search || m.alias.toLowerCase().includes(search.toLowerCase()) || p.vendor.toLowerCase().includes(search.toLowerCase()),
-      ),
-    }))
-    .filter((p) => p.models.length > 0);
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      handleSave();
+    }
+    if (e.key === "Escape") {
+      setOpen(false);
+    }
+  };
+
+  const displayName = currentModel || "默认模型";
 
   return (
     <div className="relative" ref={panelRef}>
@@ -64,7 +105,7 @@ export const ModelSelector = memo(function ModelSelector() {
         onClick={() => setOpen(!open)}
         className="flex items-center gap-1.5 text-[13px] h-9 px-3 rounded-md font-mono transition-colors duration-150 text-t-muted hover:text-t-primary hover:bg-white/[0.05]"
       >
-        {displayName}
+        <span className="truncate max-w-[200px]">{displayName}</span>
         <svg width="6" height="4" viewBox="0 0 6 4" className="shrink-0">
           <path d="M0.5 0.5L3 3.5L5.5 0.5" fill="none" stroke="currentColor" strokeWidth="1" strokeLinecap="round" strokeLinejoin="round" />
         </svg>
@@ -72,56 +113,62 @@ export const ModelSelector = memo(function ModelSelector() {
 
       {open && (
         <div
-          className="absolute bottom-full left-0 mb-1 w-[280px] max-h-[360px] bg-elevated border border-border-subtle rounded-xl overflow-hidden flex flex-col shadow-2xl z-[100]"
+          className="absolute bottom-full left-0 mb-1 w-[320px] bg-elevated border border-border-subtle rounded-xl overflow-hidden flex flex-col shadow-2xl z-[100]"
           style={{ animation: "fadeIn 0.1s ease-out" }}
         >
-          <div className="p-2 border-b border-border">
+          {/* Model input */}
+          <div className="p-3 border-b border-border">
+            <label className="block text-[11px] text-t-ghost uppercase tracking-wider mb-1.5">
+              模型名称
+            </label>
             <input
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder="搜索模型..."
+              value={inputValue}
+              onChange={(e) => setInputValue(e.target.value)}
+              onKeyDown={handleKeyDown}
+              placeholder="e.g. gpt-4o, claude-opus-4-5"
               autoFocus
-              className="w-full px-2.5 py-1.5 text-[13px] bg-base rounded-md text-t-primary placeholder-t-dim outline-none font-mono"
+              className="w-full px-2.5 py-1.5 text-[13px] bg-base rounded-md text-t-primary placeholder-t-dim outline-none font-mono border border-border focus:border-neon transition-colors"
             />
           </div>
 
-          <div className="flex-1 overflow-y-auto py-1">
-            {loading && <div className="p-3 text-t-dim text-[13px] text-center font-mono">加载中...</div>}
+          {/* Provider info */}
+          <div className="px-3 py-2 border-b border-border">
+            <div className="text-[11px] text-t-ghost">
+              Provider: <span className="text-t-secondary font-mono">{currentProvider}</span>
+            </div>
+          </div>
 
-            <button
-              onClick={() => {
-                setModel(null);
-                setOpen(false);
-              }}
-              className={`w-full text-left px-4 py-2 text-[13px] font-mono transition-colors duration-150 ${
-                !model ? "text-neon bg-neon-ghost" : "text-t-primary hover:bg-white/[0.04]"
-              }`}
-            >
-              默认模型
-            </button>
-
-            {filtered.map((provider) => (
-              <div key={provider.vendor}>
-                <div className="px-4 pt-2.5 pb-1 text-[11px] text-t-dim uppercase tracking-wider font-mono">{provider.vendor}</div>
-                {provider.models.map((m) => {
-                  const isActive = model === m.key;
-                  return (
-                    <button
-                      key={m.key}
-                      onClick={() => {
-                        setModel(m.key);
-                        setOpen(false);
-                      }}
-                      className={`w-full text-left px-4 pl-6 py-2 text-[13px] font-mono transition-colors duration-150 ${
-                        isActive ? "text-neon bg-neon-ghost" : "text-t-primary hover:bg-white/[0.04]"
-                      }`}
-                    >
-                      {m.alias}
-                    </button>
-                  );
-                })}
+          {/* Quick actions */}
+          <div className="py-1 max-h-[200px] overflow-y-auto">
+            {providerNames.length > 0 && (
+              <div className="px-3 pt-2 pb-1 text-[10px] text-t-ghost uppercase tracking-wider">
+                已配置的 Providers
+              </div>
+            )}
+            {providerNames.map((name) => (
+              <div
+                key={name}
+                className={`px-4 py-1.5 text-[12px] font-mono text-t-secondary ${
+                  name === currentProvider ? "text-neon" : ""
+                }`}
+              >
+                {name} {name === currentProvider && "✓"}
               </div>
             ))}
+          </div>
+
+          {/* Save button */}
+          <div className="p-3 border-t border-border">
+            <button
+              onClick={handleSave}
+              disabled={!inputValue.trim() || inputValue.trim() === currentModel}
+              className="w-full py-2 text-[13px] font-medium bg-neon hover:bg-neon-hover text-base rounded-md transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              切换模型
+            </button>
+            <p className="text-[11px] text-t-ghost text-center mt-1.5">
+              下次对话生效
+            </p>
           </div>
         </div>
       )}

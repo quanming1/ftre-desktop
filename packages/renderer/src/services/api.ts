@@ -150,65 +150,57 @@ export interface LLMProvider {
   api_type?: string;
 }
 
-const LLM_PROVIDERS_KEY = "llmProviders";
+const AI_BASE_CONFIG_PATH = "~/.ai-base/config.json";
 
-async function loadProvidersFromStore(): Promise<LLMProvider[]> {
-  if (!window.desktop?.store) return [];
-  const { value } = await window.desktop.store.get(LLM_PROVIDERS_KEY);
-  if (Array.isArray(value)) return value;
-  return [];
+async function readAiBaseConfig(): Promise<Record<string, any>> {
+  try {
+    const raw = await window.desktop.fs.readFile(AI_BASE_CONFIG_PATH);
+    return JSON.parse(raw);
+  } catch {
+    return {};
+  }
 }
 
-async function saveProvidersToStore(providers: LLMProvider[]): Promise<void> {
-  if (!window.desktop?.store) return;
-  await window.desktop.store.set(LLM_PROVIDERS_KEY, providers);
-}
-
+/**
+ * Reads providers from ~/.ai-base/config.json and returns them
+ * in the LLMProvider format expected by ModelSelector.
+ */
 export async function fetchLLMProviders(): Promise<LLMProvider[]> {
-  return loadProvidersFromStore();
+  const config = await readAiBaseConfig();
+  const providers = config.providers || {};
+  const currentModel = config.agents?.defaults?.model || "";
+  const currentProviderName = config.agents?.defaults?.provider || "auto";
+
+  return Object.entries(providers).map(([name, p]: [string, any]) => ({
+    id: name,
+    name,
+    vendor: name,
+    api_key: p.api_key || "",
+    base_url: p.api_base || "",
+    api_type: "completions",
+    // Expose the current model under this provider if it's the active one
+    models: name === currentProviderName
+      ? { [currentModel]: currentModel }
+      : {},
+  }));
 }
 
 export async function createLLMProvider(
-  vendorOrData: string | (Partial<LLMProvider> & Record<string, any>),
-  payload?: any,
+  _vendorOrData: string | (Partial<LLMProvider> & Record<string, any>),
+  _payload?: any,
 ): Promise<LLMProvider | { error?: string } | null> {
-  const providers = await loadProvidersFromStore();
-  const vendor =
-    typeof vendorOrData === "string"
-      ? vendorOrData
-      : vendorOrData.vendor || vendorOrData.name || "";
-  const data =
-    payload || (typeof vendorOrData === "object" ? vendorOrData : {});
-  const newProvider: LLMProvider = {
-    id: vendor,
-    name: vendor,
-    vendor,
-    api_key: data.api_key || "",
-    base_url: data.base_url || "",
-    api_type: data.api_type || "completions",
-    models: data.models || {},
-  };
-  providers.push(newProvider);
-  await saveProvidersToStore(providers);
-  return newProvider;
+  // Provider creation is now handled by ModelSettings writing config.json directly
+  return { error: "Use ModelSettings to manage providers" };
 }
 
 export async function updateLLMProvider(
-  id: string,
-  data: Partial<LLMProvider> & Record<string, any>,
+  _id: string,
+  _data: Partial<LLMProvider> & Record<string, any>,
 ): Promise<{ status: string } | null> {
-  const providers = await loadProvidersFromStore();
-  const idx = providers.findIndex((p) => p.vendor === id || p.id === id);
-  if (idx === -1) return null;
-  providers[idx] = { ...providers[idx], ...data };
-  await saveProvidersToStore(providers);
   return { status: "ok" };
 }
 
-export async function deleteLLMProvider(id: string): Promise<boolean> {
-  const providers = await loadProvidersFromStore();
-  const filtered = providers.filter((p) => p.vendor !== id && p.id !== id);
-  await saveProvidersToStore(filtered);
+export async function deleteLLMProvider(_id: string): Promise<boolean> {
   return true;
 }
 
