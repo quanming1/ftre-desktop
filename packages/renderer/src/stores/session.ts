@@ -113,26 +113,7 @@ export const useSession = create<SessionState>((set, get) => ({
       saveTabsToStorage(newTabs);
     }
 
-    const session = streamManager.getSession(sessionId);
-    if (session.messages.length === 0) {
-      try {
-        const msgs = await fetchSessionMessages(sessionId);
-        if (msgs.length > 0) {
-          const chatMessages = msgs
-            .filter((m: any) => m.role === 'user' || m.role === 'assistant')
-            .map((m: any) => ({
-              id: m.id || `hist_${Date.now()}_${Math.random().toString(36).slice(2)}`,
-              role: m.role,
-              content: m.content || '',
-              timestamp: m.timestamp ? new Date(m.timestamp).getTime() : Date.now(),
-            }));
-          streamManager.loadHistory(sessionId, chatMessages);
-        }
-      } catch {
-        // History load failed — proceed with empty session
-      }
-    }
-
+    // Switch immediately — render whatever is in memory (may be empty)
     streamManager.switchChat(sessionId);
 
     try {
@@ -140,6 +121,40 @@ export const useSession = create<SessionState>((set, get) => ({
     } catch {
       /* ignore */
     }
+
+    // Background: fetch history from server and merge silently
+    fetchSessionMessages(sessionId)
+      .then((msgs) => {
+        if (!msgs || msgs.length === 0) return;
+        const chatMessages = msgs
+          .filter((m: any) => m.role === 'user' || m.role === 'assistant')
+          .map((m: any) => {
+            // content can be string, null, or array (multimodal)
+            let content = '';
+            if (typeof m.content === 'string') {
+              content = m.content;
+            } else if (Array.isArray(m.content)) {
+              // Multimodal: extract text blocks
+              content = m.content
+                .filter((b: any) => b.type === 'text')
+                .map((b: any) => b.text)
+                .join('\n');
+            }
+            // content is null when assistant only has tool_calls — skip or show placeholder
+            return {
+              id: m.id || `hist_${Date.now()}_${Math.random().toString(36).slice(2)}`,
+              role: m.role as 'user' | 'assistant',
+              content,
+              timestamp: m.timestamp ? new Date(m.timestamp).getTime() : Date.now(),
+            };
+          })
+          .filter((m: any) => m.content); // Drop empty-content messages (pure tool_calls)
+        // syncHistory only emits if data actually changed
+        streamManager.syncHistory(sessionId, chatMessages);
+      })
+      .catch(() => {
+        // Silent — don't block the UI
+      });
   },
 
   openTab: (sessionId: string) => {
@@ -184,7 +199,7 @@ export const useSession = create<SessionState>((set, get) => ({
       currentWorkspace &&
       workspace &&
       normalizePathForCompare(workspace) ===
-        normalizePathForCompare(currentWorkspace);
+      normalizePathForCompare(currentWorkspace);
     if (workspace && !isSameWorkspace) {
       useWorkspace.getState().setRootPath(workspace);
     }
