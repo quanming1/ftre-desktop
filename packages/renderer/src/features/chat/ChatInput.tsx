@@ -79,7 +79,7 @@ export function ChatInput() {
   const inputEditor = useMemo(() => new ChatInputEditor(), []);
 
   // 细粒度选择器：仅订阅各自需要的字段，避免无关状态变化触发重渲染
-  const isStreaming = useChat((s) => s.isStreaming);
+  const isBusy = useChat((s) => s.isBusy);
   const retryState = useChat((s) => s.retryState);
   const [retryExpanded, setRetryExpanded] = useState(false);
   const workspace = useWorkspace((s) => s.rootPath);
@@ -147,7 +147,7 @@ export function ChatInput() {
   // ── 发送 ──
   const handleSend = useCallback(async () => {
     const state = useChat.getState();
-    if (state.isStreaming) return;
+    if (state.isBusy) return;
     const { text, codeRefs, archiveRefs, skillRefs, parts } =
       inputEditor.serialize();
     if (
@@ -349,7 +349,7 @@ export function ChatInput() {
               </button>
               <TokenRing />
               <div className="w-px h-3.5 bg-white/[0.08] mx-0.5" />
-              {isStreaming ? (
+              {isBusy ? (
                 <button
                   onClick={handleCancel}
                   className="h-9 w-9 flex items-center justify-center rounded-lg bg-danger/12 text-danger hover:bg-danger/25 transition-colors"

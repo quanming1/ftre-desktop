@@ -6,11 +6,12 @@
  */
 
 import { useState } from "react";
-import { Settings, Keyboard, Palette, Monitor, Code2, Bot, ChevronRight, Cpu } from "lucide-react";
+import { Settings, Keyboard, Palette, Monitor, Code2, Bot, ChevronRight, Cpu, Wifi } from "lucide-react";
 import { AgentDefSettings } from "./AgentDefSettings";
 import { ModelSettings } from "./ModelSettings";
+import { GatewaySettings } from "./GatewaySettings";
 
-type SettingsView = "home" | "agents" | "models";
+type SettingsView = "home" | "agents" | "models" | "gateway";
 
 interface SettingsCategoryProps {
   icon: React.ReactNode;
@@ -91,6 +92,27 @@ export function SettingsPanel() {
     );
   }
 
+  if (view === "gateway") {
+    return (
+      <div className="h-full overflow-auto bg-surface">
+        <div className="max-w-[800px] mx-auto p-8">
+          {/* Back to home */}
+          <button
+            onClick={() => setView("home")}
+            className="flex items-center gap-2 text-[13px] text-t-muted hover:text-t-primary mb-6 transition-colors"
+          >
+            <Settings size={14} />
+            <span>Settings</span>
+            <ChevronRight size={14} />
+            <span className="text-t-primary">Gateway</span>
+          </button>
+
+          <GatewaySettings />
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="h-full overflow-auto bg-surface">
       <div className="max-w-[800px] mx-auto p-8">
@@ -150,6 +172,13 @@ export function SettingsPanel() {
             title="Models"
             description="Configure AI providers and model settings."
             onClick={() => setView("models")}
+          />
+
+          <SettingsCategory
+            icon={<Wifi size={18} />}
+            title="Gateway"
+            description="Configure AI backend (ai-base gateway) connection address."
+            onClick={() => setView("gateway")}
           />
         </div>
 

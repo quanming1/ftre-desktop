@@ -5,6 +5,7 @@ export type BottomTab = 'terminal' | 'problems' | 'output';
 
 export type SplitMode = 'ai-center' | 'code-center';
 export type PanelId = 'sessions' | 'sidebar' | 'editor' | 'chat';
+export type LayoutMode = 'chat' | 'agent';
 
 const STORAGE_KEY = 'ftre-layout-state';
 
@@ -35,6 +36,7 @@ interface PersistedLayoutData {
     panelOrder: PanelId[];      // panel arrangement from left to right
     panelVisible: Record<PanelId, boolean>;  // visibility of each panel
     autoFollowFiles: boolean;
+    layoutMode: LayoutMode;     // 'chat' or 'agent' layout mode
 }
 
 export interface LayoutState extends PersistedLayoutData {
@@ -54,6 +56,7 @@ export interface LayoutState extends PersistedLayoutData {
     setPanelOrder: (order: PanelId[]) => void;
     togglePanelVisible: (panel: PanelId) => void;
     toggleAutoFollowFiles: () => void;
+    setLayoutMode: (mode: LayoutMode) => void;
 
     /** 终端浮动窗口（运行时状态，不持久化） */
     terminalDropdownOpen: boolean;
@@ -76,6 +79,22 @@ const DEFAULT_PANEL_VISIBLE: Record<PanelId, boolean> = {
     chat: true,
 };
 
+const DEFAULT_LAYOUT_MODE: LayoutMode = 'chat';
+
+const MODE_CONFIGS: Record<LayoutMode, {
+    panelOrder: PanelId[];
+    panelVisible: Record<PanelId, boolean>;
+}> = {
+    chat: {
+        panelOrder: ['sessions', 'sidebar', 'editor', 'chat'],
+        panelVisible: { sessions: true, sidebar: true, editor: true, chat: true },
+    },
+    agent: {
+        panelOrder: ['sessions', 'chat'],
+        panelVisible: { sessions: true, sidebar: false, editor: false, chat: true },
+    },
+};
+
 const defaults: PersistedLayoutData = {
     activeSidebarView: 'explorer',
     sidebarWidth: 220,
@@ -90,6 +109,7 @@ const defaults: PersistedLayoutData = {
     panelOrder: DEFAULT_PANEL_ORDER,
     panelVisible: DEFAULT_PANEL_VISIBLE,
     autoFollowFiles: true,
+    layoutMode: DEFAULT_LAYOUT_MODE,
 };
 
 function getPersistedData(state: LayoutState): PersistedLayoutData {
@@ -107,6 +127,7 @@ function getPersistedData(state: LayoutState): PersistedLayoutData {
         panelOrder: state.panelOrder,
         panelVisible: state.panelVisible,
         autoFollowFiles: state.autoFollowFiles,
+        layoutMode: state.layoutMode,
     };
 }
 
@@ -153,6 +174,15 @@ export const useLayout = create<LayoutState>((set, get) => ({
                 // Migrate panelVisible if not present
                 if (!parsed.panelVisible) {
                     parsed.panelVisible = DEFAULT_PANEL_VISIBLE;
+                }
+                // Migrate layoutMode if not present
+                if (!parsed.layoutMode) {
+                    // Infer from old panelVisible state
+                    if (parsed.panelVisible?.sidebar === false && parsed.panelVisible?.editor === false) {
+                        parsed.layoutMode = 'agent';
+                    } else {
+                        parsed.layoutMode = 'chat';
+                    }
                 }
                 set({ ...defaults, ...parsed });
             }
@@ -235,6 +265,16 @@ export const useLayout = create<LayoutState>((set, get) => ({
 
     toggleAutoFollowFiles: () => {
         set({ autoFollowFiles: !get().autoFollowFiles });
+        get().persist();
+    },
+
+    setLayoutMode: (mode) => {
+        const config = MODE_CONFIGS[mode];
+        set({
+            layoutMode: mode,
+            panelOrder: config.panelOrder,
+            panelVisible: config.panelVisible,
+        });
         get().persist();
     },
 

@@ -1,9 +1,5 @@
 import { memo, useCallback, useState, useRef } from "react";
-import type {
-  MessagePart,
-  ArchiveRefData,
-  SkillRefData,
-} from "@/types/chat";
+import type { MessagePart, ArchiveRefData, SkillRefData } from "@/types/chat";
 import type { ChatMessage as WsChatMessage } from "@/services/ws-stream-manager";
 
 /** Extended message type for UserMessage — supports both WS messages and legacy rich messages */
@@ -165,7 +161,7 @@ export const UserMessage = memo(
   function UserMessage({ message }: { message: ChatMessage }) {
     const hasParts = message.parts && message.parts.length > 0;
     const sessionId = useChat((s) => s.sessionId);
-    const isStreaming = useChat((s) => s.isStreaming);
+    const isBusy = useChat((s) => s.isBusy);
 
     const [isHovered, setIsHovered] = useState(false);
     const [isLoadingPreview, setIsLoadingPreview] = useState(false);
@@ -182,8 +178,8 @@ export const UserMessage = memo(
 
     const messageRef = useRef<HTMLDivElement>(null);
 
-    // 检查是否可以回滚（不在流式输出中，有 sessionId）
-    const canRollback = !isStreaming && !!sessionId;
+    // 检查是否可以回滚（不在处理中，有 sessionId）
+    const canRollback = !isBusy && !!sessionId;
 
     // 检查是否可以 Fork（消息有 archive_id）
     const archiveId = message.metadata?.archive_id as string | undefined;

@@ -15,6 +15,9 @@ beforeEach(() => {
         activeBottomTab: 'terminal',
         minimapEnabled: false,
         splitMode: 'ai-center',
+        layoutMode: 'chat',
+        panelOrder: ['sessions', 'sidebar', 'editor', 'chat'],
+        panelVisible: { sessions: true, sidebar: true, editor: true, chat: true },
     });
 });
 
@@ -290,5 +293,86 @@ describe('layout store — range clamping', () => {
     it('setBottomPanelHeight clamps to max 500', () => {
         useLayout.getState().setBottomPanelHeight(900);
         expect(useLayout.getState().bottomPanelHeight).toBe(500);
+    });
+});
+
+describe('layout store — layoutMode (VAC tests)', () => {
+    // VAC-1: Default mode is Chat
+    it('VAC-1: defaults to chat mode', () => {
+        const s = useLayout.getState();
+        expect(s.layoutMode).toBe('chat');
+    });
+
+    // VAC-2: Agent mode shows only Sessions and Chat
+    it('VAC-2: setLayoutMode to agent hides sidebar and editor', () => {
+        useLayout.getState().setLayoutMode('agent');
+        const s = useLayout.getState();
+        expect(s.layoutMode).toBe('agent');
+        expect(s.panelOrder).toEqual(['sessions', 'chat']);
+        expect(s.panelVisible.sessions).toBe(true);
+        expect(s.panelVisible.sidebar).toBe(false);
+        expect(s.panelVisible.editor).toBe(false);
+        expect(s.panelVisible.chat).toBe(true);
+    });
+
+    // VAC-3: Chat mode shows all four panels
+    it('VAC-3: setLayoutMode to chat shows all panels', () => {
+        // First switch to agent mode
+        useLayout.getState().setLayoutMode('agent');
+        // Then switch back to chat mode
+        useLayout.getState().setLayoutMode('chat');
+        const s = useLayout.getState();
+        expect(s.layoutMode).toBe('chat');
+        expect(s.panelOrder).toEqual(['sessions', 'sidebar', 'editor', 'chat']);
+        expect(s.panelVisible.sessions).toBe(true);
+        expect(s.panelVisible.sidebar).toBe(true);
+        expect(s.panelVisible.editor).toBe(true);
+        expect(s.panelVisible.chat).toBe(true);
+    });
+
+    // VAC-4: Mode persists after refresh
+    it('VAC-4: setLayoutMode auto-persists', () => {
+        useLayout.getState().setLayoutMode('agent');
+        vi.advanceTimersByTime(300);
+        const stored = JSON.parse(localStorage.getItem('ftre-layout-state')!);
+        expect(stored.layoutMode).toBe('agent');
+    });
+
+    it('VAC-4: layoutMode restores correctly', () => {
+        useLayout.getState().setLayoutMode('agent');
+        vi.advanceTimersByTime(300);
+        // Reset store
+        useLayout.setState({ layoutMode: 'chat' });
+        // Restore from localStorage
+        useLayout.getState().restore();
+        expect(useLayout.getState().layoutMode).toBe('agent');
+    });
+
+    // VAC-7: Legacy data migration
+    it('VAC-7: restore without layoutMode defaults to chat', () => {
+        localStorage.setItem('ftre-layout-state', JSON.stringify({
+            sidebarWidth: 300,
+            panelVisible: { sessions: true, sidebar: true, editor: true, chat: true },
+        }));
+        useLayout.getState().restore();
+        expect(useLayout.getState().layoutMode).toBe('chat');
+    });
+
+    it('VAC-7: restore infers agent mode from panelVisible', () => {
+        localStorage.setItem('ftre-layout-state', JSON.stringify({
+            sidebarWidth: 300,
+            panelVisible: { sessions: true, sidebar: false, editor: false, chat: true },
+        }));
+        useLayout.getState().restore();
+        expect(useLayout.getState().layoutMode).toBe('agent');
+    });
+
+    it('VAC-7: restore preserves existing layoutMode', () => {
+        localStorage.setItem('ftre-layout-state', JSON.stringify({
+            layoutMode: 'agent',
+            panelVisible: { sessions: true, sidebar: true, editor: true, chat: true },
+        }));
+        useLayout.getState().restore();
+        expect(useLayout.getState().layoutMode).toBe('agent');
     });
 });

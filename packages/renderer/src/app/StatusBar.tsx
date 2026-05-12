@@ -1,10 +1,12 @@
 import { useState, useCallback, useEffect, useRef } from "react";
-import { AlertTriangle, XCircle, MemoryStick } from "lucide-react";
+import { AlertTriangle, XCircle, MemoryStick, Wifi, WifiOff, RefreshCw } from "lucide-react";
 import { useEditor } from "@/stores/editor";
 import { useWorkspace } from "@/stores/workspace";
 import { useDiagnostics } from "@/stores/diagnostics";
 import { useMemoryMonitor, formatBytes } from "@/services/memory-monitor";
 import { MemoryMonitorPanel } from "@/features/memory/MemoryMonitorPanel";
+import { useWsStatus } from "@/stores/chat";
+import { wsClient } from "@/services/websocket-client";
 
 /** Format cursor position as "Ln {line}, Col {col}" */
 export function formatCursorPosition(line: number, col: number): string {
@@ -141,6 +143,51 @@ function LanguageSelector({
   );
 }
 
+/** Gateway connection status indicator */
+function GatewayStatus() {
+  const wsStatus = useWsStatus();
+
+  const handleClick = () => {
+    if (wsStatus !== 'connected') {
+      wsClient.reconnect();
+    }
+  };
+
+  if (wsStatus === 'connected') {
+    return (
+      <span className="flex items-center gap-1 text-green-400" title="AI 后端已连接">
+        <Wifi size={13} />
+        <span>已连接</span>
+      </span>
+    );
+  }
+
+  if (wsStatus === 'reconnecting' || wsStatus === 'connecting') {
+    return (
+      <span
+        className="flex items-center gap-1 text-yellow-400 cursor-pointer hover:text-yellow-300"
+        title="正在连接 AI 后端..."
+        onClick={handleClick}
+      >
+        <RefreshCw size={13} className="animate-spin" />
+        <span>连接中</span>
+      </span>
+    );
+  }
+
+  // disconnected
+  return (
+    <span
+      className="flex items-center gap-1 text-red-400 cursor-pointer hover:text-red-300"
+      title="未连接 AI 后端，点击重连"
+      onClick={handleClick}
+    >
+      <WifiOff size={13} />
+      <span>未连接</span>
+    </span>
+  );
+}
+
 export function StatusBar() {
   const [cursorLine, setCursorLine] = useState(1);
   const [cursorCol, setCursorCol] = useState(1);
@@ -198,7 +245,7 @@ export function StatusBar() {
       className="h-[var(--statusbar-height)] bg-base border-t border-border flex items-center justify-between px-3 text-[12px] font-mono"
       data-testid="status-bar"
     >
-      {/* Left side: diagnostics */}
+      {/* Left side: diagnostics + gateway status */}
       <div className="flex items-center gap-3.5 text-t-dim">
         <span className="flex items-center gap-2.5" data-testid="diagnostics">
           <span className="flex items-center gap-1">
@@ -210,6 +257,7 @@ export function StatusBar() {
             {warningCount}
           </span>
         </span>
+        <GatewayStatus />
       </div>
 
       {/* Right side: memory indicator, cursor position, indent, encoding, EOL, language */}

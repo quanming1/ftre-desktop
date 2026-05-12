@@ -15,15 +15,16 @@
     ]
   },
   "scripts": {
-    "dev": "concurrently \"pnpm --filter @ftre/shared dev\" \"pnpm --filter @ftre/editor dev\" \"pnpm --filter @ftre/electron dev\" \"pnpm --filter @ftre/renderer dev\" \"wait-on http://localhost:5173 && electron packages/electron/dist/main.js\"",
-    "build": "pnpm --filter @ftre/shared build && pnpm --filter @ftre/editor build && pnpm --filter @ftre/electron build && pnpm --filter @ftre/renderer build",
+    "dev": "concurrently \"pnpm --filter @ftre/shared dev\" \"pnpm --filter @ftre/ui dev\" \"pnpm --filter @ftre/editor dev\" \"pnpm --filter @ftre/electron dev\" \"pnpm --filter @ftre/renderer dev\" \"wait-on http://127.0.0.1:50000 && electron packages/electron/dist/main.js\"",
+    "build": "pnpm --filter @ftre/shared build && pnpm --filter @ftre/ui build && pnpm --filter @ftre/editor build && pnpm --filter @ftre/electron build && pnpm --filter @ftre/renderer build",
     "clean": "pnpm --filter @ftre/shared clean && pnpm --filter @ftre/editor clean && pnpm --filter @ftre/electron clean && pnpm --filter @ftre/renderer clean && rm -rf node_modules",
     "pack": "npm run build && electron-builder --win --dir",
-    "pack:full": "npm run build && npm run bundle-backend && electron-builder --win --dir -c electron-builder-full.json",
-    "pack:quick": "npm run bundle-backend && electron-builder --win --dir -c electron-builder-full.json",
+    "pack:full": "npm run build && electron-builder --win --dir -c electron-builder-full.json",
+    "pack:quick": "electron-builder --win --dir -c electron-builder-full.json",
     "dist": "npm run build && electron-builder --win",
-    "dist:full": "npm run build && npm run bundle-backend && electron-builder --win -c electron-builder-full.json",
-    "dist:quick": "npm run bundle-backend && electron-builder --win -c electron-builder-full.json",
+    "dist:full": "npm run build && electron-builder --win -c electron-builder-full.json",
+    "dist:quick": "electron-builder --win -c electron-builder-full.json",
+    "rebuild": "electron-rebuild -f -w node-pty",
     "bundle-backend": "node scripts/bundle-backend.js",
     "bundle-backend:clean": "node scripts/bundle-backend.js --clean",
     "test": "pnpm --filter @ftre/renderer test"
@@ -43,6 +44,7 @@
     "files": [
       "packages/electron/dist/**/*",
       "packages/renderer/dist/**/*",
+      "packages/shared/dist/**/*",
       "node_modules/node-pty/**/*",
       "package.json"
     ],
@@ -50,12 +52,13 @@
       "node_modules/node-pty/**/*"
     ],
     "win": {
-      "target": "nsis",
-      "icon": null
+      "target": "nsis"
     },
     "nsis": {
       "oneClick": false,
-      "allowToChangeInstallationDirectory": true
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true
     },
     "npmRebuild": false,
     "electronDist": "node_modules/electron/dist"
