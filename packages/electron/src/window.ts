@@ -2,7 +2,7 @@ import { BrowserWindow } from 'electron';
 import * as path from 'path';
 import { isDev } from './app-state';
 
-const VITE_DEV_URL = 'http://localhost:5173';
+const VITE_DEV_URL = 'http://localhost:50000';
 
 export function createWindow(): BrowserWindow {
   const mainWindow = new BrowserWindow({

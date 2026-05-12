@@ -6,33 +6,31 @@
   },
   "files": [
     "packages/electron/dist/**/*",
-    "node_modules/node-pty/**/*",
     "packages/renderer/dist/**/*",
+    "packages/shared/dist/**/*",
+    "node_modules/node-pty/**/*",
     "package.json"
   ],
-
+  "asarUnpack": ["node_modules/node-pty/**/*"],
   "extraResources": [
     {
-      "from": "backend",
-      "to": "backend",
-      "filter": ["**/*", "!**/__pycache__/**", "!**/*.pyc"]
+      "from": "scripts/start-gateway.bat",
+      "to": "start-gateway.bat"
     }
   ],
-  "asarUnpack": ["node_modules/node-pty/**/*"],
   "win": {
     "target": [
       {
         "target": "nsis",
         "arch": ["x64"]
       }
-    ],
-    "icon": null
+    ]
   },
   "nsis": {
     "oneClick": false,
     "allowToChangeInstallationDirectory": true,
-    "installerIcon": null,
-    "uninstallerIcon": null
+    "createDesktopShortcut": true,
+    "createStartMenuShortcut": true
   },
   "npmRebuild": false,
   "electronDist": "node_modules/electron/dist"

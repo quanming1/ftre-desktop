@@ -1,5 +1,13 @@
 /**
- * Chat store — syncs state from ws-stream-manager.
+ * Chat store — syncs state from ws-stream-manager (Protocol v2).
+ *
+ * DESIGN: This store owns `activeChatId` — the single source of truth for
+ * which chat the UI is displaying. The stream manager emits data for ALL chats,
+ * and this store filters to only propagate the active one to React.
+ *
+ * `activeChatId` changes only via:
+ * - switchChat() — user explicitly picks a chat
+ * - onFocus callback — server assigns a chat (session.ready, new session)
  */
 import { create } from "zustand";
 import { useShallow } from "zustand/shallow";
@@ -7,9 +15,14 @@ import {
   streamManager,
   type ChatMessage,
   type ChatSession,
+  type ToolCall,
+  type ProgressHint,
 } from "@/services/ws-stream-manager";
+import type { WsConnectionStatus } from "@/services/websocket-client";
+import type { MediaItem } from "@/services/ws-protocol";
 
-/** Retry state — placeholder for future WS-based retry */
+export type { ChatMessage, ToolCall, ProgressHint };
+
 export interface RetryState {
   attempt: number;
   maxAttempts: number;
@@ -20,23 +33,25 @@ export type ChatMode = "chat" | "plan";
 
 interface ChatState {
   messages: ChatMessage[];
-  isStreaming: boolean;
+  toolCalls: ToolCall[];
+  progress: ProgressHint | null;
+  isBusy: boolean;
   error: string | null;
   activeChatId: string | null;
-  /** Alias for activeChatId — backwards compatibility */
   sessionId: string | null;
   connected: boolean;
+  wsStatus: WsConnectionStatus;
   model: string | null;
   agentId: string;
   mode: ChatMode;
   retryState: RetryState | null;
   contextTokens: number;
 
-  // Actions
-  sendMessage: (content: string) => void;
+  sendMessage: (content: string, media?: MediaItem[]) => void;
   newChat: () => void;
   switchChat: (chatId: string) => void;
   setConnected: (v: boolean) => void;
+  setWsStatus: (status: WsConnectionStatus) => void;
   setModel: (model: string | null) => void;
   setAgentId: (id: string) => void;
   setMode: (mode: ChatMode) => void;
@@ -44,33 +59,61 @@ interface ChatState {
 }
 
 export const useChat = create<ChatState>((set, get) => {
-  // Subscribe to stream manager changes
+  // ─── Data updates: propagate session state to React ─────────────
   streamManager.onChange((session: ChatSession) => {
+    const active = get().activeChatId;
+    // Only update UI state if this session is the one we're displaying
+    if (active && session.chatId !== active) {
+      return;
+    }
     set({
       messages: [...session.messages],
-      isStreaming: session.isStreaming,
+      toolCalls: [...session.toolCalls],
+      progress: session.progress,
+      isBusy: session.isBusy,
       error: session.error,
       activeChatId: session.chatId,
       sessionId: session.chatId,
     });
   });
 
+  // ─── Focus changes: update which chat is displayed ──────────────
+  streamManager.onFocus((chatId: string) => {
+    const current = get().activeChatId;
+    if (chatId === current) return;
+
+    // Switch to the newly focused chat and load its current state
+    const session = streamManager.getSession(chatId);
+    set({
+      activeChatId: chatId,
+      sessionId: chatId,
+      messages: [...session.messages],
+      toolCalls: [...session.toolCalls],
+      progress: session.progress,
+      isBusy: session.isBusy,
+      error: session.error,
+    });
+  });
+
   return {
     messages: [],
-    isStreaming: false,
+    toolCalls: [],
+    progress: null,
+    isBusy: false,
     error: null,
     activeChatId: null,
     sessionId: null,
     connected: false,
+    wsStatus: "disconnected" as WsConnectionStatus,
     model: localStorage.getItem("selectedModel") || null,
     agentId: "code_agent",
     mode: "chat",
     retryState: null,
     contextTokens: 0,
 
-    sendMessage: (content: string) => {
-      if (!content.trim()) return;
-      streamManager.sendMessage(content);
+    sendMessage: (content: string, media?: MediaItem[]) => {
+      if (!content.trim() && (!media || media.length === 0)) return;
+      streamManager.sendMessage(content, media);
     },
 
     newChat: () => {
@@ -78,10 +121,15 @@ export const useChat = create<ChatState>((set, get) => {
     },
 
     switchChat: (chatId: string) => {
+      // streamManager.switchChat will emit both focus and change events.
+      // Our onFocus/onChange handlers will sync the store state.
       streamManager.switchChat(chatId);
     },
 
     setConnected: (v: boolean) => set({ connected: v }),
+
+    setWsStatus: (status: WsConnectionStatus) =>
+      set({ wsStatus: status, connected: status === "connected" }),
 
     setModel: (model: string | null) => {
       localStorage.setItem("selectedModel", model || "");
@@ -90,12 +138,14 @@ export const useChat = create<ChatState>((set, get) => {
 
     setAgentId: (id: string) => set({ agentId: id }),
 
-    setMode: (mode: ChatMode) => set({ mode }),
+    setMode: (mode) => set({ mode }),
 
     clearMessages: () => {
       set({
         messages: [],
-        isStreaming: false,
+        toolCalls: [],
+        progress: null,
+        isBusy: false,
         error: null,
         activeChatId: null,
         sessionId: null,
@@ -107,37 +157,40 @@ export const useChat = create<ChatState>((set, get) => {
   };
 });
 
-// ── Selector Hooks ──
+// ─── Selectors ──────────────────────────────────────────────────────
 
-/** 获取消息 ID 列表（使用 shallow 比较避免不必要的重渲染） */
 export const useMessageIds = (): string[] =>
   useChat(useShallow((s) => s.messages.map((m) => m.id)));
 
-/** 根据 ID 获取单条消息 */
 export const useMessageById = (id: string) =>
   useChat((s) => s.messages.find((m) => m.id === id));
 
-/** 获取流式状态 */
-export const useIsStreaming = () => useChat((s) => s.isStreaming);
+/** @deprecated Use useIsBusy instead */
+export const useIsStreaming = () => useChat((s) => s.isBusy);
 
-/** 获取当前模型 */
+export const useIsBusy = () => useChat((s) => s.isBusy);
+
 export const useModel = () => useChat((s) => s.model);
 
-/** 获取当前会话 ID */
 export const useSessionId = () => useChat((s) => s.activeChatId);
 
-/** 获取当前 Agent ID */
 export const useAgentId = () => useChat((s) => s.agentId);
 
-/** 获取当前聊天模式 */
 export const useMode = () => useChat((s) => s.mode);
 
-/** 获取上下文 token 数量 */
 export const useContextTokens = () => useChat((s) => s.contextTokens);
 
-/** 获取当前流式消息 ID (last streaming msg) */
 export const useStreamingMessageId = () =>
   useChat((s) => {
     const streaming = s.messages.find((m) => m.streaming);
     return streaming?.id ?? null;
   });
+
+export const useWsStatus = () => useChat((s) => s.wsStatus);
+
+export const useToolCalls = () => useChat((s) => s.toolCalls);
+
+export const useToolCallById = (callId: string) =>
+  useChat((s) => s.toolCalls.find((t) => t.call_id === callId));
+
+export const useProgress = () => useChat((s) => s.progress);

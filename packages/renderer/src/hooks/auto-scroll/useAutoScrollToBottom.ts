@@ -8,6 +8,8 @@ const WHEEL_DEBOUNCE_MS = 200;
 const FORCE_LOCK_DISTANCE = 100;
 /** 距离底部多少像素以内视为"已到底"，用于处理亚像素精度问题 */
 const SNAP_TO_BOTTOM_THRESHOLD = 10;
+/** 滚动重试最大次数，防止无限循环 */
+const MAX_SCROLL_RETRIES = 5;
 
 export function useAutoScrollToBottom(
   deps?: React.DependencyList,
@@ -35,23 +37,53 @@ export function useAutoScrollToBottom(
     },
   });
 
+  // 滚动重试 RAF ID，用于取消
+  const scrollRetryRaf = useRef<number | null>(null);
+
   const scrollToBottom = useCallback((behavior: ScrollBehavior = 'instant') => {
     const container = containerRef.current;
     if (!container || !autoScrollLock.current) return;
 
-    const { scrollTop, scrollHeight, clientHeight } = container;
-    const distanceFromBottom = scrollHeight - scrollTop - clientHeight;
+    // 取消之前的重试链，避免累积
+    if (scrollRetryRaf.current) {
+      cancelAnimationFrame(scrollRetryRaf.current);
+      scrollRetryRaf.current = null;
+    }
 
-    // 距离底部很近时强制用 instant，避免 smooth 动画因距离太短而不生效或被打断
-    const effectiveBehavior =
-      distanceFromBottom > 0 && distanceFromBottom <= SNAP_TO_BOTTOM_THRESHOLD
-        ? 'instant'
-        : behavior;
+    let retryCount = 0;
+    let lastScrollHeight = 0;
 
-    container.scrollTo({
-      top: container.scrollHeight,
-      behavior: effectiveBehavior,
-    });
+    const attemptScroll = () => {
+      if (!container || !autoScrollLock.current) return;
+
+      const { scrollHeight, scrollTop, clientHeight } = container;
+      const distanceFromBottom = scrollHeight - scrollTop - clientHeight;
+
+      // 执行滚动
+      container.scrollTo({ top: scrollHeight, behavior: 'instant' });
+
+      // 使用 RAF 延迟检查，等待布局更新
+      scrollRetryRaf.current = requestAnimationFrame(() => {
+        scrollRetryRaf.current = null;
+        if (!container || !autoScrollLock.current) return;
+
+        const newScrollHeight = container.scrollHeight;
+        const newDistance = newScrollHeight - container.scrollTop - container.clientHeight;
+
+        // 如果 scrollHeight 变化了（内容还在渲染）或者还没到底部，则重试
+        const heightChanged = newScrollHeight !== lastScrollHeight;
+        const notAtBottom = newDistance > SNAP_TO_BOTTOM_THRESHOLD;
+
+        if ((heightChanged || notAtBottom) && retryCount < MAX_SCROLL_RETRIES) {
+          lastScrollHeight = newScrollHeight;
+          retryCount++;
+          // 下一帧再次尝试
+          scrollRetryRaf.current = requestAnimationFrame(attemptScroll);
+        }
+      });
+    };
+
+    attemptScroll();
   }, []);
 
   /** 强制重置锁状态（用于"新一轮对话开始"等场景） */
@@ -92,6 +124,16 @@ export function useAutoScrollToBottom(
       container.removeEventListener('scroll', handleScroll);
     };
   }, [containerRef.current]);
+
+  // 清理滚动重试 RAF
+  useEffect(() => {
+    return () => {
+      if (scrollRetryRaf.current) {
+        cancelAnimationFrame(scrollRetryRaf.current);
+        scrollRetryRaf.current = null;
+      }
+    };
+  }, []);
 
   // 稳定 ref 引用，避免每次渲染都创建新 callback 导致下游 mergedRef 重建
   // eslint-disable-next-line react-hooks/exhaustive-deps

@@ -9,7 +9,7 @@ import { useScheduledTaskStore } from '@/stores/scheduled-task';
 import { useWorkspace } from '@/stores/workspace';
 import { useChat } from '@/stores/chat';
 import type { TaskItem } from '@/services/api';
-import { fetchChatAgents, updateScheduledTask, type ChatAgent } from '@/services/api';
+import { fetchChatAgents, updateScheduledTask, fetchLLMProviders, type ChatAgent } from '@/services/api';
 
 // ─── 辅助 ──────────────────────────────────────────────────────────
 
@@ -191,7 +191,7 @@ function CreateForm() {
 
     useEffect(() => {
         setProvidersLoading(true);
-        fetch('http://localhost:9988/providers').then((r) => r.json()).then((d) => setProviders(d.providers || [])).catch(() => {}).finally(() => setProvidersLoading(false));
+        fetchLLMProviders().then((data) => setProviders(data.map((p: any) => ({ vendor: p.vendor, models: p.models || {} })))).catch(() => {}).finally(() => setProvidersLoading(false));
     }, []);
 
     const handleSubmit = async () => { setError(''); const r = await submit(); if (r.error) setError(r.error); };
@@ -392,7 +392,7 @@ function EditTab({ task }: { task: TaskItem }) {
 
     useEffect(() => {
         setProvidersLoading(true);
-        fetch('http://localhost:9988/providers').then((r) => r.json()).then((d) => setProviders(d.providers || [])).catch(() => {}).finally(() => setProvidersLoading(false));
+        fetchLLMProviders().then((data) => setProviders(data.map((p: any) => ({ vendor: p.vendor, models: p.models || {} })))).catch(() => {}).finally(() => setProvidersLoading(false));
     }, []);
 
     const agentOpts: DropdownOption[] = agents.map((a) => ({ value: a.id, label: a.name, description: a.id }));
