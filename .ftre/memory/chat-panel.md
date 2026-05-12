@@ -258,6 +258,27 @@ useEffect(() => {
 - 文字标签默认隐藏（`hidden`），保持简洁默认状态
 - hover 整行时所有按钮的文字标签同时显示
 
+### Hover 抖动问题修复
+
+**问题**：按钮 hover 时会出现上下抖动。
+
+**原因**：文字从隐藏变为显示时，按钮宽度变化导致布局抖动。
+
+**解决方案**：
+1. 固定显示文字（不隐藏）
+2. 使用 `min-w-[60px]` 固定按钮最小宽度
+
+```tsx
+{/* 修复后的按钮 - 文字始终显示，固定宽度避免抖动 */}
+<button
+  onClick={handleCopy}
+  className="flex items-center gap-1.5 px-2 py-1 min-w-[60px] text-[12px] text-t-ghost hover:text-t-secondary rounded-md hover:bg-white/[0.06] transition-all"
+>
+  {copied ? <Check size={14} className="text-green-500" /> : <Copy size={14} />}
+  <span>复制</span>
+</button>
+```
+
 ### RenderUnit 标记
 
 `MessageList.tsx` 通过 `isLastTurn` 区分历史轮次和最后一轮：
@@ -451,8 +472,13 @@ UserMessage:hover 显示 Fork 按钮
 - **session_status_change 刷新时机**：只在用户当前处于该 session 时才刷新 messageList，避免不必要的重渲染
 - **session_created 必须使用 loadAllSessions**：`SessionPanel` 使用 `allSessions` 状态，调用 `loadSessions()` 只更新 `sessions` 状态，导致 UI 不更新
 - **DiffSummaryCard 按钮交互**：采用 `group-hover` 实现 hover 展开文字标签，替代 Tooltip，增大点击区域的同时保持界面简洁
+- **DiffSummaryCard 按钮抖动修复**：使用 `min-w-[60px]` 固定按钮最小宽度，避免文字显示/隐藏导致的布局抖动
 
 ## 历史变更
+
+- **2025-04**: DiffSummaryCard 按钮抖动修复
+  - 从 `group-hover:inline` 改为固定显示文字
+  - 添加 `min-w-[60px]` 固定按钮最小宽度，消除 hover 抖动
 
 - **2025-04**: 优化 DiffSummaryCard 按钮交互
   - 从固定尺寸按钮（`w-7 h-7`）改为内边距布局（`px-2 py-1`）

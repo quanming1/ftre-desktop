@@ -1,9 +1,23 @@
-import { useEffect, useLayoutEffect, useRef, memo, useMemo, useCallback } from "react";
-import { useMessageById, useIsStreaming, useChat } from "@/stores/chat";
+import {
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  memo,
+  useMemo,
+  useCallback,
+} from "react";
+import {
+  useMessageById,
+  useIsBusy,
+  useChat,
+  useToolCalls,
+  useProgress,
+} from "@/stores/chat";
 import { useAutoScrollToBottom } from "@/hooks/auto-scroll";
 import type { ChatMessage } from "@/services/ws-stream-manager";
 import { UserMessage } from "./UserMessage";
 import { AssistantMessage } from "./AssistantMessage";
+import { ToolCallList } from "./ToolCallCardV2";
 import { PixelLogo } from "@/components/PixelLogo";
 import { RotateCcw } from "lucide-react";
 
@@ -53,32 +67,47 @@ function groupMessages(messages: ChatMessage[]): RenderUnit[] {
 // 组件
 // ═══════════════════════════════════════════════════════════════════════
 
-const StreamingIndicator = memo(function StreamingIndicator() {
-  const isStreaming = useIsStreaming();
-  const lastMessageRole = useChat((s) => {
-    const msgs = s.messages;
-    return msgs.length > 0 ? msgs[msgs.length - 1].role : null;
-  });
+/** Progress indicator shown when agent is processing */
+const ProgressIndicator = memo(function ProgressIndicator() {
+  const progress = useProgress();
+  const isBusy = useIsBusy();
 
-  if (!isStreaming || !lastMessageRole || lastMessageRole !== "user") {
-    return null;
-  }
+  if (!isBusy) return null;
 
   return (
-    <div className="flex items-center gap-2">
+    <div className="flex items-center gap-2 py-1">
       <span className="text-[12px] text-neon/60 font-mono">ftre</span>
-      <div className="flex gap-[3px]">
-        {[0, 1, 2].map((i) => (
-          <div
-            key={i}
-            className="w-[4px] h-[4px] bg-neon"
-            style={{
-              animation: "thinking 1.2s ease-in-out infinite",
-              animationDelay: `${i * 0.2}s`,
-            }}
-          />
-        ))}
-      </div>
+      {progress ? (
+        <span className="text-[12px] text-t-secondary italic">
+          {progress.text}
+        </span>
+      ) : (
+        <div className="flex gap-[3px]">
+          {[0, 1, 2].map((i) => (
+            <div
+              key={i}
+              className="w-[4px] h-[4px] bg-neon"
+              style={{
+                animation: "thinking 1.2s ease-in-out infinite",
+                animationDelay: `${i * 0.2}s`,
+              }}
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+});
+
+/** Tool calls section shown during/after tool execution */
+const ToolCallsSection = memo(function ToolCallsSection() {
+  const toolCalls = useToolCalls();
+
+  if (toolCalls.length === 0) return null;
+
+  return (
+    <div className="mt-2">
+      <ToolCallList toolCalls={toolCalls} />
     </div>
   );
 });
@@ -97,7 +126,7 @@ function useStructuralFingerprint(): string {
 export function MessageList() {
   const fingerprint = useStructuralFingerprint();
   const activeChatId = useChat((s) => s.activeChatId);
-  const isStreaming = useIsStreaming();
+  const isBusy = useIsBusy();
 
   // 只在结构变化时重新分组
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -107,7 +136,9 @@ export function MessageList() {
   );
 
   // ① 核心 hook：deps=[activeChatId] 切换会话时重置锁
-  const { ref, scrollToBottom, resetLock } = useAutoScrollToBottom([activeChatId]);
+  const { ref, scrollToBottom, resetLock } = useAutoScrollToBottom([
+    activeChatId,
+  ]);
 
   // 统一滚动调度
   const scrollRafRef = useRef<number | null>(null);
@@ -120,13 +151,13 @@ export function MessageList() {
   }, [scrollToBottom]);
 
   // ② 新一轮流开始时重置锁
-  const prevStreaming = useRef(false);
+  const prevBusy = useRef(false);
   useEffect(() => {
-    if (isStreaming && !prevStreaming.current) {
+    if (isBusy && !prevBusy.current) {
       resetLock();
     }
-    prevStreaming.current = isStreaming;
-  }, [isStreaming, resetLock]);
+    prevBusy.current = isBusy;
+  }, [isBusy, resetLock]);
 
   // ③ MutationObserver
   const containerRef = useRef<HTMLElement | null>(null);
@@ -198,7 +229,7 @@ export function MessageList() {
           return (
             <div
               key={unit.type === "single" ? unit.id : unit.key}
-              style={getItemStyle(isLast && isStreaming)}
+              style={getItemStyle(isLast && isBusy)}
             >
               {unit.type === "ai_turn_start" ? (
                 <div className="mt-4 mb-1 flex items-center h-[20px]">
@@ -210,7 +241,10 @@ export function MessageList() {
             </div>
           );
         })}
-        <StreamingIndicator />
+        {/* Tool calls section */}
+        <ToolCallsSection />
+        {/* Progress indicator */}
+        <ProgressIndicator />
       </div>
     </div>
   );
@@ -224,7 +258,7 @@ const MessageItem = memo(function MessageItem({
   isLast?: boolean;
 }) {
   const message = useMessageById(messageId);
-  const isStreaming = useIsStreaming();
+  const isBusy = useIsBusy();
 
   if (!message) return null;
 
@@ -237,13 +271,13 @@ const MessageItem = memo(function MessageItem({
   if (message.role === "system") {
     return (
       <div className="flex flex-col gap-2">
-        <div className="text-[13px] text-danger p-3 bg-danger/[0.08] rounded-lg font-mono">
+        <div className="text-[13px] text-danger p-3 bg-danger/8 rounded-lg font-mono">
           {message.content}
         </div>
-        {isLast && !isStreaming && (
+        {isLast && !isBusy && (
           <button
             onClick={() => console.warn("retryLastMessage not yet implemented")}
-            className="inline-flex items-center gap-1.5 self-start px-3 py-1.5 text-xs text-t-secondary bg-white/[0.06] hover:bg-white/[0.10] rounded-lg transition-colors"
+            className="inline-flex items-center gap-1.5 self-start px-3 py-1.5 text-xs text-t-secondary bg-white/6 hover:bg-white/10 rounded-lg transition-colors"
           >
             <RotateCcw size={12} />
             重试

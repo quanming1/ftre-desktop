@@ -7,10 +7,11 @@
 | 文件 | 职责 |
 |------|------|
 | `packages/renderer/src/app/Workbench.tsx` | 布局容器，面板渲染、resize handle 管理 |
-| `packages/renderer/src/components/LayoutSwitcher.tsx` | 四面板切换按钮（在 TitleBar 顶部） |
+| `packages/renderer/src/components/LayoutSwitcher.tsx` | 面板切换按钮（在 TitleBar 顶部） |
 | `packages/renderer/src/app/TitleBar.tsx` | 承载 LayoutSwitcher，位于窗口顶部 |
 | `packages/ui/src/components/ResizeHandle.tsx` | 通用拖拽手柄组件，视觉反馈设计 |
 | `packages/renderer/src/stores/layout.ts` | PanelId 定义、`panelOrder` 状态管理 |
+| `docs/workbench-layout-mode-prd.md` | 布局模式 PRD 文档（设计决策与实现方案） |
 
 ## 面板布局结构
 
@@ -27,13 +28,77 @@
 - **弹性面板**: editor、chat，通过 `flex-grow` + `centerRatio` 比例分配剩余空间
 - **ResizeHandle**: 位于每个面板之后（最后一个面板不显示）
 
+## Layout Mode（双模式切换）
+
+> 从自由组合模式简化为 Chat/Agent 双模式，减少认知负担
+
+### PRD 文档
+
+完整的设计决策与实现方案见：`docs/workbench-layout-mode-prd.md`
+
+### 模式定义
+
+| 模式 | 面板顺序 | 适用场景 |
+|------|----------|----------|
+| **Chat** | sessions → sidebar → editor → chat | 代码开发（文件树 + 编辑器 + 对话） |
+| **Agent** | sessions → chat | AI 对话（专注对话流） |
+
+### 设计决策
+
+- **简化交互**: 移除拖拽排序，改为双按钮切换，降低认知负担
+- **固定布局**: 每种模式有预定义的面板组合和顺序，不支持自定义
+- **宽度保持**: 切换模式时保留各面板的宽度设置
+
+### 数据结构
+
+```typescript
+type LayoutMode = 'chat' | 'agent'
+type PanelId = 'sessions' | 'sidebar' | 'editor' | 'chat'
+
+// layout store
+{
+  layoutMode: LayoutMode;            // 当前模式
+  panelOrder: PanelId[];             // 由 layoutMode 决定，非用户可编辑
+  panelVisible: Record<PanelId, boolean>;  // 由 layoutMode 决定
+  sessionsWidth: number;
+  sidebarWidth: number;
+  centerRatio: number;               // editor:chat 比例，仅在 chat 模式有效
+}
+
+// 预定义配置 (MODE_CONFIGS in layout.ts)
+const MODE_CONFIGS: Record<LayoutMode, {
+  panelOrder: PanelId[];
+  panelVisible: Record<PanelId, boolean>;
+}> = {
+  chat: {
+    panelOrder: ['sessions', 'sidebar', 'editor', 'chat'],
+    panelVisible: { sessions: true, sidebar: true, editor: true, chat: true },
+  },
+  agent: {
+    panelOrder: ['sessions', 'chat'],
+    panelVisible: { sessions: true, sidebar: false, editor: false, chat: true },
+  },
+}
+```
+
+### 迁移策略
+
+旧版使用 `panelOrder` 和 `panelVisible` 存储用户自定义配置。迁移时（见 `restore()` 方法）：
+
+1. 检测 `layoutMode` 字段是否存在
+2. 若不存在，从 `panelVisible` 推断模式：
+   - 如果 `sidebar=false` 且 `editor=false` → 推断为 `'agent'` 模式
+   - 否则 → 默认为 `'chat'` 模式
+3. 保留 `sessionsWidth`、`sidebarWidth`、`centerRatio` 等宽度设置
+4. `setLayoutMode()` 调用会同时更新 `layoutMode`、`panelOrder` 和 `panelVisible`
+
 ## LayoutSwitcher (面板切换器)
 
 > 位于 **TitleBar 顶部**，task/群聊/终端/设置按钮的左边
 
 **注意区分**：LayoutSwitcher ≠ WorkspaceSwitcher
-- **LayoutSwitcher**: TitleBar 顶部的四面板切换按钮（sessions/sidebar/editor/chat）
-- **WorkspaceSwitcher**: SessionPanel 内部的工作区切换下拉按钮（ftre-desktop 等）
+- **LayoutSwitcher**: TitleBar 顶部的模式切换按钮（Chat/Agent）
+- **WorkspaceSwitcher**: SessionPanel 内部的工作区切换下拉按钮
 
 ### 位置与结构
 
@@ -41,44 +106,26 @@
 ┌─────────────────────────────────────────────────────────┐
 │ TitleBar                                                │
 │ ┌─────────────────────────────────────────────────────┐ │
-│ │ [Logo]  [LayoutSwitcher]   [Task 群聊 终端 设置] [🔍]│ │
-│ │                          ↑ 这里                     │ │
+│ │ [Logo]  [Chat | Agent]      [Task 群聊 终端 设置] [🔍]│ │
+│ │           ↑ 双模式切换                              │ │
 │ └─────────────────────────────────────────────────────┘ │
 └─────────────────────────────────────────────────────────┘
 ```
 
-### 样式规范
-
-**设计决策**：LayoutSwitcher 样式与右侧按钮（task/群聊/终端/设置）保持一致。
-
-| 状态 | 样式类名 |
-|------|----------|
-| **按钮基础** | `h-full px-3` |
-| **激活态** | `text-t-primary bg-white/[0.06]` |
-| **默认态** | `text-t-dim hover:bg-white/[0.06] hover:text-t-muted` |
-
-**过渡方案对比**：
-
-| 属性 | 旧样式 | 新样式（与右侧一致） |
-|------|--------|---------------------|
-| 按钮尺寸 | `w-7 h-7 rounded` (28px 方块) | `h-full px-3`（高度撑满） |
-| 激活态 | `text-neon hover:bg-neon/10` + 底部指示条 | `text-t-primary bg-white/[0.06]` |
-| 默认态 | `text-t-ghost hover:text-t-muted` | `text-t-dim hover:bg-white/[0.06]` |
-| 容器间距 | `gap-0.5` | 无 gap，靠 px-3 控制间距 |
-
 ### 组件特性
 
-- **平铺式按钮**: 四个按钮水平排列，显示对应图标（folder, code, message, messages）
-- **可拖拽排序**: 支持拖拽调整面板顺序
-- **点击显隐**: 点击按钮切换对应面板的显示/隐藏
-- **指示条**: 当前激活面板下方显示小横条指示器
+- **双按钮切换**: Chat / Agent 两个模式按钮，显示当前激活模式
+- **点击切换**: 点击按钮直接切换布局模式
+- **状态指示**: 激活模式显示高亮样式
 
-### 与 SessionPanel 的区别
+### 与旧版区别
 
-| 组件 | 位置 | 功能 |
-|------|------|------|
-| LayoutSwitcher | TitleBar 顶部 | 切换 sessions/sidebar/editor/chat 四个面板的显隐 |
-| WorkspaceSwitcher | SessionPanel Header 内 | 切换当前工作区（ftre-desktop/omni-flow 等） |
+| 特性 | 旧版（自由组合） | 新版（双模式） |
+|------|-----------------|---------------|
+| 面板数量 | 4 个拖拽排序按钮 | 2 个模式切换按钮 |
+| 用户控制 | 可自定义面板顺序和显隐 | 只能选择预定义模式 |
+| 依赖 | @dnd-kit (拖拽库) | 无外部依赖 |
+| 复杂度 | 高（边界情况多） | 低（固定组合） |
 
 ## ResizeHandle 使用方式
 
@@ -184,13 +231,15 @@ const createCenterResizeHandler = (afterPanelId: PanelId) => {
 
 ```typescript
 type PanelId = 'sessions' | 'sidebar' | 'editor' | 'chat'
+type LayoutMode = 'chat' | 'agent'
 
 // layout store
 {
-  panelOrder: PanelId[];           // 面板顺序，可拖拽调整
-  sessionsWidth: number;           // 固定面板宽度
+  layoutMode: LayoutMode;           // 当前布局模式
+  panelOrder: PanelId[];            // 面板顺序（由 layoutMode 决定）
+  sessionsWidth: number;            // 固定面板宽度
   sidebarWidth: number;
-  centerRatio: number;             // editor:chat 比例 (10-90)
+  centerRatio: number;              // editor:chat 比例 (10-90)
   panelVisible: Record<PanelId, boolean>;
 }
 ```

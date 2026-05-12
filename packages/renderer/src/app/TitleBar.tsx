@@ -27,10 +27,8 @@ export function TitleBar() {
   const toggleAgentChat = useLayout((s) => s.toggleAgentChat);
   const taskPanelOpen = useLayout((s) => s.taskPanelOpen);
   const toggleTaskPanel = useLayout((s) => s.toggleTaskPanel);
-  const panelOrder = useLayout((s) => s.panelOrder);
-  const setPanelOrder = useLayout((s) => s.setPanelOrder);
-  const panelVisible = useLayout((s) => s.panelVisible);
-  const togglePanelVisible = useLayout((s) => s.togglePanelVisible);
+  const layoutMode = useLayout((s) => s.layoutMode);
+  const setLayoutMode = useLayout((s) => s.setLayoutMode);
   const gitInfo = useGitService((s) => s.getInfo());
 
   const projectName = rootPath ? rootPath.split("/").pop() || rootPath.split("\\").pop() : "Ftre";
@@ -152,10 +150,8 @@ export function TitleBar() {
       <div className="flex items-center shrink-0 h-full gap-2" style={noDrag}>
         {/* 布局切换器（内联） */}
         <LayoutSwitcher
-          panelOrder={panelOrder}
-          panelVisible={panelVisible}
-          onOrderChange={setPanelOrder}
-          onToggleVisible={togglePanelVisible}
+          layoutMode={layoutMode}
+          onLayoutModeChange={setLayoutMode}
         />
 
         <div className="w-[1px] h-[14px] bg-border" />

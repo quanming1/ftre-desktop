@@ -1,4 +1,4 @@
-import { memo, useEffect, useRef } from "react";
+import { memo, useCallback, useEffect, useRef } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import type { ChatMessage } from "@/services/ws-stream-manager";
@@ -7,10 +7,19 @@ import { useThrottledValue } from "@/hooks/useThrottledValue";
 
 /** Markdown 渲染组件映射（稳定引用，不会导致重渲染） */
 const markdownComponents = {
-  code({ className, children, ...props }: React.ComponentPropsWithoutRef<"code"> & { className?: string }) {
+  code({
+    className,
+    children,
+    ...props
+  }: React.ComponentPropsWithoutRef<"code"> & { className?: string }) {
     const match = /language-(\w+)/.exec(className || "");
     if (match) {
-      return <CodeBlock language={match[1]} code={String(children).replace(/\n$/, "")} />;
+      return (
+        <CodeBlock
+          language={match[1]}
+          code={String(children).replace(/\n$/, "")}
+        />
+      );
     }
     return (
       <code className={className} {...props}>
@@ -25,11 +34,24 @@ const markdownComponents = {
  * 光标会被 append 到这个元素内部，保证与末尾文本内联显示，
  * 即使最后的内容是代码块、表格等块级元素也不会被挤到下一行。
  */
-const VOID_TAGS = new Set(["BR", "HR", "IMG", "INPUT", "COL", "EMBED", "SOURCE", "TRACK", "WBR"]);
+const VOID_TAGS = new Set([
+  "BR",
+  "HR",
+  "IMG",
+  "INPUT",
+  "COL",
+  "EMBED",
+  "SOURCE",
+  "TRACK",
+  "WBR",
+]);
 
 function findDeepestLastChild(el: Element): Element {
   let node = el;
-  while (node.lastElementChild && !VOID_TAGS.has(node.lastElementChild.tagName)) {
+  while (
+    node.lastElementChild &&
+    !VOID_TAGS.has(node.lastElementChild.tagName)
+  ) {
     node = node.lastElementChild;
   }
   return node;
@@ -37,12 +59,96 @@ function findDeepestLastChild(el: Element): Element {
 
 const CURSOR_ATTR = "data-streaming-cursor";
 
+/** 渲染媒体 URL 列表 */
+function MediaList({ urls }: { urls: Array<{ url: string; name?: string }> }) {
+  if (!urls || urls.length === 0) return null;
+  return (
+    <div className="flex flex-wrap gap-2 mt-2">
+      {urls.map((media, i) => {
+        const isImage =
+          media.url.includes("/api/media/") ||
+          media.name?.match(/\.(png|jpg|jpeg|gif|webp)$/i);
+        if (isImage) {
+          return (
+            <a
+              key={i}
+              href={`http://127.0.0.1:18790${media.url}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="block"
+            >
+              <img
+                src={`http://127.0.0.1:18790${media.url}`}
+                alt={media.name || "media"}
+                className="max-w-[300px] max-h-[200px] rounded-lg border border-border-subtle"
+              />
+            </a>
+          );
+        }
+        return (
+          <a
+            key={i}
+            href={`http://127.0.0.1:18790${media.url}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center gap-1 px-2 py-1 bg-white/6 rounded text-sm text-t-secondary hover:text-t-primary"
+          >
+            📎 {media.name || "附件"}
+          </a>
+        );
+      })}
+    </div>
+  );
+}
+
+/** 渲染按钮矩阵 */
+function ButtonMatrix({
+  buttons,
+  prompt,
+  onSelect,
+}: {
+  buttons: string[][];
+  prompt?: string;
+  onSelect: (label: string) => void;
+}) {
+  if (!buttons || buttons.length === 0) return null;
+  return (
+    <div className="mt-3 space-y-2">
+      {prompt && <div className="text-sm text-t-secondary mb-2">{prompt}</div>}
+      {buttons.map((row, rowIdx) => (
+        <div key={rowIdx} className="flex flex-wrap gap-2">
+          {row.map((label, colIdx) => (
+            <button
+              key={colIdx}
+              onClick={() => onSelect(label)}
+              className="px-3 py-1.5 text-sm bg-white/8 hover:bg-white/12 text-t-primary rounded-lg border border-border-subtle transition-colors"
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+      ))}
+    </div>
+  );
+}
+
 export const AssistantMessage = memo(
   function AssistantMessage({ message }: { message: ChatMessage }) {
     const isStreaming = message.streaming ?? false;
-    const throttledContent = useThrottledValue(message.content, 150, isStreaming);
+    const throttledContent = useThrottledValue(
+      message.content,
+      150,
+      isStreaming,
+    );
     const displayContent = isStreaming ? throttledContent : message.content;
     const mdRef = useRef<HTMLDivElement>(null);
+
+    // 按钮点击处理 - 发送选中的按钮文本作为用户消息
+    const handleButtonSelect = useCallback((label: string) => {
+      import("@/services/ws-stream-manager").then(({ streamManager }) => {
+        streamManager.sendMessage(label);
+      });
+    }, []);
 
     useEffect(() => {
       const container = mdRef.current;
@@ -57,7 +163,8 @@ export const AssistantMessage = memo(
       // 创建光标元素
       const cursor = document.createElement("span");
       cursor.setAttribute(CURSOR_ATTR, "");
-      cursor.className = "inline-block w-[6px] h-[14px] bg-neon ml-0.5 align-middle";
+      cursor.className =
+        "inline-block w-[6px] h-[14px] bg-neon ml-0.5 align-middle";
       cursor.style.animation = "blink 1s step-end infinite";
 
       // 插入到最深的最后一个叶子元素内部
@@ -70,10 +177,23 @@ export const AssistantMessage = memo(
         <div className="max-w-[90%]">
           <div className="text-[14px] leading-relaxed text-t-primary font-sans break-words">
             <div className="markdown-body" ref={mdRef}>
-              <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>
+              <ReactMarkdown
+                remarkPlugins={[remarkGfm]}
+                components={markdownComponents}
+              >
                 {displayContent}
               </ReactMarkdown>
             </div>
+            {/* 媒体内容 */}
+            {message.media_urls && <MediaList urls={message.media_urls} />}
+            {/* 按钮 */}
+            {message.buttons && (
+              <ButtonMatrix
+                buttons={message.buttons}
+                prompt={message.button_prompt}
+                onSelect={handleButtonSelect}
+              />
+            )}
           </div>
         </div>
       </div>
@@ -81,5 +201,7 @@ export const AssistantMessage = memo(
   },
   (prev, next) =>
     prev.message.content === next.message.content &&
-    prev.message.streaming === next.message.streaming,
+    prev.message.streaming === next.message.streaming &&
+    prev.message.media_urls === next.message.media_urls &&
+    prev.message.buttons === next.message.buttons,
 );

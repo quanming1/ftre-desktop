@@ -56,9 +56,21 @@ import { initConnection } from "@/services/api";
 import { wsClient } from "@/services/websocket-client";
 import { useChat } from "@/stores/chat";
 
-initConnection();
+// Register handlers BEFORE connection to avoid race condition
 wsClient.onConnect(() => useChat.getState().setConnected(true));
 wsClient.onDisconnect(() => useChat.getState().setConnected(false));
+wsClient.onStatusChange((status) => useChat.getState().setWsStatus(status));
+
+// Load saved gateway URL then connect
+(async () => {
+  if (window.desktop?.store) {
+    const { value } = await window.desktop.store.get("gatewayUrl");
+    if (typeof value === "string" && value) {
+      wsClient.setUrl(value);
+    }
+  }
+  initConnection();
+})();
 
 // 初始化编辑器架构（必须在 Monaco Workers 配置之后、渲染之前）
 const textModelService = getTextModelResolverService();

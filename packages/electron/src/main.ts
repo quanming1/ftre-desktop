@@ -1,11 +1,6 @@
-import { app, BrowserWindow, dialog, ipcMain, shell } from "electron";
+import { app, BrowserWindow, ipcMain, shell } from "electron";
 import { isDev, setMainWindow, getMainWindow } from "./app-state";
 import { createWindow } from "./window";
-import {
-  startPythonBackend,
-  stopPythonBackend,
-  waitForBackend,
-} from "./backend";
 import { registerFsIPC } from "./ipc/fs";
 import { registerGitIPC } from "./ipc/git";
 import { registerTerminalIPC } from "./ipc/terminal";
@@ -57,24 +52,7 @@ ipcMain.handle("shell:openExternal", (_event, url: string) => {
 
 // --- 生命周期 ---
 
-app.whenReady().then(async () => {
-  if (!isDev) {
-    // 生产模式：启动内嵌 Python 后端并等待就绪
-    startPythonBackend();
-    try {
-      await waitForBackend();
-    } catch (err: any) {
-      dialog.showErrorBox(
-        "启动失败",
-        `Python 后端未能启动：\n${err.message}\n\n` +
-          "请确认打包是否完整，或手动启动后端后重试。",
-      );
-      app.quit();
-      return;
-    }
-  }
-  // 开发模式：后端需手动启动（py -m uvicorn app.main:app --port 9988）
-
+app.whenReady().then(() => {
   // 注册 IPC handlers
   registerFsIPC();
   registerGitIPC();
@@ -97,11 +75,9 @@ app.whenReady().then(async () => {
 });
 
 app.on("window-all-closed", () => {
-  stopPythonBackend();
   if (process.platform !== "darwin") app.quit();
 });
 
 app.on("before-quit", () => {
-  stopPythonBackend();
   workerManager.dispose();
 });

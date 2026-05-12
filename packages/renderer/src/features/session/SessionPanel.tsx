@@ -204,9 +204,12 @@ export function SessionPanel() {
   const workspaceGroups = useMemo(() => {
     if (!rootPath) return [];
     const normalizedRoot = normalizePathForCompare(rootPath);
+    // Include sessions that:
+    // 1. Match the current workspace, OR
+    // 2. Have no workspace (from ai-base WebSocket sessions)
     const currentWorkspaceSessions = allSessions.filter(
       (session) =>
-        session.workspace &&
+        !session.workspace ||
         normalizePathForCompare(session.workspace) === normalizedRoot,
     );
     return [
@@ -484,10 +487,7 @@ export function SessionPanel() {
     <TooltipProvider>
       <div className="h-full flex flex-col bg-surface text-[13px]">
         {/* 头部：工作区切换 */}
-        <div
-          ref={workspaceMenuRef}
-          className="shrink-0 relative"
-        >
+        <div ref={workspaceMenuRef} className="shrink-0 relative">
           <button
             onClick={() => setWorkspaceMenuOpen((v) => !v)}
             onMouseEnter={() => setHeaderHovered(true)}
@@ -496,9 +496,13 @@ export function SessionPanel() {
           >
             <span
               className="shrink-0 w-9 h-9 rounded-lg text-[12px] font-semibold flex items-center justify-center text-white"
-              style={{ backgroundColor: rootPath ? getWorkspaceColor(rootPath) : '#3c3c3c' }}
+              style={{
+                backgroundColor: rootPath
+                  ? getWorkspaceColor(rootPath)
+                  : "#3c3c3c",
+              }}
             >
-              {rootPath ? getWorkspaceAbbrev(rootPath) : '?'}
+              {rootPath ? getWorkspaceAbbrev(rootPath) : "?"}
             </span>
             <div className="flex-1 min-w-0 text-left">
               <div className="text-[13px] text-t-primary truncate font-medium">
@@ -507,7 +511,7 @@ export function SessionPanel() {
             </div>
             <ChevronsUpDown
               size={15}
-              className={`shrink-0 text-t-ghost transition-colors ${headerHovered || workspaceMenuOpen ? 'text-t-muted' : ''}`}
+              className={`shrink-0 text-t-ghost transition-colors ${headerHovered || workspaceMenuOpen ? "text-t-muted" : ""}`}
             />
           </button>
 
@@ -515,7 +519,9 @@ export function SessionPanel() {
           {workspaceMenuOpen && (
             <div className="absolute left-3 right-3 top-full mt-1 bg-elevated border border-border-subtle rounded-lg shadow-2xl py-2 z-[50]">
               <div className="px-3 pb-2 mb-2 border-b border-border/50">
-                <span className="text-[11px] text-t-ghost uppercase tracking-wider">Workspaces</span>
+                <span className="text-[11px] text-t-ghost uppercase tracking-wider">
+                  Workspaces
+                </span>
               </div>
               {recentFolders.map((folder) => {
                 const isActive =

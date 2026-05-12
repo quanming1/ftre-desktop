@@ -5,6 +5,7 @@
 import { create } from "zustand";
 import { streamManager } from "@/services/ws-stream-manager";
 import type { SessionSummary } from "@/services/api";
+import { fetchSessions, fetchSessionMessages } from "@/services/api";
 import { useWorkspace } from "./workspace";
 import { useChat } from "./chat";
 import { workspaceHash, normalizePathForCompare } from "@/utils/pathUtils";
@@ -75,20 +76,36 @@ export const useSession = create<SessionState>((set, get) => ({
   loading: false,
 
   loadSessions: async (_workspace) => {
-    // No backend to query yet — sessions are tracked locally
-    set({ loading: false });
+    set({ loading: true });
+    try {
+      const sessions = await fetchSessions(_workspace);
+      set({ sessions, loading: false });
+    } catch {
+      set({ loading: false });
+    }
   },
 
   loadAllSessions: async () => {
-    set({ loading: false });
+    set({ loading: true });
+    try {
+      const sessions = await fetchSessions();
+      set({ allSessions: sessions, sessions, loading: false });
+    } catch {
+      set({ loading: false });
+    }
   },
 
   loadWorkspaceSessions: async (_workspace: string) => {
-    // No-op for now
+    set({ loading: true });
+    try {
+      const sessions = await fetchSessions(_workspace);
+      set({ sessions, loading: false });
+    } catch {
+      set({ loading: false });
+    }
   },
 
   switchSession: async (sessionId: string) => {
-    // Add to open tabs
     const { openTabs } = get();
     if (!openTabs.includes(sessionId)) {
       const newTabs = [...openTabs, sessionId];
@@ -96,10 +113,28 @@ export const useSession = create<SessionState>((set, get) => ({
       saveTabsToStorage(newTabs);
     }
 
-    // Switch via stream manager
+    const session = streamManager.getSession(sessionId);
+    if (session.messages.length === 0) {
+      try {
+        const msgs = await fetchSessionMessages(sessionId);
+        if (msgs.length > 0) {
+          const chatMessages = msgs
+            .filter((m: any) => m.role === 'user' || m.role === 'assistant')
+            .map((m: any) => ({
+              id: m.id || `hist_${Date.now()}_${Math.random().toString(36).slice(2)}`,
+              role: m.role,
+              content: m.content || '',
+              timestamp: m.timestamp ? new Date(m.timestamp).getTime() : Date.now(),
+            }));
+          streamManager.loadHistory(sessionId, chatMessages);
+        }
+      } catch {
+        // History load failed — proceed with empty session
+      }
+    }
+
     streamManager.switchChat(sessionId);
 
-    // Persist active session
     try {
       localStorage.setItem(sessionStorageKey(), sessionId);
     } catch {
@@ -182,11 +217,11 @@ export const useSession = create<SessionState>((set, get) => ({
   },
 
   restoreLatest: async (_workspace) => {
-    // Restore open tabs from localStorage
     const savedTabs = loadTabsFromStorage();
     set({ openTabs: savedTabs });
 
-    // Restore last active session
+    await get().loadSessions();
+
     let targetSessionId: string | null = null;
     try {
       targetSessionId = localStorage.getItem(sessionStorageKey());
