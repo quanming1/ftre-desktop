@@ -217,7 +217,7 @@ export const AssistantMessage = memo(
             {message.toolCalls && message.toolCalls.length > 0 && (
               <div className="mt-2 space-y-2">
                 {message.toolCalls.map((tc) => (
-                  <InlineToolCallCard key={tc.call_id} toolCall={tc} />
+                  <InlineToolCallCard key={tc.id} toolCall={tc} />
                 ))}
               </div>
             )}

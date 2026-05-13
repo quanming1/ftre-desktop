@@ -7,7 +7,6 @@ vi.mock("@/services/api", () => ({
   fetchSessions: vi.fn().mockResolvedValue([]),
   fetchSessionMessages: vi.fn().mockResolvedValue([]),
   fetchUsage: vi.fn().mockResolvedValue(0),
-  deleteSession: vi.fn().mockResolvedValue(undefined),
 }));
 
 // Mock ws-stream-manager

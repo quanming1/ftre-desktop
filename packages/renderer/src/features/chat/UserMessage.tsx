@@ -147,7 +147,7 @@ function getMessageText(message: ChatMessage): string {
       })
       .join("");
   }
-  return message.content;
+  return message.content ?? "";
 }
 
 interface RollbackPreviewData {
