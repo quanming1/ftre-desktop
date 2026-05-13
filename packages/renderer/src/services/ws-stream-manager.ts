@@ -487,8 +487,12 @@ class WsStreamManager {
         (tc) => tc.call_id === event.call_id,
       );
 
-      // Use event.phase (backend format) instead of event.type
-      switch (event.phase) {
+      // Normalize phase: backend uses both "phase" and "type" inconsistently
+      const phase =
+        event.phase || (event.type === "tool_args_delta" ? "args_delta" : null);
+      if (!phase) continue;
+
+      switch (phase) {
         case "start": {
           if (existingIdx === -1) {
             // Create new tool call entry
