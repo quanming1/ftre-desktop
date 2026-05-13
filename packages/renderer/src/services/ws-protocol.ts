@@ -1,9 +1,10 @@
 /**
- * WebSocket Protocol v3 Type Definitions
+ * WebSocket Protocol v4 Type Definitions
  *
- * Based on: ai-base WebSocket Channel Protocol v3
- * All frames follow the uniform envelope: { id, type, data }
- * All messages use the unified `chat.unified` frame type.
+ * v4 separates frame types for clarity:
+ * - text.delta / text.done: streaming text
+ * - tool.start / tool.delta / tool.done / tool.error: tool lifecycle
+ * - message: complete message (history, tool results)
  */
 
 // ─── Base Types ─────────────────────────────────────────────────────
@@ -26,16 +27,7 @@ export interface MediaItem {
   name?: string;
 }
 
-// ─── Unified Message Types ──────────────────────────────────────────
-
-/** Stream state for streaming messages */
-export interface StreamState {
-  id: string;
-  seq: number;
-  delta: string;
-  offset: number;
-  status: "streaming" | "complete";
-}
+// ─── Tool Call (OpenAI format, for message.tool_calls) ──────────────
 
 /** Tool call in OpenAI format */
 export interface ToolCall {
@@ -43,45 +35,80 @@ export interface ToolCall {
   type: "function";
   function: {
     name: string;
-    arguments: string; // JSON string
+    arguments: string; // JSON string (needs JSON.parse)
   };
 }
 
-/** Tool event for real-time UI updates */
-export interface ToolEvent {
-  version?: number;
-  // Backend uses both "phase" and "type" inconsistently
-  phase?: "start" | "end" | "error" | "args_delta";
-  type?: "tool_args_delta"; // Legacy format for args delta
-  call_id: string;
-  name?: string;
-  arguments?: Record<string, unknown> | null;
-  result?: unknown;
-  error?: string | null;
-  delta?: string; // Only for args_delta
-  files?: unknown[];
-  embeds?: unknown[];
+// ─── v4 Frame Data Types ────────────────────────────────────────────
+
+/** text.delta frame data */
+export interface TextDeltaData {
+  message_id: string;
+  chat_id: string;
+  seq: number;
+  delta: string;
+  content: string; // Accumulated content, can render directly
 }
 
-/** Unified message data (used in chat.unified frames) */
-export interface UnifiedMessage {
+/** text.done frame data */
+export interface TextDoneData {
+  message_id: string;
+  chat_id: string;
+  content: string;
+  reasoning_content?: string;
+  thinking_blocks?: Array<{ type: string; thinking?: string }>;
+  timestamp: string;
+}
+
+/** tool.start frame data */
+export interface ToolStartData {
+  call_id: string;
+  chat_id: string;
+  name: string;
+}
+
+/** tool.delta frame data */
+export interface ToolDeltaData {
+  call_id: string;
+  chat_id: string;
+  delta: string; // JSON fragment
+}
+
+/** tool.done frame data */
+export interface ToolDoneData {
+  call_id: string;
+  chat_id: string;
+  name: string;
+  arguments: Record<string, unknown>; // Already parsed, no JSON.parse needed
+  result: unknown;
+  files?: unknown[];
+  embeds?: unknown[];
+  timestamp: string;
+}
+
+/** tool.error frame data */
+export interface ToolErrorData {
+  call_id: string;
+  chat_id: string;
+  name: string;
+  arguments?: Record<string, unknown>;
+  error: string;
+  timestamp: string;
+}
+
+/** message frame data (complete messages) */
+export interface MessageData {
   id: string;
   chat_id: string;
   role: Role;
   content: string | null;
   timestamp: string;
-  stream?: StreamState;
-  // Tool events for real-time UI updates
-  tool_events?: ToolEvent[];
-  // Tool calls (OpenAI format, for storage/history)
-  tool_calls?: ToolCall[];
-  tool_call_id?: string;
-  name?: string;
-  media?: string[];
-  // Extended thinking / reasoning (DeepSeek-R1, Kimi-K2, etc.)
+  tool_calls?: ToolCall[]; // assistant message with tool calls
+  tool_call_id?: string; // tool result message
+  name?: string; // tool result message
   reasoning_content?: string;
-  // Anthropic thinking blocks
   thinking_blocks?: Array<{ type: string; thinking?: string }>;
+  media_urls?: MediaUrl[];
 }
 
 // ─── Downstream Frames (server → client) ────────────────────────────
@@ -102,8 +129,14 @@ export type TurnEndFrame = Frame<"turn.end", { chat_id: string }>;
 
 export type AckFrame = Frame<"chat.ack", { chat_id: string; ref_id: string }>;
 
-// Unified message frame (all messages use this type in v3)
-export type UnifiedFrame = Frame<"chat.unified", UnifiedMessage>;
+// v4 content frames
+export type TextDeltaFrame = Frame<"text.delta", TextDeltaData>;
+export type TextDoneFrame = Frame<"text.done", TextDoneData>;
+export type ToolStartFrame = Frame<"tool.start", ToolStartData>;
+export type ToolDeltaFrame = Frame<"tool.delta", ToolDeltaData>;
+export type ToolDoneFrame = Frame<"tool.done", ToolDoneData>;
+export type ToolErrorFrame = Frame<"tool.error", ToolErrorData>;
+export type MessageFrame = Frame<"message", MessageData>;
 
 // Error frame
 export type ErrorFrame = Frame<
@@ -119,7 +152,13 @@ export type ServerFrame =
   | TurnStartFrame
   | TurnEndFrame
   | AckFrame
-  | UnifiedFrame
+  | TextDeltaFrame
+  | TextDoneFrame
+  | ToolStartFrame
+  | ToolDeltaFrame
+  | ToolDoneFrame
+  | ToolErrorFrame
+  | MessageFrame
   | ErrorFrame;
 
 // ─── Upstream Frames (client → server) ──────────────────────────────
