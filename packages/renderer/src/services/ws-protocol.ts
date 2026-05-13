@@ -1,13 +1,14 @@
 /**
- * WebSocket Protocol v2 Type Definitions
+ * WebSocket Protocol v3 Type Definitions
  *
- * Based on: ai-base WebSocket Channel Protocol
+ * Based on: ai-base WebSocket Channel Protocol v3
  * All frames follow the uniform envelope: { id, type, data }
+ * All messages use the unified `chat.unified` frame type.
  */
 
 // ─── Base Types ─────────────────────────────────────────────────────
 
-export type Role = "assistant" | "user" | "system";
+export type Role = "assistant" | "user" | "system" | "tool";
 
 export interface Frame<T extends string = string, D = Record<string, unknown>> {
   id: string;
@@ -25,102 +26,82 @@ export interface MediaItem {
   name?: string;
 }
 
+// ─── Unified Message Types ──────────────────────────────────────────
+
+/** Stream state for streaming messages */
+export interface StreamState {
+  id: string;
+  seq: number;
+  delta: string;
+  offset: number;
+  status: "streaming" | "complete";
+}
+
+/** Tool call in OpenAI format */
+export interface ToolCall {
+  id: string;
+  type: "function";
+  function: {
+    name: string;
+    arguments: string; // JSON string
+  };
+}
+
+/** Tool event for real-time UI updates */
+export interface ToolEvent {
+  type: "tool_start" | "tool_end" | "tool_error" | "tool_args_delta";
+  call_id: string;
+  name?: string;
+  phase?: "start" | "ready";
+  arguments?: Record<string, unknown>;
+  result?: unknown;
+  error?: string;
+  delta?: string; // Only for tool_args_delta
+}
+
+/** Unified message data (used in chat.unified frames) */
+export interface UnifiedMessage {
+  id: string;
+  chat_id: string;
+  role: Role;
+  content: string | null;
+  timestamp: string;
+  stream?: StreamState;
+  // Tool events for real-time UI updates
+  tool_events?: ToolEvent[];
+  // Tool calls (OpenAI format, for storage/history)
+  tool_calls?: ToolCall[];
+  tool_call_id?: string;
+  name?: string;
+  media?: string[];
+  // Extended thinking / reasoning (DeepSeek-R1, Kimi-K2, etc.)
+  reasoning_content?: string;
+  // Anthropic thinking blocks
+  thinking_blocks?: Array<{ type: string; thinking?: string }>;
+}
+
 // ─── Downstream Frames (server → client) ────────────────────────────
 
-// Session / control frames
+// Control frames
 export type ReadyFrame = Frame<
   "session.ready",
-  { chat_id: string; client_id: string; protocol: "v2" }
+  { chat_id: string; client_id: string; protocol: string }
 >;
 
 export type AttachedFrame = Frame<"session.attached", { chat_id: string }>;
 
-export type SessionUpdatedFrame = Frame<
-  "session.updated",
-  { chat_id: string }
->;
+export type SessionUpdatedFrame = Frame<"session.updated", { chat_id: string }>;
 
 export type TurnStartFrame = Frame<"turn.start", { chat_id: string }>;
 
 export type TurnEndFrame = Frame<"turn.end", { chat_id: string }>;
 
-export type AckFrame = Frame<
-  "chat.ack",
-  { chat_id: string; ref_id: string }
->;
+export type AckFrame = Frame<"chat.ack", { chat_id: string; ref_id: string }>;
 
-// Chat content frames
-export type MessageFrame = Frame<
-  "chat.message",
-  {
-    chat_id: string;
-    role: Role;
-    text: string;
-    media_urls?: MediaUrl[];
-    buttons?: string[][];
-    button_prompt?: string;
-    reply_to?: string;
-  }
->;
+// Unified message frame (all messages use this type in v3)
+export type UnifiedFrame = Frame<"chat.unified", UnifiedMessage>;
 
-export type DeltaFrame = Frame<
-  "chat.delta",
-  {
-    chat_id: string;
-    role: Role;
-    text: string;
-    stream_id: string;
-  }
->;
-
-export type DeltaEndFrame = Frame<
-  "chat.delta_end",
-  { chat_id: string; stream_id: string }
->;
-
-export type ProgressFrame = Frame<
-  "chat.progress",
-  { chat_id: string; text: string }
->;
-
-export type ToolUseFrame = Frame<
-  "chat.tool_use",
-  {
-    chat_id: string;
-    call_id: string;
-    name: string;
-    /** "start" = LLM just announced the call, args still streaming in.
-     *  "ready" = args complete, tool is about to execute. */
-    phase: "start" | "ready";
-    /** Only present when phase === "ready" */
-    arguments?: Record<string, unknown>;
-  }
->;
-
-export type ToolArgsDeltaFrame = Frame<
-  "chat.tool_args_delta",
-  {
-    chat_id: string;
-    call_id: string;
-    /** Incremental JSON fragment of the arguments string */
-    delta: string;
-  }
->;
-
-export type ToolResultFrame = Frame<
-  "chat.tool_result",
-  {
-    chat_id: string;
-    call_id: string;
-    name: string;
-    status: "ok" | "error";
-    result?: unknown;
-    error?: string;
-    files?: unknown[];
-    embeds?: unknown[];
-  }
->;
-
+// Error frame
 export type ErrorFrame = Frame<
   "error",
   { detail: string; reason?: string; code?: string }
@@ -134,23 +115,14 @@ export type ServerFrame =
   | TurnStartFrame
   | TurnEndFrame
   | AckFrame
-  | MessageFrame
-  | DeltaFrame
-  | DeltaEndFrame
-  | ProgressFrame
-  | ToolUseFrame
-  | ToolArgsDeltaFrame
-  | ToolResultFrame
+  | UnifiedFrame
   | ErrorFrame;
 
 // ─── Upstream Frames (client → server) ──────────────────────────────
 
 export type SessionNewFrame = Frame<"session.new", Record<string, never>>;
 
-export type SessionAttachFrame = Frame<
-  "session.attach",
-  { chat_id: string }
->;
+export type SessionAttachFrame = Frame<"session.attach", { chat_id: string }>;
 
 export type ChatSendFrame = Frame<
   "chat.send",
@@ -159,6 +131,8 @@ export type ChatSendFrame = Frame<
     text: string;
     media?: MediaItem[];
     webui?: boolean;
+    model?: string;
+    provider?: string;
   }
 >;
 

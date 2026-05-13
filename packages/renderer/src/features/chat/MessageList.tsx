@@ -5,6 +5,7 @@ import {
   memo,
   useMemo,
   useCallback,
+  useState,
 } from "react";
 import {
   useMessageById,
@@ -19,7 +20,16 @@ import { UserMessage } from "./UserMessage";
 import { AssistantMessage } from "./AssistantMessage";
 import { ToolCallList } from "./ToolCallCardV2";
 import { PixelLogo } from "@/components/PixelLogo";
-import { RotateCcw } from "lucide-react";
+import { RotateCcw, ChevronUp } from "lucide-react";
+
+// ═══════════════════════════════════════════════════════════════════════
+// 分页常量
+// ═══════════════════════════════════════════════════════════════════════
+
+/** 初始显示的对话轮数 */
+const INITIAL_VISIBLE_ROUNDS = 10;
+/** 每次加载更多的轮数 */
+const LOAD_MORE_ROUNDS = 20;
 
 /** 获取消息项样式，流式消息禁用 contentVisibility 以确保准确的高度计算 */
 function getItemStyle(isLastAndStreaming: boolean): React.CSSProperties {
@@ -61,6 +71,37 @@ function groupMessages(messages: ChatMessage[]): RenderUnit[] {
   }
 
   return units;
+}
+
+/**
+ * 获取最后 N 轮对话的消息
+ * 一轮 = 一个 user 消息 + 后续的 assistant/system 消息
+ */
+function getLastNRounds(messages: ChatMessage[], rounds: number): ChatMessage[] {
+  if (messages.length === 0 || rounds <= 0) return [];
+
+  // 从后往前找到第 N 个 user 消息的位置
+  let userCount = 0;
+  let startIndex = 0;
+
+  for (let i = messages.length - 1; i >= 0; i--) {
+    if (messages[i].role === "user") {
+      userCount++;
+      if (userCount >= rounds) {
+        startIndex = i;
+        break;
+      }
+    }
+  }
+
+  return messages.slice(startIndex);
+}
+
+/**
+ * 统计消息中的对话轮数（user 消息数量）
+ */
+function countRounds(messages: ChatMessage[]): number {
+  return messages.filter((m) => m.role === "user").length;
 }
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -112,6 +153,28 @@ const ToolCallsSection = memo(function ToolCallsSection() {
   );
 });
 
+/** 加载更多历史消息按钮 */
+const LoadMoreButton = memo(function LoadMoreButton({
+  hiddenRounds,
+  onClick,
+}: {
+  hiddenRounds: number;
+  onClick: () => void;
+}) {
+  return (
+    <div className="flex justify-center py-3">
+      <button
+        onClick={onClick}
+        className="inline-flex items-center gap-1.5 px-4 py-2 text-xs text-t-secondary bg-white/5 hover:bg-white/10 border border-white/10 rounded-lg transition-colors"
+      >
+        <ChevronUp size={14} />
+        <span>加载更早的 {Math.min(hiddenRounds, LOAD_MORE_ROUNDS)} 轮对话</span>
+        <span className="text-t-dim">（还有 {hiddenRounds} 轮）</span>
+      </button>
+    </div>
+  );
+});
+
 /**
  * 结构指纹：只在消息数量或 ID 组合变化时才重新分组。
  */
@@ -128,12 +191,52 @@ export function MessageList() {
   const activeChatId = useChat((s) => s.activeChatId);
   const isBusy = useIsBusy();
 
-  // 只在结构变化时重新分组
+  // ═══ 分页状态 ═══
+  const [visibleRounds, setVisibleRounds] = useState(INITIAL_VISIBLE_ROUNDS);
+
+  // 会话切换时重置可见轮数
+  useEffect(() => {
+    setVisibleRounds(INITIAL_VISIBLE_ROUNDS);
+  }, [activeChatId]);
+
+  // 计算可见消息和隐藏轮数
+  const { visibleMessages, totalRounds, hiddenRounds } = useMemo(() => {
+    const allMessages = useChat.getState().messages;
+    const total = countRounds(allMessages);
+    const visible = getLastNRounds(allMessages, visibleRounds);
+    const visibleCount = countRounds(visible);
+    return {
+      visibleMessages: visible,
+      totalRounds: total,
+      hiddenRounds: Math.max(0, total - visibleCount),
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fingerprint, visibleRounds]);
+
+  // 只在结构变化时重新分组（使用可见消息）
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const renderUnits = useMemo(
-    () => groupMessages(useChat.getState().messages),
-    [fingerprint],
+    () => groupMessages(visibleMessages),
+    [fingerprint, visibleRounds],
   );
+
+  // 加载更多历史消息
+  const containerRef = useRef<HTMLElement | null>(null);
+  const handleLoadMore = useCallback(() => {
+    const el = containerRef.current;
+    const prevScrollHeight = el?.scrollHeight ?? 0;
+
+    setVisibleRounds((r) => r + LOAD_MORE_ROUNDS);
+
+    // 保持滚动位置：加载后恢复到原来的相对位置
+    requestAnimationFrame(() => {
+      if (el) {
+        const newScrollHeight = el.scrollHeight;
+        const heightDiff = newScrollHeight - prevScrollHeight;
+        el.scrollTop += heightDiff;
+      }
+    });
+  }, []);
 
   // ① 核心 hook：deps=[activeChatId] 切换会话时重置锁
   const { ref, scrollToBottom, resetLock } = useAutoScrollToBottom([
@@ -160,7 +263,6 @@ export function MessageList() {
   }, [isBusy, resetLock]);
 
   // ③ MutationObserver
-  const containerRef = useRef<HTMLElement | null>(null);
   useEffect(() => {
     const el = containerRef.current;
     if (!el) return;
@@ -219,6 +321,13 @@ export function MessageList() {
       style={{ willChange: "transform", contain: "layout style" }}
     >
       <div className="mx-auto w-full max-w-[960px] space-y-2 break-words">
+        {/* 加载更多历史消息按钮 */}
+        {hiddenRounds > 0 && (
+          <LoadMoreButton
+            hiddenRounds={hiddenRounds}
+            onClick={handleLoadMore}
+          />
+        )}
         {renderUnits.length === 0 && (
           <div className="flex-1 flex items-center justify-center text-t-dim text-[14px] font-mono pt-20">
             描述你想要构建的内容

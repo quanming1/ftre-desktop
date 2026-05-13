@@ -48,8 +48,15 @@ export function retryLastMessage(): void {
 
 // ─── Sessions ───────────────────────────────────────────────────────
 
+/** Known session channel types */
+const SESSION_CHANNELS = ["websocket", "dmwork", "cli", "telegram"] as const;
+type KnownChannel = (typeof SESSION_CHANNELS)[number];
+export type SessionChannel = KnownChannel | "unknown";
+
 export interface SessionSummary {
   session_id: string;
+  /** Original key from backend (e.g., "websocket:uuid", "dmwork:xxx") */
+  key?: string;
   workspace?: string;
   agent_id?: string;
   title?: string;
@@ -57,6 +64,39 @@ export interface SessionSummary {
   updated_at?: number;
   meta?: Record<string, any>;
   source?: string;
+  channel?: SessionChannel;
+}
+
+/**
+ * Cache mapping session_id -> original key for API calls.
+ * Populated by fetchSessions(), used by encodeSessionKey().
+ * Limited to 500 entries to prevent unbounded growth.
+ */
+const sessionKeyCache = new Map<string, string>();
+const SESSION_KEY_CACHE_MAX_SIZE = 500;
+
+/**
+ * Register a session key mapping for API calls.
+ */
+function registerSessionKey(sessionId: string, key: string): void {
+  // Evict oldest entries if cache is full (FIFO)
+  if (sessionKeyCache.size >= SESSION_KEY_CACHE_MAX_SIZE) {
+    const firstKey = sessionKeyCache.keys().next().value;
+    if (firstKey) sessionKeyCache.delete(firstKey);
+  }
+  sessionKeyCache.set(sessionId, key);
+}
+
+/**
+ * Extract session_id from the key field.
+ * Keys can be in format "channel:id" (e.g., "websocket:uuid", "dmwork:xxx")
+ */
+function extractSessionId(key: string): string {
+  const colonIndex = key.indexOf(":");
+  if (colonIndex !== -1) {
+    return key.substring(colonIndex + 1);
+  }
+  return key;
 }
 
 export async function fetchSessions(
@@ -67,31 +107,63 @@ export async function fetchSessions(
     if (!res.ok) return [];
     const data = await res.json();
     const sessions = data.sessions || [];
-    return sessions.map((s: any) => ({
-      session_id: s.key ? s.key.replace("websocket:", "") : s.session_id,
-      workspace: s.workspace,
-      agent_id: s.agent_id,
-      title: s.title,
-      created_at: s.created_at
-        ? new Date(s.created_at).getTime() / 1000
-        : undefined,
-      updated_at: s.updated_at
-        ? new Date(s.updated_at).getTime() / 1000
-        : undefined,
-      meta: s.meta,
-      source: s.source,
-    }));
+    return sessions.map((s: any) => {
+      const sessionId = s.key ? extractSessionId(s.key) : s.session_id;
+      // Cache the mapping for later API calls
+      if (s.key) {
+        registerSessionKey(sessionId, s.key);
+      }
+      return {
+        session_id: sessionId,
+        key: s.key, // Preserve original key for API calls
+        workspace: s.workspace,
+        agent_id: s.agent_id,
+        title: s.title,
+        created_at: s.created_at
+          ? new Date(s.created_at).getTime() / 1000
+          : undefined,
+        updated_at: s.updated_at
+          ? new Date(s.updated_at).getTime() / 1000
+          : undefined,
+        meta: s.meta,
+        source: s.source,
+        channel: (s.channel as SessionChannel) || "unknown",
+      };
+    });
   } catch {
     return [];
   }
 }
 
 /**
- * Encode a session key for use in REST API URLs.
- * The backend accepts the raw key (e.g. "websocket:uuid") directly in the path.
+ * Check if a string looks like a full session key with channel prefix.
+ * e.g., "websocket:uuid" or "dmwork:xxx"
  */
-function encodeSessionKey(sessionId: string): string {
-  return `websocket:${sessionId}`;
+function hasChannelPrefix(str: string): boolean {
+  const colonIndex = str.indexOf(":");
+  if (colonIndex === -1) return false;
+  const prefix = str.substring(0, colonIndex);
+  return (SESSION_CHANNELS as readonly string[]).includes(prefix);
+}
+
+/**
+ * Encode a session key for use in REST API URLs.
+ * First checks the cache for the original key, then falls back to
+ * assuming websocket channel prefix for unknown sessions.
+ */
+function encodeSessionKey(sessionIdOrKey: string): string {
+  // Check cache first - sessionIdOrKey might be a session_id with cached key
+  const cachedKey = sessionKeyCache.get(sessionIdOrKey);
+  if (cachedKey) {
+    return encodeURIComponent(cachedKey);
+  }
+  // If it has a known channel prefix, use it directly
+  // Otherwise, assume websocket channel for backward compatibility
+  const key = hasChannelPrefix(sessionIdOrKey)
+    ? sessionIdOrKey
+    : `websocket:${sessionIdOrKey}`;
+  // URL encode the key to handle special characters like ':'
+  return encodeURIComponent(key);
 }
 
 export async function fetchSessionMessages(sessionId: string): Promise<any[]> {
@@ -110,15 +182,6 @@ export async function fetchSessionMessages(sessionId: string): Promise<any[]> {
 
 export async function fetchUsage(_sessionId: string): Promise<number> {
   return 0;
-}
-
-export async function deleteSession(sessionId: string): Promise<void> {
-  try {
-    const key = encodeSessionKey(sessionId);
-    await fetch(`http://127.0.0.1:18790/api/sessions/${key}/delete`);
-  } catch {
-    // Silent failure
-  }
 }
 
 export async function updateSession(
@@ -182,9 +245,8 @@ export async function fetchLLMProviders(): Promise<LLMProvider[]> {
     base_url: p.api_base || "",
     api_type: "completions",
     // Expose the current model under this provider if it's the active one
-    models: name === currentProviderName
-      ? { [currentModel]: currentModel }
-      : {},
+    models:
+      name === currentProviderName ? { [currentModel]: currentModel } : {},
   }));
 }
 
@@ -457,11 +519,11 @@ export async function createScheduledTask(
   return { id: "", type: "scheduled", status: "pending" };
 }
 
-export async function deleteScheduledTask(_taskId: string): Promise<void> { }
+export async function deleteScheduledTask(_taskId: string): Promise<void> {}
 
-export async function triggerScheduledTask(_taskId: string): Promise<void> { }
+export async function triggerScheduledTask(_taskId: string): Promise<void> {}
 
-export async function cancelScheduledTask(_taskId: string): Promise<void> { }
+export async function cancelScheduledTask(_taskId: string): Promise<void> {}
 
 export async function fetchScheduledTaskRuns(
   _taskId: string,
@@ -524,4 +586,4 @@ export async function sendRoomMessage(
   _content: string,
   _senderId?: string,
   _targetAgentIds?: string[],
-): Promise<void> { }
+): Promise<void> {}
