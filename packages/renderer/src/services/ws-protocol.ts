@@ -49,14 +49,16 @@ export interface ToolCall {
 
 /** Tool event for real-time UI updates */
 export interface ToolEvent {
-  type: "tool_start" | "tool_end" | "tool_error" | "tool_args_delta";
+  version?: number;
+  phase: "start" | "end" | "error" | "args_delta";
   call_id: string;
   name?: string;
-  phase?: "start" | "ready";
   arguments?: Record<string, unknown>;
   result?: unknown;
-  error?: string;
-  delta?: string; // Only for tool_args_delta
+  error?: string | null;
+  delta?: string; // Only for args_delta
+  files?: unknown[];
+  embeds?: unknown[];
 }
 
 /** Unified message data (used in chat.unified frames) */

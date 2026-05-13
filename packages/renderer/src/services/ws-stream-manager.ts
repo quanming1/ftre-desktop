@@ -487,8 +487,9 @@ class WsStreamManager {
         (tc) => tc.call_id === event.call_id,
       );
 
-      switch (event.type) {
-        case "tool_start": {
+      // Use event.phase (backend format) instead of event.type
+      switch (event.phase) {
+        case "start": {
           if (existingIdx === -1) {
             // Create new tool call entry
             session.toolCalls.push({
@@ -507,13 +508,13 @@ class WsStreamManager {
           break;
         }
 
-        case "tool_args_delta": {
+        case "args_delta": {
           if (event.delta) {
             if (existingIdx !== -1) {
               session.toolCalls[existingIdx].argsBuffer += event.delta;
               session.toolCalls[existingIdx].status = "running";
             } else {
-              // Create entry if tool_start was missed
+              // Create entry if start was missed
               session.toolCalls.push({
                 id: event.call_id,
                 call_id: event.call_id,
@@ -528,7 +529,7 @@ class WsStreamManager {
           break;
         }
 
-        case "tool_end": {
+        case "end": {
           if (existingIdx !== -1) {
             const tc = session.toolCalls[existingIdx];
             tc.status = "ok";
@@ -542,8 +543,10 @@ class WsStreamManager {
               }
             }
             tc.result = event.result;
+            tc.files = event.files;
+            tc.embeds = event.embeds;
           } else {
-            // Create completed entry if tool_start was missed
+            // Create completed entry if start was missed
             session.toolCalls.push({
               id: event.call_id,
               call_id: event.call_id,
@@ -552,18 +555,20 @@ class WsStreamManager {
               status: "ok",
               argsBuffer: "",
               result: event.result,
+              files: event.files,
+              embeds: event.embeds,
               timestamp: Date.now(),
             });
           }
           break;
         }
 
-        case "tool_error": {
+        case "error": {
           if (existingIdx !== -1) {
             session.toolCalls[existingIdx].status = "error";
-            session.toolCalls[existingIdx].error = event.error;
+            session.toolCalls[existingIdx].error = event.error || undefined;
           } else {
-            // Create error entry if tool_start was missed
+            // Create error entry if start was missed
             session.toolCalls.push({
               id: event.call_id,
               call_id: event.call_id,
@@ -571,7 +576,7 @@ class WsStreamManager {
               arguments: {},
               status: "error",
               argsBuffer: "",
-              error: event.error,
+              error: event.error || undefined,
               timestamp: Date.now(),
             });
           }
