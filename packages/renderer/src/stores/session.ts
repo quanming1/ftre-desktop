@@ -29,38 +29,41 @@ function parseTextEncodedToolCalls(content: string): {
   textContent: string;
   toolCalls: InlineToolCall[];
 } {
-  const sectionRegex = /<\|tool_calls_section_begin\|>([\s\S]*?)<\|tool_calls_section_end\|>/;
+  const sectionRegex =
+    /<\|tool_calls_section_begin\|>([\s\S]*?)<\|tool_calls_section_end\|>/;
   const match = content.match(sectionRegex);
   if (!match) return { textContent: content, toolCalls: [] };
 
   // Remove the tool section from display content
-  const textContent = content.replace(sectionRegex, '').trim();
+  const textContent = content.replace(sectionRegex, "").trim();
 
   // Parse individual tool calls
   const toolCalls: InlineToolCall[] = [];
-  const callRegex = /<\|tool_call_begin\|>\s*(\S+)\s*<\|tool_call_argument_begin\|>\s*([\s\S]*?)\s*<\|tool_call_end\|>/g;
+  const callRegex =
+    /<\|tool_call_begin\|>\s*(\S+)\s*<\|tool_call_argument_begin\|>\s*([\s\S]*?)\s*<\|tool_call_end\|>/g;
   let callMatch: RegExpExecArray | null;
   while ((callMatch = callRegex.exec(match[1])) !== null) {
     const callId = callMatch[1];
     const argsStr = callMatch[2].trim();
-    let args: Record<string, unknown> = {};
-    let name = 'unknown';
+    let name = "unknown";
     try {
-      args = JSON.parse(argsStr);
+      const args = JSON.parse(argsStr);
       // Try to infer tool name from the call_id pattern (e.g. "functions.exec:0" → "exec")
       // or from common argument patterns
-      if ('command' in args) name = 'exec';
-      else if ('path' in args && 'max_entries' in args) name = 'list_dir';
-      else if ('path' in args) name = 'read_file';
-      else if ('action' in args) name = 'my';
-      else if ('query' in args) name = 'web_search';
-    } catch { /* malformed args */ }
+      if ("command" in args) name = "exec";
+      else if ("path" in args && "max_entries" in args) name = "list_dir";
+      else if ("path" in args) name = "read_file";
+      else if ("action" in args) name = "my";
+      else if ("query" in args) name = "web_search";
+    } catch {
+      /* malformed args */
+    }
 
     toolCalls.push({
-      call_id: callId,
+      id: callId,
       name,
-      arguments: args,
-      status: 'ok',
+      arguments: argsStr,
+      status: "ok",
       result: undefined,
     });
   }
@@ -78,48 +81,55 @@ function convertHistoryMessages(msgs: any[]): ChatMessage[] {
   for (let i = 0; i < msgs.length; i++) {
     const m = msgs[i];
 
-    if (m.role === 'user') {
-      let content = '';
-      if (typeof m.content === 'string') {
+    if (m.role === "user") {
+      let content = "";
+      if (typeof m.content === "string") {
         content = m.content;
       } else if (Array.isArray(m.content)) {
         content = m.content
-          .filter((b: any) => b.type === 'text')
+          .filter((b: any) => b.type === "text")
           .map((b: any) => b.text)
-          .join('\n');
+          .join("\n");
       }
       if (!content) continue;
       result.push({
         id: histId(),
-        role: 'user',
+        role: "user",
         content,
         timestamp: m.timestamp ? new Date(m.timestamp).getTime() : Date.now(),
       });
-    } else if (m.role === 'assistant') {
+    } else if (m.role === "assistant") {
       // Extract text content
-      let content = '';
-      if (typeof m.content === 'string') {
+      let content = "";
+      if (typeof m.content === "string") {
         content = m.content;
       } else if (Array.isArray(m.content)) {
         content = m.content
-          .filter((b: any) => b.type === 'text')
+          .filter((b: any) => b.type === "text")
           .map((b: any) => b.text)
-          .join('\n');
+          .join("\n");
       }
 
       // Check for text-encoded tool calls (models without native function calling)
       let inlineToolCalls: InlineToolCall[] | undefined;
-      if (content.includes('<|tool_calls_section_begin|>')) {
+      if (content.includes("<|tool_calls_section_begin|>")) {
         const parsed = parseTextEncodedToolCalls(content);
         content = parsed.textContent;
         if (parsed.toolCalls.length > 0) {
           // Try to pair with subsequent tool results
           inlineToolCalls = parsed.toolCalls.map((tc) => {
             for (let j = i + 1; j < msgs.length; j++) {
-              if (msgs[j].role === 'tool' && msgs[j].tool_call_id === tc.call_id) {
-                return { ...tc, result: msgs[j].content || '', status: 'ok' as const };
+              if (
+                msgs[j].role === "tool" &&
+                msgs[j].tool_call_id === tc.id
+              ) {
+                return {
+                  ...tc,
+                  result: msgs[j].content || "",
+                  status: "ok" as const,
+                };
               }
-              if (msgs[j].role === 'user') break; // stop at next user message
+              if (msgs[j].role === "user") break; // stop at next user message
             }
             return tc;
           });
@@ -131,23 +141,25 @@ function convertHistoryMessages(msgs: any[]): ChatMessage[] {
         inlineToolCalls = m.tool_calls.map((tc: any) => {
           let args: Record<string, unknown> = {};
           try {
-            args = JSON.parse(tc.function?.arguments || '{}');
-          } catch { /* malformed args */ }
+            args = JSON.parse(tc.function?.arguments || "{}");
+          } catch {
+            /* malformed args */
+          }
 
           // Find matching tool result in subsequent messages
           let toolResult: string | undefined;
-          let toolStatus: 'ok' | 'error' = 'ok';
+          let toolStatus: "ok" | "error" = "ok";
           for (let j = i + 1; j < msgs.length; j++) {
-            if (msgs[j].role === 'tool' && msgs[j].tool_call_id === tc.id) {
-              toolResult = msgs[j].content || '';
+            if (msgs[j].role === "tool" && msgs[j].tool_call_id === tc.id) {
+              toolResult = msgs[j].content || "";
               break;
             }
-            if (msgs[j].role === 'user') break;
+            if (msgs[j].role === "user") break;
           }
 
           return {
             call_id: tc.id || histId(),
-            name: tc.function?.name || 'unknown',
+            name: tc.function?.name || "unknown",
             arguments: args,
             status: toolStatus,
             result: toolResult,
@@ -163,7 +175,7 @@ function convertHistoryMessages(msgs: any[]): ChatMessage[] {
 
       result.push({
         id: histId(),
-        role: 'assistant',
+        role: "assistant",
         content,
         timestamp: m.timestamp ? new Date(m.timestamp).getTime() : Date.now(),
         toolCalls: inlineToolCalls,
@@ -289,6 +301,7 @@ export const useSession = create<SessionState>((set, get) => ({
     }
 
     // Background: fetch history from server and merge silently
+    // Note: fetchSessionMessages uses sessionKeyCache to resolve session_id -> key
     fetchSessionMessages(sessionId)
       .then((msgs) => {
         if (!msgs || msgs.length === 0) return;
@@ -344,7 +357,7 @@ export const useSession = create<SessionState>((set, get) => ({
       currentWorkspace &&
       workspace &&
       normalizePathForCompare(workspace) ===
-      normalizePathForCompare(currentWorkspace);
+        normalizePathForCompare(currentWorkspace);
     if (workspace && !isSameWorkspace) {
       useWorkspace.getState().setRootPath(workspace);
     }
@@ -396,3 +409,11 @@ export const useSession = create<SessionState>((set, get) => ({
     }
   },
 }));
+
+// ─── Auto-refresh session list on turn end ─────────────────────────
+
+streamManager.onTurnEnd(() => {
+  // Refresh session list after each turn completes
+  // This updates titles and other metadata that may have changed
+  useSession.getState().loadAllSessions();
+});
