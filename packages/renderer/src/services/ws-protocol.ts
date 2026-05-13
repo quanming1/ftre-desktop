@@ -50,10 +50,12 @@ export interface ToolCall {
 /** Tool event for real-time UI updates */
 export interface ToolEvent {
   version?: number;
-  phase: "start" | "end" | "error" | "args_delta";
+  // Backend uses both "phase" and "type" inconsistently
+  phase?: "start" | "end" | "error" | "args_delta";
+  type?: "tool_args_delta"; // Legacy format for args delta
   call_id: string;
   name?: string;
-  arguments?: Record<string, unknown>;
+  arguments?: Record<string, unknown> | null;
   result?: unknown;
   error?: string | null;
   delta?: string; // Only for args_delta
