@@ -1,10 +1,10 @@
 /**
- * WebSocket Stream Manager (Protocol v3)
+ * WebSocket Stream Manager (Protocol v4)
  *
  * Manages per-chat message state with support for:
- * - Unified messages via chat.unified (streaming and non-streaming)
- * - Tool calls embedded in messages (tool_calls field)
- * - Tool results as role="tool" messages
+ * - Streaming text via text.delta / text.done
+ * - Tool lifecycle via tool.start / tool.delta / tool.done / tool.error
+ * - Complete messages via message frame
  * - Turn lifecycle via turn.start / turn.end
  *
  * DESIGN: This module is a pure data layer. It stores session state for ALL chats
@@ -18,9 +18,14 @@ import type {
   MediaItem,
   MediaUrl,
   Role,
-  UnifiedMessage,
   ToolCall as ProtocolToolCall,
-  ToolEvent,
+  TextDeltaData,
+  TextDoneData,
+  ToolStartData,
+  ToolDeltaData,
+  ToolDoneData,
+  ToolErrorData,
+  MessageData,
 } from "./ws-protocol";
 
 // ─── Message Types ──────────────────────────────────────────────────
@@ -279,6 +284,7 @@ class WsStreamManager {
       this.serverFocusedChatId;
 
     switch (type) {
+      // ─── Session control ───
       case "session.ready":
         this.handleSessionReady(data as { chat_id: string; client_id: string });
         break;
@@ -291,6 +297,7 @@ class WsStreamManager {
         this.handleSessionUpdated(data as { chat_id: string });
         break;
 
+      // ─── Turn lifecycle ───
       case "turn.start":
         this.handleTurnStart(data as { chat_id: string });
         break;
@@ -303,10 +310,38 @@ class WsStreamManager {
         // Handled by wsClient internally
         break;
 
-      case "chat.unified":
-        this.handleChatUnified(data as UnifiedMessage);
+      // ─── v4: Text streaming ───
+      case "text.delta":
+        this.handleTextDelta(data as TextDeltaData);
         break;
 
+      case "text.done":
+        this.handleTextDone(data as TextDoneData);
+        break;
+
+      // ─── v4: Tool lifecycle ───
+      case "tool.start":
+        this.handleToolStart(data as ToolStartData);
+        break;
+
+      case "tool.delta":
+        this.handleToolDelta(data as ToolDeltaData);
+        break;
+
+      case "tool.done":
+        this.handleToolDone(data as ToolDoneData);
+        break;
+
+      case "tool.error":
+        this.handleToolError(data as ToolErrorData);
+        break;
+
+      // ─── v4: Complete message ───
+      case "message":
+        this.handleMessage(data as MessageData);
+        break;
+
+      // ─── Error ───
       case "error":
         this.handleError(chatId, data as { detail: string; reason?: string });
         break;
@@ -384,16 +419,13 @@ class WsStreamManager {
     this.turnEndHandlers.forEach((h) => h(data.chat_id));
   }
 
-  // ─── Unified Message Handler ────────────────────────────────────
+  // ─── v4 Text Handlers ────────────────────────────────────────────
 
   /**
-   * Handle unified chat message (v3 protocol).
-   * All messages (streaming, complete, tool calls, tool results) use this format.
-   *
-   * Key insight: content is always the complete accumulated content.
-   * We can render it directly without delta concatenation.
+   * Handle streaming text delta (v4 protocol).
+   * data.content is already accumulated, can render directly.
    */
-  private handleChatUnified(data: UnifiedMessage): void {
+  private handleTextDelta(data: TextDeltaData): void {
     const session = this.getSession(data.chat_id);
 
     // Clear progress when content arrives
@@ -402,193 +434,266 @@ class WsStreamManager {
     }
 
     // Find existing message by id
-    const existingIdx = session.messages.findIndex((m) => m.id === data.id);
+    const existingIdx = session.messages.findIndex(
+      (m) => m.id === data.message_id,
+    );
 
     if (existingIdx !== -1) {
-      // Update existing message (preserve fields not in current frame)
-      const existing = session.messages[existingIdx];
+      // Update existing message
       session.messages[existingIdx] = {
-        ...existing,
+        ...session.messages[existingIdx],
         content: data.content,
-        streaming: data.stream?.status === "streaming",
-        toolCalls: this.parseToolCalls(data.tool_calls) ?? existing.toolCalls,
-        toolCallId: data.tool_call_id ?? existing.toolCallId,
-        name: data.name ?? existing.name,
-        media: data.media ?? existing.media,
-        reasoning: this.extractReasoning(data) ?? existing.reasoning,
+        streaming: true,
       };
     } else {
-      // Check if this is a duplicate final message (same content as last assistant message)
-      // Backend sometimes sends a final confirmation message with different id
-      if (!data.stream && data.role === "assistant") {
-        const lastAssistantMsg = [...session.messages]
-          .reverse()
-          .find((m) => m.role === "assistant");
-        if (lastAssistantMsg && lastAssistantMsg.content === data.content) {
-          // Skip duplicate - just ensure streaming is false
-          const lastIdx = session.messages.findIndex(
-            (m) => m.id === lastAssistantMsg.id,
-          );
-          if (lastIdx !== -1) {
-            session.messages[lastIdx] = {
-              ...session.messages[lastIdx],
-              streaming: false,
-            };
-          }
-          this.emitChange(session);
-          return;
-        }
-      }
-
-      // Add new message
+      // Create new streaming message
       session.messages.push({
-        id: data.id,
-        role: data.role,
+        id: data.message_id,
+        role: "assistant",
+        content: data.content,
+        timestamp: Date.now(),
+        streaming: true,
+      });
+    }
+
+    // Track for cleanup
+    this.streamSegments.set(data.message_id, {
+      streamId: data.message_id,
+      messageId: data.message_id,
+    });
+
+    this.emitChange(session);
+  }
+
+  /**
+   * Handle text stream completion (v4 protocol).
+   */
+  private handleTextDone(data: TextDoneData): void {
+    const session = this.getSession(data.chat_id);
+
+    const existingIdx = session.messages.findIndex(
+      (m) => m.id === data.message_id,
+    );
+
+    if (existingIdx !== -1) {
+      session.messages[existingIdx] = {
+        ...session.messages[existingIdx],
+        content: data.content,
+        streaming: false,
+        reasoning: this.extractReasoning(data),
+      };
+    } else {
+      // Create complete message if delta was missed
+      session.messages.push({
+        id: data.message_id,
+        role: "assistant",
         content: data.content,
         timestamp: data.timestamp
           ? new Date(data.timestamp).getTime()
           : Date.now(),
-        streaming: data.stream?.status === "streaming",
-        toolCalls: this.parseToolCalls(data.tool_calls),
-        toolCallId: data.tool_call_id,
-        name: data.name,
-        media: data.media,
+        streaming: false,
         reasoning: this.extractReasoning(data),
       });
     }
 
-    // Track stream segment for cleanup
-    if (data.stream) {
-      if (data.stream.status === "streaming") {
-        this.streamSegments.set(data.stream.id, {
-          streamId: data.stream.id,
-          messageId: data.id,
-        });
-      } else if (data.stream.status === "complete") {
-        this.streamSegments.delete(data.stream.id);
-      }
-    }
+    // Cleanup stream tracking
+    this.streamSegments.delete(data.message_id);
 
-    // Handle tool events for real-time UI updates
-    if (data.tool_events) {
-      this.handleToolEvents(session, data.tool_events);
+    this.emitChange(session);
+  }
+
+  // ─── v4 Tool Handlers ───────────────────────────────────────────
+
+  /**
+   * Handle tool start event (v4 protocol).
+   */
+  private handleToolStart(data: ToolStartData): void {
+    const session = this.getSession(data.chat_id);
+
+    const existingIdx = session.toolCalls.findIndex(
+      (tc) => tc.call_id === data.call_id,
+    );
+
+    if (existingIdx === -1) {
+      session.toolCalls.push({
+        id: data.call_id,
+        call_id: data.call_id,
+        name: data.name,
+        arguments: {},
+        status: "pending",
+        argsBuffer: "",
+        timestamp: Date.now(),
+      });
+    } else {
+      session.toolCalls[existingIdx].status = "running";
     }
 
     this.emitChange(session);
   }
 
   /**
-   * Process tool events for real-time UI updates.
-   * Updates the legacy toolCalls array for UI rendering.
+   * Handle tool arguments delta (v4 protocol).
    */
-  private handleToolEvents(session: ChatSession, events: ToolEvent[]): void {
-    for (const event of events) {
-      const existingIdx = session.toolCalls.findIndex(
-        (tc) => tc.call_id === event.call_id,
-      );
+  private handleToolDelta(data: ToolDeltaData): void {
+    const session = this.getSession(data.chat_id);
 
-      // Normalize phase: backend uses both "phase" and "type" inconsistently
-      const phase =
-        event.phase || (event.type === "tool_args_delta" ? "args_delta" : null);
-      if (!phase) continue;
+    const existingIdx = session.toolCalls.findIndex(
+      (tc) => tc.call_id === data.call_id,
+    );
 
-      switch (phase) {
-        case "start": {
-          if (existingIdx === -1) {
-            // Create new tool call entry
-            session.toolCalls.push({
-              id: event.call_id,
-              call_id: event.call_id,
-              name: event.name || "unknown",
-              arguments: {},
-              status: "pending",
-              argsBuffer: "",
-              timestamp: Date.now(),
-            });
-          } else {
-            // Update existing
-            session.toolCalls[existingIdx].status = "running";
-          }
-          break;
+    if (existingIdx !== -1) {
+      session.toolCalls[existingIdx].argsBuffer += data.delta;
+      session.toolCalls[existingIdx].status = "running";
+    } else {
+      // Create entry if start was missed
+      session.toolCalls.push({
+        id: data.call_id,
+        call_id: data.call_id,
+        name: "unknown",
+        arguments: {},
+        status: "running",
+        argsBuffer: data.delta,
+        timestamp: Date.now(),
+      });
+    }
+
+    this.emitChange(session);
+  }
+
+  /**
+   * Handle tool completion (v4 protocol).
+   * data.arguments is already parsed, no JSON.parse needed.
+   */
+  private handleToolDone(data: ToolDoneData): void {
+    const session = this.getSession(data.chat_id);
+
+    const existingIdx = session.toolCalls.findIndex(
+      (tc) => tc.call_id === data.call_id,
+    );
+
+    if (existingIdx !== -1) {
+      const tc = session.toolCalls[existingIdx];
+      tc.status = "ok";
+      tc.name = data.name;
+      tc.arguments = data.arguments; // Already parsed
+      tc.result = data.result;
+      tc.files = data.files;
+      tc.embeds = data.embeds;
+    } else {
+      // Create completed entry if start was missed
+      session.toolCalls.push({
+        id: data.call_id,
+        call_id: data.call_id,
+        name: data.name,
+        arguments: data.arguments,
+        status: "ok",
+        argsBuffer: "",
+        result: data.result,
+        files: data.files,
+        embeds: data.embeds,
+        timestamp: Date.now(),
+      });
+    }
+
+    this.emitChange(session);
+  }
+
+  /**
+   * Handle tool error (v4 protocol).
+   */
+  private handleToolError(data: ToolErrorData): void {
+    const session = this.getSession(data.chat_id);
+
+    const existingIdx = session.toolCalls.findIndex(
+      (tc) => tc.call_id === data.call_id,
+    );
+
+    if (existingIdx !== -1) {
+      session.toolCalls[existingIdx].status = "error";
+      session.toolCalls[existingIdx].error = data.error;
+      if (data.arguments) {
+        session.toolCalls[existingIdx].arguments = data.arguments;
+      }
+    } else {
+      // Create error entry if start was missed
+      session.toolCalls.push({
+        id: data.call_id,
+        call_id: data.call_id,
+        name: data.name,
+        arguments: data.arguments || {},
+        status: "error",
+        argsBuffer: "",
+        error: data.error,
+        timestamp: Date.now(),
+      });
+    }
+
+    this.emitChange(session);
+  }
+
+  // ─── v4 Message Handler ─────────────────────────────────────────
+
+  /**
+   * Handle complete message (v4 protocol).
+   * Used for: history messages, tool results, non-streaming messages.
+   */
+  private handleMessage(data: MessageData): void {
+    const session = this.getSession(data.chat_id);
+
+    // Clear progress
+    if (session.progress) {
+      session.progress = null;
+    }
+
+    // Check for duplicate (same content as last assistant message)
+    if (data.role === "assistant") {
+      const lastAssistantMsg = [...session.messages]
+        .reverse()
+        .find((m) => m.role === "assistant");
+      if (lastAssistantMsg && lastAssistantMsg.content === data.content) {
+        // Skip duplicate - just ensure streaming is false
+        const lastIdx = session.messages.findIndex(
+          (m) => m.id === lastAssistantMsg.id,
+        );
+        if (lastIdx !== -1) {
+          session.messages[lastIdx] = {
+            ...session.messages[lastIdx],
+            streaming: false,
+          };
         }
-
-        case "args_delta": {
-          if (event.delta) {
-            if (existingIdx !== -1) {
-              session.toolCalls[existingIdx].argsBuffer += event.delta;
-              session.toolCalls[existingIdx].status = "running";
-            } else {
-              // Create entry if start was missed
-              session.toolCalls.push({
-                id: event.call_id,
-                call_id: event.call_id,
-                name: event.name || "unknown",
-                arguments: {},
-                status: "running",
-                argsBuffer: event.delta,
-                timestamp: Date.now(),
-              });
-            }
-          }
-          break;
-        }
-
-        case "end": {
-          if (existingIdx !== -1) {
-            const tc = session.toolCalls[existingIdx];
-            tc.status = "ok";
-            if (event.arguments) {
-              tc.arguments = event.arguments;
-            } else if (tc.argsBuffer) {
-              try {
-                tc.arguments = JSON.parse(tc.argsBuffer);
-              } catch {
-                // Keep empty object if parse fails
-              }
-            }
-            tc.result = event.result;
-            tc.files = event.files;
-            tc.embeds = event.embeds;
-          } else {
-            // Create completed entry if start was missed
-            session.toolCalls.push({
-              id: event.call_id,
-              call_id: event.call_id,
-              name: event.name || "unknown",
-              arguments: event.arguments || {},
-              status: "ok",
-              argsBuffer: "",
-              result: event.result,
-              files: event.files,
-              embeds: event.embeds,
-              timestamp: Date.now(),
-            });
-          }
-          break;
-        }
-
-        case "error": {
-          if (existingIdx !== -1) {
-            session.toolCalls[existingIdx].status = "error";
-            session.toolCalls[existingIdx].error = event.error || undefined;
-          } else {
-            // Create error entry if start was missed
-            session.toolCalls.push({
-              id: event.call_id,
-              call_id: event.call_id,
-              name: event.name || "unknown",
-              arguments: {},
-              status: "error",
-              argsBuffer: "",
-              error: event.error || undefined,
-              timestamp: Date.now(),
-            });
-          }
-          break;
-        }
+        this.emitChange(session);
+        return;
       }
     }
+
+    // Find existing or add new
+    const existingIdx = session.messages.findIndex((m) => m.id === data.id);
+
+    const message: ChatMessage = {
+      id: data.id,
+      role: data.role,
+      content: data.content,
+      timestamp: data.timestamp
+        ? new Date(data.timestamp).getTime()
+        : Date.now(),
+      streaming: false,
+      toolCalls: this.parseToolCalls(data.tool_calls),
+      toolCallId: data.tool_call_id,
+      name: data.name,
+      reasoning: this.extractReasoning(data),
+      media_urls: data.media_urls,
+    };
+
+    if (existingIdx !== -1) {
+      session.messages[existingIdx] = message;
+    } else {
+      session.messages.push(message);
+    }
+
+    this.emitChange(session);
   }
+
+  // ─── Helper Methods ─────────────────────────────────────────────
 
   private parseToolCalls(
     toolCalls?: ProtocolToolCall[],
@@ -598,16 +703,19 @@ class WsStreamManager {
     return toolCalls.map((tc) => ({
       id: tc.id,
       name: tc.function.name,
-      arguments: tc.function.arguments,
+      arguments: tc.function.arguments, // Still JSON string for message.tool_calls
       status: "pending" as const,
     }));
   }
 
   /**
-   * Extract reasoning content from unified message.
+   * Extract reasoning content from message data.
    * Supports both `reasoning_content` (DeepSeek/Kimi) and `thinking_blocks` (Anthropic).
    */
-  private extractReasoning(data: UnifiedMessage): string | undefined {
+  private extractReasoning(data: {
+    reasoning_content?: string;
+    thinking_blocks?: Array<{ type: string; thinking?: string }>;
+  }): string | undefined {
     // Direct reasoning content (DeepSeek-R1, Kimi-K2, etc.)
     if (data.reasoning_content) {
       return data.reasoning_content;
