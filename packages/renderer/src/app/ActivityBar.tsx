@@ -53,7 +53,9 @@ export function ActivityBar() {
 
 // ─── Settings Dialog ────────────────────────────────────────────────
 
-import { SettingsPanel } from "@/features/settings/SettingsPanel";
+import { ModelSettings } from "@/features/settings/ModelSettings";
+import { GatewaySettings } from "@/features/settings/GatewaySettings";
+import { AgentDefSettings } from "@/features/settings/AgentDefSettings";
 import { X } from "lucide-react";
 
 function SettingsDialog({ onClose }: { onClose: () => void }) {
@@ -67,17 +69,15 @@ function SettingsDialog({ onClose }: { onClose: () => void }) {
     ]},
     { group: "功能", items: [
       { id: "general", label: "通用" },
-      { id: "model", label: "模型" },
+      { id: "models", label: "模型" },
       { id: "gateway", label: "网关连接" },
-      { id: "agent", label: "Agent 设置" },
+      { id: "agents", label: "Agent 设置" },
     ]},
   ];
 
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center">
-      {/* Backdrop */}
       <div className="absolute inset-0 bg-black/60" onClick={onClose} />
-      {/* Dialog */}
       <div className="relative w-[780px] h-[560px] bg-surface border border-border rounded-xl shadow-2xl overflow-hidden flex">
         {/* Left Nav */}
         <nav className="w-[200px] border-r border-border flex flex-col py-4 shrink-0 overflow-y-auto">
@@ -103,17 +103,31 @@ function SettingsDialog({ onClose }: { onClose: () => void }) {
 
         {/* Right Content */}
         <div className="flex-1 flex flex-col overflow-hidden">
-          <div className="flex items-center justify-between px-5 py-3 border-b border-border">
-            <h2 className="text-sm font-medium text-t-primary">设置</h2>
+          <div className="flex items-center justify-end px-4 py-2 border-b border-border">
             <button onClick={onClose} className="p-1 rounded hover:bg-white/10 text-t-ghost hover:text-t-primary transition-colors">
               <X size={16} />
             </button>
           </div>
-          <div className="flex-1 overflow-y-auto">
-            <SettingsPanel />
+          <div className="flex-1 overflow-y-auto p-6">
+            {activeSection === "models" && <ModelSettings />}
+            {activeSection === "gateway" && <GatewaySettings />}
+            {activeSection === "agents" && <AgentDefSettings />}
+            {activeSection === "general" && <PlaceholderSection title="通用" description="通用设置（开发中）" />}
+            {activeSection === "account" && <PlaceholderSection title="账户" description="账户管理（开发中）" />}
+            {activeSection === "usage" && <PlaceholderSection title="用量与计费" description="用量统计（开发中）" />}
+            {activeSection === "personalization" && <PlaceholderSection title="个性化" description="个性化设置（开发中）" />}
           </div>
         </div>
       </div>
+    </div>
+  );
+}
+
+function PlaceholderSection({ title, description }: { title: string; description: string }) {
+  return (
+    <div className="text-center py-16">
+      <h3 className="text-sm font-medium text-t-primary mb-2">{title}</h3>
+      <p className="text-xs text-t-ghost">{description}</p>
     </div>
   );
 }
