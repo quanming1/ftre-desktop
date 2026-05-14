@@ -186,7 +186,8 @@ class WsStreamManager {
 
   syncHistory(chatId: string, messages: ChatMessage[]): void {
     const session = this.getSession(chatId);
-    if (session.messages.length === 0) {
+    // Always overwrite with server data (unless session is busy/streaming)
+    if (!session.isBusy) {
       session.messages = messages;
       this.emitChange(session);
     }
