@@ -520,20 +520,19 @@ class WsStreamManager {
 
   /**
    * Find or create an assistant message to attach tool calls to.
-   * Prefers the last assistant message in this turn that is still streaming
-   * or has no content yet. If the last assistant has finalized content,
-   * creates a new one (tool cards appear as a separate segment).
+   * Only reuses a message that has NO content (pure tool placeholder).
+   * If the last assistant has content (text), create a new one for tools.
    */
   private getOrCreateTurnAssistant(session: ChatSession): ChatMessage {
     for (let i = session.messages.length - 1; i >= 0; i--) {
       const m = session.messages[i];
       if (m.role === "user") break;
       if (m.role === "assistant") {
-        // Reuse if it's still streaming or has no content (pure tool placeholder)
-        if (m.streaming || !m.content) {
+        // Only reuse if it has no text content (pure tool-only message)
+        if (!m.content) {
           return m;
         }
-        // Has finalized content — don't attach tools to it, create new
+        // Has content — don't mix tools into it
         break;
       }
     }
