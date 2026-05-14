@@ -312,13 +312,13 @@ function LiveWebSocketPanel() {
               原始消息流 ({totalCount}条{hiddenCount > 0 ? `，显示最近${visibleLog.length}条` : ""})
             </span>
             <button onClick={handleCopyAll} className="px-2 py-0.5 text-[10px] bg-white/5 hover:bg-white/10 border border-white/10 rounded" title="复制全部">
-              📋 复制全部
+              Copy All
             </button>
             <button onClick={handleDownload} className="px-2 py-0.5 text-[10px] bg-white/5 hover:bg-white/10 border border-white/10 rounded" title="下载为 txt">
-              💾 下载
+              Download
             </button>
             <button onClick={handleClear} className="px-2 py-0.5 text-[10px] bg-white/5 hover:bg-white/10 border border-white/10 rounded" title="清空">
-              🗑️ 清空
+              Clear
             </button>
             {copyFeedback && <span className="text-[10px] text-green-400">{copyFeedback}</span>}
           </div>
@@ -327,7 +327,7 @@ function LiveWebSocketPanel() {
           <div className="flex-1 overflow-y-auto bg-black/20 rounded border border-white/5 p-2">
             {hiddenCount > 0 && (
               <div className="text-[10px] text-t-ghost mb-2 text-center">
-                ⋯ {hiddenCount} 条旧消息已隐藏（导出/复制包含全部）
+                ... {hiddenCount} older entries hidden (export includes all)
               </div>
             )}
             {visibleLog.map((entry, i) => (
