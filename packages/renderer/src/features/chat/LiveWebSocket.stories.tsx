@@ -5,11 +5,11 @@
  * 1. 收到的原始消息流（带时间戳和 role 颜色标记）
  * 2. stream manager 组装后的 ChatMessage 渲染结果
  *
- * 使用方法：
- * 1. 确保后端 gateway 在运行（默认 ws://127.0.0.1:18790/）
- * 2. 打开这个 story
- * 3. 输入消息发送
- * 4. 左侧看原始协议消息，右侧看渲染结果
+ * Features:
+ * - 一键复制所有原始消息
+ * - 下载为 .txt 文件
+ * - 消息上限 500 条（超出自动截断旧消息，防止 DOM 爆炸）
+ * - 点击单条消息复制其 JSON
  */
 import { useState, useRef, useCallback, useEffect } from "react";
 import type { Meta, StoryObj } from "@storybook/react";
@@ -17,6 +17,11 @@ import { isServerMessage } from "@/services/ws-protocol";
 import type { ServerMessage } from "@/services/ws-protocol";
 import { InlineToolCallCard } from "./InlineToolCallCard";
 import type { ToolCall } from "@/services/ws-stream-manager";
+
+// ─── Constants ──────────────────────────────────────────────────────
+
+/** Max log entries to keep in DOM. Older entries are discarded from render but kept in full log for export. */
+const MAX_VISIBLE_LOG = 200;
 
 // ─── Types ──────────────────────────────────────────────────────────
 
@@ -46,7 +51,30 @@ const ROLE_COLORS: Record<string, string> = {
   tool_call: "text-orange-400",
   tool_result: "text-green-400",
   user: "text-purple-400",
+  "chat.send": "text-purple-300",
 };
+
+// ─── Utilities ──────────────────────────────────────────────────────
+
+function formatLogForExport(entries: LogEntry[]): string {
+  return entries
+    .map((e) => `${e.time} ${e.direction === "send" ? "→" : "←"} ${e.raw}`)
+    .join("\n");
+}
+
+function downloadAsFile(content: string, filename: string) {
+  const blob = new Blob([content], { type: "text/plain;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+function copyToClipboard(text: string): Promise<void> {
+  return navigator.clipboard.writeText(text);
+}
 
 // ─── Live WebSocket Panel ───────────────────────────────────────────
 
@@ -55,20 +83,25 @@ function LiveWebSocketPanel() {
   const [connected, setConnected] = useState(false);
   const [chatId, setChatId] = useState<string | null>(null);
   const [input, setInput] = useState("你好，试试调用一个工具");
-  const [log, setLog] = useState<LogEntry[]>([]);
   const [assembled, setAssembled] = useState<AssembledMessage[]>([]);
+  const [copyFeedback, setCopyFeedback] = useState("");
+
+  // Full log (for export) — never truncated
+  const fullLogRef = useRef<LogEntry[]>([]);
+  // Visible log (for DOM) — capped at MAX_VISIBLE_LOG
+  const [visibleLog, setVisibleLog] = useState<LogEntry[]>([]);
+
   const wsRef = useRef<WebSocket | null>(null);
   const logEndRef = useRef<HTMLDivElement>(null);
 
-  // Auto-scroll log
+  // Auto-scroll
   useEffect(() => {
     logEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [log]);
+  }, [visibleLog]);
 
-  // ─── Assemble messages from log (same logic as stream manager) ──
+  // ─── Assemble messages from log ─────────────────────────────────
   const reassemble = useCallback((entries: LogEntry[]) => {
     const result: AssembledMessage[] = [];
-    const toolCallMap = new Map<string, { msgIdx: number; tcIdx: number }>();
 
     function currentAssistant(): AssembledMessage {
       for (let i = result.length - 1; i >= 0; i--) {
@@ -89,11 +122,9 @@ function LiveWebSocketPanel() {
         case "user":
           result.push({ id, role: "user", content: data.content || "", toolCalls: [] });
           break;
-
         case "assistant.delta":
           currentAssistant().content = data.content || "";
           break;
-
         case "assistant": {
           const ast = currentAssistant();
           ast.content = data.content || ast.content;
@@ -101,7 +132,6 @@ function LiveWebSocketPanel() {
           if (data.reasoning) ast.reasoning = data.reasoning;
           break;
         }
-
         case "tool_call.delta": {
           const ast = currentAssistant();
           const existing = ast.toolCalls.find((tc) => tc.id === data.call_id);
@@ -109,10 +139,10 @@ function LiveWebSocketPanel() {
             ast.toolCalls.push({ id: data.call_id, name: data.name, arguments: data.delta || "", status: "running" });
           } else if (existing) {
             existing.arguments += data.delta || "";
+            if (data.name) existing.name = data.name;
           }
           break;
         }
-
         case "tool_call": {
           const ast = currentAssistant();
           for (const call of data.calls || []) {
@@ -121,14 +151,11 @@ function LiveWebSocketPanel() {
             if (existing) {
               existing.arguments = args;
             } else {
-              const tcIdx = ast.toolCalls.length;
               ast.toolCalls.push({ id: call.call_id, name: call.name, arguments: args, status: "running" });
-              toolCallMap.set(call.call_id, { msgIdx: result.indexOf(ast), tcIdx });
             }
           }
           break;
         }
-
         case "tool_result": {
           const ast = currentAssistant();
           const tc = ast.toolCalls.find((t) => t.id === data.call_id);
@@ -144,6 +171,17 @@ function LiveWebSocketPanel() {
     setAssembled([...result]);
   }, []);
 
+  // ─── Add log entry ──────────────────────────────────────────────
+  const addLogEntry = useCallback((entry: LogEntry) => {
+    fullLogRef.current.push(entry);
+    setVisibleLog((prev) => {
+      const next = [...prev, entry];
+      // Cap visible entries
+      return next.length > MAX_VISIBLE_LOG ? next.slice(-MAX_VISIBLE_LOG) : next;
+    });
+    reassemble(fullLogRef.current);
+  }, [reassemble]);
+
   // ─── WebSocket Connection ───────────────────────────────────────
   const connect = useCallback(() => {
     if (wsRef.current) wsRef.current.close();
@@ -153,7 +191,8 @@ function LiveWebSocketPanel() {
 
     ws.onopen = () => {
       setConnected(true);
-      setLog([]);
+      fullLogRef.current = [];
+      setVisibleLog([]);
       setAssembled([]);
     };
 
@@ -167,24 +206,18 @@ function LiveWebSocketPanel() {
         parsed = JSON.parse(raw);
         if (isServerMessage(parsed)) {
           role = parsed.role;
-          // Extract chat_id from session.ready
           if (role === "control" && parsed.data?.event === "session.ready") {
             setChatId(parsed.data.chat_id);
           }
         }
       } catch { /* not JSON */ }
 
-      const entry: LogEntry = { time: now, direction: "recv", raw, parsed, role };
-      setLog((prev) => {
-        const next = [...prev, entry];
-        reassemble(next);
-        return next;
-      });
+      addLogEntry({ time: now, direction: "recv", raw, parsed, role });
     };
 
     ws.onclose = () => setConnected(false);
     ws.onerror = () => setConnected(false);
-  }, [url, reassemble]);
+  }, [url, addLogEntry]);
 
   const disconnect = useCallback(() => {
     wsRef.current?.close();
@@ -196,20 +229,45 @@ function LiveWebSocketPanel() {
     if (!wsRef.current || !chatId || !input.trim()) return;
 
     const frameId = crypto.randomUUID().slice(0, 12);
-    const frame = {
-      id: frameId,
-      type: "chat.send",
-      data: { chat_id: chatId, text: input, webui: true },
-    };
+    const frame = { id: frameId, type: "chat.send", data: { chat_id: chatId, text: input, webui: true } };
     const raw = JSON.stringify(frame);
     wsRef.current.send(raw);
 
     const now = new Date().toLocaleTimeString("en-US", { hour12: false, fractionalSecondDigits: 3 });
-    setLog((prev) => [...prev, { time: now, direction: "send", raw, parsed: frame, role: "chat.send" }]);
+    addLogEntry({ time: now, direction: "send", raw, parsed: frame, role: "chat.send" });
     setInput("");
-  }, [chatId, input]);
+  }, [chatId, input, addLogEntry]);
+
+  // ─── Export Actions ─────────────────────────────────────────────
+  const handleCopyAll = useCallback(async () => {
+    const text = formatLogForExport(fullLogRef.current);
+    await copyToClipboard(text);
+    setCopyFeedback("已复制!");
+    setTimeout(() => setCopyFeedback(""), 2000);
+  }, []);
+
+  const handleDownload = useCallback(() => {
+    const text = formatLogForExport(fullLogRef.current);
+    const ts = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
+    downloadAsFile(text, `ws-log-${ts}.txt`);
+  }, []);
+
+  const handleCopySingle = useCallback(async (entry: LogEntry) => {
+    await copyToClipboard(entry.raw);
+    setCopyFeedback("已复制单条!");
+    setTimeout(() => setCopyFeedback(""), 1500);
+  }, []);
+
+  const handleClear = useCallback(() => {
+    fullLogRef.current = [];
+    setVisibleLog([]);
+    setAssembled([]);
+  }, []);
 
   // ─── Render ─────────────────────────────────────────────────────
+  const totalCount = fullLogRef.current.length;
+  const hiddenCount = totalCount - visibleLog.length;
+
   return (
     <div className="text-white h-[90vh] flex flex-col gap-3">
       {/* Connection bar */}
@@ -244,28 +302,52 @@ function LiveWebSocketPanel() {
         </div>
       )}
 
-      {/* Main content: log + render preview */}
+      {/* Main content */}
       <div className="flex-1 flex gap-3 min-h-0">
         {/* Left: Raw message log */}
-        <div className="flex-1 overflow-y-auto bg-black/20 rounded border border-white/5 p-2">
-          <div className="text-xs text-t-ghost mb-2">原始消息流 ({log.length})</div>
-          {log.map((entry, i) => (
-            <div key={i} className="mb-1 text-[11px] font-mono leading-tight">
-              <span className="text-t-ghost">{entry.time}</span>
-              <span className={`ml-1 ${entry.direction === "send" ? "text-purple-400" : ROLE_COLORS[entry.role || ""] || "text-white"}`}>
-                {entry.direction === "send" ? "→" : "←"} {entry.role || "raw"}
-              </span>
-              <details className="ml-4 inline">
-                <summary className="cursor-pointer text-t-ghost hover:text-white inline">
-                  {entry.raw.length > 80 ? entry.raw.slice(0, 80) + "..." : entry.raw}
-                </summary>
-                <pre className="mt-1 p-1 bg-black/30 rounded text-[10px] whitespace-pre-wrap break-all">
-                  {JSON.stringify(entry.parsed, null, 2)}
-                </pre>
-              </details>
-            </div>
-          ))}
-          <div ref={logEndRef} />
+        <div className="flex-1 flex flex-col min-h-0">
+          {/* Log toolbar */}
+          <div className="flex items-center gap-2 mb-1">
+            <span className="text-xs text-t-ghost flex-1">
+              原始消息流 ({totalCount}条{hiddenCount > 0 ? `，显示最近${visibleLog.length}条` : ""})
+            </span>
+            <button onClick={handleCopyAll} className="px-2 py-0.5 text-[10px] bg-white/5 hover:bg-white/10 border border-white/10 rounded" title="复制全部">
+              📋 复制全部
+            </button>
+            <button onClick={handleDownload} className="px-2 py-0.5 text-[10px] bg-white/5 hover:bg-white/10 border border-white/10 rounded" title="下载为 txt">
+              💾 下载
+            </button>
+            <button onClick={handleClear} className="px-2 py-0.5 text-[10px] bg-white/5 hover:bg-white/10 border border-white/10 rounded" title="清空">
+              🗑️ 清空
+            </button>
+            {copyFeedback && <span className="text-[10px] text-green-400">{copyFeedback}</span>}
+          </div>
+
+          {/* Log entries */}
+          <div className="flex-1 overflow-y-auto bg-black/20 rounded border border-white/5 p-2">
+            {hiddenCount > 0 && (
+              <div className="text-[10px] text-t-ghost mb-2 text-center">
+                ⋯ {hiddenCount} 条旧消息已隐藏（导出/复制包含全部）
+              </div>
+            )}
+            {visibleLog.map((entry, i) => (
+              <div
+                key={i}
+                className="mb-0.5 text-[11px] font-mono leading-tight group cursor-pointer hover:bg-white/5 px-1 rounded"
+                onClick={() => handleCopySingle(entry)}
+                title="点击复制此条"
+              >
+                <span className="text-t-ghost">{entry.time}</span>
+                <span className={`ml-1 ${ROLE_COLORS[entry.role || ""] || "text-white"}`}>
+                  {entry.direction === "send" ? "→" : "←"} {entry.role || "?"}
+                </span>
+                <span className="ml-1 text-t-ghost truncate inline-block max-w-[400px] align-bottom">
+                  {entry.raw.length > 120 ? entry.raw.slice(0, 120) + "…" : entry.raw}
+                </span>
+              </div>
+            ))}
+            <div ref={logEndRef} />
+          </div>
         </div>
 
         {/* Right: Assembled render preview */}
@@ -274,8 +356,7 @@ function LiveWebSocketPanel() {
           <div className="space-y-3">
             {assembled.map((msg, i) => (
               <div key={i} className={`p-2 rounded ${msg.role === "user" ? "bg-purple-500/10 border border-purple-500/20" : "bg-white/5 border border-white/10"}`}>
-                <div className="text-[10px] text-t-ghost mb-1">{msg.role} ({msg.id})</div>
-                {/* Tool cards */}
+                <div className="text-[10px] text-t-ghost mb-1">{msg.role}</div>
                 {msg.toolCalls.length > 0 && (
                   <div className="space-y-1.5 mb-2">
                     {msg.toolCalls.map((tc) => (
@@ -283,11 +364,9 @@ function LiveWebSocketPanel() {
                     ))}
                   </div>
                 )}
-                {/* Text content */}
                 {msg.content && (
                   <div className="text-sm text-t-primary whitespace-pre-wrap">{msg.content}</div>
                 )}
-                {/* Reasoning */}
                 {msg.reasoning && (
                   <details className="mt-1">
                     <summary className="text-[10px] text-t-ghost cursor-pointer">reasoning</summary>
@@ -300,9 +379,9 @@ function LiveWebSocketPanel() {
         </div>
       </div>
 
-      {/* Status */}
+      {/* Status bar */}
       <div className="text-[10px] text-t-ghost">
-        chat_id: {chatId || "—"} | messages: {log.filter((l) => l.direction === "recv").length} recv, {log.filter((l) => l.direction === "send").length} sent
+        chat_id: {chatId || "—"} | total: {totalCount} | visible: {visibleLog.length}
       </div>
     </div>
   );
