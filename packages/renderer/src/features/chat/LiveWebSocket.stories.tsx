@@ -187,11 +187,19 @@ function LiveWebSocketPanel() {
   const [url, setUrl] = useState("ws://127.0.0.1:18790/");
   const [connected, setConnected] = useState(false);
   const [chatId, setChatId] = useState<string | null>(null);
-  const [input, setInput] = useState("你好，试试调用一个工具");
+  const [input, setInput] = useState("");
+
+  // Preset test prompts
+  const presets = [
+    "你好，你现在在测试。请尝试一下并行调用工具，调用工具之后再回答一些问题、说一些话，然后再调用工具",
+    "帮我同时执行三个命令：python --version, echo hello, dir",
+    "读一下 README.md 的前10行",
+    "你是谁",
+  ];
   const [assembled, setAssembled] = useState<AssembledMessage[]>([]);
   const [copyFeedback, setCopyFeedback] = useState("");
 
-  const [autoScroll, setAutoScroll] = useState(true);
+  const [autoScroll, setAutoScroll] = useState(false);
 
   // Full log (for export) — never truncated
   const fullLogRef = useRef<LogEntry[]>([]);
@@ -397,24 +405,37 @@ function LiveWebSocketPanel() {
 
       {/* Send bar */}
       {connected && chatId && (
-        <div className="flex gap-2">
-          <input
-            className="flex-1 bg-black/30 border border-white/10 rounded px-2 py-1 text-sm"
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            onKeyDown={(e) => e.key === "Enter" && send()}
-            placeholder="输入消息..."
-          />
-          <button onClick={send} className="px-3 py-1 text-xs bg-neon/20 text-neon border border-neon/30 rounded hover:bg-neon/30">
-            发送
-          </button>
+        <div className="space-y-1.5">
+          <div className="flex gap-2">
+            <input
+              className="flex-1 bg-black/30 border border-white/10 rounded px-2 py-1 text-sm"
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && send()}
+              placeholder="输入消息..."
+            />
+            <button onClick={send} className="px-3 py-1 text-xs bg-neon/20 text-neon border border-neon/30 rounded hover:bg-neon/30">
+              发送
+            </button>
+          </div>
+          <div className="flex gap-1.5 flex-wrap">
+            {presets.map((p, i) => (
+              <button
+                key={i}
+                onClick={() => { setInput(p); }}
+                className="px-2 py-0.5 text-[10px] bg-white/5 hover:bg-white/10 border border-white/10 rounded text-t-secondary truncate max-w-[280px]"
+              >
+                {p}
+              </button>
+            ))}
+          </div>
         </div>
       )}
 
-      {/* Main content */}
+      {/* Main content: 50/50 split */}
       <div className="flex-1 flex gap-3 min-h-0">
         {/* Left: Raw message log */}
-        <div className="flex-1 flex flex-col min-h-0">
+        <div className="w-1/2 flex flex-col min-h-0">
           {/* Log toolbar */}
           <div className="flex items-center gap-2 mb-1">
             <span className="text-xs text-t-ghost flex-1">
@@ -428,13 +449,6 @@ function LiveWebSocketPanel() {
             </button>
             <button onClick={handleClear} className="px-2 py-0.5 text-[10px] bg-white/5 hover:bg-white/10 border border-white/10 rounded" title="清空">
               Clear
-            </button>
-            <button
-              onClick={() => setAutoScroll((v) => !v)}
-              className={`px-2 py-0.5 text-[10px] border rounded ${autoScroll ? "bg-green-500/10 border-green-500/30 text-green-400" : "bg-white/5 border-white/10 text-t-ghost"}`}
-              title="自动滚动"
-            >
-              {autoScroll ? "Auto-scroll ON" : "Auto-scroll OFF"}
             </button>
             {copyFeedback && <span className="text-[10px] text-green-400">{copyFeedback}</span>}
           </div>
@@ -452,7 +466,7 @@ function LiveWebSocketPanel() {
         </div>
 
         {/* Right: Assembled render preview */}
-        <div className="flex-1 overflow-y-auto bg-black/20 rounded border border-white/5 p-2">
+        <div className="w-1/2 overflow-y-auto bg-black/20 rounded border border-white/5 p-2">
           <div className="text-xs text-t-ghost mb-2">渲染预览</div>
           <div className="space-y-3">
             {assembled.map((msg, i) => (
