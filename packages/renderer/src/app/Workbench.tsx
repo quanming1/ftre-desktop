@@ -7,6 +7,7 @@ import { EditorArea } from "@/features/editor/EditorArea";
 import { pathParent } from "@/utils/pathUtils";
 import { ChatPanel } from "@/features/chat/ChatPanel";
 import { SessionPanel } from "@/features/session/SessionPanel";
+import { SkillsPanel } from "@/features/skills/SkillsPanel";
 import { TerminalDropdown } from "@/features/terminal/TerminalDropdown";
 import { AgentChatDropdown } from "@/features/agent-chat/AgentChatDropdown";
 import { TaskDropdown } from "@/features/task/TaskDropdown";
@@ -296,6 +297,22 @@ export function Workbench() {
               <SettingsPanel />
             </ErrorBoundary>
           </div>
+        )}
+
+        {/* Skills 模式：显示技能面板 + 聊天 */}
+        {activeLeftPanel === "skills" && (
+          <>
+            <div className="w-[280px] h-full overflow-hidden border-r border-border shrink-0">
+              <ErrorBoundary>
+                <SkillsPanel />
+              </ErrorBoundary>
+            </div>
+            <div className="flex-1 h-full overflow-hidden">
+              <ErrorBoundary>
+                <ChatPanel key={rootPath} />
+              </ErrorBoundary>
+            </div>
+          </>
         )}
 
         {/* Chat 模式：正常显示 Sessions Panel */}
