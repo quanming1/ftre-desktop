@@ -11,7 +11,7 @@ import { SkillsPanel } from "@/features/skills/SkillsPanel";
 import { TerminalDropdown } from "@/features/terminal/TerminalDropdown";
 import { AgentChatDropdown } from "@/features/agent-chat/AgentChatDropdown";
 import { TaskDropdown } from "@/features/task/TaskDropdown";
-import { SettingsPanel } from "@/features/settings/SettingsPanel";
+import { SkillsPanel } from "@/features/skills/SkillsPanel";
 import { FilePalette } from "@/components/FilePalette";
 import { CommandPalette } from "@/components/CommandPalette";
 import { GlobalSearchPalette } from "@/features/global-search/GlobalSearchPalette";
@@ -289,15 +289,6 @@ export function Workbench() {
       {/* Main area - use CSS order to control panel arrangement without remounting */}
       <div className="flex-1 flex overflow-hidden" ref={containerRef}>
         <ActivityBar />
-
-        {/* Settings 模式：独占整个右侧区域 */}
-        {activeLeftPanel === "settings" && (
-          <div className="flex-1 h-full overflow-hidden">
-            <ErrorBoundary>
-              <SettingsPanel />
-            </ErrorBoundary>
-          </div>
-        )}
 
         {/* Skills 模式：独占整个右侧区域 */}
         {activeLeftPanel === "skills" && (
