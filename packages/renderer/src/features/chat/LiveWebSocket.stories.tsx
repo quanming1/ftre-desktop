@@ -76,6 +76,111 @@ function copyToClipboard(text: string): Promise<void> {
   return navigator.clipboard.writeText(text);
 }
 
+// ─── Log Entry Renderer (groups consecutive deltas) ─────────────────
+
+interface LogGroup {
+  type: "single" | "delta-group";
+  entries: LogEntry[];
+  role: string;
+}
+
+/** Group consecutive delta messages (assistant.delta, tool_call.delta) into collapsible groups */
+function groupLogEntries(entries: LogEntry[]): LogGroup[] {
+  const groups: LogGroup[] = [];
+  let currentDeltaGroup: LogEntry[] | null = null;
+  let currentDeltaRole = "";
+
+  for (const entry of entries) {
+    const isDelta = entry.role === "assistant.delta" || entry.role === "tool_call.delta";
+
+    if (isDelta) {
+      if (currentDeltaGroup && currentDeltaRole === entry.role) {
+        currentDeltaGroup.push(entry);
+      } else {
+        if (currentDeltaGroup) {
+          groups.push({ type: "delta-group", entries: currentDeltaGroup, role: currentDeltaRole });
+        }
+        currentDeltaGroup = [entry];
+        currentDeltaRole = entry.role || "";
+      }
+    } else {
+      if (currentDeltaGroup) {
+        groups.push({ type: "delta-group", entries: currentDeltaGroup, role: currentDeltaRole });
+        currentDeltaGroup = null;
+      }
+      groups.push({ type: "single", entries: [entry], role: entry.role || "" });
+    }
+  }
+  if (currentDeltaGroup) {
+    groups.push({ type: "delta-group", entries: currentDeltaGroup, role: currentDeltaRole });
+  }
+
+  return groups;
+}
+
+function LogEntries({ entries, onCopy }: { entries: LogEntry[]; onCopy: (e: LogEntry) => void }) {
+  const groups = groupLogEntries(entries);
+
+  return (
+    <>
+      {groups.map((group, gi) => {
+        if (group.type === "single") {
+          const entry = group.entries[0];
+          return (
+            <div
+              key={gi}
+              className="mb-0.5 text-[11px] font-mono leading-tight cursor-pointer hover:bg-white/5 px-1 rounded"
+              onClick={() => onCopy(entry)}
+              title="Click to copy"
+            >
+              <span className="text-t-ghost">{entry.time}</span>
+              <span className={`ml-1 ${ROLE_COLORS[entry.role || ""] || "text-white"}`}>
+                {entry.direction === "send" ? ">" : "<"} {entry.role || "?"}
+              </span>
+              <span className="ml-1 text-t-ghost truncate inline-block max-w-[400px] align-bottom">
+                {entry.raw.length > 120 ? entry.raw.slice(0, 120) + "..." : entry.raw}
+              </span>
+            </div>
+          );
+        }
+
+        // Delta group — collapsed by default
+        const first = group.entries[0];
+        const last = group.entries[group.entries.length - 1];
+        return (
+          <details key={gi} className="mb-0.5">
+            <summary className="text-[11px] font-mono leading-tight cursor-pointer hover:bg-white/5 px-1 rounded list-none">
+              <span className="text-t-ghost">{first.time}</span>
+              <span className={`ml-1 ${ROLE_COLORS[group.role] || "text-white"}`}>
+                {"<"} {group.role}
+              </span>
+              <span className="ml-1 text-t-ghost">
+                [{group.entries.length} deltas, {first.time} - {last.time}]
+              </span>
+            </summary>
+            <div className="ml-4 border-l border-white/10 pl-2">
+              {group.entries.map((entry, ei) => (
+                <div
+                  key={ei}
+                  className="text-[10px] font-mono text-t-ghost leading-tight cursor-pointer hover:bg-white/5 px-1 rounded"
+                  onClick={() => onCopy(entry)}
+                >
+                  <span>{entry.time}</span>
+                  <span className="ml-1 text-white/50">
+                    {entry.parsed?.data?.delta !== undefined
+                      ? JSON.stringify(entry.parsed.data.delta)
+                      : entry.raw.slice(0, 80)}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </details>
+        );
+      })}
+    </>
+  );
+}
+
 // ─── Live WebSocket Panel ───────────────────────────────────────────
 
 function LiveWebSocketPanel() {
@@ -86,6 +191,8 @@ function LiveWebSocketPanel() {
   const [assembled, setAssembled] = useState<AssembledMessage[]>([]);
   const [copyFeedback, setCopyFeedback] = useState("");
 
+  const [autoScroll, setAutoScroll] = useState(true);
+
   // Full log (for export) — never truncated
   const fullLogRef = useRef<LogEntry[]>([]);
   // Visible log (for DOM) — capped at MAX_VISIBLE_LOG
@@ -94,10 +201,12 @@ function LiveWebSocketPanel() {
   const wsRef = useRef<WebSocket | null>(null);
   const logEndRef = useRef<HTMLDivElement>(null);
 
-  // Auto-scroll
+  // Auto-scroll when enabled
   useEffect(() => {
-    logEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [visibleLog]);
+    if (autoScroll) {
+      logEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    }
+  }, [visibleLog, autoScroll]);
 
   // ─── Assemble messages from log ─────────────────────────────────
   const reassemble = useCallback((entries: LogEntry[]) => {
@@ -320,6 +429,13 @@ function LiveWebSocketPanel() {
             <button onClick={handleClear} className="px-2 py-0.5 text-[10px] bg-white/5 hover:bg-white/10 border border-white/10 rounded" title="清空">
               Clear
             </button>
+            <button
+              onClick={() => setAutoScroll((v) => !v)}
+              className={`px-2 py-0.5 text-[10px] border rounded ${autoScroll ? "bg-green-500/10 border-green-500/30 text-green-400" : "bg-white/5 border-white/10 text-t-ghost"}`}
+              title="自动滚动"
+            >
+              {autoScroll ? "Auto-scroll ON" : "Auto-scroll OFF"}
+            </button>
             {copyFeedback && <span className="text-[10px] text-green-400">{copyFeedback}</span>}
           </div>
 
@@ -330,22 +446,7 @@ function LiveWebSocketPanel() {
                 ... {hiddenCount} older entries hidden (export includes all)
               </div>
             )}
-            {visibleLog.map((entry, i) => (
-              <div
-                key={i}
-                className="mb-0.5 text-[11px] font-mono leading-tight group cursor-pointer hover:bg-white/5 px-1 rounded"
-                onClick={() => handleCopySingle(entry)}
-                title="点击复制此条"
-              >
-                <span className="text-t-ghost">{entry.time}</span>
-                <span className={`ml-1 ${ROLE_COLORS[entry.role || ""] || "text-white"}`}>
-                  {entry.direction === "send" ? "→" : "←"} {entry.role || "?"}
-                </span>
-                <span className="ml-1 text-t-ghost truncate inline-block max-w-[400px] align-bottom">
-                  {entry.raw.length > 120 ? entry.raw.slice(0, 120) + "…" : entry.raw}
-                </span>
-              </div>
-            ))}
+            <LogEntries entries={visibleLog} onCopy={handleCopySingle} />
             <div ref={logEndRef} />
           </div>
         </div>
