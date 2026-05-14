@@ -80,15 +80,15 @@ function SettingsDialog({ onClose }: { onClose: () => void }) {
       <div className="absolute inset-0 bg-black/60" onClick={onClose} />
       <div className="relative w-[780px] h-[560px] bg-surface border border-border rounded-xl shadow-2xl overflow-hidden flex">
         {/* Left Nav */}
-        <nav className="w-[200px] border-r border-border flex flex-col py-4 shrink-0 overflow-y-auto">
+        <nav className="w-[200px] border-r border-border flex flex-col py-5 shrink-0 overflow-y-auto">
           {navSections.map((section) => (
-            <div key={section.group} className="mb-3">
-              <div className="px-4 mb-1 text-[10px] uppercase tracking-wider text-t-ghost">{section.group}</div>
+            <div key={section.group} className="mb-4">
+              <div className="px-5 mb-2 text-[11px] uppercase tracking-wider text-t-ghost">{section.group}</div>
               {section.items.map((item) => (
                 <button
                   key={item.id}
                   onClick={() => setActiveSection(item.id)}
-                  className={`w-full text-left px-4 py-1.5 text-xs transition-colors ${
+                  className={`w-full text-left px-5 py-2 text-[13px] transition-colors ${
                     activeSection === item.id
                       ? "bg-white/[0.06] text-t-primary"
                       : "text-t-secondary hover:bg-white/[0.03]"
