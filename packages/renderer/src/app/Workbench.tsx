@@ -11,7 +11,6 @@ import { SkillsPanel } from "@/features/skills/SkillsPanel";
 import { TerminalDropdown } from "@/features/terminal/TerminalDropdown";
 import { AgentChatDropdown } from "@/features/agent-chat/AgentChatDropdown";
 import { TaskDropdown } from "@/features/task/TaskDropdown";
-import { SkillsPanel } from "@/features/skills/SkillsPanel";
 import { FilePalette } from "@/components/FilePalette";
 import { CommandPalette } from "@/components/CommandPalette";
 import { GlobalSearchPalette } from "@/features/global-search/GlobalSearchPalette";
