@@ -23,8 +23,6 @@ export function TitleBar() {
   const rootPath = useWorkspace((s) => s.rootPath);
   const terminalOpen = useLayout((s) => s.terminalDropdownOpen);
   const toggleTerminal = useLayout((s) => s.toggleTerminalDropdown);
-  const agentChatOpen = useLayout((s) => s.agentChatOpen);
-  const toggleAgentChat = useLayout((s) => s.toggleAgentChat);
   const taskPanelOpen = useLayout((s) => s.taskPanelOpen);
   const toggleTaskPanel = useLayout((s) => s.toggleTaskPanel);
   const layoutMode = useLayout((s) => s.layoutMode);
@@ -166,17 +164,6 @@ export function TitleBar() {
               }`}
             >
               <ClipboardList size={14} strokeWidth={1.5} />
-            </button>
-          </Tooltip>
-
-          <Tooltip content="Agent 群聊" side="bottom">
-            <button
-              onClick={toggleAgentChat}
-              className={`h-full px-3 flex items-center gap-1.5 text-[12px] font-mono transition-colors ${
-                agentChatOpen ? "text-t-primary bg-white/[0.06]" : "text-t-dim hover:bg-white/[0.06] hover:text-t-muted"
-              }`}
-            >
-              <MessageSquare size={14} strokeWidth={1.5} />
             </button>
           </Tooltip>
 

@@ -618,49 +618,6 @@ export function SessionPanel() {
               <Search size={15} />
             </button>
           </Tooltip>
-          <TooltipPrimitive.Root
-            open={filterTipOpen}
-            onOpenChange={setFilterTipOpen}
-            delayDuration={0}
-          >
-            <TooltipPrimitive.Trigger asChild>
-              <button
-                type="button"
-                onClick={() => {
-                  handleCycleSourceFilter();
-                  setFilterTipOpen(true);
-                }}
-                onMouseEnter={() => setFilterTipOpen(true)}
-                onMouseLeave={() => setFilterTipOpen(false)}
-                disabled={sourceOptions.length === 0}
-                className={`relative flex items-center justify-center h-9 w-9 rounded transition-colors disabled:opacity-40 disabled:cursor-not-allowed ${
-                  selectedSource !== "all"
-                    ? "text-neon bg-neon/10"
-                    : "text-t-secondary bg-elevated hover:bg-panel hover:text-neon"
-                }`}
-              >
-                <Filter size={15} />
-                <span
-                  className={`absolute -right-0.5 -top-0.5 min-w-[13px] h-[13px] px-[2px] rounded-full text-[9px] leading-[13px] text-center font-semibold ${
-                    selectedSource !== "all"
-                      ? "bg-neon/25 text-neon border border-neon/40"
-                      : "bg-white/[0.14] text-t-dim border border-white/[0.2]"
-                  }`}
-                >
-                  {sourceBadgeText}
-                </span>
-              </button>
-            </TooltipPrimitive.Trigger>
-            <TooltipPrimitive.Portal>
-              <TooltipPrimitive.Content
-                side="bottom"
-                sideOffset={6}
-                className="z-[9999] px-2.5 py-1.5 text-[12px] rounded shadow-lg bg-[var(--ftre-elevated,#2d2d2d)] text-[var(--ftre-text-primary,#e8e8e8)] border border-[var(--ftre-border,#3c3c3c)]"
-              >
-                {`来源筛选：${selectedSourceLabel}（点击切换）`}
-              </TooltipPrimitive.Content>
-            </TooltipPrimitive.Portal>
-          </TooltipPrimitive.Root>
           <Tooltip content="刷新会话" side="bottom">
             <button
               onClick={handleRefreshWorkspace}
