@@ -5,12 +5,10 @@
  * 1. Mock data — predefined conversations with various message types
  * 2. Live WebSocket — connects to real backend, renders real-time messages
  */
-import { useState, useRef, useCallback, useEffect } from "react";
+import { useState, useCallback, useEffect } from "react";
 import type { Meta, StoryObj } from "@storybook/react";
 import { ChatMessageList } from "./ChatMessageList";
 import type { ChatMessage, ToolCall } from "@/services/ws-stream-manager";
-import { isServerMessage } from "@/services/ws-protocol";
-import type { ServerMessage, ToolCallData, ToolResultData, AssistantDeltaData, AssistantData, ToolCallDeltaData } from "@/services/ws-protocol";
 
 const meta: Meta<typeof ChatMessageList> = {
   title: "Chat/ChatMessageList",
@@ -165,176 +163,81 @@ export const BusyNoMessages: Story = {
 // ─── Live WebSocket Story ───────────────────────────────────────────
 
 import { WsLogPanel, type LogEntry } from "./WsLogPanel";
+import { wsClient } from "@/services/websocket-client";
+import { streamManager } from "@/services/ws-stream-manager";
+import type { ChatSession } from "@/services/ws-stream-manager";
 
+/**
+ * LiveChatPanel — uses the REAL streamManager and wsClient.
+ * No duplicated message assembly logic. Tests the actual production code path.
+ */
 function LiveChatPanel() {
-  const [url, setUrl] = useState("ws://127.0.0.1:18790/");
-  const [connected, setConnected] = useState(false);
-  const [chatId, setChatId] = useState<string | null>(null);
-  const [messages, setMessages] = useState<ChatMessage[]>([]);
-  const [isBusy, setIsBusy] = useState(false);
+  const [session, setSession] = useState<ChatSession | null>(null);
   const [input, setInput] = useState("");
   const [showLog, setShowLog] = useState(false);
   const [logEntries, setLogEntries] = useState<LogEntry[]>([]);
-  const wsRef = useRef<WebSocket | null>(null);
-  const toolArgBuffers = useRef<Map<string, string>>(new Map());
 
-  function addLog(direction: "send" | "recv", raw: string, parsed: any, role?: string) {
-    const time = new Date().toLocaleTimeString("en-US", { hour12: false, fractionalSecondDigits: 3 });
-    setLogEntries((prev) => [...prev, { time, direction, raw, parsed, role }]);
-  }
-
-  // Message assembly helpers
-  function getCurrentAssistant(msgs: ChatMessage[]): ChatMessage {
-    for (let i = msgs.length - 1; i >= 0; i--) {
-      if (msgs[i].role === "assistant") return msgs[i];
-      if (msgs[i].role === "user") break;
-    }
-    const msg: ChatMessage = { id: `ast_${Date.now()}`, role: "assistant", content: null, timestamp: Date.now(), toolCalls: [] };
-    msgs.push(msg);
-    return msg;
-  }
-
-  const handleServerMessage = useCallback((raw: string) => {
-    let parsed: any;
-    try { parsed = JSON.parse(raw); } catch { return; }
-    if (!isServerMessage(parsed)) return;
-
-    const { role, data, id } = parsed as ServerMessage;
-    addLog("recv", raw, parsed, role);
-
-    setMessages((prev) => {
-      const msgs = [...prev];
-
-      switch (role) {
-        case "control": {
-          const event = (data as any).event;
-          if (event === "session.ready") setChatId((data as any).chat_id);
-          if (event === "turn.start") setIsBusy(true);
-          if (event === "turn.end") {
-            setIsBusy(false);
-            for (const m of msgs) {
-              if (m.streaming) m.streaming = false;
-              if (m.toolCalls) {
-                for (const tc of m.toolCalls) {
-                  if (tc.status === "running" || tc.status === "pending") tc.status = "ok";
-                }
-              }
-            }
-          }
-          break;
-        }
-
-        case "assistant.delta": {
-          const d = data as AssistantDeltaData;
-          const ast = getCurrentAssistant(msgs);
-          ast.content = d.content;
-          ast.streaming = true;
-          ast.id = id;
-          const idx = msgs.indexOf(ast);
-          if (idx !== -1) msgs[idx] = { ...ast };
-          break;
-        }
-
-        case "assistant": {
-          const d = data as AssistantData;
-          const ast = getCurrentAssistant(msgs);
-          ast.content = d.content || ast.content;
-          ast.streaming = false;
-          ast.id = id;
-          if (d.reasoning) ast.reasoning = d.reasoning;
-          const idx = msgs.indexOf(ast);
-          if (idx !== -1) msgs[idx] = { ...ast };
-          break;
-        }
-
-        case "tool_call.delta": {
-          const d = data as ToolCallDeltaData;
-          const buf = toolArgBuffers.current.get(d.call_id) || "";
-          toolArgBuffers.current.set(d.call_id, buf + d.delta);
-          const ast = getCurrentAssistant(msgs);
-          if (!ast.toolCalls) ast.toolCalls = [];
-          const existing = ast.toolCalls.find((tc) => tc.id === d.call_id);
-          if (existing) {
-            if (d.name) existing.name = d.name;
-            existing.arguments = toolArgBuffers.current.get(d.call_id) || "";
-          } else {
-            ast.toolCalls.push({ id: d.call_id, name: d.name || "unknown", arguments: d.delta, status: "running" });
-          }
-          ast.streaming = true;
-          const idx = msgs.indexOf(ast);
-          if (idx !== -1) msgs[idx] = { ...ast, toolCalls: [...ast.toolCalls] };
-          break;
-        }
-
-        case "tool_call": {
-          const d = data as ToolCallData;
-          const ast = getCurrentAssistant(msgs);
-          if (!ast.toolCalls) ast.toolCalls = [];
-          for (const call of d.calls) {
-            const argsStr = typeof call.arguments === "object" ? JSON.stringify(call.arguments) : String(call.arguments);
-            const existing = ast.toolCalls.find((tc) => tc.id === call.call_id);
-            if (existing) { existing.arguments = argsStr; existing.name = call.name; }
-            else { ast.toolCalls.push({ id: call.call_id, name: call.name, arguments: argsStr, status: "running" }); }
-            toolArgBuffers.current.delete(call.call_id);
-          }
-          const idx = msgs.indexOf(ast);
-          if (idx !== -1) msgs[idx] = { ...ast, toolCalls: [...ast.toolCalls] };
-          break;
-        }
-
-        case "tool_result": {
-          const d = data as ToolResultData;
-          for (let i = msgs.length - 1; i >= 0; i--) {
-            if (msgs[i].toolCalls) {
-              const tc = msgs[i].toolCalls!.find((t) => t.id === d.call_id);
-              if (tc) {
-                tc.status = d.error ? "error" : "ok";
-                tc.result = d.error || d.output || "";
-                tc.name = d.name || tc.name;
-                msgs[i] = { ...msgs[i], toolCalls: [...msgs[i].toolCalls!] };
-                break;
-              }
-            }
-            if (msgs[i].role === "user") break;
-          }
-          break;
-        }
-      }
-
-      return msgs;
+  // Subscribe to streamManager changes
+  useEffect(() => {
+    const unsub = streamManager.onChange((s) => {
+      setSession({ ...s, messages: [...s.messages] });
     });
+    const unsubFocus = streamManager.onFocus(() => {
+      const active = streamManager.getActiveSession();
+      if (active) setSession({ ...active, messages: [...active.messages] });
+    });
+    return () => { unsub(); unsubFocus(); };
   }, []);
 
-  const connect = useCallback(() => {
-    const ws = new WebSocket(url);
-    wsRef.current = ws;
-    ws.onopen = () => { setConnected(true); setMessages([]); setIsBusy(false); setLogEntries([]); toolArgBuffers.current.clear(); };
-    ws.onmessage = (e) => handleServerMessage(e.data);
-    ws.onclose = () => setConnected(false);
-    ws.onerror = () => setConnected(false);
-  }, [url, handleServerMessage]);
+  // Intercept raw WS messages for the log panel
+  useEffect(() => {
+    const origOnMessage = wsClient["ws"]?.onmessage;
+    const unsub = wsClient.onMessage((msg) => {
+      const time = new Date().toLocaleTimeString("en-US", { hour12: false, fractionalSecondDigits: 3 });
+      setLogEntries((prev) => [...prev, {
+        time,
+        direction: "recv" as const,
+        raw: JSON.stringify(msg),
+        parsed: msg,
+        role: msg.role,
+      }]);
+    });
+    return unsub;
+  }, []);
 
-  const disconnect = useCallback(() => { wsRef.current?.close(); wsRef.current = null; }, []);
+  // Connect on mount
+  useEffect(() => {
+    if (!wsClient.connected) {
+      wsClient.connect();
+    }
+    // If already connected, grab current session
+    const active = streamManager.getActiveSession();
+    if (active) setSession({ ...active, messages: [...active.messages] });
+  }, []);
+
+  const chatId = streamManager.getActiveChatId();
+  const connected = wsClient.connected;
 
   const send = useCallback(() => {
-    if (!wsRef.current || !chatId || !input.trim()) return;
-    const frame = { id: crypto.randomUUID().slice(0, 12), type: "chat.send", data: { chat_id: chatId, text: input, webui: true } };
-    const raw = JSON.stringify(frame);
-    wsRef.current.send(raw);
-    addLog("send", raw, frame, "chat.send");
-    setMessages((prev) => [...prev, { id: `user_${Date.now()}`, role: "user", content: input, timestamp: Date.now() }]);
+    if (!input.trim()) return;
+    const time = new Date().toLocaleTimeString("en-US", { hour12: false, fractionalSecondDigits: 3 });
+    setLogEntries((prev) => [...prev, { time, direction: "send", raw: input, parsed: null, role: "user" }]);
+    streamManager.sendMessage(input);
     setInput("");
-  }, [chatId, input]);
+  }, [input]);
+
+  const messages = session?.messages || [];
+  const isBusy = session?.isBusy || false;
 
   return (
     <div className="h-full flex flex-col relative">
       {/* Toolbar */}
       <div className="flex items-center gap-2 p-2 border-b border-white/10 bg-black/20">
-        <input className="flex-1 bg-black/30 border border-white/10 rounded px-2 py-1 text-xs font-mono text-white" value={url} onChange={(e) => setUrl(e.target.value)} />
-        <button onClick={connected ? disconnect : connect} className={`px-3 py-1 text-xs rounded border text-white ${connected ? "border-red-500/50" : "border-green-500/50"}`}>
-          {connected ? "Disconnect" : "Connect"}
-        </button>
+        <span className="text-xs text-t-ghost font-mono flex-1">
+          chat: {chatId || "—"} | msgs: {messages.length}
+        </span>
         <span className={`w-2 h-2 rounded-full ${connected ? "bg-green-500" : "bg-red-500"}`} />
+        <span className="text-[10px] text-t-ghost">{connected ? "Connected" : "Disconnected"}</span>
         <button
           onClick={() => setShowLog((v) => !v)}
           className={`px-3 py-1 text-xs rounded border ${showLog ? "border-neon/50 text-neon bg-neon/10" : "border-white/20 text-t-ghost"}`}
@@ -343,7 +246,7 @@ function LiveChatPanel() {
         </button>
       </div>
 
-      {/* Message list */}
+      {/* Message list — uses the real ChatMessageList component */}
       <ChatMessageList messages={messages} isBusy={isBusy} className="flex-1" />
 
       {/* Input */}
@@ -358,6 +261,21 @@ function LiveChatPanel() {
           />
           <button onClick={send} className="px-4 py-1.5 text-xs bg-neon/20 text-neon border border-neon/30 rounded">Send</button>
         </div>
+      )}
+
+      {/* WS Log Panel */}
+      {showLog && (
+        <div className="absolute top-0 right-0 w-[50%] h-full bg-[#0d0d1a] border-l border-white/10 z-50 flex flex-col">
+          <div className="flex items-center justify-between px-3 py-1.5 border-b border-white/10">
+            <span className="text-xs text-t-secondary">WebSocket Log</span>
+            <button onClick={() => setShowLog(false)} className="text-xs text-t-ghost hover:text-white">Close</button>
+          </div>
+          <WsLogPanel entries={logEntries} onClear={() => setLogEntries([])} className="flex-1 min-h-0" />
+        </div>
+      )}
+    </div>
+  );
+}
       )}
 
       {/* WS Log Panel (slide-in from right) */}
