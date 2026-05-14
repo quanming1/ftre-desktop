@@ -9,7 +9,6 @@ import { ChatPanel } from "@/features/chat/ChatPanel";
 import { SessionPanel } from "@/features/session/SessionPanel";
 import { SkillsPanel } from "@/features/skills/SkillsPanel";
 import { TerminalDropdown } from "@/features/terminal/TerminalDropdown";
-import { AgentChatDropdown } from "@/features/agent-chat/AgentChatDropdown";
 import { TaskDropdown } from "@/features/task/TaskDropdown";
 import { FilePalette } from "@/components/FilePalette";
 import { CommandPalette } from "@/components/CommandPalette";
@@ -400,9 +399,6 @@ export function Workbench() {
 
       {/* 终端下拉弹窗 — 始终挂载，CSS 控制显隐 */}
       <TerminalDropdown />
-
-      {/* Agent 群聊弹窗 — 始终挂载，CSS 控制显隐 */}
-      <AgentChatDropdown />
 
       {/* 任务监控弹窗 — 始终挂载，CSS 控制显隐 */}
       <TaskDropdown />
