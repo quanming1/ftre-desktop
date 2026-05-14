@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { ErrorBoundary } from "@ftre/ui";
 import { TitleBar } from "./TitleBar";
-import { StatusBar } from "./StatusBar";
+import { ActivityBar } from "./ActivityBar";
 import { Sidebar } from "@/features/explorer/Sidebar";
 import { EditorArea } from "@/features/editor/EditorArea";
 import { pathParent } from "@/utils/pathUtils";
@@ -10,6 +10,7 @@ import { SessionPanel } from "@/features/session/SessionPanel";
 import { TerminalDropdown } from "@/features/terminal/TerminalDropdown";
 import { AgentChatDropdown } from "@/features/agent-chat/AgentChatDropdown";
 import { TaskDropdown } from "@/features/task/TaskDropdown";
+import { SettingsPanel } from "@/features/settings/SettingsPanel";
 import { FilePalette } from "@/components/FilePalette";
 import { CommandPalette } from "@/components/CommandPalette";
 import { GlobalSearchPalette } from "@/features/global-search/GlobalSearchPalette";
@@ -37,6 +38,7 @@ export function Workbench() {
   const activeSidebarView = useLayout((s) => s.activeSidebarView);
   const panelOrder = useLayout((s) => s.panelOrder);
   const panelVisible = useLayout((s) => s.panelVisible);
+  const activeLeftPanel = useLayout((s) => s.activeLeftPanel);
 
   const containerRef = useRef<HTMLDivElement>(null);
 
@@ -177,7 +179,9 @@ export function Workbench() {
       return { width: sidebarWidth, flexShrink: 0, order: getOrder(id) };
     }
     // For editor and chat, use flex-grow with ratio
-    const flexPanels = visiblePanels.filter((p) => p !== "sidebar" && p !== "sessions");
+    const flexPanels = visiblePanels.filter(
+      (p) => p !== "sidebar" && p !== "sessions",
+    );
     const flexIndex = flexPanels.indexOf(id);
     if (flexPanels.length === 1) {
       return { flex: 1, order: getOrder(id) };
@@ -198,16 +202,17 @@ export function Workbench() {
   // - If the target panel === afterPanelId, it's on the LEFT of the handle -> delta positive = grow
   // - If the target panel === nextPanelId, it's on the RIGHT of the handle -> delta positive = shrink
   const createFixedPanelResizeHandler = useCallback(
-    (
-      targetPanel: "sessions" | "sidebar",
-      afterPanelId: PanelId,
-    ) => {
+    (targetPanel: "sessions" | "sidebar", afterPanelId: PanelId) => {
       return (delta: number) => {
         // Read current width from store at call time, not at creation time
         const state = useLayout.getState();
-        const currentWidth = targetPanel === "sessions" ? state.sessionsWidth : state.sidebarWidth;
-        const setWidth = targetPanel === "sessions" ? state.setSessionsWidth : state.setSidebarWidth;
-        
+        const currentWidth =
+          targetPanel === "sessions" ? state.sessionsWidth : state.sidebarWidth;
+        const setWidth =
+          targetPanel === "sessions"
+            ? state.setSessionsWidth
+            : state.setSidebarWidth;
+
         const currentOrder = state.panelOrder;
         const index = currentOrder.indexOf(afterPanelId);
         const nextPanelId = currentOrder[index + 1];
@@ -225,11 +230,17 @@ export function Workbench() {
       return (delta: number) => {
         const container = containerRef.current;
         if (!container) return;
-        
+
         // Read current state from store at call time
         const state = useLayout.getState();
-        const { panelVisible: pv, sessionsWidth: sw, sidebarWidth: sbw, centerRatio: cr, panelOrder: po } = state;
-        
+        const {
+          panelVisible: pv,
+          sessionsWidth: sw,
+          sidebarWidth: sbw,
+          centerRatio: cr,
+          panelOrder: po,
+        } = state;
+
         // Available width = container width minus fixed panels
         const sessionsW = pv.sessions ? sw : 0;
         const sidebarW = pv.sidebar ? sbw : 0;
@@ -240,13 +251,18 @@ export function Workbench() {
 
         // centerRatio is assigned to the FIRST flex panel
         const visiblePs = po.filter((id) => pv[id]);
-        const flexPanels = visiblePs.filter((p) => p !== "sidebar" && p !== "sessions");
+        const flexPanels = visiblePs.filter(
+          (p) => p !== "sidebar" && p !== "sessions",
+        );
         const firstPanel = flexPanels[0];
 
         // If afterPanelId === firstPanel, dragging right increases firstPanel
         // If afterPanelId !== firstPanel, it means firstPanel is on the right, reverse
-        const adjustedRatioDelta = afterPanelId === firstPanel ? ratioDelta : -ratioDelta;
-        state.setCenterRatio(Math.max(10, Math.min(90, cr + adjustedRatioDelta)));
+        const adjustedRatioDelta =
+          afterPanelId === firstPanel ? ratioDelta : -ratioDelta;
+        state.setCenterRatio(
+          Math.max(10, Math.min(90, cr + adjustedRatioDelta)),
+        );
       };
     },
     [], // No dependencies - reads from store at call time
@@ -271,8 +287,19 @@ export function Workbench() {
 
       {/* Main area - use CSS order to control panel arrangement without remounting */}
       <div className="flex-1 flex overflow-hidden" ref={containerRef}>
-        {/* Sessions Panel */}
-        {panelVisible.sessions && (
+        <ActivityBar />
+
+        {/* Settings 模式：独占整个右侧区域 */}
+        {activeLeftPanel === "settings" && (
+          <div className="flex-1 h-full overflow-hidden">
+            <ErrorBoundary>
+              <SettingsPanel />
+            </ErrorBoundary>
+          </div>
+        )}
+
+        {/* Chat 模式：正常显示 Sessions Panel */}
+        {activeLeftPanel === "chat" && panelVisible.sessions && (
           <div
             className="h-full overflow-hidden"
             style={getPanelStyle("sessions")}
@@ -282,20 +309,22 @@ export function Workbench() {
             </ErrorBoundary>
           </div>
         )}
-        {panelVisible.sessions && isResizeHandleVisible("sessions") && (
-          <div
-            className="h-full shrink-0"
-            style={{ order: getResizeHandleOrder("sessions") }}
-          >
-            <ResizeHandle
-              direction="horizontal"
-              onResize={getResizeHandler("sessions")}
-            />
-          </div>
-        )}
+        {activeLeftPanel === "chat" &&
+          panelVisible.sessions &&
+          isResizeHandleVisible("sessions") && (
+            <div
+              className="h-full shrink-0"
+              style={{ order: getResizeHandleOrder("sessions") }}
+            >
+              <ResizeHandle
+                direction="horizontal"
+                onResize={getResizeHandler("sessions")}
+              />
+            </div>
+          )}
 
-        {/* Sidebar Panel */}
-        {panelVisible.sidebar && (
+        {/* Sidebar Panel - 只在 chat 模式显示 */}
+        {activeLeftPanel === "chat" && panelVisible.sidebar && (
           <div
             className="h-full overflow-hidden"
             style={getPanelStyle("sidebar")}
@@ -305,20 +334,22 @@ export function Workbench() {
             </ErrorBoundary>
           </div>
         )}
-        {panelVisible.sidebar && isResizeHandleVisible("sidebar") && (
-          <div
-            className="h-full shrink-0"
-            style={{ order: getResizeHandleOrder("sidebar") }}
-          >
-            <ResizeHandle
-              direction="horizontal"
-              onResize={getResizeHandler("sidebar")}
-            />
-          </div>
-        )}
+        {activeLeftPanel === "chat" &&
+          panelVisible.sidebar &&
+          isResizeHandleVisible("sidebar") && (
+            <div
+              className="h-full shrink-0"
+              style={{ order: getResizeHandleOrder("sidebar") }}
+            >
+              <ResizeHandle
+                direction="horizontal"
+                onResize={getResizeHandler("sidebar")}
+              />
+            </div>
+          )}
 
-        {/* Editor Panel */}
-        {panelVisible.editor && (
+        {/* Editor Panel - 只在 chat 模式显示 */}
+        {activeLeftPanel === "chat" && panelVisible.editor && (
           <div
             className="h-full flex flex-col overflow-hidden"
             style={getPanelStyle("editor")}
@@ -330,40 +361,42 @@ export function Workbench() {
             </div>
           </div>
         )}
-        {panelVisible.editor && isResizeHandleVisible("editor") && (
-          <div
-            className="h-full shrink-0"
-            style={{ order: getResizeHandleOrder("editor") }}
-          >
-            <ResizeHandle
-              direction="horizontal"
-              onResize={getResizeHandler("editor")}
-            />
-          </div>
-        )}
+        {activeLeftPanel === "chat" &&
+          panelVisible.editor &&
+          isResizeHandleVisible("editor") && (
+            <div
+              className="h-full shrink-0"
+              style={{ order: getResizeHandleOrder("editor") }}
+            >
+              <ResizeHandle
+                direction="horizontal"
+                onResize={getResizeHandler("editor")}
+              />
+            </div>
+          )}
 
         {/* Chat Panel */}
-        {panelVisible.chat && (
+        {panelVisible.chat && activeLeftPanel === "chat" && (
           <div className="h-full overflow-hidden" style={getPanelStyle("chat")}>
             <ErrorBoundary>
               <ChatPanel key={rootPath} />
             </ErrorBoundary>
           </div>
         )}
-        {panelVisible.chat && isResizeHandleVisible("chat") && (
-          <div
-            className="h-full shrink-0"
-            style={{ order: getResizeHandleOrder("chat") }}
-          >
-            <ResizeHandle
-              direction="horizontal"
-              onResize={getResizeHandler("chat")}
-            />
-          </div>
-        )}
+        {panelVisible.chat &&
+          activeLeftPanel === "chat" &&
+          isResizeHandleVisible("chat") && (
+            <div
+              className="h-full shrink-0"
+              style={{ order: getResizeHandleOrder("chat") }}
+            >
+              <ResizeHandle
+                direction="horizontal"
+                onResize={getResizeHandler("chat")}
+              />
+            </div>
+          )}
       </div>
-
-      <StatusBar />
 
       {/* 终端下拉弹窗 — 始终挂载，CSS 控制显隐 */}
       <TerminalDropdown />

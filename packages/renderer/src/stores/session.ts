@@ -1,10 +1,10 @@
-/**
+﻿/**
  * Session store — tracks known chat sessions (local state).
  * Syncs with ws-stream-manager for session switching.
  */
 import { create } from "zustand";
 import { streamManager } from "@/services/ws-stream-manager";
-import type { ChatMessage, InlineToolCall } from "@/services/ws-stream-manager";
+import type { ChatMessage, ToolCall } from "@/services/ws-stream-manager";
 import type { SessionSummary } from "@/services/api";
 import { fetchSessions, fetchSessionMessages } from "@/services/api";
 import { useWorkspace } from "./workspace";
@@ -21,173 +21,122 @@ function histId(): string {
 }
 
 /**
- * Parse text-encoded tool calls (used by models without native function calling).
- * Format: <|tool_calls_section_begin|> <|tool_call_begin|> {id} <|tool_call_argument_begin|> {json} <|tool_call_end|> ... <|tool_calls_section_end|>
- * Returns parsed tool calls and the remaining text content (without the tool section).
- */
-function parseTextEncodedToolCalls(content: string): {
-  textContent: string;
-  toolCalls: InlineToolCall[];
-} {
-  const sectionRegex =
-    /<\|tool_calls_section_begin\|>([\s\S]*?)<\|tool_calls_section_end\|>/;
-  const match = content.match(sectionRegex);
-  if (!match) return { textContent: content, toolCalls: [] };
-
-  // Remove the tool section from display content
-  const textContent = content.replace(sectionRegex, "").trim();
-
-  // Parse individual tool calls
-  const toolCalls: InlineToolCall[] = [];
-  const callRegex =
-    /<\|tool_call_begin\|>\s*(\S+)\s*<\|tool_call_argument_begin\|>\s*([\s\S]*?)\s*<\|tool_call_end\|>/g;
-  let callMatch: RegExpExecArray | null;
-  while ((callMatch = callRegex.exec(match[1])) !== null) {
-    const callId = callMatch[1];
-    const argsStr = callMatch[2].trim();
-    let name = "unknown";
-    try {
-      const args = JSON.parse(argsStr);
-      // Try to infer tool name from the call_id pattern (e.g. "functions.exec:0" → "exec")
-      // or from common argument patterns
-      if ("command" in args) name = "exec";
-      else if ("path" in args && "max_entries" in args) name = "list_dir";
-      else if ("path" in args) name = "read_file";
-      else if ("action" in args) name = "my";
-      else if ("query" in args) name = "web_search";
-    } catch {
-      /* malformed args */
-    }
-
-    toolCalls.push({
-      id: callId,
-      name,
-      arguments: argsStr,
-      status: "ok",
-      result: undefined,
-    });
-  }
-
-  return { textContent, toolCalls };
-}
-
-/**
- * Convert OpenAI-format messages from the REST API into ChatMessage[].
- * Pairs assistant tool_calls with subsequent tool results inline.
+ * Convert v5 REST API messages into ChatMessage[] for rendering.
+ *
+ * v5 storage order per turn: [tool_call, tool_result*, assistant]
+ * Render model: one assistant bubble per turn containing tool cards + final text.
+ *
+ * Algorithm (single pass, simple):
+ * - user → push user bubble
+ * - tool_call → get/create current turn's assistant bubble, attach tool cards
+ * - tool_result → find matching tool card, set result + status
+ * - assistant → get/create current turn's assistant bubble, set content + reasoning
  */
 function convertHistoryMessages(msgs: any[]): ChatMessage[] {
   const result: ChatMessage[] = [];
 
-  for (let i = 0; i < msgs.length; i++) {
-    const m = msgs[i];
-
-    if (m.role === "user") {
-      let content = "";
-      if (typeof m.content === "string") {
-        content = m.content;
-      } else if (Array.isArray(m.content)) {
-        content = m.content
-          .filter((b: any) => b.type === "text")
-          .map((b: any) => b.text)
-          .join("\n");
-      }
-      if (!content) continue;
-      result.push({
-        id: histId(),
-        role: "user",
-        content,
-        timestamp: m.timestamp ? new Date(m.timestamp).getTime() : Date.now(),
-      });
-    } else if (m.role === "assistant") {
-      // Extract text content
-      let content = "";
-      if (typeof m.content === "string") {
-        content = m.content;
-      } else if (Array.isArray(m.content)) {
-        content = m.content
-          .filter((b: any) => b.type === "text")
-          .map((b: any) => b.text)
-          .join("\n");
-      }
-
-      // Check for text-encoded tool calls (models without native function calling)
-      let inlineToolCalls: InlineToolCall[] | undefined;
-      if (content.includes("<|tool_calls_section_begin|>")) {
-        const parsed = parseTextEncodedToolCalls(content);
-        content = parsed.textContent;
-        if (parsed.toolCalls.length > 0) {
-          // Try to pair with subsequent tool results
-          inlineToolCalls = parsed.toolCalls.map((tc) => {
-            for (let j = i + 1; j < msgs.length; j++) {
-              if (
-                msgs[j].role === "tool" &&
-                msgs[j].tool_call_id === tc.id
-              ) {
-                return {
-                  ...tc,
-                  result: msgs[j].content || "",
-                  status: "ok" as const,
-                };
-              }
-              if (msgs[j].role === "user") break; // stop at next user message
-            }
-            return tc;
-          });
-        }
-      }
-
-      // Pair native tool_calls with subsequent tool results
-      if (m.tool_calls?.length) {
-        inlineToolCalls = m.tool_calls.map((tc: any) => {
-          let args: Record<string, unknown> = {};
-          try {
-            args = JSON.parse(tc.function?.arguments || "{}");
-          } catch {
-            /* malformed args */
-          }
-
-          // Find matching tool result in subsequent messages
-          let toolResult: string | undefined;
-          let toolStatus: "ok" | "error" = "ok";
-          for (let j = i + 1; j < msgs.length; j++) {
-            if (msgs[j].role === "tool" && msgs[j].tool_call_id === tc.id) {
-              toolResult = msgs[j].content || "";
-              break;
-            }
-            if (msgs[j].role === "user") break;
-          }
-
-          return {
-            call_id: tc.id || histId(),
-            name: tc.function?.name || "unknown",
-            arguments: args,
-            status: toolStatus,
-            result: toolResult,
-          };
-        });
-      }
-
-      // Extract reasoning content
-      const reasoning = m.reasoning_content || undefined;
-
-      // Skip assistant messages that have no content AND no tool calls AND no reasoning
-      if (!content && !inlineToolCalls?.length && !reasoning) continue;
-
-      result.push({
-        id: histId(),
-        role: "assistant",
-        content,
-        timestamp: m.timestamp ? new Date(m.timestamp).getTime() : Date.now(),
-        toolCalls: inlineToolCalls,
-        reasoning,
-      });
+  /** Get or create the assistant message for the current turn (after last user) */
+  function currentAssistant(fallbackId: string, fallbackTs: number): ChatMessage {
+    // Look backwards for existing assistant in this turn
+    for (let i = result.length - 1; i >= 0; i--) {
+      if (result[i].role === "assistant") return result[i];
+      if (result[i].role === "user") break;
     }
-    // Skip role:"tool" — they're consumed by the assistant pairing above
+    // Create new
+    const msg: ChatMessage = {
+      id: fallbackId,
+      role: "assistant",
+      content: null,
+      timestamp: fallbackTs,
+      toolCalls: [],
+    };
+    result.push(msg);
+    return msg;
   }
 
-  return result;
-}
+  for (const m of msgs) {
+    const role = m.role as string;
+    const data = (m.data || {}) as Record<string, any>;
+    const ts = data.timestamp ? new Date(data.timestamp).getTime() : Date.now();
 
+    switch (role) {
+      case "user": {
+        const content = typeof data.content === "string"
+          ? data.content
+          : Array.isArray(data.content)
+            ? data.content.filter((b: any) => b.type === "text").map((b: any) => b.text).join("\n")
+            : "";
+        if (!content) break;
+        result.push({ id: m.id || histId(), role: "user", content, timestamp: ts });
+        break;
+      }
+
+      case "tool_call": {
+        const ast = currentAssistant(m.id || histId(), ts);
+        if (!ast.toolCalls) ast.toolCalls = [];
+        for (const call of (data.calls || [])) {
+          ast.toolCalls.push({
+            id: call.call_id,
+            name: call.name || "unknown",
+            arguments: typeof call.arguments === "object"
+              ? JSON.stringify(call.arguments)
+              : call.arguments || "{}",
+            status: "running",
+          });
+        }
+        break;
+      }
+
+      case "tool_result": {
+        const callId = data.call_id;
+        const isError = !!data.error;
+        // Find the tool card in any assistant message (search backwards)
+        for (let i = result.length - 1; i >= 0; i--) {
+          const msg = result[i];
+          if (msg.role === "user") break;
+          if (msg.toolCalls) {
+            const tc = msg.toolCalls.find((t) => t.id === callId);
+            if (tc) {
+              tc.status = isError ? "error" : "ok";
+              tc.result = isError ? data.error : (data.output || "");
+              break;
+            }
+          }
+        }
+        break;
+      }
+
+      case "assistant": {
+        const content = data.content ?? "";
+        const reasoning = data.reasoning
+          || data.thinking_blocks?.find((b: any) => b.thinking)?.thinking
+          || undefined;
+        // Skip truly empty messages
+        if (!content && !reasoning) break;
+        // Merge into current turn's assistant (which may already have tool cards)
+        const ast = currentAssistant(m.id || histId(), ts);
+        ast.content = content;
+        if (reasoning) ast.reasoning = reasoning;
+        // Update id to the real assistant message id
+        ast.id = m.id || ast.id;
+        break;
+      }
+
+      // Legacy OpenAI format support
+      case "tool":
+        break; // handled via tool_result
+
+      default:
+        break;
+    }
+  }
+
+  // Clean up: remove assistant messages that have no content AND no tool calls
+  return result.filter((m) => {
+    if (m.role !== "assistant") return true;
+    return m.content || (m.toolCalls && m.toolCalls.length > 0) || m.reasoning;
+  });
+}
 // ─── Storage Keys ───────────────────────────────────────────────────
 
 const SESSION_KEY_PREFIX = "ftre-active-session";
@@ -304,13 +253,30 @@ export const useSession = create<SessionState>((set, get) => ({
     // Note: fetchSessionMessages uses sessionKeyCache to resolve session_id -> key
     fetchSessionMessages(sessionId)
       .then((msgs) => {
-        if (!msgs || msgs.length === 0) return;
+        console.log("[Session] switchSession fetch completed:", {
+          sessionId,
+          rawMessageCount: msgs?.length ?? 0,
+        });
+        if (!msgs || msgs.length === 0) {
+          console.log("[Session] No messages returned, skipping");
+          return;
+        }
         const chatMessages = convertHistoryMessages(msgs);
-        if (chatMessages.length === 0) return;
+        console.log("[Session] Converted messages:", {
+          sessionId,
+          convertedCount: chatMessages.length,
+        });
+        if (chatMessages.length === 0) {
+          console.log(
+            "[Session] Converted to 0 messages, skipping syncHistory",
+          );
+          return;
+        }
         // syncHistory only emits if data actually changed
         streamManager.syncHistory(sessionId, chatMessages);
       })
-      .catch(() => {
+      .catch((err) => {
+        console.error("[Session] switchSession fetch error:", err);
         // Silent — don't block the UI
       });
   },
@@ -357,7 +323,7 @@ export const useSession = create<SessionState>((set, get) => ({
       currentWorkspace &&
       workspace &&
       normalizePathForCompare(workspace) ===
-        normalizePathForCompare(currentWorkspace);
+      normalizePathForCompare(currentWorkspace);
     if (workspace && !isSameWorkspace) {
       useWorkspace.getState().setRootPath(workspace);
     }
