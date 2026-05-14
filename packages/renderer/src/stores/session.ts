@@ -249,8 +249,13 @@ export const useSession = create<SessionState>((set, get) => ({
       /* ignore */
     }
 
-    // Background: fetch history from server and merge silently
-    // Note: fetchSessionMessages uses sessionKeyCache to resolve session_id -> key
+    // Fetch latest history from server if session is not currently busy
+    const session = streamManager.getSession(sessionId);
+    if (session.isBusy) {
+      // Session is actively streaming — don't overwrite with stale HTTP data
+      return;
+    }
+
     fetchSessionMessages(sessionId)
       .then((msgs) => {
         console.log("[Session] switchSession fetch completed:", {
@@ -272,7 +277,6 @@ export const useSession = create<SessionState>((set, get) => ({
           );
           return;
         }
-        // syncHistory only emits if data actually changed
         streamManager.syncHistory(sessionId, chatMessages);
       })
       .catch((err) => {
