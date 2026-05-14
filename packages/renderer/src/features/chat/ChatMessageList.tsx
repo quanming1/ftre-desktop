@@ -41,7 +41,7 @@ export const ChatMessageList = memo(function ChatMessageList({
   // Auto-scroll on new messages
   useEffect(() => {
     if (autoScroll && bottomRef.current) {
-      bottomRef.current.scrollIntoView({ behavior: "smooth" });
+      bottomRef.current.scrollIntoView({ behavior: "instant" });
     }
   }, [messages.length, autoScroll]);
 
