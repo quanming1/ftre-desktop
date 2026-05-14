@@ -299,20 +299,13 @@ export function Workbench() {
           </div>
         )}
 
-        {/* Skills 模式：显示技能面板 + 聊天 */}
+        {/* Skills 模式：独占整个右侧区域 */}
         {activeLeftPanel === "skills" && (
-          <>
-            <div className="w-[280px] h-full overflow-hidden border-r border-border shrink-0">
-              <ErrorBoundary>
-                <SkillsPanel />
-              </ErrorBoundary>
-            </div>
-            <div className="flex-1 h-full overflow-hidden">
-              <ErrorBoundary>
-                <ChatPanel key={rootPath} />
-              </ErrorBoundary>
-            </div>
-          </>
+          <div className="flex-1 h-full overflow-hidden">
+            <ErrorBoundary>
+              <SkillsPanel />
+            </ErrorBoundary>
+          </div>
         )}
 
         {/* Chat 模式：正常显示 Sessions Panel */}
