@@ -276,25 +276,6 @@ function LiveChatPanel() {
     </div>
   );
 }
-      )}
-
-      {/* WS Log Panel (slide-in from right) */}
-      {showLog && (
-        <div className="absolute top-0 right-0 w-[50%] h-full bg-[#0d0d1a] border-l border-white/10 z-50 flex flex-col">
-          <div className="flex items-center justify-between px-3 py-1.5 border-b border-white/10">
-            <span className="text-xs text-t-secondary">WebSocket Log</span>
-            <button onClick={() => setShowLog(false)} className="text-xs text-t-ghost hover:text-white">Close</button>
-          </div>
-          <WsLogPanel
-            entries={logEntries}
-            onClear={() => setLogEntries([])}
-            className="flex-1 min-h-0"
-          />
-        </div>
-      )}
-    </div>
-  );
-}
 
 export const LiveWebSocket: Story = {
   render: () => <LiveChatPanel />,
