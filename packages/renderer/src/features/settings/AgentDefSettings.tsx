@@ -48,11 +48,11 @@ function AgentDefForm({ initialData, isEdit, onSave, onCancel }: AgentDefFormPro
 
   const handleSubmit = async () => {
     if (!formData.name.trim()) {
-      setError("Name is required");
+      setError("名称不能为空");
       return;
     }
     if (!formData.id.trim()) {
-      setError("ID is required");
+      setError("ID 不能为空");
       return;
     }
 
@@ -61,7 +61,7 @@ function AgentDefForm({ initialData, isEdit, onSave, onCancel }: AgentDefFormPro
     try {
       await onSave(formData);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed to save");
+      setError(e instanceof Error ? e.message : "保存失败");
     } finally {
       setSaving(false);
     }
@@ -69,33 +69,28 @@ function AgentDefForm({ initialData, isEdit, onSave, onCancel }: AgentDefFormPro
 
   return (
     <div className="h-full flex flex-col">
-      {/* Back link */}
       <button
         onClick={onCancel}
         className="inline-flex items-center gap-1 text-[13px] text-t-dim hover:text-t-primary transition-colors mb-12"
       >
         <ChevronLeft size={14} />
-        Back
+        返回
       </button>
 
-      {/* Main content - full width with generous spacing */}
       <div className="flex-1">
-        {/* Title */}
         <h1 className="text-[24px] font-light text-t-primary mb-2">
-          {isEdit ? "Edit Agent" : "Create Agent"}
+          {isEdit ? "编辑智能体" : "新建智能体"}
         </h1>
         <p className="text-[13px] text-t-dim mb-12">
-          Define an AI agent for cross-workspace collaboration
+          定义一个跨工作区协作的 AI 智能体
         </p>
 
-        {/* Form fields with generous spacing */}
         <div className="space-y-8">
-          {/* Name - the hero field */}
           <div>
             <input
               value={formData.name}
               onChange={(e) => handleNameChange(e.target.value)}
-              placeholder="Agent name"
+              placeholder="智能体名称"
               className="w-full text-[18px] font-light bg-transparent text-t-primary placeholder:text-t-ghost border-b border-border pb-3 focus:outline-none focus:border-neon transition-colors"
             />
             {!isEdit && formData.id && (
@@ -105,45 +100,41 @@ function AgentDefForm({ initialData, isEdit, onSave, onCancel }: AgentDefFormPro
             )}
           </div>
 
-          {/* Description */}
           <div>
             <textarea
               value={formData.description}
               onChange={(e) => setFormData((prev) => ({ ...prev, description: e.target.value }))}
-              placeholder="What does this agent do?"
+              placeholder="这个智能体是做什么的？"
               rows={3}
               className="w-full text-[14px] bg-transparent text-t-secondary placeholder:text-t-ghost border-b border-border pb-3 focus:outline-none focus:border-neon transition-colors resize-none leading-relaxed"
             />
           </div>
 
-          {/* Tools */}
           <div>
             <label className="block text-[11px] text-t-ghost uppercase tracking-wider mb-3">
-              Available Tools
+              可用工具
             </label>
             <SearchableMultiSelect
               options={AVAILABLE_TOOLS}
               value={formData.tools}
               onChange={(tools) => setFormData((prev) => ({ ...prev, tools }))}
-              placeholder="Select tools..."
-              searchPlaceholder="Search..."
+              placeholder="选择工具..."
+              searchPlaceholder="搜索..."
             />
           </div>
         </div>
 
-        {/* Error */}
         {error && (
           <div className="text-[13px] text-[#f85149] mt-6">{error}</div>
         )}
 
-        {/* Save button - prominent, at the bottom */}
         <div className="mt-16">
           <button
             onClick={handleSubmit}
             disabled={saving || !formData.name.trim()}
             className="px-8 py-3 text-[13px] font-medium text-base bg-neon hover:bg-neon-hover rounded transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
           >
-            {saving ? "Saving..." : "Save Agent"}
+            {saving ? "保存中..." : "保存智能体"}
           </button>
         </div>
       </div>
@@ -191,12 +182,11 @@ ${data.description}
     const agentDir = `${workspace}/.ftre/agents_def/${data.id}`;
     const agentFile = `${agentDir}/AGENT.md`;
 
-    // Create directory and write file
     await window.desktop.fs.createFolder(agentDir);
     const result = await window.desktop.fs.writeFile(agentFile, agentMdContent);
 
     if (!result.success) {
-      throw new Error(result.error || "Failed to write file");
+      throw new Error(result.error || "写入文件失败");
     }
 
     await loadAgents();
@@ -206,7 +196,7 @@ ${data.description}
 
   const handleDelete = async (agent: AgentDef) => {
     if (!workspace) return;
-    if (!confirm(`Delete agent "${agent.name}"?`)) return;
+    if (!confirm(`确定删除智能体"${agent.name}"？`)) return;
 
     const agentDir = `${workspace}/.ftre/agents_def/${agent.id}`;
     await window.desktop.fs.delete(agentDir, true);
@@ -221,7 +211,7 @@ ${data.description}
   if (!workspace) {
     return (
       <div className="text-[13px] text-t-muted text-center py-8">
-        Open a workspace to configure agents
+        先打开一个工作区以配置智能体
       </div>
     );
   }
@@ -256,36 +246,31 @@ ${data.description}
 
   return (
     <div className="h-full flex flex-col">
-      {/* Title section with generous top spacing */}
       <div className="mb-16">
-        <h1 className="text-[24px] font-light text-t-primary mb-2">Agents</h1>
+        <h1 className="text-[24px] font-light text-t-primary mb-2">智能体</h1>
         <p className="text-[13px] text-t-dim">
-          AI agents for cross-workspace collaboration
+          跨工作区协作的 AI 智能体
         </p>
       </div>
 
-      {/* Content */}
       <div className="flex-1">
         {loading ? (
-          <div className="text-[13px] text-t-ghost">Loading...</div>
+          <div className="text-[13px] text-t-ghost">加载中...</div>
         ) : agents.length === 0 ? (
-          /* Empty state - clean and inviting */
           <div>
             <p className="text-[14px] text-t-muted leading-relaxed mb-8">
-              No agents yet. Create an agent to enable AI-powered collaboration across different workspaces.
+              还没有智能体。创建一个智能体来启用跨工作区的 AI 协作能力。
             </p>
             <button
               onClick={() => setView("create")}
               className="inline-flex items-center gap-2 px-6 py-2.5 text-[13px] font-medium text-base bg-neon hover:bg-neon-hover rounded transition-colors"
             >
               <Plus size={16} strokeWidth={2} />
-              Create Agent
+              创建智能体
             </button>
           </div>
         ) : (
-          /* Agent list - spacious layout */
           <div>
-            {/* List */}
             <div className="space-y-1 mb-12">
               {agents.map((agent) => (
                 <div
@@ -309,7 +294,7 @@ ${data.description}
                       handleDelete(agent);
                     }}
                     className="p-2 opacity-0 group-hover:opacity-100 text-t-ghost hover:text-[#f85149] transition-all"
-                    title="Delete agent"
+                    title="删除智能体"
                   >
                     <Trash2 size={14} />
                   </button>
@@ -317,13 +302,12 @@ ${data.description}
               ))}
             </div>
 
-            {/* Add new button */}
             <button
               onClick={() => setView("create")}
               className="inline-flex items-center gap-2 text-[13px] text-t-dim hover:text-neon transition-colors"
             >
               <Plus size={14} />
-              Add another agent
+              再添加一个智能体
             </button>
           </div>
         )}

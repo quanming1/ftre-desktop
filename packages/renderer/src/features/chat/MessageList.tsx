@@ -7,18 +7,11 @@ import {
   useCallback,
   useState,
 } from "react";
-import {
-  useMessageById,
-  useIsBusy,
-  useChat,
-  useToolCalls,
-  useProgress,
-} from "@/stores/chat";
+import { useMessageById, useIsBusy, useChat, useProgress } from "@/stores/chat";
 import { useAutoScrollToBottom } from "@/hooks/auto-scroll";
 import type { ChatMessage } from "@/services/ws-stream-manager";
 import { UserMessage } from "./UserMessage";
 import { AssistantMessage } from "./AssistantMessage";
-import { ToolCallList } from "./ToolCallCardV2";
 import { PixelLogo } from "@/components/PixelLogo";
 import { RotateCcw, ChevronUp } from "lucide-react";
 
@@ -77,7 +70,10 @@ function groupMessages(messages: ChatMessage[]): RenderUnit[] {
  * 获取最后 N 轮对话的消息
  * 一轮 = 一个 user 消息 + 后续的 assistant/system 消息
  */
-function getLastNRounds(messages: ChatMessage[], rounds: number): ChatMessage[] {
+function getLastNRounds(
+  messages: ChatMessage[],
+  rounds: number,
+): ChatMessage[] {
   if (messages.length === 0 || rounds <= 0) return [];
 
   // 从后往前找到第 N 个 user 消息的位置
@@ -140,18 +136,9 @@ const ProgressIndicator = memo(function ProgressIndicator() {
   );
 });
 
-/** Tool calls section shown during/after tool execution */
-const ToolCallsSection = memo(function ToolCallsSection() {
-  const toolCalls = useToolCalls();
-
-  if (toolCalls.length === 0) return null;
-
-  return (
-    <div className="mt-2">
-      <ToolCallList toolCalls={toolCalls} />
-    </div>
-  );
-});
+// NOTE: ToolCallsSection removed - tool calls are now rendered inline within AssistantMessage
+// via message.toolCalls. The legacy session.toolCalls array is kept for backward compatibility
+// but is no longer rendered separately.
 
 /** 加载更多历史消息按钮 */
 const LoadMoreButton = memo(function LoadMoreButton({
@@ -168,7 +155,9 @@ const LoadMoreButton = memo(function LoadMoreButton({
         className="inline-flex items-center gap-1.5 px-4 py-2 text-xs text-t-secondary bg-white/5 hover:bg-white/10 border border-white/10 rounded-lg transition-colors"
       >
         <ChevronUp size={14} />
-        <span>加载更早的 {Math.min(hiddenRounds, LOAD_MORE_ROUNDS)} 轮对话</span>
+        <span>
+          加载更早的 {Math.min(hiddenRounds, LOAD_MORE_ROUNDS)} 轮对话
+        </span>
         <span className="text-t-dim">（还有 {hiddenRounds} 轮）</span>
       </button>
     </div>
@@ -350,8 +339,7 @@ export function MessageList() {
             </div>
           );
         })}
-        {/* Tool calls section */}
-        <ToolCallsSection />
+        {/* Tool calls are now rendered inline within AssistantMessage */}
         {/* Progress indicator */}
         <ProgressIndicator />
       </div>
@@ -367,6 +355,7 @@ const MessageItem = memo(function MessageItem({
   isLast?: boolean;
 }) {
   const message = useMessageById(messageId);
+  console.log("message===>", message);
   const isBusy = useIsBusy();
 
   if (!message) return null;

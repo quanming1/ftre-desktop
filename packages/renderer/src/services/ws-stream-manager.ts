@@ -1,36 +1,42 @@
-/**
- * WebSocket Stream Manager (Protocol v4)
+﻿/**
+ * WebSocket Stream Manager (Protocol v5)
  *
- * Manages per-chat message state with support for:
- * - Streaming text via text.delta / text.done
- * - Tool lifecycle via tool.start / tool.delta / tool.done / tool.error
- * - Complete messages via message frame
- * - Turn lifecycle via turn.start / turn.end
+ * Manages per-chat message state:
+ * - Streaming text: assistant.delta → assistant
+ * - Tool lifecycle: tool_call.delta → tool_call → tool_result
+ * - Control: turn.start / turn.end / session events / errors
  *
- * DESIGN: This module is a pure data layer. It stores session state for ALL chats
- * and emits changes. It does NOT decide which chat is "active" in the UI — that
- * responsibility belongs to the store (chat.ts).
+ * MESSAGE MODEL:
+ * Each "turn" produces: [tool_call, tool_result*, assistant]
+ * Tool calls are embedded in the assistant message's `toolCalls` array.
+ * The assistant message is the single rendered unit per turn.
  */
 
 import { wsClient } from "./websocket-client";
 import type {
-  ServerFrame,
+  ServerMessage,
   MediaItem,
   MediaUrl,
-  Role,
-  ToolCall as ProtocolToolCall,
-  TextDeltaData,
-  TextDoneData,
-  ToolStartData,
-  ToolDeltaData,
-  ToolDoneData,
-  ToolErrorData,
-  MessageData,
+  AssistantDeltaData,
+  AssistantData,
+  ToolCallData,
+  ToolCallDeltaData,
+  ToolResultData,
+  ControlData,
 } from "./ws-protocol";
 
-// ─── Message Types ──────────────────────────────────────────────────
+// ─── Types ──────────────────────────────────────────────────────────
 
 export type { MediaUrl, MediaItem };
+export type Role = "assistant" | "user" | "system" | "tool";
+
+export interface ToolCall {
+  id: string;
+  name: string;
+  arguments: string;
+  status: "pending" | "running" | "ok" | "error";
+  result?: string;
+}
 
 export interface ChatMessage {
   id: string;
@@ -38,45 +44,14 @@ export interface ChatMessage {
   content: string | null;
   timestamp: number;
   streaming?: boolean;
-  // Tool calls declared by assistant
-  toolCalls?: InlineToolCall[];
-  // For tool result messages
+  toolCalls?: ToolCall[];
   toolCallId?: string;
   name?: string;
-  // Media attachments
   media?: string[];
-  // Reasoning content (for models that expose chain-of-thought)
   reasoning?: string;
-  // Rich media URLs (images, etc.)
   media_urls?: Array<{ url: string; name?: string }>;
-  // Interactive buttons (2D array for matrix layout)
   buttons?: string[][];
   button_prompt?: string;
-}
-
-/** Tool call embedded in a message */
-export interface InlineToolCall {
-  id: string;
-  name: string;
-  arguments: string; // JSON string
-  // Status tracking (for UI display)
-  status?: "pending" | "running" | "ok" | "error";
-  result?: string;
-}
-
-/** Legacy ToolCall interface for backward compatibility */
-export interface ToolCall {
-  id: string;
-  call_id: string;
-  name: string;
-  arguments: Record<string, unknown>;
-  status: "pending" | "running" | "ok" | "error";
-  argsBuffer: string;
-  result?: unknown;
-  error?: string;
-  files?: unknown[];
-  embeds?: unknown[];
-  timestamp: number;
 }
 
 export interface ProgressHint {
@@ -85,18 +60,11 @@ export interface ProgressHint {
   timestamp: number;
 }
 
-/** Represents a streaming text segment */
-interface StreamSegment {
-  streamId: string;
-  messageId: string;
-}
-
 export interface ChatSession {
   chatId: string;
   messages: ChatMessage[];
-  toolCalls: ToolCall[]; // Legacy, kept for compatibility
   progress: ProgressHint | null;
-  isBusy: boolean; // true between turn.start and turn.end
+  isBusy: boolean;
   error: string | null;
 }
 
@@ -111,6 +79,16 @@ function nextId(prefix = "msg"): string {
   return `${prefix}_${Date.now()}_${++idCounter}`;
 }
 
+// ─── Helpers ────────────────────────────────────────────────────────
+
+/** Extract chat_id from a server message (check data first, then metadata) */
+function extractChatId(msg: ServerMessage): string | undefined {
+  const data = msg.data as Record<string, unknown>;
+  if (typeof data.chat_id === "string") return data.chat_id;
+  if (msg.metadata && typeof msg.metadata.chat_id === "string") return msg.metadata.chat_id;
+  return undefined;
+}
+
 // ─── Stream Manager ─────────────────────────────────────────────────
 
 class WsStreamManager {
@@ -119,25 +97,15 @@ class WsStreamManager {
   private focusHandlers: FocusHandler[] = [];
   private turnEndHandlers: TurnEndHandler[] = [];
 
-  // The chat_id that the server considers "focused" for this WS connection.
-  private serverFocusedChatId: string | null = null;
-
-  // The chat_id that the UI explicitly requested to view.
+  private serverChatId: string | null = null;
   private _requestedChatId: string | null = null;
-
-  // True between newChat() and the next session.attached that confirms it.
   private newChatPending = false;
 
-  // Per-chat streaming segments (keyed by stream_id)
-  private streamSegments: Map<string, StreamSegment> = new Map();
+  /** Tracks accumulated tool args per call_id during streaming */
+  private toolArgBuffers: Map<string, string> = new Map();
 
   constructor() {
-    wsClient.onFrame((frame) => this.handleFrame(frame));
-
-    wsClient.onConnect(() => {
-      console.info("[StreamManager] WS connected");
-    });
-
+    wsClient.onMessage((msg) => this.handleMessage(msg));
     wsClient.onDisconnect(() => {
       for (const session of this.sessions.values()) {
         if (session.isBusy) {
@@ -153,30 +121,22 @@ class WsStreamManager {
   getSession(chatId: string): ChatSession {
     let session = this.sessions.get(chatId);
     if (!session) {
-      session = {
-        chatId,
-        messages: [],
-        toolCalls: [],
-        progress: null,
-        isBusy: false,
-        error: null,
-      };
+      session = { chatId, messages: [], progress: null, isBusy: false, error: null };
       this.sessions.set(chatId, session);
     }
     return session;
   }
 
   getActiveSession(): ChatSession | null {
-    const id = this._requestedChatId || this.serverFocusedChatId;
-    if (!id) return null;
-    return this.getSession(id);
+    const id = this._requestedChatId || this.serverChatId;
+    return id ? this.getSession(id) : null;
   }
 
   getActiveChatId(): string | null {
-    return this._requestedChatId || this.serverFocusedChatId;
+    return this._requestedChatId || this.serverChatId;
   }
 
-  setActiveChatId(chatId: string): void {
+  setActiveChatId(chatId: string | null): void {
     this._requestedChatId = chatId;
   }
 
@@ -184,40 +144,23 @@ class WsStreamManager {
     return Array.from(this.sessions.keys());
   }
 
-  // ─── User Actions ───────────────────────────────────────────────
+  // ─── Actions ────────────────────────────────────────────────────
 
-  sendMessage(
-    content: string,
-    media?: MediaItem[],
-    model?: string | null,
-    provider?: string | null,
-  ): void {
-    const chatId =
-      this._requestedChatId || this.serverFocusedChatId || wsClient.chatId;
-    if (!chatId) {
-      console.warn("[StreamManager] No active chat");
-      return;
-    }
-
+  sendMessage(text: string, media?: MediaItem[], model?: string | null, provider?: string | null): void {
+    const chatId = this._requestedChatId || this.serverChatId || "pending";
     const session = this.getSession(chatId);
-    const messageId = nextId("user");
 
-    // Add user message immediately (optimistic)
     session.messages.push({
-      id: messageId,
+      id: nextId("user"),
       role: "user",
-      content,
+      content: text,
       timestamp: Date.now(),
     });
+    session.isBusy = true;
     session.error = null;
     this.emitChange(session);
 
-    // Send via WebSocket
-    wsClient.chatSend(chatId, content, media, model, provider).catch((err) => {
-      console.error("[StreamManager] Failed to send message:", err);
-      session.error = err.message;
-      this.emitChange(session);
-    });
+    wsClient.chatSend(chatId, text, media, model, provider);
   }
 
   newChat(): void {
@@ -229,7 +172,6 @@ class WsStreamManager {
     this._requestedChatId = chatId;
     wsClient.sessionAttach(chatId);
     this.emitFocus(chatId);
-    this.emitChange(this.getSession(chatId));
   }
 
   attachBackground(chatId: string): void {
@@ -244,515 +186,387 @@ class WsStreamManager {
 
   syncHistory(chatId: string, messages: ChatMessage[]): void {
     const session = this.getSession(chatId);
-    if (session.messages.length === 0 && messages.length > 0) {
+    if (session.messages.length === 0) {
       session.messages = messages;
       this.emitChange(session);
     }
   }
 
-  // ─── Change Subscription ────────────────────────────────────────
+  // ─── Event Subscriptions ────────────────────────────────────────
 
   onChange(handler: ChangeHandler): () => void {
     this.changeHandlers.push(handler);
-    return () => {
-      this.changeHandlers = this.changeHandlers.filter((h) => h !== handler);
-    };
+    return () => { this.changeHandlers = this.changeHandlers.filter((h) => h !== handler); };
   }
 
   onFocus(handler: FocusHandler): () => void {
     this.focusHandlers.push(handler);
-    return () => {
-      this.focusHandlers = this.focusHandlers.filter((h) => h !== handler);
-    };
+    return () => { this.focusHandlers = this.focusHandlers.filter((h) => h !== handler); };
   }
 
   onTurnEnd(handler: TurnEndHandler): () => void {
     this.turnEndHandlers.push(handler);
-    return () => {
-      this.turnEndHandlers = this.turnEndHandlers.filter((h) => h !== handler);
-    };
+    return () => { this.turnEndHandlers = this.turnEndHandlers.filter((h) => h !== handler); };
   }
 
-  // ─── Frame Handling ─────────────────────────────────────────────
+  // ─── Message Dispatch ───────────────────────────────────────────
 
-  private handleFrame(frame: ServerFrame): void {
-    const { type, data } = frame;
+  private handleMessage(msg: ServerMessage): void {
+    const chatId = extractChatId(msg) || this._requestedChatId || this.serverChatId;
 
-    const chatId =
-      (data as { chat_id?: string }).chat_id ||
-      this._requestedChatId ||
-      this.serverFocusedChatId;
-
-    switch (type) {
-      // ─── Session control ───
-      case "session.ready":
-        this.handleSessionReady(data as { chat_id: string; client_id: string });
+    switch (msg.role) {
+      case "control":
+        this.onControl(msg.data as ControlData, msg.metadata);
         break;
 
-      case "session.attached":
-        this.handleSessionAttached(data as { chat_id: string });
+      case "assistant.delta":
+        if (chatId) this.onAssistantDelta(chatId, msg.id, msg.data as AssistantDeltaData);
         break;
 
-      case "session.updated":
-        this.handleSessionUpdated(data as { chat_id: string });
+      case "assistant":
+        if (chatId) this.onAssistant(chatId, msg.id, msg.data as AssistantData);
         break;
 
-      // ─── Turn lifecycle ───
-      case "turn.start":
-        this.handleTurnStart(data as { chat_id: string });
+      case "tool_call.delta":
+        if (chatId) this.onToolCallDelta(chatId, msg.data as ToolCallDeltaData);
         break;
 
-      case "turn.end":
-        this.handleTurnEnd(data as { chat_id: string });
+      case "tool_call":
+        if (chatId) this.onToolCall(chatId, msg.data as ToolCallData);
         break;
 
-      case "chat.ack":
-        // Handled by wsClient internally
+      case "tool_result":
+        if (chatId) this.onToolResult(chatId, msg.data as ToolResultData);
         break;
 
-      // ─── v4: Text streaming ───
-      case "text.delta":
-        this.handleTextDelta(data as TextDeltaData);
-        break;
-
-      case "text.done":
-        this.handleTextDone(data as TextDoneData);
-        break;
-
-      // ─── v4: Tool lifecycle ───
-      case "tool.start":
-        this.handleToolStart(data as ToolStartData);
-        break;
-
-      case "tool.delta":
-        this.handleToolDelta(data as ToolDeltaData);
-        break;
-
-      case "tool.done":
-        this.handleToolDone(data as ToolDoneData);
-        break;
-
-      case "tool.error":
-        this.handleToolError(data as ToolErrorData);
-        break;
-
-      // ─── v4: Complete message ───
-      case "message":
-        this.handleMessage(data as MessageData);
-        break;
-
-      // ─── Error ───
-      case "error":
-        this.handleError(chatId, data as { detail: string; reason?: string });
+      case "user":
+        // Echoed user messages (history sync) — ignore during active session
         break;
 
       default:
-        console.warn("[StreamManager] Unknown frame type:", type);
+        // system, _metadata, unknown — ignore
+        break;
     }
   }
 
-  // ─── Session Handlers ───────────────────────────────────────────
+  // ─── Control Events ─────────────────────────────────────────────
 
-  private handleSessionReady(data: {
-    chat_id: string;
-    client_id: string;
-  }): void {
-    this.serverFocusedChatId = data.chat_id;
+  private onControl(data: ControlData, metadata?: Record<string, unknown>): void {
+    const chatId = data.chat_id || (metadata as any)?.chat_id;
 
-    if (this.newChatPending) {
-      this.newChatPending = false;
-      this._requestedChatId = data.chat_id;
-      this.emitFocus(data.chat_id);
-    }
-
-    this.emitChange(this.getSession(data.chat_id));
-  }
-
-  private handleSessionAttached(data: { chat_id: string }): void {
-    this.serverFocusedChatId = data.chat_id;
-
-    if (this.newChatPending) {
-      this.newChatPending = false;
-      this._requestedChatId = data.chat_id;
-      this.emitFocus(data.chat_id);
-    }
-
-    this.emitChange(this.getSession(data.chat_id));
-  }
-
-  private handleSessionUpdated(data: { chat_id: string }): void {
-    this.emitChange(this.getSession(data.chat_id));
-  }
-
-  // ─── Turn Handlers ──────────────────────────────────────────────
-
-  private handleTurnStart(data: { chat_id: string }): void {
-    const session = this.getSession(data.chat_id);
-    session.isBusy = true;
-    session.progress = null;
-    session.toolCalls = [];
-    this.emitChange(session);
-  }
-
-  private handleTurnEnd(data: { chat_id: string }): void {
-    const session = this.getSession(data.chat_id);
-
-    // Finalize any open stream segments
-    for (const [streamId, segment] of this.streamSegments.entries()) {
-      const msgIdx = session.messages.findIndex(
-        (m) => m.id === segment.messageId,
-      );
-      if (msgIdx !== -1) {
-        session.messages[msgIdx] = {
-          ...session.messages[msgIdx],
-          streaming: false,
-        };
-        this.streamSegments.delete(streamId);
-      }
-    }
-
-    session.isBusy = false;
-    session.progress = null;
-    this.emitChange(session);
-
-    // Notify turn end subscribers
-    this.turnEndHandlers.forEach((h) => h(data.chat_id));
-  }
-
-  // ─── v4 Text Handlers ────────────────────────────────────────────
-
-  /**
-   * Handle streaming text delta (v4 protocol).
-   * data.content is already accumulated, can render directly.
-   */
-  private handleTextDelta(data: TextDeltaData): void {
-    const session = this.getSession(data.chat_id);
-
-    // Clear progress when content arrives
-    if (session.progress) {
-      session.progress = null;
-    }
-
-    // Find existing message by id
-    const existingIdx = session.messages.findIndex(
-      (m) => m.id === data.message_id,
-    );
-
-    if (existingIdx !== -1) {
-      // Update existing message
-      session.messages[existingIdx] = {
-        ...session.messages[existingIdx],
-        content: data.content,
-        streaming: true,
-      };
-    } else {
-      // Create new streaming message
-      session.messages.push({
-        id: data.message_id,
-        role: "assistant",
-        content: data.content,
-        timestamp: Date.now(),
-        streaming: true,
-      });
-    }
-
-    // Track for cleanup
-    this.streamSegments.set(data.message_id, {
-      streamId: data.message_id,
-      messageId: data.message_id,
-    });
-
-    this.emitChange(session);
-  }
-
-  /**
-   * Handle text stream completion (v4 protocol).
-   */
-  private handleTextDone(data: TextDoneData): void {
-    const session = this.getSession(data.chat_id);
-
-    const existingIdx = session.messages.findIndex(
-      (m) => m.id === data.message_id,
-    );
-
-    if (existingIdx !== -1) {
-      session.messages[existingIdx] = {
-        ...session.messages[existingIdx],
-        content: data.content,
-        streaming: false,
-        reasoning: this.extractReasoning(data),
-      };
-    } else {
-      // Create complete message if delta was missed
-      session.messages.push({
-        id: data.message_id,
-        role: "assistant",
-        content: data.content,
-        timestamp: data.timestamp
-          ? new Date(data.timestamp).getTime()
-          : Date.now(),
-        streaming: false,
-        reasoning: this.extractReasoning(data),
-      });
-    }
-
-    // Cleanup stream tracking
-    this.streamSegments.delete(data.message_id);
-
-    this.emitChange(session);
-  }
-
-  // ─── v4 Tool Handlers ───────────────────────────────────────────
-
-  /**
-   * Handle tool start event (v4 protocol).
-   */
-  private handleToolStart(data: ToolStartData): void {
-    const session = this.getSession(data.chat_id);
-
-    const existingIdx = session.toolCalls.findIndex(
-      (tc) => tc.call_id === data.call_id,
-    );
-
-    if (existingIdx === -1) {
-      session.toolCalls.push({
-        id: data.call_id,
-        call_id: data.call_id,
-        name: data.name,
-        arguments: {},
-        status: "pending",
-        argsBuffer: "",
-        timestamp: Date.now(),
-      });
-    } else {
-      session.toolCalls[existingIdx].status = "running";
-    }
-
-    this.emitChange(session);
-  }
-
-  /**
-   * Handle tool arguments delta (v4 protocol).
-   */
-  private handleToolDelta(data: ToolDeltaData): void {
-    const session = this.getSession(data.chat_id);
-
-    const existingIdx = session.toolCalls.findIndex(
-      (tc) => tc.call_id === data.call_id,
-    );
-
-    if (existingIdx !== -1) {
-      session.toolCalls[existingIdx].argsBuffer += data.delta;
-      session.toolCalls[existingIdx].status = "running";
-    } else {
-      // Create entry if start was missed
-      session.toolCalls.push({
-        id: data.call_id,
-        call_id: data.call_id,
-        name: "unknown",
-        arguments: {},
-        status: "running",
-        argsBuffer: data.delta,
-        timestamp: Date.now(),
-      });
-    }
-
-    this.emitChange(session);
-  }
-
-  /**
-   * Handle tool completion (v4 protocol).
-   * data.arguments is already parsed, no JSON.parse needed.
-   */
-  private handleToolDone(data: ToolDoneData): void {
-    const session = this.getSession(data.chat_id);
-
-    const existingIdx = session.toolCalls.findIndex(
-      (tc) => tc.call_id === data.call_id,
-    );
-
-    if (existingIdx !== -1) {
-      const tc = session.toolCalls[existingIdx];
-      tc.status = "ok";
-      tc.name = data.name;
-      tc.arguments = data.arguments; // Already parsed
-      tc.result = data.result;
-      tc.files = data.files;
-      tc.embeds = data.embeds;
-    } else {
-      // Create completed entry if start was missed
-      session.toolCalls.push({
-        id: data.call_id,
-        call_id: data.call_id,
-        name: data.name,
-        arguments: data.arguments,
-        status: "ok",
-        argsBuffer: "",
-        result: data.result,
-        files: data.files,
-        embeds: data.embeds,
-        timestamp: Date.now(),
-      });
-    }
-
-    this.emitChange(session);
-  }
-
-  /**
-   * Handle tool error (v4 protocol).
-   */
-  private handleToolError(data: ToolErrorData): void {
-    const session = this.getSession(data.chat_id);
-
-    const existingIdx = session.toolCalls.findIndex(
-      (tc) => tc.call_id === data.call_id,
-    );
-
-    if (existingIdx !== -1) {
-      session.toolCalls[existingIdx].status = "error";
-      session.toolCalls[existingIdx].error = data.error;
-      if (data.arguments) {
-        session.toolCalls[existingIdx].arguments = data.arguments;
-      }
-    } else {
-      // Create error entry if start was missed
-      session.toolCalls.push({
-        id: data.call_id,
-        call_id: data.call_id,
-        name: data.name,
-        arguments: data.arguments || {},
-        status: "error",
-        argsBuffer: "",
-        error: data.error,
-        timestamp: Date.now(),
-      });
-    }
-
-    this.emitChange(session);
-  }
-
-  // ─── v4 Message Handler ─────────────────────────────────────────
-
-  /**
-   * Handle complete message (v4 protocol).
-   * Used for: history messages, tool results, non-streaming messages.
-   */
-  private handleMessage(data: MessageData): void {
-    const session = this.getSession(data.chat_id);
-
-    // Clear progress
-    if (session.progress) {
-      session.progress = null;
-    }
-
-    // Check for duplicate (same content as last assistant message)
-    if (data.role === "assistant") {
-      const lastAssistantMsg = [...session.messages]
-        .reverse()
-        .find((m) => m.role === "assistant");
-      if (lastAssistantMsg && lastAssistantMsg.content === data.content) {
-        // Skip duplicate - just ensure streaming is false
-        const lastIdx = session.messages.findIndex(
-          (m) => m.id === lastAssistantMsg.id,
-        );
-        if (lastIdx !== -1) {
-          session.messages[lastIdx] = {
-            ...session.messages[lastIdx],
-            streaming: false,
-          };
+    switch (data.event) {
+      case "session.ready": {
+        this.serverChatId = chatId || null;
+        if (this.newChatPending && chatId) {
+          this.newChatPending = false;
+          this._requestedChatId = chatId;
+          const session = this.getSession(chatId);
+          session.messages = [];
+          session.isBusy = false;
+          session.error = null;
+          this.emitChange(session);
         }
-        this.emitChange(session);
-        return;
+        if (chatId) this.emitFocus(chatId);
+        break;
+      }
+
+      case "session.attached": {
+        if (chatId) {
+          this.serverChatId = chatId;
+          if (this._requestedChatId !== chatId) {
+            this._requestedChatId = chatId;
+          }
+          this.emitFocus(chatId);
+        }
+        break;
+      }
+
+      case "turn.start": {
+        if (chatId) {
+          const session = this.getSession(chatId);
+          session.isBusy = true;
+          session.error = null;
+          this.emitChange(session);
+        }
+        break;
+      }
+
+      case "turn.end": {
+        if (chatId) {
+          const session = this.getSession(chatId);
+          // Finalize any streaming messages and pending tool calls
+          for (const m of session.messages) {
+            if (m.streaming) m.streaming = false;
+            // Force-complete any tool calls still in running/pending state
+            if (m.toolCalls) {
+              for (const tc of m.toolCalls) {
+                if (tc.status === "running" || tc.status === "pending") {
+                  tc.status = "ok";
+                }
+              }
+            }
+          }
+          session.isBusy = false;
+          session.progress = null;
+          // Clear tool arg buffers
+          this.toolArgBuffers.clear();
+          this.emitChange(session);
+          this.turnEndHandlers.forEach((h) => h(chatId));
+        }
+        break;
+      }
+
+      case "error": {
+        if (chatId) {
+          const session = this.getSession(chatId);
+          session.error = data.detail || "Unknown error";
+          session.isBusy = false;
+          this.emitChange(session);
+        }
+        break;
+      }
+
+      case "session.updated":
+      case "chat.ack":
+        // Handled by wsClient or ignored
+        break;
+    }
+  }
+
+  // ─── Assistant Streaming ────────────────────────────────────────
+
+  private onAssistantDelta(chatId: string, msgId: string, data: AssistantDeltaData): void {
+    const session = this.getSession(chatId);
+    if (session.progress) session.progress = null;
+
+    // Find existing message by id, or find last assistant in current turn
+    let idx = session.messages.findIndex((m) => m.id === msgId);
+    if (idx === -1) {
+      // Look for an existing streaming assistant message in this turn
+      for (let i = session.messages.length - 1; i >= 0; i--) {
+        if (session.messages[i].role === "assistant" && session.messages[i].streaming) {
+          idx = i;
+          session.messages[i].id = msgId;
+          break;
+        }
+        if (session.messages[i].role === "user") break;
       }
     }
 
-    // Find existing or add new
-    const existingIdx = session.messages.findIndex((m) => m.id === data.id);
-
-    const message: ChatMessage = {
-      id: data.id,
-      role: data.role,
-      content: data.content,
-      timestamp: data.timestamp
-        ? new Date(data.timestamp).getTime()
-        : Date.now(),
-      streaming: false,
-      toolCalls: this.parseToolCalls(data.tool_calls),
-      toolCallId: data.tool_call_id,
-      name: data.name,
-      reasoning: this.extractReasoning(data),
-      media_urls: data.media_urls,
-    };
-
-    if (existingIdx !== -1) {
-      session.messages[existingIdx] = message;
+    if (idx !== -1) {
+      session.messages[idx] = { ...session.messages[idx], content: data.content, streaming: true };
     } else {
-      session.messages.push(message);
+      session.messages.push({
+        id: msgId,
+        role: "assistant",
+        content: data.content,
+        timestamp: Date.now(),
+        streaming: true,
+      });
     }
 
     this.emitChange(session);
   }
 
-  // ─── Helper Methods ─────────────────────────────────────────────
+  private onAssistant(chatId: string, msgId: string, data: AssistantData): void {
+    const session = this.getSession(chatId);
 
-  private parseToolCalls(
-    toolCalls?: ProtocolToolCall[],
-  ): InlineToolCall[] | undefined {
-    if (!toolCalls || toolCalls.length === 0) return undefined;
+    // Find existing message (from streaming or tool_call placeholder)
+    let idx = session.messages.findIndex((m) => m.id === msgId);
 
-    return toolCalls.map((tc) => ({
-      id: tc.id,
-      name: tc.function.name,
-      arguments: tc.function.arguments, // Still JSON string for message.tool_calls
-      status: "pending" as const,
-    }));
+    // If not found, look for the last assistant message in this turn to merge with
+    if (idx === -1) {
+      for (let i = session.messages.length - 1; i >= 0; i--) {
+        if (session.messages[i].role === "assistant") {
+          idx = i;
+          break;
+        }
+        if (session.messages[i].role === "user") break;
+      }
+    }
+
+    const reasoning = data.reasoning
+      || data.thinking_blocks?.filter((b) => b.thinking).map((b) => b.thinking).join("\n\n")
+      || undefined;
+
+    if (idx !== -1) {
+      const existing = session.messages[idx];
+      session.messages[idx] = {
+        ...existing,
+        // Keep content from streaming if new content is null/empty
+        content: data.content || existing.content,
+        streaming: false,
+        reasoning: reasoning || existing.reasoning,
+        // Preserve toolCalls from tool_call messages
+        toolCalls: existing.toolCalls,
+      };
+    } else {
+      session.messages.push({
+        id: msgId,
+        role: "assistant",
+        content: data.content,
+        timestamp: Date.now(),
+        streaming: false,
+        reasoning,
+      });
+    }
+
+    this.emitChange(session);
   }
+
+  // ─── Tool Call Streaming ────────────────────────────────────────
+
+  private onToolCallDelta(chatId: string, data: ToolCallDeltaData): void {
+    const session = this.getSession(chatId);
+    if (session.progress) session.progress = null;
+
+    // Accumulate args
+    const buf = this.toolArgBuffers.get(data.call_id) || "";
+    this.toolArgBuffers.set(data.call_id, buf + data.delta);
+
+    // Find or create assistant message for this turn
+    const msg = this.getOrCreateTurnAssistant(session);
+    if (!msg.toolCalls) msg.toolCalls = [];
+
+    const existing = msg.toolCalls.find((tc) => tc.id === data.call_id);
+    if (existing) {
+      if (data.name) existing.name = data.name;
+      existing.arguments = this.toolArgBuffers.get(data.call_id) || "";
+    } else {
+      msg.toolCalls.push({
+        id: data.call_id,
+        name: data.name || "unknown",
+        arguments: data.delta,
+        status: "running",
+      });
+    }
+
+    msg.streaming = true;
+    // Replace message reference to trigger React re-render
+    const idx = session.messages.indexOf(msg);
+    if (idx !== -1) {
+      session.messages[idx] = { ...msg, toolCalls: [...msg.toolCalls] };
+    }
+    this.emitChange(session);
+  }
+
+  private onToolCall(chatId: string, data: ToolCallData): void {
+    const session = this.getSession(chatId);
+    const msg = this.getOrCreateTurnAssistant(session);
+    if (!msg.toolCalls) msg.toolCalls = [];
+
+    for (const call of data.calls) {
+      const existing = msg.toolCalls.find((tc) => tc.id === call.call_id);
+      const argsStr = typeof call.arguments === "object"
+        ? JSON.stringify(call.arguments)
+        : String(call.arguments || "{}");
+
+      if (existing) {
+        existing.name = call.name || existing.name;
+        existing.arguments = argsStr;
+        existing.status = "running";
+      } else {
+        msg.toolCalls.push({
+          id: call.call_id,
+          name: call.name || "unknown",
+          arguments: argsStr,
+          status: "running",
+        });
+      }
+
+      // Clear the arg buffer since we have final args
+      this.toolArgBuffers.delete(call.call_id);
+    }
+
+    // Replace message reference to trigger React re-render
+    const idx = session.messages.indexOf(msg);
+    if (idx !== -1) {
+      session.messages[idx] = { ...msg, toolCalls: [...msg.toolCalls] };
+    }
+    this.emitChange(session);
+  }
+
+  private onToolResult(chatId: string, data: ToolResultData): void {
+    const session = this.getSession(chatId);
+    const isError = !!data.error;
+    const resultContent = isError
+      ? data.error!
+      : typeof data.output === "string"
+        ? data.output
+        : data.output != null
+          ? JSON.stringify(data.output)
+          : "";
+
+    // Find the tool call across all messages and update with new reference
+    let found = false;
+    for (let i = 0; i < session.messages.length; i++) {
+      const m = session.messages[i];
+      if (m.role === "assistant" && m.toolCalls) {
+        const tcIdx = m.toolCalls.findIndex((t) => t.id === data.call_id);
+        if (tcIdx !== -1) {
+          const updatedToolCalls = [...m.toolCalls];
+          updatedToolCalls[tcIdx] = {
+            ...updatedToolCalls[tcIdx],
+            status: isError ? "error" : "ok",
+            result: resultContent,
+            name: data.name || updatedToolCalls[tcIdx].name,
+          };
+          session.messages[i] = { ...m, toolCalls: updatedToolCalls };
+          found = true;
+          break;
+        }
+      }
+    }
+
+    if (!found) {
+      // Create entry in current turn's assistant message
+      const msg = this.getOrCreateTurnAssistant(session);
+      if (!msg.toolCalls) msg.toolCalls = [];
+      msg.toolCalls.push({
+        id: data.call_id,
+        name: data.name,
+        arguments: "",
+        status: isError ? "error" : "ok",
+        result: resultContent,
+      });
+      const idx = session.messages.indexOf(msg);
+      if (idx !== -1) {
+        session.messages[idx] = { ...msg, toolCalls: [...msg.toolCalls] };
+      }
+    }
+
+    this.emitChange(session);
+  }
+
+  // ─── Helpers ────────────────────────────────────────────────────
 
   /**
-   * Extract reasoning content from message data.
-   * Supports both `reasoning_content` (DeepSeek/Kimi) and `thinking_blocks` (Anthropic).
+   * Find or create the assistant message for the current turn.
+   * A "turn" starts after the last user message.
    */
-  private extractReasoning(data: {
-    reasoning_content?: string;
-    thinking_blocks?: Array<{ type: string; thinking?: string }>;
-  }): string | undefined {
-    // Direct reasoning content (DeepSeek-R1, Kimi-K2, etc.)
-    if (data.reasoning_content) {
-      return data.reasoning_content;
+  private getOrCreateTurnAssistant(session: ChatSession): ChatMessage {
+    // Look backwards for an existing assistant message in this turn
+    for (let i = session.messages.length - 1; i >= 0; i--) {
+      if (session.messages[i].role === "assistant") {
+        return session.messages[i];
+      }
+      if (session.messages[i].role === "user") break;
     }
-    // Anthropic thinking blocks - concatenate thinking text
-    if (data.thinking_blocks?.length) {
-      const thinking = data.thinking_blocks
-        .filter((b) => b.thinking)
-        .map((b) => b.thinking)
-        .join("\n\n");
-      return thinking || undefined;
-    }
-    return undefined;
+
+    // Create new
+    const msg: ChatMessage = {
+      id: nextId("ast"),
+      role: "assistant",
+      content: null,
+      timestamp: Date.now(),
+      streaming: true,
+      toolCalls: [],
+    };
+    session.messages.push(msg);
+    return msg;
   }
-
-  // ─── Error Handler ──────────────────────────────────────────────
-
-  private handleError(
-    chatId: string | null,
-    data: { detail: string; reason?: string },
-  ): void {
-    if (!chatId) {
-      console.error("[StreamManager] Error without chat_id:", data);
-      return;
-    }
-
-    const session = this.getSession(chatId);
-    session.error = data.reason || data.detail;
-    session.isBusy = false;
-    this.emitChange(session);
-  }
-
-  // ─── Emit Helpers ───────────────────────────────────────────────
 
   private emitChange(session: ChatSession): void {
-    session.messages = [...session.messages];
-    session.toolCalls = [...session.toolCalls];
     this.changeHandlers.forEach((h) => h(session));
   }
 
@@ -760,11 +574,10 @@ class WsStreamManager {
     this.focusHandlers.forEach((h) => h(chatId));
   }
 
-  // ─── Legacy API ─────────────────────────────────────────────────
+  // ─── Public Getters ─────────────────────────────────────────────
 
   get isStreaming(): boolean {
-    const session = this.getActiveSession();
-    return session?.isBusy ?? false;
+    return this.getActiveSession()?.isBusy ?? false;
   }
 }
 

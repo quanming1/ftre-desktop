@@ -1,12 +1,9 @@
 /**
  * SettingsPanel - 设置面板组件
- *
- * 参考 VSCode 的 SettingsEditor2，作为一种特殊的 EditorPane 渲染。
- * 当 OpenFile.type === 'settings' 时，EditorArea 会渲染此组件。
  */
 
 import { useState } from "react";
-import { Settings, Keyboard, Palette, Monitor, Code2, Bot, ChevronRight, Cpu, Wifi } from "lucide-react";
+import { Settings, Bot, ChevronRight, Cpu, Wifi } from "lucide-react";
 import { AgentDefSettings } from "./AgentDefSettings";
 import { ModelSettings } from "./ModelSettings";
 import { GatewaySettings } from "./GatewaySettings";
@@ -21,21 +18,29 @@ interface SettingsCategoryProps {
   children?: React.ReactNode;
 }
 
-function SettingsCategory({ icon, title, description, onClick, children }: SettingsCategoryProps) {
+function SettingsCategory({
+  icon,
+  title,
+  description,
+  onClick,
+  children,
+}: SettingsCategoryProps) {
   const isClickable = !!onClick;
   return (
     <div
       className={`border border-border rounded-lg p-4 transition-colors ${
         isClickable
           ? "cursor-pointer hover:border-accent hover:bg-white/[0.02]"
-          : "hover:border-border-subtle"
+          : "opacity-50 cursor-not-allowed"
       }`}
-      onClick={onClick}
+      onClick={isClickable ? onClick : undefined}
     >
       <div className="flex items-start gap-3">
         <div className="text-t-muted mt-0.5">{icon}</div>
         <div className="flex-1">
-          <h3 className="text-[14px] font-medium text-t-primary mb-1">{title}</h3>
+          <h3 className="text-[14px] font-medium text-t-primary mb-1">
+            {title}
+          </h3>
           <p className="text-[13px] text-t-secondary">{description}</p>
           {children && <div className="mt-3">{children}</div>}
         </div>
@@ -54,15 +59,14 @@ export function SettingsPanel() {
     return (
       <div className="h-full overflow-auto bg-surface">
         <div className="max-w-[800px] mx-auto p-8">
-          {/* Back to home */}
           <button
             onClick={() => setView("home")}
-            className="flex items-center gap-2 text-[13px] text-t-muted hover:text-t-primary mb-6 transition-colors"
+            className="flex items-center gap-2 text-[18px] text-t-muted hover:text-t-primary mb-6 transition-colors"
           >
-            <Settings size={14} />
-            <span>Settings</span>
-            <ChevronRight size={14} />
-            <span className="text-t-primary">Agents</span>
+            <Settings size={18} />
+            <span>设置</span>
+            <ChevronRight size={18} />
+            <span className="text-t-primary font-medium">智能体</span>
           </button>
 
           <AgentDefSettings />
@@ -75,15 +79,14 @@ export function SettingsPanel() {
     return (
       <div className="h-full overflow-auto bg-surface">
         <div className="max-w-[800px] mx-auto p-8">
-          {/* Back to home */}
           <button
             onClick={() => setView("home")}
-            className="flex items-center gap-2 text-[13px] text-t-muted hover:text-t-primary mb-6 transition-colors"
+            className="flex items-center gap-2 text-[18px] text-t-muted hover:text-t-primary mb-6 transition-colors"
           >
-            <Settings size={14} />
-            <span>Settings</span>
-            <ChevronRight size={14} />
-            <span className="text-t-primary">Models</span>
+            <Settings size={18} />
+            <span>设置</span>
+            <ChevronRight size={18} />
+            <span className="text-t-primary font-medium">模型</span>
           </button>
 
           <ModelSettings />
@@ -96,15 +99,14 @@ export function SettingsPanel() {
     return (
       <div className="h-full overflow-auto bg-surface">
         <div className="max-w-[800px] mx-auto p-8">
-          {/* Back to home */}
           <button
             onClick={() => setView("home")}
-            className="flex items-center gap-2 text-[13px] text-t-muted hover:text-t-primary mb-6 transition-colors"
+            className="flex items-center gap-2 text-[18px] text-t-muted hover:text-t-primary mb-6 transition-colors"
           >
-            <Settings size={14} />
-            <span>Settings</span>
-            <ChevronRight size={14} />
-            <span className="text-t-primary">Gateway</span>
+            <Settings size={18} />
+            <span>设置</span>
+            <ChevronRight size={18} />
+            <span className="text-t-primary font-medium">网关</span>
           </button>
 
           <GatewaySettings />
@@ -116,77 +118,48 @@ export function SettingsPanel() {
   return (
     <div className="h-full overflow-auto bg-surface">
       <div className="max-w-[800px] mx-auto p-8">
-        {/* Header */}
+        {/* 标题 */}
         <div className="flex items-center gap-3 mb-8">
           <Settings size={24} className="text-t-muted" />
           <div>
-            <h1 className="text-[20px] font-semibold text-t-primary">Settings</h1>
-            <p className="text-[13px] text-t-secondary">Configure your ftre experience</p>
+            <h1 className="text-[20px] font-semibold text-t-primary">设置</h1>
+            <p className="text-[13px] text-t-secondary">
+              配置你的 FTRE 使用体验
+            </p>
           </div>
         </div>
 
-        {/* Search (placeholder) */}
+        {/* 搜索（占位） */}
         <div className="mb-6">
           <input
             type="text"
-            placeholder="Search settings..."
+            placeholder="搜索设置..."
             className="w-full h-9 px-3 rounded-md bg-elevated border border-border text-[13px] text-t-primary placeholder:text-t-ghost focus:outline-none focus:border-accent"
           />
         </div>
 
-        {/* Categories */}
+        {/* 分类 */}
         <div className="space-y-4">
           <SettingsCategory
-            icon={<Code2 size={18} />}
-            title="Editor"
-            description="Configure editor behavior, font size, tab settings, and more."
-          />
-
-          <SettingsCategory
-            icon={<Palette size={18} />}
-            title="Appearance"
-            description="Customize colors, themes, and visual elements."
-          />
-
-          <SettingsCategory
-            icon={<Keyboard size={18} />}
-            title="Keyboard Shortcuts"
-            description="View and customize keyboard shortcuts."
-          />
-
-          <SettingsCategory
-            icon={<Monitor size={18} />}
-            title="Window"
-            description="Configure window behavior and layout preferences."
-          />
-
-          <SettingsCategory
             icon={<Bot size={18} />}
-            title="Agents"
-            description="Configure AI agents for cross-workspace collaboration."
+            title="智能体"
+            description="配置跨工作区协作的 AI 智能体。"
             onClick={() => setView("agents")}
           />
 
           <SettingsCategory
             icon={<Cpu size={18} />}
-            title="Models"
-            description="Configure AI providers and model settings."
+            title="模型"
+            description="配置 AI 提供商和模型设置。"
             onClick={() => setView("models")}
           />
 
           <SettingsCategory
             icon={<Wifi size={18} />}
-            title="Gateway"
-            description="Configure AI backend (ai-base gateway) connection address."
+            title="网关"
+            description="配置 AI 后端（ai-base gateway）连接地址。"
             onClick={() => setView("gateway")}
           />
-        </div>
-
-        {/* Coming soon notice */}
-        <div className="mt-8 p-4 rounded-lg bg-elevated border border-border">
-          <p className="text-[13px] text-t-secondary text-center">
-            More settings coming soon. Currently, you can configure settings via the command palette.
-          </p>
         </div>
       </div>
     </div>

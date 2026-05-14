@@ -166,16 +166,49 @@ function encodeSessionKey(sessionIdOrKey: string): string {
   return encodeURIComponent(key);
 }
 
-export async function fetchSessionMessages(sessionId: string): Promise<any[]> {
+/**
+ * v5 REST API message format (same as WebSocket format).
+ * Each message has: id, role, and data (the actual message content).
+ */
+export interface SessionMessage {
+  id: string;
+  role:
+    | "user"
+    | "assistant"
+    | "assistant.delta"
+    | "tool_call"
+    | "tool_result"
+    | "system"
+    | "control";
+  data: Record<string, any>;
+}
+
+/**
+ * Fetch messages for a session from REST API.
+ * Returns raw v5 format: `{id, role, data}[]`.
+ * The consumer (e.g., ws-stream-manager.loadHistory) handles format conversion.
+ */
+export async function fetchSessionMessages(
+  sessionId: string,
+): Promise<SessionMessage[]> {
   try {
     const key = encodeSessionKey(sessionId);
     const res = await fetch(
       `http://127.0.0.1:18790/api/sessions/${key}/messages`,
     );
     if (!res.ok) return [];
+    // v5 response: { title: string, messages: SessionMessage[] }
     const data = await res.json();
-    return data.messages || [];
-  } catch {
+    const messages = data.messages || [];
+    console.log("[API] fetchSessionMessages response:", {
+      sessionId,
+      messageCount: messages.length,
+      sampleMessage: messages[0],
+      isV5Format: messages[0] && "role" in messages[0] && "data" in messages[0],
+    });
+    return messages;
+  } catch (e) {
+    console.error("[API] fetchSessionMessages error:", e);
     return [];
   }
 }

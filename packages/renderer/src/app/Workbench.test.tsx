@@ -4,8 +4,9 @@ import { useLayout } from "@/stores/layout";
 
 // Mock heavy child components to keep the test focused on Workbench mount behavior
 vi.mock("./TitleBar", () => ({ TitleBar: () => <div data-testid="title-bar" /> }));
-vi.mock("./StatusBar", () => ({ StatusBar: () => <div data-testid="status-bar" /> }));
+vi.mock("./ActivityBar", () => ({ ActivityBar: () => <div data-testid="activity-bar" /> }));
 vi.mock("@/features/session/SessionPanel", () => ({ SessionPanel: () => <div data-testid="session-panel" /> }));
+vi.mock("@/features/settings/SettingsPanel", () => ({ SettingsPanel: () => <div data-testid="settings-panel" /> }));
 vi.mock("@/features/explorer/Sidebar", () => ({ Sidebar: () => <div data-testid="sidebar" /> }));
 vi.mock("@/features/editor/EditorArea", () => ({ EditorArea: () => <div data-testid="editor-area" /> }));
 vi.mock("@/features/chat/ChatPanel", () => ({ ChatPanel: () => <div data-testid="chat-panel" /> }));
@@ -38,6 +39,7 @@ beforeEach(() => {
     activeBottomTab: "terminal",
     minimapEnabled: false,
     splitMode: "ai-center",
+    activeLeftPanel: "chat",
   });
 });
 

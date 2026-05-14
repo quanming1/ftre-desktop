@@ -80,7 +80,7 @@ export function GatewaySettings() {
     <div className="space-y-6">
       <div>
         <h2 className="text-[16px] font-semibold text-t-primary mb-2">
-          Gateway Connection
+          网关连接
         </h2>
         <p className="text-[13px] text-t-secondary">
           配置 AI 后端 (ai-base gateway) 的 WebSocket 连接地址。

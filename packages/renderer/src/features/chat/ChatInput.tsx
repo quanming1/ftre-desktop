@@ -6,7 +6,7 @@
  * - 绑定发送/取消/快捷键
  * - 监听外部事件（ftre:insert-code-ref、ftre:insert-archive-ref）
  * - 不直接操作 Slate API，全部委托给 ChatInputEditor
- * - 发送/取消流全部委托给 streamManager
+ * - 发送消息通过 useChat store（会自动带上 model/provider）
  * - 支持 / 触发 skill 选择弹窗
  */
 import { useCallback, useEffect, useMemo, useState, useRef } from "react";
@@ -16,7 +16,6 @@ import { ArrowUp, Eye, EyeOff, Zap } from "lucide-react";
 import { useChat, type RetryState } from "@/stores/chat";
 import { useLayout } from "@/stores/layout";
 import { useWorkspace } from "@/stores/workspace";
-import { streamManager } from "@/services/ws-stream-manager";
 import { fetchSkills, type SkillDef } from "@/services/api";
 import { AgentSelector } from "./AgentSelector";
 import { ModelSelector } from "./ModelSelector";
@@ -161,8 +160,8 @@ export function ChatInput() {
     inputEditor.clear();
     setSkillSearch(null);
 
-    // Send via ws-stream-manager (text only for now)
-    streamManager.sendMessage(text);
+    // Send via chat store (which passes model/provider to streamManager)
+    state.sendMessage(text);
   }, [inputEditor]);
 
   // ── 取消 ──
@@ -267,7 +266,8 @@ export function ChatInput() {
       const confirmText =
         step === "execute" ? "确认任务，开始执行" : `确认，进入下一步: ${step}`;
 
-      streamManager.sendMessage(confirmText);
+      // Send via chat store (which passes model/provider to streamManager)
+      useChat.getState().sendMessage(confirmText);
     };
     window.addEventListener("ftre:plan-next-step", handler);
     return () => window.removeEventListener("ftre:plan-next-step", handler);

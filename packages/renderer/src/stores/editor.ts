@@ -62,7 +62,7 @@ useEditor.subscribe((state, prev) => {
 /** 当前活跃文件路径 */
 export const useActiveFile = () => useEditor((s) => s.activeFile);
 
-/** 当前活跃文件的元数据（StatusBar 用） */
+/** 当前活跃文件的元数据 */
 export const useActiveFileMeta = () =>
   useEditor((s) => {
     const group = s.groups.find((g) => g.id === s.activeGroupId);
