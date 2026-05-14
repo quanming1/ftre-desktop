@@ -1,7 +1,7 @@
 import { memo, useCallback, useEffect, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import type { ChatMessage, InlineToolCall } from "@/services/ws-stream-manager";
+import type { ChatMessage, ToolCall } from "@/services/ws-stream-manager";
 import { CodeBlock } from "./CodeBlock";
 import { useThrottledValue } from "@/hooks/useThrottledValue";
 import { InlineToolCallCard } from "./InlineToolCallCard";
@@ -202,7 +202,18 @@ export const AssistantMessage = memo(
           <div className="text-[14px] leading-relaxed text-t-primary font-sans break-words">
             {/* 推理过程（折叠） */}
             {message.reasoning && <ReasoningBlock text={message.reasoning} />}
-            {/* 正文 */}
+            {/* 工具调用卡片（先于文本，因为工具先执行） */}
+            {message.toolCalls && message.toolCalls.length > 0 && (
+              <div className="mb-2 space-y-2">
+                {message.toolCalls.map((tc, idx) => (
+                  <InlineToolCallCard
+                    key={tc.id ?? `tc-${idx}`}
+                    toolCall={tc}
+                  />
+                ))}
+              </div>
+            )}
+            {/* 正文（工具执行后的总结） */}
             {displayContent && (
               <div className="markdown-body" ref={mdRef}>
                 <ReactMarkdown
@@ -211,14 +222,6 @@ export const AssistantMessage = memo(
                 >
                   {displayContent}
                 </ReactMarkdown>
-              </div>
-            )}
-            {/* 内联工具调用（历史消息） */}
-            {message.toolCalls && message.toolCalls.length > 0 && (
-              <div className="mt-2 space-y-2">
-                {message.toolCalls.map((tc) => (
-                  <InlineToolCallCard key={tc.id} toolCall={tc} />
-                ))}
               </div>
             )}
             {/* 媒体内容 */}
@@ -236,11 +239,30 @@ export const AssistantMessage = memo(
       </div>
     );
   },
-  (prev, next) =>
-    prev.message.content === next.message.content &&
-    prev.message.streaming === next.message.streaming &&
-    prev.message.media_urls === next.message.media_urls &&
-    prev.message.buttons === next.message.buttons &&
-    prev.message.toolCalls === next.message.toolCalls &&
-    prev.message.reasoning === next.message.reasoning,
+  (prev, next) => {
+    // Deep compare toolCalls since their internal state can change
+    const toolCallsEqual = () => {
+      const prevTc = prev.message.toolCalls;
+      const nextTc = next.message.toolCalls;
+      if (prevTc === nextTc) return true;
+      if (!prevTc || !nextTc) return prevTc === nextTc;
+      if (prevTc.length !== nextTc.length) return false;
+      return prevTc.every(
+        (tc, i) =>
+          tc.id === nextTc[i].id &&
+          tc.status === nextTc[i].status &&
+          tc.arguments === nextTc[i].arguments &&
+          tc.result === nextTc[i].result,
+      );
+    };
+
+    return (
+      prev.message.content === next.message.content &&
+      prev.message.streaming === next.message.streaming &&
+      prev.message.media_urls === next.message.media_urls &&
+      prev.message.buttons === next.message.buttons &&
+      toolCallsEqual() &&
+      prev.message.reasoning === next.message.reasoning
+    );
+  },
 );

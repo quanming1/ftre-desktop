@@ -1,5 +1,5 @@
 /**
- * Chat store — syncs state from ws-stream-manager (Protocol v2).
+ * Chat store — syncs state from ws-stream-manager.
  *
  * DESIGN: This store owns `activeChatId` — the single source of truth for
  * which chat the UI is displaying. The stream manager emits data for ALL chats,
@@ -8,6 +8,9 @@
  * `activeChatId` changes only via:
  * - switchChat() — user explicitly picks a chat
  * - onFocus callback — server assigns a chat (session.ready, new session)
+ *
+ * TOOL CALLS: Tool calls are now embedded in messages (message.toolCalls),
+ * not stored in a separate array. This is consistent with the OpenAI message format.
  */
 import { create } from "zustand";
 import { useShallow } from "zustand/shallow";
@@ -33,7 +36,6 @@ export type ChatMode = "chat" | "plan";
 
 interface ChatState {
   messages: ChatMessage[];
-  toolCalls: ToolCall[];
   progress: ProgressHint | null;
   isBusy: boolean;
   error: string | null;
@@ -42,6 +44,7 @@ interface ChatState {
   connected: boolean;
   wsStatus: WsConnectionStatus;
   model: string | null;
+  provider: string | null;
   agentId: string;
   mode: ChatMode;
   retryState: RetryState | null;
@@ -53,6 +56,7 @@ interface ChatState {
   setConnected: (v: boolean) => void;
   setWsStatus: (status: WsConnectionStatus) => void;
   setModel: (model: string | null) => void;
+  setProvider: (provider: string | null) => void;
   setAgentId: (id: string) => void;
   setMode: (mode: ChatMode) => void;
   clearMessages: () => void;
@@ -62,13 +66,18 @@ export const useChat = create<ChatState>((set, get) => {
   // ─── Data updates: propagate session state to React ─────────────
   streamManager.onChange((session: ChatSession) => {
     const active = get().activeChatId;
+    console.log("[ChatStore] onChange:", {
+      sessionChatId: session.chatId,
+      activeChatId: active,
+      messageCount: session.messages.length,
+      willUpdate: !active || session.chatId === active,
+    });
     // Only update UI state if this session is the one we're displaying
     if (active && session.chatId !== active) {
       return;
     }
     set({
       messages: [...session.messages],
-      toolCalls: [...session.toolCalls],
       progress: session.progress,
       isBusy: session.isBusy,
       error: session.error,
@@ -80,15 +89,20 @@ export const useChat = create<ChatState>((set, get) => {
   // ─── Focus changes: update which chat is displayed ──────────────
   streamManager.onFocus((chatId: string) => {
     const current = get().activeChatId;
+    const session = streamManager.getSession(chatId);
+    console.log("[ChatStore] onFocus:", {
+      chatId,
+      currentActiveChatId: current,
+      sessionMessageCount: session.messages.length,
+      willSkip: chatId === current,
+    });
     if (chatId === current) return;
 
     // Switch to the newly focused chat and load its current state
-    const session = streamManager.getSession(chatId);
     set({
       activeChatId: chatId,
       sessionId: chatId,
       messages: [...session.messages],
-      toolCalls: [...session.toolCalls],
       progress: session.progress,
       isBusy: session.isBusy,
       error: session.error,
@@ -97,7 +111,6 @@ export const useChat = create<ChatState>((set, get) => {
 
   return {
     messages: [],
-    toolCalls: [],
     progress: null,
     isBusy: false,
     error: null,
@@ -105,7 +118,8 @@ export const useChat = create<ChatState>((set, get) => {
     sessionId: null,
     connected: false,
     wsStatus: "disconnected" as WsConnectionStatus,
-    model: localStorage.getItem("selectedModel") || null,
+    model: null,
+    provider: null,
     agentId: "code_agent",
     mode: "chat",
     retryState: null,
@@ -113,7 +127,12 @@ export const useChat = create<ChatState>((set, get) => {
 
     sendMessage: (content: string, media?: MediaItem[]) => {
       if (!content.trim() && (!media || media.length === 0)) return;
-      streamManager.sendMessage(content, media);
+      const { model, provider } = get();
+      console.log("[ChatStore] sendMessage with model/provider:", {
+        model,
+        provider,
+      });
+      streamManager.sendMessage(content, media, model, provider);
     },
 
     newChat: () => {
@@ -121,8 +140,6 @@ export const useChat = create<ChatState>((set, get) => {
     },
 
     switchChat: (chatId: string) => {
-      // streamManager.switchChat will emit both focus and change events.
-      // Our onFocus/onChange handlers will sync the store state.
       streamManager.switchChat(chatId);
     },
 
@@ -131,10 +148,9 @@ export const useChat = create<ChatState>((set, get) => {
     setWsStatus: (status: WsConnectionStatus) =>
       set({ wsStatus: status, connected: status === "connected" }),
 
-    setModel: (model: string | null) => {
-      localStorage.setItem("selectedModel", model || "");
-      set({ model });
-    },
+    setModel: (model: string | null) => set({ model }),
+
+    setProvider: (provider: string | null) => set({ provider }),
 
     setAgentId: (id: string) => set({ agentId: id }),
 
@@ -143,7 +159,6 @@ export const useChat = create<ChatState>((set, get) => {
     clearMessages: () => {
       set({
         messages: [],
-        toolCalls: [],
         progress: null,
         isBusy: false,
         error: null,
@@ -172,6 +187,8 @@ export const useIsBusy = () => useChat((s) => s.isBusy);
 
 export const useModel = () => useChat((s) => s.model);
 
+export const useProvider = () => useChat((s) => s.provider);
+
 export const useSessionId = () => useChat((s) => s.activeChatId);
 
 export const useAgentId = () => useChat((s) => s.agentId);
@@ -188,9 +205,23 @@ export const useStreamingMessageId = () =>
 
 export const useWsStatus = () => useChat((s) => s.wsStatus);
 
-export const useToolCalls = () => useChat((s) => s.toolCalls);
-
-export const useToolCallById = (callId: string) =>
-  useChat((s) => s.toolCalls.find((t) => t.call_id === callId));
-
 export const useProgress = () => useChat((s) => s.progress);
+
+// ─── Deprecated ─────────────────────────────────────────────────────
+// Tool calls are now embedded in messages. These are kept for backward compatibility.
+
+/** @deprecated Tool calls are now in message.toolCalls */
+export const useToolCalls = () => {
+  console.warn(
+    "[useToolCalls] Deprecated: Tool calls are now in message.toolCalls",
+  );
+  return [];
+};
+
+/** @deprecated Tool calls are now in message.toolCalls */
+export const useToolCallById = (_callId: string) => {
+  console.warn(
+    "[useToolCallById] Deprecated: Tool calls are now in message.toolCalls",
+  );
+  return undefined;
+};

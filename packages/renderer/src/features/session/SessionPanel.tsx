@@ -11,6 +11,11 @@ import {
   Check,
   ChevronsUpDown,
   Filter,
+  Globe,
+  Bot,
+  Terminal,
+  MessageCircle,
+  HelpCircle,
 } from "lucide-react";
 import { useSession } from "@/stores/session";
 import { useChat } from "@/stores/chat";
@@ -120,6 +125,31 @@ function getSourceLabel(source: string): string {
   return (
     SOURCE_LABELS[source] || source.charAt(0).toUpperCase() + source.slice(1)
   );
+}
+
+// Channel 标签和图标映射
+const CHANNEL_LABELS: Record<string, string> = {
+  websocket: "Web",
+  dmwork: "DMWork",
+  cli: "CLI",
+  telegram: "Telegram",
+  unknown: "未知",
+};
+
+const CHANNEL_ICONS: Record<string, typeof Globe> = {
+  websocket: Globe,
+  dmwork: Bot,
+  cli: Terminal,
+  telegram: MessageCircle,
+  unknown: HelpCircle,
+};
+
+function getChannelLabel(channel?: string): string {
+  return CHANNEL_LABELS[channel || "unknown"] || channel || "未知";
+}
+
+function getChannelIcon(channel?: string): typeof Globe {
+  return CHANNEL_ICONS[channel || "unknown"] || HelpCircle;
 }
 
 function buildWorkspaceGroup(
@@ -237,8 +267,6 @@ export function SessionPanel() {
       .filter((ws) => ws.sourceGroups.length > 0);
   }, [workspaceGroups, searchQuery]);
 
-  const loadWorkspaceSessions = useSession((s) => s.loadWorkspaceSessions);
-
   const handleNewSession = useCallback(
     (e: React.MouseEvent, workspace: string) => {
       e.stopPropagation();
@@ -248,9 +276,8 @@ export function SessionPanel() {
   );
 
   const handleRefreshWorkspace = useCallback(() => {
-    if (!rootPath) return;
-    loadWorkspaceSessions(rootPath);
-  }, [rootPath, loadWorkspaceSessions]);
+    loadAllSessions();
+  }, [loadAllSessions]);
 
   const handleSwitchSession = useCallback(
     (sessionId: string) => {
@@ -413,8 +440,15 @@ export function SessionPanel() {
   const visibleSessions = useMemo(() => {
     if (!currentWorkspace) return [];
     if (selectedSource === "all") {
+      // Deduplicate sessions by session_id when combining all source groups
+      const seen = new Set<string>();
       return currentWorkspace.sourceGroups
         .flatMap((group) => group.sessions)
+        .filter((session) => {
+          if (seen.has(session.session_id)) return false;
+          seen.add(session.session_id);
+          return true;
+        })
         .sort((a, b) => (b.updated_at ?? 0) - (a.updated_at ?? 0));
     }
     const selectedGroup = currentWorkspace.sourceGroups.find(
@@ -671,17 +705,19 @@ export function SessionPanel() {
                     <div className="px-1 py-1 text-[10px] text-t-ghost">
                       {bucket.label}
                     </div>
-                    {bucket.sessions.map((session) => {
+                    {bucket.sessions.map((session, idx) => {
                       const isSessionActive =
                         session.session_id === currentSessionId;
                       const isSessionHovered =
                         hoveredSession === session.session_id;
                       const isStreaming = false; // TODO: check via ws-stream-manager
                       const time = timeAgo(session.updated_at ?? 0);
+                      const ChannelIcon = getChannelIcon(session.channel);
+                      const channelLabel = getChannelLabel(session.channel);
 
                       return (
                         <div
-                          key={session.session_id}
+                          key={`${bucket.key}-${session.session_id}-${idx}`}
                           ref={(el) => {
                             if (el) {
                               sessionRefs.current.set(session.session_id, el);
@@ -716,6 +752,15 @@ export function SessionPanel() {
                               {session.title || "New Session"}
                             </div>
                             <div className="flex items-center gap-1.5 mt-0.5">
+                              {/* Channel icon - only show for non-websocket */}
+                              {session.channel &&
+                                session.channel !== "websocket" && (
+                                  <Tooltip content={channelLabel} side="top">
+                                    <span className="text-t-ghost">
+                                      <ChannelIcon size={10} />
+                                    </span>
+                                  </Tooltip>
+                                )}
                               <span
                                 className="text-[11px]"
                                 style={{

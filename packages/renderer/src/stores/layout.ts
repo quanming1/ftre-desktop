@@ -2,6 +2,7 @@ import { create } from 'zustand';
 
 export type SidebarView = 'explorer' | 'git' | 'extensions';
 export type BottomTab = 'terminal' | 'problems' | 'output';
+export type LeftPanelType = 'chat' | 'settings';
 
 export type SplitMode = 'ai-center' | 'code-center';
 export type PanelId = 'sessions' | 'sidebar' | 'editor' | 'chat';
@@ -37,6 +38,7 @@ interface PersistedLayoutData {
     panelVisible: Record<PanelId, boolean>;  // visibility of each panel
     autoFollowFiles: boolean;
     layoutMode: LayoutMode;     // 'chat' or 'agent' layout mode
+    activeLeftPanel: LeftPanelType;
 }
 
 export interface LayoutState extends PersistedLayoutData {
@@ -57,6 +59,7 @@ export interface LayoutState extends PersistedLayoutData {
     togglePanelVisible: (panel: PanelId) => void;
     toggleAutoFollowFiles: () => void;
     setLayoutMode: (mode: LayoutMode) => void;
+    setActiveLeftPanel: (panel: LeftPanelType) => void;
 
     /** 终端浮动窗口（运行时状态，不持久化） */
     terminalDropdownOpen: boolean;
@@ -110,6 +113,7 @@ const defaults: PersistedLayoutData = {
     panelVisible: DEFAULT_PANEL_VISIBLE,
     autoFollowFiles: true,
     layoutMode: DEFAULT_LAYOUT_MODE,
+    activeLeftPanel: 'chat' as LeftPanelType,
 };
 
 function getPersistedData(state: LayoutState): PersistedLayoutData {
@@ -128,6 +132,7 @@ function getPersistedData(state: LayoutState): PersistedLayoutData {
         panelVisible: state.panelVisible,
         autoFollowFiles: state.autoFollowFiles,
         layoutMode: state.layoutMode,
+        activeLeftPanel: state.activeLeftPanel,
     };
 }
 
@@ -275,6 +280,11 @@ export const useLayout = create<LayoutState>((set, get) => ({
             panelOrder: config.panelOrder,
             panelVisible: config.panelVisible,
         });
+        get().persist();
+    },
+
+    setActiveLeftPanel: (panel) => {
+        set({ activeLeftPanel: panel });
         get().persist();
     },
 

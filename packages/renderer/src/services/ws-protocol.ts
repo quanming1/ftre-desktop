@@ -1,21 +1,108 @@
-/**
- * WebSocket Protocol v4 Type Definitions
+﻿/**
+ * WebSocket Protocol v5 — Type Definitions
  *
- * v4 separates frame types for clarity:
- * - text.delta / text.done: streaming text
- * - tool.start / tool.delta / tool.done / tool.error: tool lifecycle
- * - message: complete message (history, tool results)
+ * All server→client messages share the same envelope:
+ *   { id: string, role: string, data: object, metadata?: object }
+ *
+ * Roles:
+ *   Persistent (stored): user, assistant, tool_call, tool_result, system
+ *   Ephemeral (not stored): assistant.delta, tool_call.delta, control
  */
 
-// ─── Base Types ─────────────────────────────────────────────────────
+// ─── Message Envelope ───────────────────────────────────────────────
 
-export type Role = "assistant" | "user" | "system" | "tool";
-
-export interface Frame<T extends string = string, D = Record<string, unknown>> {
+export interface ServerMessage<D = Record<string, unknown>> {
   id: string;
-  type: T;
+  role: string;
   data: D;
+  metadata?: {
+    ephemeral?: boolean;
+    chat_id?: string;
+    model?: string;
+    [key: string]: unknown;
+  };
 }
+
+// ─── Data Types per Role ────────────────────────────────────────────
+
+/** role: "user" */
+export interface UserData {
+  content: string | ContentBlock[];
+  media?: string[];
+  media_urls?: MediaUrl[];
+  timestamp: string;
+}
+
+/** role: "assistant" — complete response (after streaming ends) */
+export interface AssistantData {
+  content: string | null;
+  reasoning?: string;
+  thinking_blocks?: Array<{ type: string; thinking?: string }>;
+  timestamp: string;
+}
+
+/** role: "assistant.delta" — streaming increment (ephemeral) */
+export interface AssistantDeltaData {
+  delta: string;
+  seq: number;
+  content: string; // accumulated full content
+}
+
+/** role: "tool_call" — model decides to call tools */
+export interface ToolCallData {
+  calls: ToolCallItem[];
+  content?: string | null; // optional text before calling
+  timestamp: string;
+}
+
+export interface ToolCallItem {
+  call_id: string;
+  name: string;
+  arguments: Record<string, unknown>; // already parsed object
+}
+
+/** role: "tool_call.delta" — streaming tool arguments (ephemeral) */
+export interface ToolCallDeltaData {
+  call_id: string;
+  name?: string; // tool name (present on first delta)
+  delta: string; // JSON fragment of arguments
+}
+
+/** role: "tool_result" — tool execution result */
+export interface ToolResultData {
+  call_id: string;
+  name: string;
+  output: string | null; // result on success
+  error?: string; // present on failure
+  files?: unknown[];
+  embeds?: unknown[];
+  timestamp: string;
+}
+
+/** role: "system" */
+export interface SystemData {
+  content: string;
+  timestamp?: string;
+}
+
+/** role: "control" — ephemeral control signals */
+export interface ControlData {
+  event: string;
+  chat_id?: string;
+  client_id?: string;
+  protocol?: string;
+  ref_id?: string;
+  detail?: string;
+  reason?: string;
+  code?: string;
+  [key: string]: unknown;
+}
+
+// ─── Helpers ────────────────────────────────────────────────────────
+
+export type ContentBlock =
+  | { type: "text"; text: string }
+  | { type: "image_url"; image_url: { url: string } };
 
 export interface MediaUrl {
   url: string;
@@ -27,145 +114,13 @@ export interface MediaItem {
   name?: string;
 }
 
-// ─── Tool Call (OpenAI format, for message.tool_calls) ──────────────
+// ─── Upstream Frames (client → server, unchanged) ───────────────────
 
-/** Tool call in OpenAI format */
-export interface ToolCall {
+export interface Frame<T extends string = string, D = Record<string, unknown>> {
   id: string;
-  type: "function";
-  function: {
-    name: string;
-    arguments: string; // JSON string (needs JSON.parse)
-  };
+  type: T;
+  data: D;
 }
-
-// ─── v4 Frame Data Types ────────────────────────────────────────────
-
-/** text.delta frame data */
-export interface TextDeltaData {
-  message_id: string;
-  chat_id: string;
-  seq: number;
-  delta: string;
-  content: string; // Accumulated content, can render directly
-}
-
-/** text.done frame data */
-export interface TextDoneData {
-  message_id: string;
-  chat_id: string;
-  content: string;
-  reasoning_content?: string;
-  thinking_blocks?: Array<{ type: string; thinking?: string }>;
-  timestamp: string;
-}
-
-/** tool.start frame data */
-export interface ToolStartData {
-  call_id: string;
-  chat_id: string;
-  name: string;
-}
-
-/** tool.delta frame data */
-export interface ToolDeltaData {
-  call_id: string;
-  chat_id: string;
-  delta: string; // JSON fragment
-}
-
-/** tool.done frame data */
-export interface ToolDoneData {
-  call_id: string;
-  chat_id: string;
-  name: string;
-  arguments: Record<string, unknown>; // Already parsed, no JSON.parse needed
-  result: unknown;
-  files?: unknown[];
-  embeds?: unknown[];
-  timestamp: string;
-}
-
-/** tool.error frame data */
-export interface ToolErrorData {
-  call_id: string;
-  chat_id: string;
-  name: string;
-  arguments?: Record<string, unknown>;
-  error: string;
-  timestamp: string;
-}
-
-/** message frame data (complete messages) */
-export interface MessageData {
-  id: string;
-  chat_id: string;
-  role: Role;
-  content: string | null;
-  timestamp: string;
-  tool_calls?: ToolCall[]; // assistant message with tool calls
-  tool_call_id?: string; // tool result message
-  name?: string; // tool result message
-  reasoning_content?: string;
-  thinking_blocks?: Array<{ type: string; thinking?: string }>;
-  media_urls?: MediaUrl[];
-}
-
-// ─── Downstream Frames (server → client) ────────────────────────────
-
-// Control frames
-export type ReadyFrame = Frame<
-  "session.ready",
-  { chat_id: string; client_id: string; protocol: string }
->;
-
-export type AttachedFrame = Frame<"session.attached", { chat_id: string }>;
-
-export type SessionUpdatedFrame = Frame<"session.updated", { chat_id: string }>;
-
-export type TurnStartFrame = Frame<"turn.start", { chat_id: string }>;
-
-export type TurnEndFrame = Frame<"turn.end", { chat_id: string }>;
-
-export type AckFrame = Frame<"chat.ack", { chat_id: string; ref_id: string }>;
-
-// v4 content frames
-export type TextDeltaFrame = Frame<"text.delta", TextDeltaData>;
-export type TextDoneFrame = Frame<"text.done", TextDoneData>;
-export type ToolStartFrame = Frame<"tool.start", ToolStartData>;
-export type ToolDeltaFrame = Frame<"tool.delta", ToolDeltaData>;
-export type ToolDoneFrame = Frame<"tool.done", ToolDoneData>;
-export type ToolErrorFrame = Frame<"tool.error", ToolErrorData>;
-export type MessageFrame = Frame<"message", MessageData>;
-
-// Error frame
-export type ErrorFrame = Frame<
-  "error",
-  { detail: string; reason?: string; code?: string }
->;
-
-// Union of all server frames
-export type ServerFrame =
-  | ReadyFrame
-  | AttachedFrame
-  | SessionUpdatedFrame
-  | TurnStartFrame
-  | TurnEndFrame
-  | AckFrame
-  | TextDeltaFrame
-  | TextDoneFrame
-  | ToolStartFrame
-  | ToolDeltaFrame
-  | ToolDoneFrame
-  | ToolErrorFrame
-  | MessageFrame
-  | ErrorFrame;
-
-// ─── Upstream Frames (client → server) ──────────────────────────────
-
-export type SessionNewFrame = Frame<"session.new", Record<string, never>>;
-
-export type SessionAttachFrame = Frame<"session.attach", { chat_id: string }>;
 
 export type ChatSendFrame = Frame<
   "chat.send",
@@ -179,26 +134,19 @@ export type ChatSendFrame = Frame<
   }
 >;
 
-export type ClientFrame = SessionNewFrame | SessionAttachFrame | ChatSendFrame;
-
-// ─── Helper to generate frame ID ────────────────────────────────────
+// ─── Utilities ──────────────────────────────────────────────────────
 
 export function generateFrameId(): string {
   return crypto.randomUUID().slice(0, 12);
 }
 
-// ─── Frame type guards ──────────────────────────────────────────────
-
-export function isServerFrame(frame: unknown): frame is ServerFrame {
+/** Validate that a parsed object is a v5 server message */
+export function isServerMessage(msg: unknown): msg is ServerMessage {
   return (
-    typeof frame === "object" &&
-    frame !== null &&
-    "id" in frame &&
-    "type" in frame &&
-    "data" in frame
+    typeof msg === "object" &&
+    msg !== null &&
+    "id" in msg &&
+    "role" in msg &&
+    "data" in msg
   );
-}
-
-export function getFrameType(frame: Frame): string {
-  return frame.type;
 }
