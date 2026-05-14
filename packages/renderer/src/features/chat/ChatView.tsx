@@ -52,12 +52,14 @@ export function ChatView() {
   const connected = usesFallback ? wsClient.connected : storeConnected;
   const chatId = streamManager.getActiveChatId();
 
-  // WS Log state
+  // WS Log state (only active in Storybook / dev mode)
+  const isStorybook = typeof window !== "undefined" && window.location.port === "6006";
   const [showLog, setShowLog] = useState(false);
   const [logEntries, setLogEntries] = useState<LogEntry[]>([]);
 
-  // Log interceptor (always active for debugging)
+  // Log interceptor (only in storybook)
   useEffect(() => {
+    if (!isStorybook) return;
     const unsub = wsClient.onMessage((msg) => {
       const time = new Date().toLocaleTimeString("en-US", { hour12: false, fractionalSecondDigits: 3 });
       setLogEntries((prev) => [...prev, {
@@ -69,12 +71,12 @@ export function ChatView() {
       }]);
     });
     return unsub;
-  }, []);
+  }, [isStorybook]);
 
   return (
     <div className="h-full flex flex-col relative overflow-hidden">
-      {/* Debug toolbar (visible when WS log has entries) */}
-      {logEntries.length > 0 && (
+      {/* Debug toolbar (Storybook only) */}
+      {isStorybook && logEntries.length > 0 && (
         <div className="flex items-center gap-2 px-3 py-1 border-b border-white/10 bg-black/20">
           <span className={`w-2 h-2 rounded-full ${connected ? "bg-green-500" : "bg-red-500"}`} />
           <span className="text-[10px] text-t-ghost font-mono flex-1">
@@ -95,8 +97,8 @@ export function ChatView() {
       {/* Input — same ChatInput as the main app */}
       <ChatInput />
 
-      {/* WS Log overlay */}
-      {showLog && (
+      {/* WS Log overlay (Storybook only) */}
+      {isStorybook && showLog && (
         <div className="absolute top-0 right-0 w-[50%] h-full bg-[#0d0d1a] border-l border-white/10 z-50 flex flex-col">
           <div className="flex items-center justify-between px-3 py-1.5 border-b border-white/10">
             <span className="text-xs text-t-secondary">WebSocket Log</span>
