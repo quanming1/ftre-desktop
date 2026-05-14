@@ -5,7 +5,7 @@ export function ChatPanel() {
   return (
     <div className="h-full flex flex-col bg-surface overflow-hidden">
       <ChatHeader />
-      <ChatView mode="app" />
+      <ChatView />
     </div>
   );
 }

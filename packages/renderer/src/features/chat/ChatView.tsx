@@ -1,79 +1,63 @@
 /**
- * ChatView — Unified chat component for both App and Storybook.
+ * ChatView — Chat message list + input.
  *
- * mode: "app"       → reads from zustand stores, renders full ChatInput (Slate)
- * mode: "storybook" → reads from props/streamManager directly, renders simple input, shows WS log toggle
+ * Single component used in both App and Storybook.
+ * Internally handles data source fallback:
+ * - Tries zustand store first (useChat)
+ * - Falls back to streamManager directly if store is empty/unavailable
  */
-import { useState, useCallback, useEffect, useRef } from "react";
-import type { ChatMessage } from "@/services/ws-stream-manager";
+import { useState, useCallback, useEffect } from "react";
+import { useChat } from "@/stores/chat";
 import { streamManager } from "@/services/ws-stream-manager";
 import { wsClient } from "@/services/websocket-client";
-import type { ChatSession } from "@/services/ws-stream-manager";
-import { MessageList } from "./MessageList";
-import { ChatInput } from "./ChatInput";
+import type { ChatMessage, ChatSession } from "@/services/ws-stream-manager";
 import { ChatMessageList } from "./ChatMessageList";
 import { WsLogPanel, type LogEntry } from "./WsLogPanel";
 
-// ─── Types ──────────────────────────────────────────────────────────
-
-export interface ChatViewProps {
-  /** "app" = production mode (uses stores), "storybook" = debug mode (uses streamManager directly) */
-  mode: "app" | "storybook";
-  /** Gateway WebSocket URL (storybook mode only, default: ws://127.0.0.1:18790/) */
-  wsUrl?: string;
-}
-
 // ─── Component ──────────────────────────────────────────────────────
 
-export function ChatView({ mode, wsUrl = "ws://127.0.0.1:18790/" }: ChatViewProps) {
-  if (mode === "app") {
-    return <AppMode />;
-  }
-  return <StorybookMode wsUrl={wsUrl} />;
-}
+export function ChatView() {
+  // Try store first
+  const storeMessages = useChat((s) => s.messages);
+  const storeIsBusy = useChat((s) => s.isBusy);
+  const storeConnected = useChat((s) => s.connected);
+  const storeSend = useChat((s) => s.sendMessage);
 
-// ─── App Mode ───────────────────────────────────────────────────────
+  // Fallback: direct streamManager subscription (for Storybook where store may not be wired)
+  const [fallbackSession, setFallbackSession] = useState<ChatSession | null>(null);
+  const usesFallback = storeMessages.length === 0 && !storeConnected;
 
-/** Production mode: uses zustand stores, full Slate editor */
-function AppMode() {
-  return (
-    <div className="h-full flex flex-col bg-surface overflow-hidden">
-      <MessageList />
-      <ChatInput />
-    </div>
-  );
-}
+  useEffect(() => {
+    if (!usesFallback) return;
+    // Ensure connection
+    if (!wsClient.connected) wsClient.connect();
 
-// ─── Storybook Mode ─────────────────────────────────────────────────
+    const unsub = streamManager.onChange((s) => {
+      setFallbackSession({ ...s, messages: [...s.messages] });
+    });
+    const unsubFocus = streamManager.onFocus(() => {
+      const active = streamManager.getActiveSession();
+      if (active) setFallbackSession({ ...active, messages: [...active.messages] });
+    });
 
-/** Debug mode: connects to real backend, simple input, WS log panel */
-function StorybookMode({ wsUrl }: { wsUrl: string }) {
-  const [session, setSession] = useState<ChatSession | null>(null);
+    const active = streamManager.getActiveSession();
+    if (active) setFallbackSession({ ...active, messages: [...active.messages] });
+
+    return () => { unsub(); unsubFocus(); };
+  }, [usesFallback]);
+
+  // Resolve data source
+  const messages = usesFallback ? (fallbackSession?.messages || []) : storeMessages;
+  const isBusy = usesFallback ? (fallbackSession?.isBusy || false) : storeIsBusy;
+  const connected = usesFallback ? wsClient.connected : storeConnected;
+  const chatId = streamManager.getActiveChatId();
+
+  // Input state
   const [input, setInput] = useState("");
   const [showLog, setShowLog] = useState(false);
   const [logEntries, setLogEntries] = useState<LogEntry[]>([]);
 
-  // Connect and subscribe
-  useEffect(() => {
-    if (wsUrl) wsClient.setUrl(wsUrl);
-    if (!wsClient.connected) wsClient.connect();
-
-    const unsubChange = streamManager.onChange((s) => {
-      setSession({ ...s, messages: [...s.messages] });
-    });
-    const unsubFocus = streamManager.onFocus(() => {
-      const active = streamManager.getActiveSession();
-      if (active) setSession({ ...active, messages: [...active.messages] });
-    });
-
-    // Grab current session if already connected
-    const active = streamManager.getActiveSession();
-    if (active) setSession({ ...active, messages: [...active.messages] });
-
-    return () => { unsubChange(); unsubFocus(); };
-  }, [wsUrl]);
-
-  // Log interceptor
+  // Log interceptor (always active for debugging)
   useEffect(() => {
     const unsub = wsClient.onMessage((msg) => {
       const time = new Date().toLocaleTimeString("en-US", { hour12: false, fractionalSecondDigits: 3 });
@@ -90,39 +74,40 @@ function StorybookMode({ wsUrl }: { wsUrl: string }) {
 
   const send = useCallback(() => {
     if (!input.trim()) return;
+    if (usesFallback) {
+      streamManager.sendMessage(input);
+    } else {
+      storeSend(input);
+    }
     const time = new Date().toLocaleTimeString("en-US", { hour12: false, fractionalSecondDigits: 3 });
     setLogEntries((prev) => [...prev, { time, direction: "send", raw: input, parsed: null, role: "user" }]);
-    streamManager.sendMessage(input);
     setInput("");
-  }, [input]);
-
-  const messages = session?.messages || [];
-  const isBusy = session?.isBusy || false;
-  const chatId = streamManager.getActiveChatId();
-  const connected = wsClient.connected;
+  }, [input, usesFallback, storeSend]);
 
   return (
-    <div className="h-full flex flex-col relative bg-surface overflow-hidden">
-      {/* Toolbar (storybook only) */}
-      <div className="flex items-center gap-2 px-3 py-1.5 border-b border-white/10 bg-black/20 text-white">
-        <span className={`w-2 h-2 rounded-full ${connected ? "bg-green-500" : "bg-red-500"}`} />
-        <span className="text-[11px] text-t-ghost font-mono flex-1">
-          {connected ? chatId || "connecting..." : "disconnected"} | {messages.length} msgs
-        </span>
-        <button
-          onClick={() => setShowLog((v) => !v)}
-          className={`px-2 py-0.5 text-[10px] rounded border ${showLog ? "border-neon/50 text-neon bg-neon/10" : "border-white/20 text-t-ghost"}`}
-        >
-          WS Log ({logEntries.length})
-        </button>
-      </div>
+    <div className="h-full flex flex-col relative overflow-hidden">
+      {/* Debug toolbar (visible when WS log has entries) */}
+      {logEntries.length > 0 && (
+        <div className="flex items-center gap-2 px-3 py-1 border-b border-white/10 bg-black/20">
+          <span className={`w-2 h-2 rounded-full ${connected ? "bg-green-500" : "bg-red-500"}`} />
+          <span className="text-[10px] text-t-ghost font-mono flex-1">
+            {chatId || "—"} | {messages.length} msgs
+          </span>
+          <button
+            onClick={() => setShowLog((v) => !v)}
+            className={`px-2 py-0.5 text-[10px] rounded border ${showLog ? "border-neon/50 text-neon bg-neon/10" : "border-white/20 text-t-ghost"}`}
+          >
+            WS Log ({logEntries.length})
+          </button>
+        </div>
+      )}
 
       {/* Message list */}
       <ChatMessageList messages={messages} isBusy={isBusy} className="flex-1" />
 
-      {/* Simple input */}
+      {/* Input */}
       {connected && chatId && (
-        <div className="flex gap-2 px-3 py-2 border-t border-white/10 bg-black/20">
+        <div className="flex gap-2 px-3 py-2 border-t border-white/10">
           <input
             className="flex-1 bg-black/30 border border-white/10 rounded px-3 py-1.5 text-sm text-white placeholder:text-t-ghost"
             value={input}

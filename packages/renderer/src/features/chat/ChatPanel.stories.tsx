@@ -1,11 +1,8 @@
 /**
  * Story: ChatView
  *
- * The same component used in the main app, but in "storybook" mode:
- * - Connects to real backend WebSocket
- * - Shows WS Log toggle for debugging
- * - Uses simple input (no Slate dependency issues)
- * - Same message rendering as production
+ * Same component as the main app. No mode param needed.
+ * Internally detects that store is empty and falls back to streamManager.
  */
 import type { Meta, StoryObj } from "@storybook/react";
 import { ChatView } from "./ChatView";
@@ -25,17 +22,4 @@ const meta: Meta<typeof ChatView> = {
 
 export default meta;
 
-/** Storybook mode: real WebSocket, simple input, WS log panel */
-export const Storybook: StoryObj<typeof ChatView> = {
-  args: {
-    mode: "storybook",
-    wsUrl: "ws://127.0.0.1:18790/",
-  },
-};
-
-/** App mode: uses zustand stores, full Slate editor (needs full app context) */
-export const AppMode: StoryObj<typeof ChatView> = {
-  args: {
-    mode: "app",
-  },
-};
+export const Default: StoryObj<typeof ChatView> = {};
