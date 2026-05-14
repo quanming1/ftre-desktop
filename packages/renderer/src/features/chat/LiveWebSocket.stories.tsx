@@ -58,8 +58,8 @@ const ROLE_COLORS: Record<string, string> = {
 
 function formatLogForExport(entries: LogEntry[]): string {
   return entries
-    .map((e) => `${e.time} ${e.direction === "send" ? "→" : "←"} ${e.raw}`)
-    .join("\n");
+    .map((e) => `${e.time} ${e.direction === "send" ? ">" : "<"} ${e.raw}`)
+    .join("\r\n");
 }
 
 function downloadAsFile(content: string, filename: string) {
