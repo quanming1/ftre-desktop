@@ -108,14 +108,14 @@ export async function fetchSessions(
     const data = await res.json();
     const sessions = data.sessions || [];
     return sessions.map((s: any) => {
-      const sessionId = s.key ? extractSessionId(s.key) : s.session_id;
-      // Cache the mapping for later API calls
+      const sessionId = s.key || s.session_id;
+      // Cache the mapping for later API calls (key is used directly as session_id)
       if (s.key) {
         registerSessionKey(sessionId, s.key);
       }
       return {
         session_id: sessionId,
-        key: s.key, // Preserve original key for API calls
+        key: s.key,
         workspace: s.workspace,
         agent_id: s.agent_id,
         title: s.title,
@@ -173,13 +173,13 @@ function encodeSessionKey(sessionIdOrKey: string): string {
 export interface SessionMessage {
   id: string;
   role:
-    | "user"
-    | "assistant"
-    | "assistant.delta"
-    | "tool_call"
-    | "tool_result"
-    | "system"
-    | "control";
+  | "user"
+  | "assistant"
+  | "assistant.delta"
+  | "tool_call"
+  | "tool_result"
+  | "system"
+  | "control";
   data: Record<string, any>;
 }
 
@@ -552,11 +552,11 @@ export async function createScheduledTask(
   return { id: "", type: "scheduled", status: "pending" };
 }
 
-export async function deleteScheduledTask(_taskId: string): Promise<void> {}
+export async function deleteScheduledTask(_taskId: string): Promise<void> { }
 
-export async function triggerScheduledTask(_taskId: string): Promise<void> {}
+export async function triggerScheduledTask(_taskId: string): Promise<void> { }
 
-export async function cancelScheduledTask(_taskId: string): Promise<void> {}
+export async function cancelScheduledTask(_taskId: string): Promise<void> { }
 
 export async function fetchScheduledTaskRuns(
   _taskId: string,
@@ -619,4 +619,4 @@ export async function sendRoomMessage(
   _content: string,
   _senderId?: string,
   _targetAgentIds?: string[],
-): Promise<void> {}
+): Promise<void> { }
