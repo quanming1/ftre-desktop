@@ -164,6 +164,8 @@ export const BusyNoMessages: Story = {
 
 // ─── Live WebSocket Story ───────────────────────────────────────────
 
+import { WsLogPanel, type LogEntry } from "./WsLogPanel";
+
 function LiveChatPanel() {
   const [url, setUrl] = useState("ws://127.0.0.1:18790/");
   const [connected, setConnected] = useState(false);
@@ -171,8 +173,15 @@ function LiveChatPanel() {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [isBusy, setIsBusy] = useState(false);
   const [input, setInput] = useState("");
+  const [showLog, setShowLog] = useState(false);
+  const [logEntries, setLogEntries] = useState<LogEntry[]>([]);
   const wsRef = useRef<WebSocket | null>(null);
   const toolArgBuffers = useRef<Map<string, string>>(new Map());
+
+  function addLog(direction: "send" | "recv", raw: string, parsed: any, role?: string) {
+    const time = new Date().toLocaleTimeString("en-US", { hour12: false, fractionalSecondDigits: 3 });
+    setLogEntries((prev) => [...prev, { time, direction, raw, parsed, role }]);
+  }
 
   // Message assembly helpers
   function getCurrentAssistant(msgs: ChatMessage[]): ChatMessage {
@@ -191,6 +200,7 @@ function LiveChatPanel() {
     if (!isServerMessage(parsed)) return;
 
     const { role, data, id } = parsed as ServerMessage;
+    addLog("recv", raw, parsed, role);
 
     setMessages((prev) => {
       const msgs = [...prev];
@@ -202,7 +212,6 @@ function LiveChatPanel() {
           if (event === "turn.start") setIsBusy(true);
           if (event === "turn.end") {
             setIsBusy(false);
-            // Finalize all streaming + running tools
             for (const m of msgs) {
               if (m.streaming) m.streaming = false;
               if (m.toolCalls) {
@@ -221,7 +230,6 @@ function LiveChatPanel() {
           ast.content = d.content;
           ast.streaming = true;
           ast.id = id;
-          // Replace reference
           const idx = msgs.indexOf(ast);
           if (idx !== -1) msgs[idx] = { ...ast };
           break;
@@ -243,7 +251,6 @@ function LiveChatPanel() {
           const d = data as ToolCallDeltaData;
           const buf = toolArgBuffers.current.get(d.call_id) || "";
           toolArgBuffers.current.set(d.call_id, buf + d.delta);
-
           const ast = getCurrentAssistant(msgs);
           if (!ast.toolCalls) ast.toolCalls = [];
           const existing = ast.toolCalls.find((tc) => tc.id === d.call_id);
@@ -266,12 +273,8 @@ function LiveChatPanel() {
           for (const call of d.calls) {
             const argsStr = typeof call.arguments === "object" ? JSON.stringify(call.arguments) : String(call.arguments);
             const existing = ast.toolCalls.find((tc) => tc.id === call.call_id);
-            if (existing) {
-              existing.arguments = argsStr;
-              existing.name = call.name;
-            } else {
-              ast.toolCalls.push({ id: call.call_id, name: call.name, arguments: argsStr, status: "running" });
-            }
+            if (existing) { existing.arguments = argsStr; existing.name = call.name; }
+            else { ast.toolCalls.push({ id: call.call_id, name: call.name, arguments: argsStr, status: "running" }); }
             toolArgBuffers.current.delete(call.call_id);
           }
           const idx = msgs.indexOf(ast);
@@ -302,11 +305,10 @@ function LiveChatPanel() {
     });
   }, []);
 
-  // WebSocket connection
   const connect = useCallback(() => {
     const ws = new WebSocket(url);
     wsRef.current = ws;
-    ws.onopen = () => { setConnected(true); setMessages([]); setIsBusy(false); toolArgBuffers.current.clear(); };
+    ws.onopen = () => { setConnected(true); setMessages([]); setIsBusy(false); setLogEntries([]); toolArgBuffers.current.clear(); };
     ws.onmessage = (e) => handleServerMessage(e.data);
     ws.onclose = () => setConnected(false);
     ws.onerror = () => setConnected(false);
@@ -317,13 +319,15 @@ function LiveChatPanel() {
   const send = useCallback(() => {
     if (!wsRef.current || !chatId || !input.trim()) return;
     const frame = { id: crypto.randomUUID().slice(0, 12), type: "chat.send", data: { chat_id: chatId, text: input, webui: true } };
-    wsRef.current.send(JSON.stringify(frame));
+    const raw = JSON.stringify(frame);
+    wsRef.current.send(raw);
+    addLog("send", raw, frame, "chat.send");
     setMessages((prev) => [...prev, { id: `user_${Date.now()}`, role: "user", content: input, timestamp: Date.now() }]);
     setInput("");
   }, [chatId, input]);
 
   return (
-    <div className="h-full flex flex-col">
+    <div className="h-full flex flex-col relative">
       {/* Toolbar */}
       <div className="flex items-center gap-2 p-2 border-b border-white/10 bg-black/20">
         <input className="flex-1 bg-black/30 border border-white/10 rounded px-2 py-1 text-xs font-mono text-white" value={url} onChange={(e) => setUrl(e.target.value)} />
@@ -331,6 +335,12 @@ function LiveChatPanel() {
           {connected ? "Disconnect" : "Connect"}
         </button>
         <span className={`w-2 h-2 rounded-full ${connected ? "bg-green-500" : "bg-red-500"}`} />
+        <button
+          onClick={() => setShowLog((v) => !v)}
+          className={`px-3 py-1 text-xs rounded border ${showLog ? "border-neon/50 text-neon bg-neon/10" : "border-white/20 text-t-ghost"}`}
+        >
+          WS Log ({logEntries.length})
+        </button>
       </div>
 
       {/* Message list */}
@@ -347,6 +357,21 @@ function LiveChatPanel() {
             placeholder="Type a message..."
           />
           <button onClick={send} className="px-4 py-1.5 text-xs bg-neon/20 text-neon border border-neon/30 rounded">Send</button>
+        </div>
+      )}
+
+      {/* WS Log Panel (slide-in from right) */}
+      {showLog && (
+        <div className="absolute top-0 right-0 w-[50%] h-full bg-[#0d0d1a] border-l border-white/10 z-50 flex flex-col">
+          <div className="flex items-center justify-between px-3 py-1.5 border-b border-white/10">
+            <span className="text-xs text-t-secondary">WebSocket Log</span>
+            <button onClick={() => setShowLog(false)} className="text-xs text-t-ghost hover:text-white">Close</button>
+          </div>
+          <WsLogPanel
+            entries={logEntries}
+            onClear={() => setLogEntries([])}
+            className="flex-1 min-h-0"
+          />
         </div>
       )}
     </div>
