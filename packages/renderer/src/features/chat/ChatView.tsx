@@ -6,12 +6,13 @@
  * - Tries zustand store first (useChat)
  * - Falls back to streamManager directly if store is empty/unavailable
  */
-import { useState, useCallback, useEffect } from "react";
+import { useState, useEffect } from "react";
 import { useChat } from "@/stores/chat";
 import { streamManager } from "@/services/ws-stream-manager";
 import { wsClient } from "@/services/websocket-client";
 import type { ChatMessage, ChatSession } from "@/services/ws-stream-manager";
 import { ChatMessageList } from "./ChatMessageList";
+import { ChatInput } from "./ChatInput";
 import { WsLogPanel, type LogEntry } from "./WsLogPanel";
 
 // ─── Component ──────────────────────────────────────────────────────
@@ -21,7 +22,6 @@ export function ChatView() {
   const storeMessages = useChat((s) => s.messages);
   const storeIsBusy = useChat((s) => s.isBusy);
   const storeConnected = useChat((s) => s.connected);
-  const storeSend = useChat((s) => s.sendMessage);
 
   // Fallback: direct streamManager subscription (for Storybook where store may not be wired)
   const [fallbackSession, setFallbackSession] = useState<ChatSession | null>(null);
@@ -52,8 +52,7 @@ export function ChatView() {
   const connected = usesFallback ? wsClient.connected : storeConnected;
   const chatId = streamManager.getActiveChatId();
 
-  // Input state
-  const [input, setInput] = useState("");
+  // WS Log state
   const [showLog, setShowLog] = useState(false);
   const [logEntries, setLogEntries] = useState<LogEntry[]>([]);
 
@@ -71,18 +70,6 @@ export function ChatView() {
     });
     return unsub;
   }, []);
-
-  const send = useCallback(() => {
-    if (!input.trim()) return;
-    if (usesFallback) {
-      streamManager.sendMessage(input);
-    } else {
-      storeSend(input);
-    }
-    const time = new Date().toLocaleTimeString("en-US", { hour12: false, fractionalSecondDigits: 3 });
-    setLogEntries((prev) => [...prev, { time, direction: "send", raw: input, parsed: null, role: "user" }]);
-    setInput("");
-  }, [input, usesFallback, storeSend]);
 
   return (
     <div className="h-full flex flex-col relative overflow-hidden">
@@ -105,25 +92,8 @@ export function ChatView() {
       {/* Message list */}
       <ChatMessageList messages={messages} isBusy={isBusy} className="flex-1" />
 
-      {/* Input */}
-      {connected && chatId && (
-        <div className="flex gap-2 px-3 py-2 border-t border-white/10">
-          <input
-            className="flex-1 bg-black/30 border border-white/10 rounded px-3 py-1.5 text-sm text-white placeholder:text-t-ghost"
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            onKeyDown={(e) => e.key === "Enter" && send()}
-            placeholder="Type a message..."
-          />
-          <button
-            onClick={send}
-            disabled={!input.trim()}
-            className="px-4 py-1.5 text-xs bg-neon/20 text-neon border border-neon/30 rounded hover:bg-neon/30 disabled:opacity-30"
-          >
-            Send
-          </button>
-        </div>
-      )}
+      {/* Input — same ChatInput as the main app */}
+      <ChatInput />
 
       {/* WS Log overlay */}
       {showLog && (
