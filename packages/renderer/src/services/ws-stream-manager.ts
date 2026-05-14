@@ -339,23 +339,14 @@ class WsStreamManager {
     const session = this.getSession(chatId);
     if (session.progress) session.progress = null;
 
-    // Find existing message by id, or find last assistant in current turn
-    let idx = session.messages.findIndex((m) => m.id === msgId);
-    if (idx === -1) {
-      // Look for an existing streaming assistant message in this turn
-      for (let i = session.messages.length - 1; i >= 0; i--) {
-        if (session.messages[i].role === "assistant" && session.messages[i].streaming) {
-          idx = i;
-          session.messages[i].id = msgId;
-          break;
-        }
-        if (session.messages[i].role === "user") break;
-      }
-    }
+    // Find existing message by this exact id
+    const idx = session.messages.findIndex((m) => m.id === msgId);
 
     if (idx !== -1) {
+      // Update existing streaming message
       session.messages[idx] = { ...session.messages[idx], content: data.content, streaming: true };
     } else {
+      // New message id = new assistant segment
       session.messages.push({
         id: msgId,
         role: "assistant",
@@ -371,19 +362,8 @@ class WsStreamManager {
   private onAssistant(chatId: string, msgId: string, data: AssistantData): void {
     const session = this.getSession(chatId);
 
-    // Find existing message (from streaming or tool_call placeholder)
-    let idx = session.messages.findIndex((m) => m.id === msgId);
-
-    // If not found, look for the last assistant message in this turn to merge with
-    if (idx === -1) {
-      for (let i = session.messages.length - 1; i >= 0; i--) {
-        if (session.messages[i].role === "assistant") {
-          idx = i;
-          break;
-        }
-        if (session.messages[i].role === "user") break;
-      }
-    }
+    // Find existing message by this exact id (from streaming)
+    const idx = session.messages.findIndex((m) => m.id === msgId);
 
     const reasoning = data.reasoning
       || data.thinking_blocks?.filter((b) => b.thinking).map((b) => b.thinking).join("\n\n")
@@ -393,14 +373,12 @@ class WsStreamManager {
       const existing = session.messages[idx];
       session.messages[idx] = {
         ...existing,
-        // Keep content from streaming if new content is null/empty
         content: data.content || existing.content,
         streaming: false,
         reasoning: reasoning || existing.reasoning,
-        // Preserve toolCalls from tool_call messages
-        toolCalls: existing.toolCalls,
       };
     } else {
+      // No matching streaming message — create new (don't merge with previous)
       session.messages.push({
         id: msgId,
         role: "assistant",
@@ -541,19 +519,26 @@ class WsStreamManager {
   // ─── Helpers ────────────────────────────────────────────────────
 
   /**
-   * Find or create the assistant message for the current turn.
-   * A "turn" starts after the last user message.
+   * Find or create an assistant message to attach tool calls to.
+   * Prefers the last assistant message in this turn that is still streaming
+   * or has no content yet. If the last assistant has finalized content,
+   * creates a new one (tool cards appear as a separate segment).
    */
   private getOrCreateTurnAssistant(session: ChatSession): ChatMessage {
-    // Look backwards for an existing assistant message in this turn
     for (let i = session.messages.length - 1; i >= 0; i--) {
-      if (session.messages[i].role === "assistant") {
-        return session.messages[i];
+      const m = session.messages[i];
+      if (m.role === "user") break;
+      if (m.role === "assistant") {
+        // Reuse if it's still streaming or has no content (pure tool placeholder)
+        if (m.streaming || !m.content) {
+          return m;
+        }
+        // Has finalized content — don't attach tools to it, create new
+        break;
       }
-      if (session.messages[i].role === "user") break;
     }
 
-    // Create new
+    // Create new assistant message for tool calls
     const msg: ChatMessage = {
       id: nextId("ast"),
       role: "assistant",
