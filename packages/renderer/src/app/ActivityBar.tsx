@@ -14,33 +14,33 @@ export function ActivityBar() {
 
   return (
     <>
-      <aside className="w-[70px] h-full bg-surface border-r border-border flex flex-col items-center py-3 justify-between shrink-0">
+      <aside className="w-[70px] h-full bg-surface border-r border-border flex flex-col items-center py-4 justify-between shrink-0">
         {/* Top */}
-        <div className="flex flex-col items-center gap-1">
+        <div className="flex flex-col items-center gap-2">
           {items.map(({ id, icon: Icon, title }) => (
             <button
               key={id}
               onClick={() => setActiveLeftPanel(id)}
-              className={`w-11 h-11 rounded-lg flex items-center justify-center transition-colors ${
+              className={`w-12 h-12 rounded-xl flex items-center justify-center transition-colors ${
                 activeLeftPanel === id
-                  ? "text-t-primary bg-white/[0.06]"
-                  : "text-t-dim hover:bg-white/[0.04] hover:text-t-muted"
+                  ? "text-t-primary bg-white/[0.08]"
+                  : "text-t-dim hover:bg-white/[0.05] hover:text-t-muted"
               }`}
               title={title}
             >
-              <Icon size={20} strokeWidth={1.5} />
+              <Icon size={22} strokeWidth={1.5} />
             </button>
           ))}
         </div>
 
         {/* Bottom */}
-        <div className="flex flex-col items-center gap-1">
+        <div className="flex flex-col items-center gap-2">
           <button
             onClick={() => setSettingsOpen(true)}
-            className="w-11 h-11 rounded-lg flex items-center justify-center transition-colors text-t-dim hover:bg-white/[0.04] hover:text-t-muted"
+            className="w-12 h-12 rounded-xl flex items-center justify-center transition-colors text-t-dim hover:bg-white/[0.05] hover:text-t-muted"
             title="设置"
           >
-            <Settings size={20} strokeWidth={1.5} />
+            <Settings size={22} strokeWidth={1.5} />
           </button>
         </div>
       </aside>
