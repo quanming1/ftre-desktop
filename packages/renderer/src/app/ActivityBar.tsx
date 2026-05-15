@@ -1,4 +1,4 @@
-import { MessageSquare, Zap, Settings } from "lucide-react";
+import { MessageSquare, Zap, Clock, Settings } from "lucide-react";
 import { useState } from "react";
 import { useLayout } from "@/stores/layout";
 
@@ -8,39 +8,40 @@ export function ActivityBar() {
   const [settingsOpen, setSettingsOpen] = useState(false);
 
   const items = [
-    { id: "chat" as const, icon: MessageSquare, title: "会话" },
-    { id: "skills" as const, icon: Zap, title: "技能" },
+    { id: "chat" as const, icon: MessageSquare, label: "对话" },
+    { id: "skills" as const, icon: Zap, label: "专家" },
+    { id: "cron" as const, icon: Clock, label: "定时" },
   ];
 
   return (
     <>
-      <aside className="w-[70px] h-full bg-surface border-r border-border flex flex-col items-center py-4 justify-between shrink-0">
+      <aside className="w-[72px] h-full bg-[#333333] border-r border-border flex flex-col items-center pt-6 pb-4 justify-between shrink-0">
         {/* Top */}
-        <div className="flex flex-col items-center gap-2">
-          {items.map(({ id, icon: Icon, title }) => (
+        <div className="flex flex-col items-center gap-5">
+          {items.map(({ id, icon: Icon, label }) => (
             <button
               key={id}
               onClick={() => setActiveLeftPanel(id)}
-              className={`w-12 h-12 rounded-xl flex items-center justify-center transition-colors ${
+              className={`flex flex-col items-center gap-1 w-full px-2 py-1.5 rounded-lg transition-colors ${
                 activeLeftPanel === id
-                  ? "text-t-primary bg-white/[0.08]"
-                  : "text-t-dim hover:bg-white/[0.05] hover:text-t-muted"
+                  ? "text-t-primary"
+                  : "text-t-dim hover:text-t-muted"
               }`}
-              title={title}
             >
-              <Icon size={22} strokeWidth={1.5} />
+              <Icon size={24} strokeWidth={1.5} />
+              <span className="text-[11px] leading-tight">{label}</span>
             </button>
           ))}
         </div>
 
         {/* Bottom */}
-        <div className="flex flex-col items-center gap-2">
+        <div className="flex flex-col items-center gap-5">
           <button
             onClick={() => setSettingsOpen(true)}
-            className="w-12 h-12 rounded-xl flex items-center justify-center transition-colors text-t-dim hover:bg-white/[0.05] hover:text-t-muted"
-            title="设置"
+            className="flex flex-col items-center gap-1 w-full px-2 py-1.5 rounded-lg transition-colors text-t-dim hover:text-t-muted"
           >
-            <Settings size={22} strokeWidth={1.5} />
+            <Settings size={24} strokeWidth={1.5} />
+            <span className="text-[11px] leading-tight">设置</span>
           </button>
         </div>
       </aside>

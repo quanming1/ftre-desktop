@@ -8,6 +8,7 @@ import { pathParent } from "@/utils/pathUtils";
 import { ChatPanel } from "@/features/chat/ChatPanel";
 import { SessionPanel } from "@/features/session/SessionPanel";
 import { SkillsPanel } from "@/features/skills/SkillsPanel";
+import { ScheduledTaskPanel } from "@/features/task/ScheduledTaskPanel";
 import { TerminalDropdown } from "@/features/terminal/TerminalDropdown";
 import { TaskDropdown } from "@/features/task/TaskDropdown";
 import { FilePalette } from "@/components/FilePalette";
@@ -281,18 +282,30 @@ export function Workbench() {
   };
 
   return (
-    <div className="h-screen w-screen flex flex-col bg-base overflow-hidden">
+    <div className="h-screen w-screen flex flex-col bg-[#333333] overflow-hidden">
       <TitleBar />
 
       {/* Main area - use CSS order to control panel arrangement without remounting */}
       <div className="flex-1 flex overflow-hidden" ref={containerRef}>
         <ActivityBar />
 
+        {/* Content area with rounded top-left corner */}
+        <div className="flex-1 flex overflow-hidden rounded-tl-2xl bg-base">
+
         {/* Skills 模式：独占整个右侧区域 */}
         {activeLeftPanel === "skills" && (
           <div className="flex-1 h-full overflow-hidden">
             <ErrorBoundary>
               <SkillsPanel />
+            </ErrorBoundary>
+          </div>
+        )}
+
+        {/* Cron 模式：独占整个右侧区域 */}
+        {activeLeftPanel === "cron" && (
+          <div className="flex-1 h-full overflow-hidden">
+            <ErrorBoundary>
+              <ScheduledTaskPanel />
             </ErrorBoundary>
           </div>
         )}
@@ -395,6 +408,7 @@ export function Workbench() {
               />
             </div>
           )}
+        </div>
       </div>
 
       {/* 终端下拉弹窗 — 始终挂载，CSS 控制显隐 */}
