@@ -674,7 +674,8 @@ export function SessionPanel() {
                     </div>
                     {bucket.sessions.map((session, idx) => {
                       const isSessionActive =
-                        session.session_id === currentSessionId;
+                        session.session_id === currentSessionId ||
+                        session.session_id === `websocket:${currentSessionId}`;
                       const isSessionHovered =
                         hoveredSession === session.session_id;
                       const isStreaming = false; // TODO: check via ws-stream-manager
