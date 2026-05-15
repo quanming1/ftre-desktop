@@ -328,23 +328,6 @@ export function ChatInput() {
 
             {/* 右侧：工具按钮 & 发送 */}
             <div className="flex items-center gap-1">
-              <button
-                onClick={toggleAutoFollow}
-                title={
-                  autoFollow ? "自动跟踪文件变更: 开" : "自动跟踪文件变更: 关"
-                }
-                className={`flex items-center h-9 w-9 justify-center rounded-lg transition-colors ${
-                  autoFollow
-                    ? "text-neon/70 hover:text-neon hover:bg-neon-ghost"
-                    : "text-t-ghost hover:text-t-muted hover:bg-white/[0.06]"
-                }`}
-              >
-                {autoFollow ? (
-                  <Eye size={14} strokeWidth={1.5} />
-                ) : (
-                  <EyeOff size={14} strokeWidth={1.5} />
-                )}
-              </button>
               <TokenRing />
               <div className="w-px h-3.5 bg-white/[0.08] mx-0.5" />
               {isBusy ? (
