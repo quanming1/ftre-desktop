@@ -89,6 +89,18 @@ function extractChatId(msg: ServerMessage): string | undefined {
   return undefined;
 }
 
+/**
+ * Strip channel prefix from a session key for WebSocket protocol.
+ * "websocket:uuid" → "uuid", "dmwork:xxx" → "xxx", "uuid" → "uuid"
+ */
+function stripChannelPrefix(id: string): string {
+  const colonIndex = id.indexOf(":");
+  if (colonIndex !== -1) {
+    return id.substring(colonIndex + 1);
+  }
+  return id;
+}
+
 // ─── Stream Manager ─────────────────────────────────────────────────
 
 class WsStreamManager {
@@ -160,7 +172,9 @@ class WsStreamManager {
     session.error = null;
     this.emitChange(session);
 
-    wsClient.chatSend(chatId, text, media, model, provider);
+    // Backend expects bare chat_id without channel prefix
+    const bareChatId = stripChannelPrefix(chatId);
+    wsClient.chatSend(bareChatId, text, media, model, provider);
   }
 
   newChat(): void {
@@ -170,12 +184,15 @@ class WsStreamManager {
 
   switchChat(chatId: string): void {
     this._requestedChatId = chatId;
-    wsClient.sessionAttach(chatId);
+    // Backend expects bare chat_id (UUID) without channel prefix
+    const bareChatId = stripChannelPrefix(chatId);
+    wsClient.sessionAttach(bareChatId);
     this.emitFocus(chatId);
   }
 
   attachBackground(chatId: string): void {
-    wsClient.sessionAttach(chatId);
+    const bareChatId = stripChannelPrefix(chatId);
+    wsClient.sessionAttach(bareChatId);
   }
 
   loadHistory(chatId: string, messages: ChatMessage[]): void {
