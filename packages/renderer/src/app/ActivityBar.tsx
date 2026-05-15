@@ -78,7 +78,7 @@ function SettingsDialog({ onClose }: { onClose: () => void }) {
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center">
       <div className="absolute inset-0 bg-black/60" onClick={onClose} />
-      <div className="relative w-[780px] h-[560px] bg-surface border border-border rounded-xl shadow-2xl overflow-hidden flex">
+      <div className="relative w-[900px] h-[640px] bg-surface border border-border rounded-xl shadow-2xl overflow-hidden flex">
         {/* Left Nav */}
         <nav className="w-[200px] border-r border-border flex flex-col py-5 shrink-0 overflow-y-auto">
           {navSections.map((section) => (
