@@ -84,8 +84,13 @@ function nextId(prefix = "msg"): string {
 /** Extract chat_id from a server message (check data first, then metadata) */
 function extractChatId(msg: ServerMessage): string | undefined {
   const data = msg.data as Record<string, unknown>;
-  if (typeof data.chat_id === "string") return data.chat_id;
-  if (msg.metadata && typeof msg.metadata.chat_id === "string") return msg.metadata.chat_id;
+  const raw = typeof data.chat_id === "string"
+    ? data.chat_id
+    : (msg.metadata && typeof msg.metadata.chat_id === "string")
+      ? msg.metadata.chat_id
+      : undefined;
+  // Backend returns "websocket:uuid" but frontend uses bare uuid internally
+  if (raw) return stripChannelPrefix(raw);
   return undefined;
 }
 
@@ -149,7 +154,7 @@ class WsStreamManager {
   }
 
   setActiveChatId(chatId: string | null): void {
-    this._requestedChatId = chatId;
+    this._requestedChatId = chatId ? stripChannelPrefix(chatId) : null;
   }
 
   getAllChatIds(): string[] {
@@ -183,11 +188,10 @@ class WsStreamManager {
   }
 
   switchChat(chatId: string): void {
-    this._requestedChatId = chatId;
-    // Backend expects bare chat_id (UUID) without channel prefix
     const bareChatId = stripChannelPrefix(chatId);
+    this._requestedChatId = bareChatId;
     wsClient.sessionAttach(bareChatId);
-    this.emitFocus(chatId);
+    this.emitFocus(bareChatId);
   }
 
   attachBackground(chatId: string): void {
@@ -196,13 +200,13 @@ class WsStreamManager {
   }
 
   loadHistory(chatId: string, messages: ChatMessage[]): void {
-    const session = this.getSession(chatId);
+    const session = this.getSession(stripChannelPrefix(chatId));
     session.messages = messages;
     this.emitChange(session);
   }
 
   syncHistory(chatId: string, messages: ChatMessage[]): void {
-    const session = this.getSession(chatId);
+    const session = this.getSession(stripChannelPrefix(chatId));
     // Always overwrite with server data (unless session is busy/streaming)
     if (!session.isBusy) {
       session.messages = messages;
