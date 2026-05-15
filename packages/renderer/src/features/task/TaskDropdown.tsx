@@ -5,7 +5,6 @@ import { FloatingWindow } from '@/components/FloatingWindow';
 import { TaskPanel } from './TaskPanel';
 import { ScheduledTaskPanel } from './ScheduledTaskPanel';
 import { useTaskStore } from '@/stores/task';
-import { useScheduledTaskStore } from '@/stores/scheduled-task';
 
 type Tab = 'monitor' | 'scheduled';
 
@@ -14,15 +13,13 @@ export function TaskDropdown() {
     const toggle = useLayout((s) => s.toggleTaskPanel);
     const startTaskPolling = useTaskStore((s) => s.startPolling);
     const stopTaskPolling = useTaskStore((s) => s.stopPolling);
-    const startScheduledPolling = useScheduledTaskStore((s) => s.startPolling);
-    const stopScheduledPolling = useScheduledTaskStore((s) => s.stopPolling);
     const [tab, setTab] = useState<Tab>('monitor');
 
     useEffect(() => {
-        if (!isOpen) { stopTaskPolling(); stopScheduledPolling(); return; }
-        if (tab === 'monitor') { startTaskPolling(); stopScheduledPolling(); }
-        else { stopTaskPolling(); startScheduledPolling(); }
-        return () => { stopTaskPolling(); stopScheduledPolling(); };
+        if (!isOpen) { stopTaskPolling(); return; }
+        if (tab === 'monitor') { startTaskPolling(); }
+        else { stopTaskPolling(); }
+        return () => { stopTaskPolling(); };
     }, [isOpen, tab]);
 
     const tabBtn = (t: Tab, Icon: typeof ClipboardList, label: string) => (
