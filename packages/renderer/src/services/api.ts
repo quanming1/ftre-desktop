@@ -87,18 +87,6 @@ function registerSessionKey(sessionId: string, key: string): void {
   sessionKeyCache.set(sessionId, key);
 }
 
-/**
- * Extract session_id from the key field.
- * Keys can be in format "channel:id" (e.g., "websocket:uuid", "dmwork:xxx")
- */
-function extractSessionId(key: string): string {
-  const colonIndex = key.indexOf(":");
-  if (colonIndex !== -1) {
-    return key.substring(colonIndex + 1);
-  }
-  return key;
-}
-
 export async function fetchSessions(
   _workspace?: string | null,
 ): Promise<SessionSummary[]> {
