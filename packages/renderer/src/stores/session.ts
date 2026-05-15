@@ -180,6 +180,8 @@ interface SessionState {
   allSessions: SessionSummary[];
   openTabs: string[];
   loading: boolean;
+  /** Session ID currently being loaded (HTTP fetch in progress) */
+  loadingSessionId: string | null;
 
   loadSessions: (workspace?: string | null) => Promise<void>;
   loadAllSessions: () => Promise<void>;
@@ -201,6 +203,7 @@ export const useSession = create<SessionState>((set, get) => ({
   allSessions: [],
   openTabs: [],
   loading: false,
+  loadingSessionId: null,
 
   loadSessions: async (_workspace) => {
     set({ loading: true });
@@ -256,6 +259,8 @@ export const useSession = create<SessionState>((set, get) => ({
       return;
     }
 
+    set({ loadingSessionId: sessionId });
+
     fetchSessionMessages(sessionId)
       .then((msgs) => {
         console.log("[Session] switchSession fetch completed:", {
@@ -282,6 +287,12 @@ export const useSession = create<SessionState>((set, get) => ({
       .catch((err) => {
         console.error("[Session] switchSession fetch error:", err);
         // Silent — don't block the UI
+      })
+      .finally(() => {
+        // Only clear if this session is still the one loading
+        if (get().loadingSessionId === sessionId) {
+          set({ loadingSessionId: null });
+        }
       });
   },
 

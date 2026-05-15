@@ -6,8 +6,9 @@
  * - Tries zustand store first (useChat)
  * - Falls back to streamManager directly if store is empty/unavailable
  */
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { useChat } from "@/stores/chat";
+import { useSession } from "@/stores/session";
 import { streamManager } from "@/services/ws-stream-manager";
 import { wsClient } from "@/services/websocket-client";
 import type { ChatMessage, ChatSession } from "@/services/ws-stream-manager";
@@ -57,6 +58,18 @@ export function ChatView() {
   const [showLog, setShowLog] = useState(false);
   const [logEntries, setLogEntries] = useState<LogEntry[]>([]);
 
+  // Determine if current session is a websocket session (can send messages)
+  const sessionId = useChat((s) => s.sessionId);
+  const allSessions = useSession((s) => s.allSessions);
+  const currentSessionChannel = useMemo(() => {
+    if (!sessionId) return "websocket"; // default: allow sending
+    const found = allSessions.find(
+      (s) => s.session_id === sessionId || s.key?.includes(sessionId),
+    );
+    return found?.channel || "websocket";
+  }, [sessionId, allSessions]);
+  const canSend = currentSessionChannel === "websocket";
+
   // Log interceptor (only in storybook)
   useEffect(() => {
     if (!isStorybook) return;
@@ -94,8 +107,16 @@ export function ChatView() {
       {/* Message list */}
       <ChatMessageList messages={messages} isBusy={isBusy} className="flex-1" />
 
-      {/* Input — same ChatInput as the main app */}
-      <ChatInput />
+      {/* Input */}
+      {canSend ? (
+        <ChatInput />
+      ) : (
+        <div className="px-6 pb-4 pt-3">
+          <div className="mx-auto w-full max-w-[960px] text-center py-3 text-[14px] text-t-ghost">
+            此会话来自 {currentSessionChannel} 渠道，仅供查看
+          </div>
+        </div>
+      )}
 
       {/* WS Log overlay (Storybook only) */}
       {isStorybook && showLog && (
