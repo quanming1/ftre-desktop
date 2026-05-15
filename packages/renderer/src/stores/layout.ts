@@ -2,7 +2,7 @@ import { create } from 'zustand';
 
 export type SidebarView = 'explorer' | 'git' | 'extensions';
 export type BottomTab = 'terminal' | 'problems' | 'output';
-export type LeftPanelType = 'chat' | 'skills' | 'settings';
+export type LeftPanelType = 'chat' | 'skills' | 'cron' | 'settings';
 
 export type SplitMode = 'ai-center' | 'code-center';
 export type PanelId = 'sessions' | 'sidebar' | 'editor' | 'chat';

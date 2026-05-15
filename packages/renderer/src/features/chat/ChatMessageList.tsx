@@ -51,7 +51,7 @@ export const ChatMessageList = memo(function ChatMessageList({
       className={`overflow-y-auto overflow-x-hidden px-4 py-3 ${className}`}
       style={maxHeight ? { maxHeight } : undefined}
     >
-      <div className="mx-auto w-full max-w-[960px] space-y-2 break-words">
+      <div className="mx-auto w-full max-w-[960px] space-y-12 break-words">
         {messages.length === 0 && !isBusy && (
           <div className="text-center text-t-dim text-sm py-12">
             No messages

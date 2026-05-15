@@ -60,7 +60,7 @@ export function TitleBar() {
   };
 
   return (
-    <div className="h-[var(--titlebar-height)] bg-[#1a1b1d] flex items-center shrink-0 relative z-50" style={drag}>
+    <div className="h-[var(--titlebar-height)] bg-[#333333] flex items-center shrink-0 relative z-50" style={drag}>
 
       {/* ── 左侧: Logo 菜单 + Git 指示器 ── */}
       <div className="flex items-center shrink-0 h-full" style={noDrag}>
