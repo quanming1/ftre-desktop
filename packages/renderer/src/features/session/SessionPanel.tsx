@@ -201,6 +201,7 @@ export function SessionPanel() {
   const switchSession = useSession((s) => s.switchSession);
   const deleteSession = useSession((s) => s.deleteSession);
   const newSession = useSession((s) => s.newSession);
+  const loadingSessionId = useSession((s) => s.loadingSessionId);
   const currentSessionId = useChat((s) => s.sessionId);
 
   const [selectedSource, setSelectedSource] = useState<string>("all");
@@ -668,6 +669,7 @@ export function SessionPanel() {
                       const isSessionHovered =
                         hoveredSession === session.session_id;
                       const isStreaming = false; // TODO: check via ws-stream-manager
+                      const isLoading = loadingSessionId === session.session_id;
                       const time = timeAgo(session.updated_at ?? 0);
                       const ChannelIcon = getChannelIcon(session.channel);
                       const channelLabel = getChannelLabel(session.channel);
@@ -731,6 +733,12 @@ export function SessionPanel() {
                                 <Loader2
                                   size={10}
                                   className="text-neon animate-spin"
+                                />
+                              )}
+                              {isLoading && !isStreaming && (
+                                <Loader2
+                                  size={10}
+                                  className="text-t-ghost animate-spin"
                                 />
                               )}
                             </div>
