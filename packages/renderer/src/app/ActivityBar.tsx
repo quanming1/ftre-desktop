@@ -88,10 +88,10 @@ function SettingsDialog({ onClose }: { onClose: () => void }) {
                 <button
                   key={item.id}
                   onClick={() => setActiveSection(item.id)}
-                  className={`w-full text-left px-5 py-2 text-[13px] transition-colors ${
+                  className={`w-[calc(100%-16px)] mx-2 text-left px-3 py-2.5 text-[13px] rounded-md transition-colors ${
                     activeSection === item.id
                       ? "bg-white/[0.06] text-t-primary"
-                      : "text-t-secondary hover:bg-white/[0.03]"
+                      : "text-t-secondary hover:bg-white/[0.04]"
                   }`}
                 >
                   {item.label}
