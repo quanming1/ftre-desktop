@@ -359,23 +359,6 @@ export const UserMessage = memo(
             },
           ]
         : []),
-      ...(canRollback
-        ? [
-            {
-              id: "separator-1",
-              label: "",
-              separator: true,
-              action: () => {},
-            },
-            {
-              id: "rollback",
-              label: "回滚到此处",
-              icon: RotateCcw,
-              disabled: isLoadingPreview,
-              action: handleRollbackClick,
-            },
-          ]
-        : []),
     ];
 
     return (
@@ -419,23 +402,6 @@ export const UserMessage = memo(
                   </button>
                 </Tooltip>
               )}
-
-              {/* 回滚按钮 - 默认显示，紧贴消息 */}
-              {canRollback && (
-                <Tooltip content="回滚到此处" side="top">
-                  <button
-                    onClick={handleRollbackClick}
-                    disabled={isLoadingPreview}
-                    className="flex items-center justify-center w-7 h-7 text-t-ghost hover:text-t-secondary rounded-md hover:bg-white/[0.06] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                  >
-                    {isLoadingPreview ? (
-                      <Loader2 size={15} className="animate-spin" />
-                    ) : (
-                      <RotateCcw size={15} />
-                    )}
-                  </button>
-                </Tooltip>
-              )}
             </div>
 
             {/* 消息内容 */}
@@ -464,17 +430,6 @@ export const UserMessage = memo(
           />
         )}
 
-        {/* 回滚确认弹窗 */}
-        {showConfirmDialog && previewData && (
-          <RollbackConfirmDialog
-            rolledBackCount={previewData.rolledBackCount}
-            hasCodeChanges={previewData.hasCodeChanges}
-            filesAffected={previewData.filesAffected}
-            onConfirm={handleConfirmRollback}
-            onCancel={handleCancelRollback}
-            isLoading={isExecuting}
-          />
-        )}
       </>
     );
   },
