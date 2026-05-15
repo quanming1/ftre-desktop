@@ -7,6 +7,7 @@ import {
   RefreshCw,
   Archive,
   Pencil,
+  Copy,
   FolderOpen,
   Check,
   ChevronsUpDown,
@@ -331,6 +332,14 @@ export function SessionPanel() {
       setContextMenu({
         position: { x: e.clientX, y: e.clientY },
         items: [
+          {
+            id: "copy-session-id",
+            label: "复制 Session ID",
+            icon: Copy,
+            action: () => {
+              navigator.clipboard.writeText(session.session_id);
+            },
+          },
           {
             id: "rename-session",
             label: "重命名",
