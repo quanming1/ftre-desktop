@@ -7,7 +7,8 @@
  * - Storybook (fed by mock data or live WebSocket)
  * - Embedded panels (preview, debug)
  */
-import { memo, useRef, useEffect } from "react";
+import { memo, useRef, useEffect, useState, useCallback } from "react";
+import { ChevronUp } from "lucide-react";
 import type { ChatMessage } from "@/services/ws-stream-manager";
 import { UserMessage } from "./UserMessage";
 import { AssistantMessage } from "./AssistantMessage";
@@ -28,6 +29,8 @@ export interface ChatMessageListProps {
 
 // ─── Component ──────────────────────────────────────────────────────
 
+const PAGE_SIZE = 10;
+
 export const ChatMessageList = memo(function ChatMessageList({
   messages,
   isBusy = false,
@@ -37,6 +40,17 @@ export const ChatMessageList = memo(function ChatMessageList({
 }: ChatMessageListProps) {
   const bottomRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
+  const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
+
+  // Reset visible count when switching sessions (message list changes entirely)
+  const prevLenRef = useRef(messages.length);
+  useEffect(() => {
+    // If messages shrunk (session switch) or went to 0, reset
+    if (messages.length < prevLenRef.current || messages.length === 0) {
+      setVisibleCount(PAGE_SIZE);
+    }
+    prevLenRef.current = messages.length;
+  }, [messages.length]);
 
   // Auto-scroll on new messages
   useEffect(() => {
@@ -45,6 +59,15 @@ export const ChatMessageList = memo(function ChatMessageList({
     }
   }, [messages.length, autoScroll]);
 
+  const totalCount = messages.length;
+  const startIndex = Math.max(0, totalCount - visibleCount);
+  const visibleMessages = messages.slice(startIndex);
+  const hasMore = startIndex > 0;
+
+  const loadMore = useCallback(() => {
+    setVisibleCount((prev) => Math.min(prev + PAGE_SIZE, totalCount));
+  }, [totalCount]);
+
   return (
     <div
       ref={containerRef}
@@ -52,13 +75,26 @@ export const ChatMessageList = memo(function ChatMessageList({
       style={maxHeight ? { maxHeight } : undefined}
     >
       <div className="mx-auto w-full max-w-[960px] space-y-12 break-words">
+        {/* Load more */}
+        {hasMore && (
+          <div className="text-center py-2">
+            <button
+              onClick={loadMore}
+              className="inline-flex items-center gap-1.5 text-[12px] text-t-ghost hover:text-t-muted transition-colors"
+            >
+              <ChevronUp size={14} />
+              加载更早的消息（还有 {startIndex} 条）
+            </button>
+          </div>
+        )}
+
         {messages.length === 0 && !isBusy && (
           <div className="text-center text-t-dim text-sm py-12">
             No messages
           </div>
         )}
 
-        {messages.map((msg) => (
+        {visibleMessages.map((msg) => (
           <MessageItem key={msg.id} message={msg} />
         ))}
 
