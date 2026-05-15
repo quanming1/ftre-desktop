@@ -321,10 +321,8 @@ export function ChatInput() {
 
           {/* 工具栏 */}
           <div className="flex items-center justify-between px-4 py-3">
-            {/* 左侧：Agent & 模型选择 */}
+            {/* 左侧：模型选择 */}
             <div className="flex items-center gap-1">
-              <AgentSelector />
-              <div className="w-px h-3.5 bg-white/[0.08] mx-0.5" />
               <ModelSelector />
             </div>
 
