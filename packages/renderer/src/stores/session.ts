@@ -113,6 +113,19 @@ function convertHistoryMessages(msgs: any[]): ChatMessage[] {
           || undefined;
         // Skip truly empty messages
         if (!content && !reasoning) break;
+        // Channel deliveries (e.g. cron pushes) don't belong to any user turn —
+        // push as standalone messages instead of merging into prior assistant.
+        const isChannelDelivery = m.metadata?._channel_delivery === true;
+        if (isChannelDelivery) {
+          result.push({
+            id: m.id || histId(),
+            role: "assistant",
+            content,
+            timestamp: ts,
+            ...(reasoning ? { reasoning } : {}),
+          });
+          break;
+        }
         // Merge into current turn's assistant (which may already have tool cards)
         const ast = currentAssistant(m.id || histId(), ts);
         ast.content = content;
