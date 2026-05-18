@@ -41,6 +41,7 @@ interface ModelItem {
 interface ProviderConfig {
   api_key?: string | null;
   api_base?: string | null;
+  api_protocol?: string | null;
   models?: ModelItem[];
 }
 
@@ -51,6 +52,15 @@ interface AiBaseConfig {
 }
 
 // ─── Constants ──────────────────────────────────────────────────────
+
+const API_PROTOCOLS: { value: string; label: string }[] = [
+  { value: "", label: "自动（按模型名推断）" },
+  { value: "openai", label: "OpenAI 兼容" },
+  { value: "anthropic", label: "Anthropic" },
+  { value: "azure", label: "Azure OpenAI" },
+  { value: "bedrock", label: "AWS Bedrock" },
+  { value: "gemini", label: "Gemini" },
+];
 
 const KNOWN_PROVIDERS: { name: string; label: string; defaultBase: string }[] =
   [
@@ -197,6 +207,7 @@ export function ModelSettings() {
   const [editOriginalName, setEditOriginalName] = useState<string | null>(null); // 编辑时的原始名称
   const [editKey, setEditKey] = useState("");
   const [editBase, setEditBase] = useState("");
+  const [editProtocol, setEditProtocol] = useState("");
   const [editModels, setEditModels] = useState<ModelItem[]>([]);
   const [showKey, setShowKey] = useState(false);
   const [isNew, setIsNew] = useState(false);
@@ -225,6 +236,7 @@ export function ModelSettings() {
     setEditOriginalName(name); // 记住原始名称，用于删除旧记录
     setEditKey(p?.api_key || "");
     setEditBase(p?.api_base || "");
+    setEditProtocol(p?.api_protocol || "");
     // models 可能是字符串数组 ["model-id"] 或对象数组 [{name, id}]
     const rawModels = p?.models || [];
     const models: ModelItem[] = rawModels.map((m: string | ModelItem) => {
@@ -245,6 +257,7 @@ export function ModelSettings() {
     setEditOriginalName(null);
     setEditKey("");
     setEditBase("");
+    setEditProtocol("");
     setEditModels([]);
     setShowKey(false);
     setIsNew(true);
@@ -286,6 +299,7 @@ export function ModelSettings() {
       updated.providers[providerName] = {
         api_key: editKey.trim(),
         api_base: editBase.trim() || null,
+        api_protocol: editProtocol.trim() || null,
         models: validModels.length > 0 ? validModels : undefined,
       };
 
@@ -399,6 +413,27 @@ export function ModelSettings() {
               placeholder="https://api.example.com/v1"
               className="font-mono"
             />
+          </div>
+
+          {/* API Protocol */}
+          <div>
+            <label className="block text-[12px] text-t-muted mb-1.5">
+              API 协议
+            </label>
+            <select
+              value={editProtocol}
+              onChange={(e) => setEditProtocol(e.target.value)}
+              className="w-full h-9 px-3 rounded-md bg-elevated border border-border text-[13px] text-t-primary focus:outline-none focus:border-accent appearance-none"
+            >
+              {API_PROTOCOLS.map((opt) => (
+                <option key={opt.value} value={opt.value}>
+                  {opt.label}
+                </option>
+              ))}
+            </select>
+            <p className="text-[11px] text-t-ghost mt-1">
+              自定义网关通常选择"OpenAI 兼容"
+            </p>
           </div>
 
           {/* Models List */}
