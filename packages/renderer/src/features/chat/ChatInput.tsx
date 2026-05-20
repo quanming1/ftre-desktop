@@ -166,8 +166,7 @@ export function ChatInput() {
 
   // ── 取消 ──
   const handleCancel = useCallback(() => {
-    // TODO: implement cancel via WS
-    console.warn("cancelStream not yet implemented");
+    useChat.getState().cancelStream();
   }, []);
 
   // ── 键盘 ──

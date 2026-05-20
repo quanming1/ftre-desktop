@@ -153,9 +153,23 @@ class WebSocketClient {
     this.ws.send(JSON.stringify(data));
   }
 
-  /** 发送聊天消息（后端 AgentLoop 只看 data.content） */
-  sendChat(content: string): void {
-    this.send({ content });
+  /** 发送聊天消息 */
+  sendChat(content: string, metadata?: Record<string, unknown>): void {
+    this.send({
+      id: crypto.randomUUID().slice(0, 16),
+      type: "user_input",
+      data: { content },
+      metadata: metadata || {},
+    });
+  }
+
+  /** 取消当前执行 */
+  sendCancel(): void {
+    this.send({
+      id: crypto.randomUUID().slice(0, 16),
+      type: "cancel",
+      data: {},
+    });
   }
 
   // ─── Event Handlers ─────────────────────────────────────────────
