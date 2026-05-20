@@ -72,7 +72,7 @@ const SESSION_TIME_BUCKETS: Array<{
   key: SessionTimeBucketKey;
   label: string;
 }> = [
-  { key: "running", label: "运行�? },
+  { key: "running", label: "运行中" },
   { key: "just_now", label: "刚刚" },
   { key: "today", label: "今天" },
   { key: "yesterday", label: "昨天" },
@@ -128,7 +128,8 @@ function getSourceLabel(source: string): string {
   );
 }
 
-// Channel 标签和图标映�?const CHANNEL_LABELS: Record<string, string> = {
+// Channel 标签和图标映射
+const CHANNEL_LABELS: Record<string, string> = {
   websocket: "Web",
   dmwork: "DMWork",
   cli: "CLI",
@@ -188,7 +189,7 @@ function buildWorkspaceGroup(
   };
 }
 
-// ─── 主组�?────────────────────────────────────────────────────────
+// ─── 主组件 ────────────────────────────────────────────────────────
 
 export function SessionPanel() {
   const rootPath = useWorkspace((s) => s.rootPath);
@@ -231,7 +232,8 @@ export function SessionPanel() {
     loadAllSessions();
   }, [loadAllSessions, rootPath]);
 
-  // 构建工作区分�?  const workspaceGroups = useMemo(() => {
+  // 构建工作区分组
+  const workspaceGroups = useMemo(() => {
     if (!rootPath) return [];
     const normalizedRoot = normalizePathForCompare(rootPath);
     // Include sessions that:
@@ -291,7 +293,7 @@ export function SessionPanel() {
     if (result) {
       useNotification.getState().addNotification({
         level: "info",
-        message: "归档任务已触�?,
+        message: "归档任务已触发",
       });
     } else {
       useNotification.getState().addNotification({
@@ -315,7 +317,7 @@ export function SessionPanel() {
       } else {
         useNotification.getState().addNotification({
           level: "error",
-          message: "重命名失�?,
+          message: "重命名失败",
         });
       }
       setRenamingSession(null);
@@ -340,7 +342,7 @@ export function SessionPanel() {
           },
           {
             id: "rename-session",
-            label: "重命�?,
+            label: "重命名",
             icon: Pencil,
             action: () => {
               setRenameValue(session.title || "");
@@ -420,7 +422,8 @@ export function SessionPanel() {
     return `hsl(${hue} 65% 45%)`;
   }, []);
 
-  // 点击外部关闭工作区菜�?  useEffect(() => {
+  // 点击外部关闭工作区菜单
+  useEffect(() => {
     if (!workspaceMenuOpen) return;
     const handler = (e: MouseEvent) => {
       if (
@@ -435,7 +438,7 @@ export function SessionPanel() {
   }, [workspaceMenuOpen]);
 
   const currentWorkspace = filteredWorkspaceGroups[0];
-  const currentWorkspaceName = folderName(rootPath || "未打开文件�?);
+  const currentWorkspaceName = folderName(rootPath || "未打开文件夹");
   const sourceOptions = useMemo(() => {
     if (!currentWorkspace) return [];
     return currentWorkspace.sourceGroups.map((group) => ({
@@ -556,7 +559,7 @@ export function SessionPanel() {
             />
           </button>
 
-          {/* 工作区下拉菜�?*/}
+          {/* 工作区下拉菜单 */}
           {workspaceMenuOpen && (
             <div className="absolute left-3 right-3 top-full mt-1 bg-elevated border border-border-subtle rounded-lg shadow-2xl py-2 z-[50]">
               <div className="px-3 pb-2 mb-2 border-b border-border/50">
@@ -661,7 +664,8 @@ export function SessionPanel() {
             <div className="px-2 py-2">
               {visibleSessions.length === 0 ? (
                 <div className="text-t-ghost px-2 py-8 text-center text-[12px]">
-                  当前分类下暂无会�?                </div>
+                  当前分类下暂无会话
+                </div>
               ) : (
                 groupedDisplayedSessions.map((bucket) => (
                   <div key={bucket.key} className="mb-2">
@@ -772,7 +776,7 @@ export function SessionPanel() {
                 >
                   {showAllSessions
                     ? "收起"
-                    : `展示全部�?{visibleSessions.length}）`}
+                    : `展示全部（${visibleSessions.length}）`}
                 </button>
               )}
             </div>
@@ -799,7 +803,8 @@ export function SessionPanel() {
             >
               <div className="px-4 py-3 border-b border-border">
                 <span className="text-[13px] text-t-primary font-medium">
-                  重命名会�?                </span>
+                  重命名会话
+                </span>
               </div>
               <div className="p-4">
                 <input
@@ -817,7 +822,7 @@ export function SessionPanel() {
                     }
                   }}
                   className="w-full h-8 px-3 rounded bg-base border border-border focus:border-neon/50 text-[12px] text-t-primary outline-none"
-                  placeholder="输入新标�?
+                  placeholder="输入新标题"
                   autoFocus
                 />
               </div>

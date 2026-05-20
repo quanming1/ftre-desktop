@@ -3,31 +3,27 @@ import { useChat } from "@/stores/chat";
 import type { ChatMessage } from "@/stores/chat";
 
 /**
- * Performance verification tests â€?programmatic simulation of manual perf scenarios.
+ * Performance verification tests â€” programmatic simulation of manual perf scenarios.
  * Validates: Requirements 7.4
  *
  * Note: These tests validate the store's performance characteristics
- * after migration to ws-stream-manager.
+ * after the ws-stream-manager merge into chat store.
  */
 
-// Mock ws-stream-manager
-vi.mock("@/stores/chat", () => ({
-  streamManager: {
-    sendMessage: vi.fn(),
-    newChat: vi.fn(),
-    switchChat: vi.fn(),
-    getSession: vi.fn(() => ({
-      chatId: "",
-      messages: [],
-      toolCalls: [],
-      progress: null,
-      isBusy: false,
-      error: null,
-    })),
-    getActiveSession: vi.fn(),
-    onChange: vi.fn(),
-    onFocus: vi.fn(),
-    getAllChatIds: vi.fn(() => []),
+// Mock websocket-client (chat.ts uses it directly)
+vi.mock("@/services/websocket-client", () => ({
+  wsClient: {
+    onMessage: vi.fn(),
+    onDisconnect: vi.fn(),
+    onConnect: vi.fn(),
+    onStatusChange: vi.fn(),
+    chatSend: vi.fn(),
+    sessionNew: vi.fn(),
+    sessionAttach: vi.fn(),
+    connect: vi.fn(),
+    disconnect: vi.fn(),
+    connected: false,
+    status: "disconnected",
   },
 }));
 
@@ -61,7 +57,7 @@ beforeEach(() => {
   resetStore();
 });
 
-describe("performance â€?message list operations", () => {
+describe("performance â€” message list operations", () => {
   it("handles 100 messages efficiently", () => {
     const messages: ChatMessage[] = [];
     for (let i = 0; i < 100; i++) {
@@ -112,7 +108,7 @@ describe("performance â€?message list operations", () => {
   });
 });
 
-describe("performance â€?mode switching", () => {
+describe("performance â€” mode switching", () => {
   it("mode switch is instant", () => {
     const start = performance.now();
     for (let i = 0; i < 100; i++) {

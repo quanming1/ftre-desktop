@@ -1,16 +1,22 @@
 /**
- * Chat Store �?直接消费 WebSocket 消息，维护聊天状态�? *
- * 合并了原 ws-stream-manager + chat store 的职责：
- * - 监听 wsClient 消息
- * - 处理 agent_event（message、tool_call、done 等）
- * - 维护 React 状�? */
+ * Chat Store — 直接消费 ftre gateway WebSocket 消息。
+ *
+ * 协议：
+ *   上行: { content: "用户输入" }
+ *   下行: { id, type: "agent_event", data: { type: EventType, data: {...} } }
+ *
+ * EventType: message, message_complete, reasoning, tool_call, tool_result,
+ *            tool_call_streaming, done, error, retry, usage_update
+ */
 import { create } from "zustand";
 import { useShallow } from "zustand/shallow";
 import { wsClient } from "@/services/websocket-client";
-import type { WsConnectionStatus } from "@/services/websocket-client";
-import type { ServerMessage, MediaItem } from "@/services/ws-protocol";
+import type { WsConnectionStatus, ServerMessage } from "@/services/websocket-client";
 
-export type { MediaItem };
+// ═══════════════════════════════════════════════════════════════════════
+// Types
+// ═══════════════════════════════════════════════════════════════════════
+
 export type Role = "assistant" | "user" | "system";
 
 export interface ToolCall {
@@ -39,6 +45,269 @@ export interface ProgressHint {
 
 export type ChatMode = "chat" | "plan";
 
+export interface RetryState {
+  attempt: number;
+  maxAttempts: number;
+  message: string;
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// Helpers
+// ═══════════════════════════════════════════════════════════════════════
+
+let idCounter = 0;
+function nextId(prefix = "msg"): string {
+  return `${prefix}_${Date.now()}_${++idCounter}`;
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// Internal state
+// ═══════════════════════════════════════════════════════════════════════
+
+/** 当前 streaming 的 assistant 消息 ID */
+let currentStreamingId: string | null = null;
+/** 累积的 content buffer */
+let contentBuffer = "";
+/** 累积的 reasoning buffer */
+let reasoningBuffer = "";
+/** tool arg 累积 buffer */
+const toolArgBuffers: Map<string, string> = new Map();
+
+// ═══════════════════════════════════════════════════════════════════════
+// Message dispatch
+// ═══════════════════════════════════════════════════════════════════════
+
+function dispatchMessage(msg: ServerMessage): void {
+  if (msg.type !== "agent_event") return;
+
+  const event = msg.data;
+  if (!event || !event.type) return;
+
+  const eventType = event.type as string;
+  const eventData = event.data || {};
+
+  switch (eventType) {
+    case "message":
+      handleMessageDelta(eventData as { content: string });
+      break;
+    case "message_complete":
+      handleMessageComplete(eventData as { content: string });
+      break;
+    case "reasoning":
+      handleReasoning(eventData as { content: string });
+      break;
+    case "tool_call":
+      handleToolCall(eventData as { id: string; name: string; arguments: Record<string, unknown> });
+      break;
+    case "tool_result":
+      handleToolResult(eventData as { id: string; name: string; result: string; error?: string | null; status?: string });
+      break;
+    case "tool_call_streaming":
+      handleToolCallStreaming(eventData as { tool_calls: Array<{ index?: number; id?: string; name?: string; arguments_delta?: string }> });
+      break;
+    case "done":
+      handleDone(eventData as { success: boolean; reason: string });
+      break;
+    case "error":
+      handleError(eventData as { message: string; code: string });
+      break;
+    case "retry":
+      handleRetry(eventData as { code: string; message: string; attempt: number; max_attempts: number });
+      break;
+    case "usage_update":
+      // 暂不处理
+      break;
+    default:
+      console.warn("[Chat] Unknown event type:", eventType);
+  }
+}
+
+function getOrCreateStreamingMsg(): string {
+  if (!currentStreamingId) {
+    currentStreamingId = nextId("ast");
+    contentBuffer = "";
+    reasoningBuffer = "";
+    const msgs = useChat.getState().messages;
+    useChat.setState({
+      messages: [
+        ...msgs,
+        {
+          id: currentStreamingId,
+          role: "assistant",
+          content: null,
+          timestamp: Date.now(),
+          streaming: true,
+        },
+      ],
+    });
+  }
+  return currentStreamingId;
+}
+
+function handleMessageDelta(data: { content: string }): void {
+  const msgId = getOrCreateStreamingMsg();
+  contentBuffer += data.content;
+  updateStreamingMessage(msgId, { content: contentBuffer });
+}
+
+function handleReasoning(data: { content: string }): void {
+  const msgId = getOrCreateStreamingMsg();
+  reasoningBuffer += data.content;
+  updateStreamingMessage(msgId, { reasoning: reasoningBuffer });
+}
+
+function handleMessageComplete(data: { content: string }): void {
+  const msgId = getOrCreateStreamingMsg();
+  contentBuffer = data.content || contentBuffer;
+  updateStreamingMessage(msgId, { content: contentBuffer, streaming: false });
+  // Don't reset currentStreamingId yet — tool calls may follow in same turn
+}
+
+function handleToolCall(data: { id: string; name: string; arguments: Record<string, unknown> }): void {
+  const msgId = getOrCreateStreamingMsg();
+  const msgs = useChat.getState().messages;
+  const idx = msgs.findIndex((m) => m.id === msgId);
+  if (idx === -1) return;
+
+  const msg = msgs[idx];
+  const toolCalls = [...(msg.toolCalls || [])];
+  const argsStr = typeof data.arguments === "object" ? JSON.stringify(data.arguments) : String(data.arguments || "{}");
+
+  const existing = toolCalls.findIndex((tc) => tc.id === data.id);
+  if (existing !== -1) {
+    toolCalls[existing] = { ...toolCalls[existing], name: data.name, arguments: argsStr, status: "running" };
+  } else {
+    toolCalls.push({ id: data.id, name: data.name, arguments: argsStr, status: "running" });
+  }
+  toolArgBuffers.delete(data.id);
+
+  const updated = [...msgs];
+  updated[idx] = { ...msg, toolCalls };
+  useChat.setState({ messages: updated });
+}
+
+function handleToolCallStreaming(data: { tool_calls: Array<{ index?: number; id?: string; name?: string; arguments_delta?: string }> }): void {
+  const msgId = getOrCreateStreamingMsg();
+  const msgs = useChat.getState().messages;
+  const idx = msgs.findIndex((m) => m.id === msgId);
+  if (idx === -1) return;
+
+  const msg = msgs[idx];
+  const toolCalls = [...(msg.toolCalls || [])];
+
+  for (const chunk of data.tool_calls) {
+    if (!chunk.id) continue;
+    const buf = toolArgBuffers.get(chunk.id) || "";
+    toolArgBuffers.set(chunk.id, buf + (chunk.arguments_delta || ""));
+
+    const existing = toolCalls.findIndex((tc) => tc.id === chunk.id);
+    if (existing !== -1) {
+      if (chunk.name) toolCalls[existing] = { ...toolCalls[existing], name: chunk.name };
+      toolCalls[existing] = { ...toolCalls[existing], arguments: toolArgBuffers.get(chunk.id) || "" };
+    } else {
+      toolCalls.push({
+        id: chunk.id,
+        name: chunk.name || "unknown",
+        arguments: chunk.arguments_delta || "",
+        status: "running",
+      });
+    }
+  }
+
+  const updated = [...msgs];
+  updated[idx] = { ...msg, toolCalls, streaming: true };
+  useChat.setState({ messages: updated });
+}
+
+function handleToolResult(data: { id: string; name: string; result: string; error?: string | null; status?: string }): void {
+  const msgs = useChat.getState().messages;
+  const isError = !!data.error;
+
+  for (let i = msgs.length - 1; i >= 0; i--) {
+    const m = msgs[i];
+    if (m.toolCalls) {
+      const tcIdx = m.toolCalls.findIndex((tc) => tc.id === data.id);
+      if (tcIdx !== -1) {
+        const updated = [...msgs];
+        const updatedToolCalls = [...m.toolCalls];
+        updatedToolCalls[tcIdx] = {
+          ...updatedToolCalls[tcIdx],
+          status: isError ? "error" : "ok",
+          result: isError ? data.error! : data.result,
+          name: data.name || updatedToolCalls[tcIdx].name,
+        };
+        updated[i] = { ...m, toolCalls: updatedToolCalls };
+        useChat.setState({ messages: updated });
+        return;
+      }
+    }
+  }
+}
+
+function handleDone(_data: { success: boolean; reason: string }): void {
+  // Finalize streaming message
+  if (currentStreamingId) {
+    const msgs = useChat.getState().messages;
+    const idx = msgs.findIndex((m) => m.id === currentStreamingId);
+    if (idx !== -1) {
+      const updated = [...msgs];
+      const msg = updated[idx];
+      // Force-complete any pending tool calls
+      const toolCalls = msg.toolCalls?.map((tc) =>
+        tc.status === "running" || tc.status === "pending" ? { ...tc, status: "ok" as const } : tc
+      );
+      updated[idx] = { ...msg, streaming: false, toolCalls };
+      useChat.setState({ messages: updated });
+    }
+  }
+
+  currentStreamingId = null;
+  contentBuffer = "";
+  reasoningBuffer = "";
+  toolArgBuffers.clear();
+  useChat.setState({ isBusy: false, progress: null, retryState: null });
+}
+
+function handleError(data: { message: string; code: string }): void {
+  useChat.setState({ error: `[${data.code}] ${data.message}`, isBusy: false });
+  currentStreamingId = null;
+  contentBuffer = "";
+  reasoningBuffer = "";
+}
+
+function handleRetry(data: { code: string; message: string; attempt: number; max_attempts: number }): void {
+  useChat.setState({
+    retryState: { attempt: data.attempt, maxAttempts: data.max_attempts, message: data.message },
+  });
+}
+
+function updateStreamingMessage(msgId: string, patch: Partial<ChatMessage>): void {
+  const msgs = useChat.getState().messages;
+  const idx = msgs.findIndex((m) => m.id === msgId);
+  if (idx === -1) return;
+  const updated = [...msgs];
+  updated[idx] = { ...updated[idx], ...patch };
+  useChat.setState({ messages: updated });
+}
+
+// ─── Wire up WebSocket ──────────────────────────────────────────────
+
+wsClient.onMessage(dispatchMessage);
+wsClient.onDisconnect(() => {
+  useChat.setState({ isBusy: false, connected: false, wsStatus: "disconnected" });
+  currentStreamingId = null;
+});
+wsClient.onConnect(() => {
+  useChat.setState({ connected: true, wsStatus: "connected" });
+});
+wsClient.onStatusChange((status) => {
+  useChat.setState({ wsStatus: status, connected: status === "connected" });
+});
+
+// ═══════════════════════════════════════════════════════════════════════
+// Zustand Store
+// ═══════════════════════════════════════════════════════════════════════
+
 interface ChatState {
   messages: ChatMessage[];
   progress: ProgressHint | null;
@@ -51,8 +320,10 @@ interface ChatState {
   provider: string | null;
   agentId: string;
   mode: ChatMode;
+  retryState: RetryState | null;
+  contextTokens: number;
 
-  sendMessage: (content: string, media?: MediaItem[]) => void;
+  sendMessage: (content: string) => void;
   newChat: () => void;
   setConnected: (v: boolean) => void;
   setWsStatus: (status: WsConnectionStatus) => void;
@@ -63,198 +334,94 @@ interface ChatState {
   clearMessages: () => void;
 }
 
-// ─── Internal state (not in React) ──────────────────────────────────
+export const useChat = create<ChatState>(() => ({
+  messages: [],
+  progress: null,
+  isBusy: false,
+  error: null,
+  sessionId: null,
+  connected: false,
+  wsStatus: "disconnected" as WsConnectionStatus,
+  model: null,
+  provider: null,
+  agentId: "code_agent",
+  mode: "chat",
+  retryState: null,
+  contextTokens: 0,
 
-let idCounter = 0;
-function nextId(prefix = "msg"): string {
-  return `${prefix}_${Date.now()}_${++idCounter}`;
-}
+  sendMessage: (content: string) => {
+    if (!content.trim()) return;
 
-let currentMsgId: string | null = null;
-let contentBuffer = "";
+    // Add user message to UI
+    const userMsg: ChatMessage = {
+      id: nextId("user"),
+      role: "user",
+      content,
+      timestamp: Date.now(),
+    };
+    const msgs = useChat.getState().messages;
+    useChat.setState({
+      messages: [...msgs, userMsg],
+      isBusy: true,
+      error: null,
+      retryState: null,
+    });
 
-// ─── Store ──────────────────────────────────────────────────────────
+    // Send to backend
+    wsClient.sendChat(content);
+  },
 
-export const useChat = create<ChatState>((set, get) => {
-  // 监听 WebSocket 消息
-  wsClient.onMessage((msg: ServerMessage) => {
-    if (msg.type !== "agent_event") return;
+  newChat: () => {
+    currentStreamingId = null;
+    contentBuffer = "";
+    reasoningBuffer = "";
+    toolArgBuffers.clear();
+    useChat.setState({
+      messages: [],
+      progress: null,
+      isBusy: false,
+      error: null,
+      retryState: null,
+      contextTokens: 0,
+    });
+  },
 
-    const serverSessionId = msg.metadata.session_id || "default";
+  setConnected: (v: boolean) => useChat.setState({ connected: v }),
+  setWsStatus: (status: WsConnectionStatus) =>
+    useChat.setState({ wsStatus: status, connected: status === "connected" }),
+  setModel: (model: string | null) => useChat.setState({ model }),
+  setProvider: (provider: string | null) => useChat.setState({ provider }),
+  setAgentId: (id: string) => useChat.setState({ agentId: id }),
+  setMode: (mode) => useChat.setState({ mode }),
 
-    // 同步 sessionId
-    if (get().sessionId !== serverSessionId) {
-      set({ sessionId: serverSessionId });
-    }
+  clearMessages: () => {
+    currentStreamingId = null;
+    contentBuffer = "";
+    reasoningBuffer = "";
+    toolArgBuffers.clear();
+    useChat.setState({
+      messages: [],
+      progress: null,
+      isBusy: false,
+      error: null,
+      sessionId: null,
+      retryState: null,
+      contextTokens: 0,
+      agentId: "code_agent",
+    });
+  },
+}));
 
-    const { type, data } = msg.data as { type: string; data: any };
+// ═══════════════════════════════════════════════════════════════════════
+// Selectors
+// ═══════════════════════════════════════════════════════════════════════
 
-    switch (type) {
-      case "message": handleDelta(set, get, data.content || ""); break;
-      case "message_complete": handleComplete(set, get, data.content || ""); break;
-      case "reasoning": handleReasoning(set, get, data.content || ""); break;
-      case "tool_call": handleToolCall(set, get, data); break;
-      case "tool_call_streaming": handleToolStreaming(set, get, data); break;
-      case "tool_result": handleToolResult(set, get, data); break;
-      case "done": handleDone(set, get); break;
-      case "error": set({ error: `[${data.code}] ${data.message}` }); break;
-    }
-  });
-
-  wsClient.onDisconnect(() => {
-    if (get().isBusy) set({ isBusy: false });
-  });
-
-  wsClient.onStatusChange((status) => {
-    set({ wsStatus: status, connected: status === "connected" });
-  });
-
-  return {
-    messages: [],
-    progress: null,
-    isBusy: false,
-    error: null,
-    sessionId: null,
-    connected: false,
-    wsStatus: "disconnected",
-    model: null,
-    provider: null,
-    agentId: "code_agent",
-    mode: "chat",
-
-    sendMessage: (content, media) => {
-      if (!content.trim() && (!media || media.length === 0)) return;
-      const msgs = [...get().messages, { id: nextId("user"), role: "user" as Role, content, timestamp: Date.now() }];
-      set({ messages: msgs, isBusy: true, error: null });
-      wsClient.send({ content, media });
-    },
-
-    newChat: () => {
-      currentMsgId = null;
-      contentBuffer = "";
-      set({ messages: [], isBusy: false, error: null, sessionId: null, progress: null });
-    },
-
-    setConnected: (v) => set({ connected: v }),
-    setWsStatus: (status) => set({ wsStatus: status, connected: status === "connected" }),
-    setModel: (model) => set({ model }),
-    setProvider: (provider) => set({ provider }),
-    setAgentId: (id) => set({ agentId: id }),
-    setMode: (mode) => set({ mode }),
-    clearMessages: () => {
-      currentMsgId = null;
-      contentBuffer = "";
-      set({ messages: [], progress: null, isBusy: false, error: null, sessionId: null });
-    },
-  };
-});
-
-// ─── Event Handlers ─────────────────────────────────────────────────
-
-type Set = (partial: Partial<ChatState>) => void;
-type Get = () => ChatState;
-
-function handleDelta(set: Set, get: Get, text: string): void {
-  contentBuffer += text;
-  const msgs = get().messages;
-
-  if (!currentMsgId) {
-    currentMsgId = nextId("ast");
-    set({ messages: [...msgs, { id: currentMsgId, role: "assistant", content: contentBuffer, timestamp: Date.now(), streaming: true }] });
-  } else {
-    set({ messages: msgs.map((m) => m.id === currentMsgId ? { ...m, content: contentBuffer } : m) });
-  }
-}
-
-function handleComplete(set: Set, get: Get, content: string): void {
-  set({ messages: get().messages.map((m) => m.id === currentMsgId ? { ...m, content, streaming: false } : m) });
-  currentMsgId = null;
-  contentBuffer = "";
-}
-
-function handleReasoning(set: Set, get: Get, text: string): void {
-  const msgs = get().messages;
-  const last = msgs[msgs.length - 1];
-  if (last?.role === "assistant" && !last.content) {
-    set({ messages: msgs.map((m, i) => i === msgs.length - 1 ? { ...m, reasoning: (m.reasoning || "") + text } : m) });
-  } else {
-    set({ messages: [...msgs, { id: nextId("ast"), role: "assistant", content: null, timestamp: Date.now(), streaming: true, reasoning: text }] });
-  }
-}
-
-function handleToolCall(set: Set, get: Get, data: { id: string; name: string; arguments: any }): void {
-  const msgs = get().messages;
-  const msg = findOrCreateToolMsg(msgs);
-  const tc: ToolCall = { id: data.id, name: data.name, arguments: JSON.stringify(data.arguments), status: "running" };
-  const existing = msg.toolCalls?.find((t) => t.id === data.id);
-  if (existing) {
-    msg.toolCalls = msg.toolCalls!.map((t) => t.id === data.id ? tc : t);
-  } else {
-    msg.toolCalls = [...(msg.toolCalls || []), tc];
-  }
-  set({ messages: replaceMsg(msgs, msg) });
-}
-
-function handleToolStreaming(set: Set, get: Get, data: { tool_calls: Array<{ id?: string; name?: string; arguments_delta?: string }> }): void {
-  const msgs = get().messages;
-  const msg = findOrCreateToolMsg(msgs);
-  const toolCalls = [...(msg.toolCalls || [])];
-
-  for (const tc of data.tool_calls) {
-    if (!tc.id) continue;
-    const idx = toolCalls.findIndex((t) => t.id === tc.id);
-    if (idx >= 0) {
-      toolCalls[idx] = { ...toolCalls[idx], name: tc.name || toolCalls[idx].name, arguments: toolCalls[idx].arguments + (tc.arguments_delta || "") };
-    } else {
-      toolCalls.push({ id: tc.id, name: tc.name || "unknown", arguments: tc.arguments_delta || "", status: "pending" });
-    }
-  }
-  msg.toolCalls = toolCalls;
-  set({ messages: replaceMsg(msgs, msg) });
-}
-
-function handleToolResult(set: Set, get: Get, data: { id: string; result: string; error: string | null }): void {
-  const msgs = get().messages.map((m) => {
-    if (!m.toolCalls) return m;
-    const tc = m.toolCalls.find((t) => t.id === data.id);
-    if (!tc) return m;
-    return { ...m, toolCalls: m.toolCalls.map((t) => t.id === data.id ? { ...t, status: (data.error ? "error" : "ok") as ToolCall["status"], result: data.error || data.result } : t) };
-  });
-  set({ messages: msgs });
-}
-
-function handleDone(set: Set, get: Get): void {
-  const msgs = get().messages.map((m) => ({
-    ...m,
-    streaming: false,
-    toolCalls: m.toolCalls?.map((tc) => tc.status === "pending" || tc.status === "running" ? { ...tc, status: "ok" as const } : tc),
-  }));
-  currentMsgId = null;
-  contentBuffer = "";
-  set({ messages: msgs, isBusy: false, progress: null });
-}
-
-// ─── Helpers ────────────────────────────────────────────────────────
-
-function findOrCreateToolMsg(msgs: ChatMessage[]): ChatMessage {
-  for (let i = msgs.length - 1; i >= 0; i--) {
-    if (msgs[i].role === "user") break;
-    if (msgs[i].role === "assistant" && !msgs[i].content) return { ...msgs[i] };
-  }
-  return { id: nextId("ast"), role: "assistant", content: null, timestamp: Date.now(), streaming: true, toolCalls: [] };
-}
-
-function replaceMsg(msgs: ChatMessage[], msg: ChatMessage): ChatMessage[] {
-  const idx = msgs.findIndex((m) => m.id === msg.id);
-  if (idx >= 0) return msgs.map((m, i) => i === idx ? msg : m);
-  return [...msgs, msg];
-}
-
-// ─── Selectors ──────────────────────────────────────────────────────
-
-export const useMessageIds = (): string[] => useChat(useShallow((s) => s.messages.map((m) => m.id)));
-export const useMessageById = (id: string) => useChat((s) => s.messages.find((m) => m.id === id));
+export const useMessageIds = (): string[] =>
+  useChat(useShallow((s) => s.messages.map((m) => m.id)));
+export const useMessageById = (id: string) =>
+  useChat((s) => s.messages.find((m) => m.id === id));
 export const useIsBusy = () => useChat((s) => s.isBusy);
+export const useIsStreaming = () => useChat((s) => s.isBusy);
 export const useModel = () => useChat((s) => s.model);
 export const useProvider = () => useChat((s) => s.provider);
 export const useSessionId = () => useChat((s) => s.sessionId);
@@ -262,32 +429,6 @@ export const useAgentId = () => useChat((s) => s.agentId);
 export const useMode = () => useChat((s) => s.mode);
 export const useWsStatus = () => useChat((s) => s.wsStatus);
 export const useProgress = () => useChat((s) => s.progress);
-export const useIsStreaming = () => useChat((s) => s.isBusy);
-export const useStreamingMessageId = () => useChat((s) => s.messages.find((m) => m.streaming)?.id ?? null);
-
-// ─── streamManager 兼容对象（供 session.ts / api.ts 调用）────────────
-
-export const streamManager = {
-  sendMessage: (content: string, media?: MediaItem[], model?: string | null, provider?: string | null) => {
-    useChat.getState().sendMessage(content, media);
-  },
-  newChat: () => useChat.getState().newChat(),
-  switchChat: (_chatId: string) => { /* MVP: �?session，暂不实�?*/ },
-  getSession: (_chatId: string) => ({ chatId: _chatId, messages: useChat.getState().messages, progress: null, isBusy: useChat.getState().isBusy, error: null }),
-  getActiveSession: () => ({ chatId: useChat.getState().sessionId || "", messages: useChat.getState().messages, progress: null, isBusy: useChat.getState().isBusy, error: null }),
-  syncHistory: (_chatId: string, messages: ChatMessage[]) => { useChat.setState({ messages }); },
-  loadHistory: (_chatId: string, messages: ChatMessage[]) => { useChat.setState({ messages }); },
-  onTurnEnd: (handler: () => void) => { /* TODO */ return () => { }; },
-  onChange: (_handler: any) => () => { },
-  onFocus: (_handler: any) => () => { },
-  get isStreaming() { return useChat.getState().isBusy; },
-};
-
-// 兼容类型导出
-export interface ChatSession {
-  chatId: string;
-  messages: ChatMessage[];
-  progress: ProgressHint | null;
-  isBusy: boolean;
-  error: string | null;
-}
+export const useContextTokens = () => useChat((s) => s.contextTokens);
+export const useStreamingMessageId = () =>
+  useChat((s) => s.messages.find((m) => m.streaming)?.id ?? null);

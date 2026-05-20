@@ -9,24 +9,20 @@ vi.mock("@/services/api", () => ({
   fetchUsage: vi.fn().mockResolvedValue(0),
 }));
 
-// Mock ws-stream-manager
-vi.mock("@/stores/chat", () => ({
-  streamManager: {
-    sendMessage: vi.fn(),
-    newChat: vi.fn(),
-    switchChat: vi.fn(),
-    getSession: vi.fn(() => ({
-      chatId: "",
-      messages: [],
-      toolCalls: [],
-      progress: null,
-      isBusy: false,
-      error: null,
-    })),
-    getActiveSession: vi.fn(() => null),
-    onChange: vi.fn(),
-    onFocus: vi.fn(),
-    getAllChatIds: vi.fn(() => []),
+// Mock websocket-client (chat.ts uses it directly)
+vi.mock("@/services/websocket-client", () => ({
+  wsClient: {
+    onMessage: vi.fn(),
+    onDisconnect: vi.fn(),
+    onConnect: vi.fn(),
+    onStatusChange: vi.fn(),
+    chatSend: vi.fn(),
+    sessionNew: vi.fn(),
+    sessionAttach: vi.fn(),
+    connect: vi.fn(),
+    disconnect: vi.fn(),
+    connected: false,
+    status: "disconnected",
   },
 }));
 
@@ -66,7 +62,7 @@ beforeEach(() => {
   vi.clearAllMocks();
 });
 
-describe("session store â€?basic operations", () => {
+describe("session store â€” basic operations", () => {
   it("starts with empty sessions", () => {
     expect(useSession.getState().sessions).toEqual([]);
     expect(useSession.getState().allSessions).toEqual([]);
@@ -94,16 +90,16 @@ describe("session store â€?basic operations", () => {
     expect(useSession.getState().openTabs).toContain("s2");
   });
 
-  it("newSession calls streamManager.newChat", async () => {
-    const { streamManager } = await import("@/stores/chat");
+  it("newSession calls wsClient.sessionNew", async () => {
+    const { wsClient } = await import("@/services/websocket-client");
     useSession.getState().newSession();
-    expect(streamManager.newChat).toHaveBeenCalled();
+    expect(wsClient.sessionNew).toHaveBeenCalled();
   });
 
-  it("switchSession calls streamManager.switchChat", async () => {
-    const { streamManager } = await import("@/stores/chat");
+  it("switchSession calls wsClient.sessionAttach", async () => {
+    const { wsClient } = await import("@/services/websocket-client");
     await useSession.getState().switchSession("s1");
-    expect(streamManager.switchChat).toHaveBeenCalledWith("s1");
+    expect(wsClient.sessionAttach).toHaveBeenCalledWith("s1");
   });
 
   it("switchSession adds to openTabs", async () => {
