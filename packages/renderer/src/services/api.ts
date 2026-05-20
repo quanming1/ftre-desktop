@@ -1,11 +1,11 @@
 /**
- * API service — all communication goes through WebSocket.
+ * API service �?all communication goes through WebSocket.
  * This file provides a simple interface for components.
  * Functions that previously called HTTP endpoints are stubbed as no-ops or return defaults.
  */
 
 import { wsClient } from "./websocket-client";
-import { streamManager } from "./ws-stream-manager";
+import { streamManager } from "@/stores/chat";
 import type { MediaItem } from "./ws-protocol";
 
 export type { MediaItem };
@@ -174,7 +174,7 @@ export interface SessionMessage {
 /**
  * Fetch messages for a session from REST API.
  * Returns raw v5 format: `{id, role, data}[]`.
- * The consumer (e.g., ws-stream-manager.loadHistory) handles format conversion.
+ * The consumer (e.g., chat store) handles format conversion.
  */
 export async function fetchSessionMessages(
   sessionId: string,
@@ -403,7 +403,7 @@ export async function previewRollback(
   _sessionId: string,
   _messageId: string,
 ): Promise<any> {
-  return { error: "not_available", message: "回滚功能需要连接 AI 后端" };
+  return { error: "not_available", message: "回滚功能需要连�?AI 后端" };
 }
 
 export async function executeRollback(
@@ -411,7 +411,7 @@ export async function executeRollback(
   _messageId: string,
   _skipCodeRestore?: boolean,
 ): Promise<any> {
-  return { error: "not_available", message: "回滚功能需要连接 AI 后端" };
+  return { error: "not_available", message: "回滚功能需要连�?AI 后端" };
 }
 
 // ─── Archives ───────────────────────────────────────────────────────
@@ -557,7 +557,7 @@ export async function updateScheduledTask(
   _taskId: string,
   _data: any,
 ): Promise<{ error?: string; detail?: string }> {
-  return { error: "功能暂不可用", detail: "需要连接 AI 后端" };
+  return { error: "功能暂不可用", detail: "需要连�?AI 后端" };
 }
 
 // ─── Rooms (Agent multi-chat) ───────────────────────────────────────

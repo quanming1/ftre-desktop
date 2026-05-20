@@ -10,7 +10,7 @@ vi.mock("@/services/api", () => ({
 }));
 
 // Mock ws-stream-manager
-vi.mock("@/services/ws-stream-manager", () => ({
+vi.mock("@/stores/chat", () => ({
   streamManager: {
     sendMessage: vi.fn(),
     newChat: vi.fn(),
@@ -66,7 +66,7 @@ beforeEach(() => {
   vi.clearAllMocks();
 });
 
-describe("session store — basic operations", () => {
+describe("session store �?basic operations", () => {
   it("starts with empty sessions", () => {
     expect(useSession.getState().sessions).toEqual([]);
     expect(useSession.getState().allSessions).toEqual([]);
@@ -95,13 +95,13 @@ describe("session store — basic operations", () => {
   });
 
   it("newSession calls streamManager.newChat", async () => {
-    const { streamManager } = await import("@/services/ws-stream-manager");
+    const { streamManager } = await import("@/stores/chat");
     useSession.getState().newSession();
     expect(streamManager.newChat).toHaveBeenCalled();
   });
 
   it("switchSession calls streamManager.switchChat", async () => {
-    const { streamManager } = await import("@/services/ws-stream-manager");
+    const { streamManager } = await import("@/stores/chat");
     await useSession.getState().switchSession("s1");
     expect(streamManager.switchChat).toHaveBeenCalledWith("s1");
   });

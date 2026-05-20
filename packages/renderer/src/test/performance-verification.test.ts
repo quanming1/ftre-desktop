@@ -1,9 +1,9 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { useChat } from "@/stores/chat";
-import type { ChatMessage } from "@/services/ws-stream-manager";
+import type { ChatMessage } from "@/stores/chat";
 
 /**
- * Performance verification tests â€” programmatic simulation of manual perf scenarios.
+ * Performance verification tests â€?programmatic simulation of manual perf scenarios.
  * Validates: Requirements 7.4
  *
  * Note: These tests validate the store's performance characteristics
@@ -11,7 +11,7 @@ import type { ChatMessage } from "@/services/ws-stream-manager";
  */
 
 // Mock ws-stream-manager
-vi.mock("@/services/ws-stream-manager", () => ({
+vi.mock("@/stores/chat", () => ({
   streamManager: {
     sendMessage: vi.fn(),
     newChat: vi.fn(),
@@ -61,7 +61,7 @@ beforeEach(() => {
   resetStore();
 });
 
-describe("performance â€” message list operations", () => {
+describe("performance â€?message list operations", () => {
   it("handles 100 messages efficiently", () => {
     const messages: ChatMessage[] = [];
     for (let i = 0; i < 100; i++) {
@@ -112,7 +112,7 @@ describe("performance â€” message list operations", () => {
   });
 });
 
-describe("performance â€” mode switching", () => {
+describe("performance â€?mode switching", () => {
   it("mode switch is instant", () => {
     const start = performance.now();
     for (let i = 0; i < 100; i++) {
