@@ -1,5 +1,5 @@
 /**
- * ChatView — Chat message list + input.
+ * ChatView �?Chat message list + input.
  *
  * Single component used in both App and Storybook.
  * Internally handles data source fallback:
@@ -9,9 +9,9 @@
 import { useState, useEffect, useMemo } from "react";
 import { useChat } from "@/stores/chat";
 import { useSession } from "@/stores/session";
-import { streamManager } from "@/services/ws-stream-manager";
+import { streamManager } from "@/stores/chat";
 import { wsClient } from "@/services/websocket-client";
-import type { ChatMessage, ChatSession } from "@/services/ws-stream-manager";
+import type { ChatMessage, ChatSession } from "@/stores/chat";
 import { ChatMessageList } from "./ChatMessageList";
 import { ChatInput } from "./ChatInput";
 import { WsLogPanel, type LogEntry } from "./WsLogPanel";
@@ -93,7 +93,7 @@ export function ChatView() {
         <div className="flex items-center gap-2 px-3 py-1 border-b border-white/10 bg-black/20">
           <span className={`w-2 h-2 rounded-full ${connected ? "bg-green-500" : "bg-red-500"}`} />
           <span className="text-[10px] text-t-ghost font-mono flex-1">
-            {chatId || "—"} | {messages.length} msgs
+            {chatId || "�?} | {messages.length} msgs
           </span>
           <button
             onClick={() => setShowLog((v) => !v)}
@@ -113,7 +113,7 @@ export function ChatView() {
       ) : (
         <div className="px-6 pb-4 pt-3">
           <div className="mx-auto w-full max-w-[960px] text-center py-3 text-[14px] text-t-ghost">
-            此会话来自 {currentSessionChannel} 渠道，仅供查看
+            此会话来�?{currentSessionChannel} 渠道，仅供查�?
           </div>
         </div>
       )}

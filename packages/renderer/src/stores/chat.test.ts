@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, vi } from "vitest";
 import { useChat } from "./chat";
 
 // Mock ws-stream-manager
-vi.mock("@/services/ws-stream-manager", () => ({
+vi.mock("@/stores/chat", () => ({
   streamManager: {
     sendMessage: vi.fn(),
     newChat: vi.fn(),
@@ -44,7 +44,7 @@ beforeEach(() => {
   resetStore();
 });
 
-describe("chat store â€” basic state", () => {
+describe("chat store â€?basic state", () => {
   it("defaults to empty messages", () => {
     expect(useChat.getState().messages).toHaveLength(0);
   });
@@ -65,7 +65,7 @@ describe("chat store â€” basic state", () => {
   });
 });
 
-describe("chat store â€” model", () => {
+describe("chat store â€?model", () => {
   it("setModel updates model", () => {
     useChat.getState().setModel("gpt-4");
     expect(useChat.getState().model).toBe("gpt-4");
@@ -78,7 +78,7 @@ describe("chat store â€” model", () => {
   });
 });
 
-describe("chat store â€” connection", () => {
+describe("chat store â€?connection", () => {
   it("setConnected updates connected state", () => {
     useChat.getState().setConnected(true);
     expect(useChat.getState().connected).toBe(true);
@@ -87,7 +87,7 @@ describe("chat store â€” connection", () => {
   });
 });
 
-describe("chat store â€” clearMessages", () => {
+describe("chat store â€?clearMessages", () => {
   it("resets messages and session state", () => {
     useChat.setState({
       messages: [
@@ -106,15 +106,15 @@ describe("chat store â€” clearMessages", () => {
   });
 });
 
-describe("chat store â€” sendMessage", () => {
+describe("chat store â€?sendMessage", () => {
   it("calls streamManager.sendMessage", async () => {
-    const { streamManager } = await import("@/services/ws-stream-manager");
+    const { streamManager } = await import("@/stores/chat");
     useChat.getState().sendMessage("hello");
     expect(streamManager.sendMessage).toHaveBeenCalledWith("hello");
   });
 
   it("does not send empty messages", async () => {
-    const { streamManager } = await import("@/services/ws-stream-manager");
+    const { streamManager } = await import("@/stores/chat");
     (streamManager.sendMessage as any).mockClear();
     useChat.getState().sendMessage("   ");
     expect(streamManager.sendMessage).not.toHaveBeenCalled();

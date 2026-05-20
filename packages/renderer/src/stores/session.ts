@@ -1,10 +1,10 @@
-ï»¿/**
- * Session store â€” tracks known chat sessions (local state).
+/**
+ * Session store ¡ª tracks known chat sessions (local state).
  * Syncs with ws-stream-manager for session switching.
  */
 import { create } from "zustand";
-import { streamManager } from "@/services/ws-stream-manager";
-import type { ChatMessage, ToolCall } from "@/services/ws-stream-manager";
+import { streamManager } from "@/stores/chat";
+import type { ChatMessage, ToolCall } from "@/stores/chat";
 import type { SessionSummary } from "@/services/api";
 import { fetchSessions, fetchSessionMessages } from "@/services/api";
 import { useWorkspace } from "./workspace";
@@ -13,7 +13,7 @@ import { workspaceHash, normalizePathForCompare } from "@/utils/pathUtils";
 
 export type { SessionSummary };
 
-// â”€â”€â”€ History Message Conversion â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ©¤©¤©¤ History Message Conversion ©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤
 
 let histIdCounter = 0;
 function histId(): string {
@@ -27,10 +27,10 @@ function histId(): string {
  * Render model: one assistant bubble per turn containing tool cards + final text.
  *
  * Algorithm (single pass, simple):
- * - user â†’ push user bubble
- * - tool_call â†’ get/create current turn's assistant bubble, attach tool cards
- * - tool_result â†’ find matching tool card, set result + status
- * - assistant â†’ get/create current turn's assistant bubble, set content + reasoning
+ * - user ¡ú push user bubble
+ * - tool_call ¡ú get/create current turn's assistant bubble, attach tool cards
+ * - tool_result ¡ú find matching tool card, set result + status
+ * - assistant ¡ú get/create current turn's assistant bubble, set content + reasoning
  */
 function convertHistoryMessages(msgs: any[]): ChatMessage[] {
   const result: ChatMessage[] = [];
@@ -113,7 +113,7 @@ function convertHistoryMessages(msgs: any[]): ChatMessage[] {
           || undefined;
         // Skip truly empty messages
         if (!content && !reasoning) break;
-        // Channel deliveries (e.g. cron pushes) don't belong to any user turn â€”
+        // Channel deliveries (e.g. cron pushes) don't belong to any user turn ¡ª
         // push as standalone messages instead of merging into prior assistant.
         const isChannelDelivery = m.metadata?._channel_delivery === true;
         if (isChannelDelivery) {
@@ -150,12 +150,12 @@ function convertHistoryMessages(msgs: any[]): ChatMessage[] {
     return m.content || (m.toolCalls && m.toolCalls.length > 0) || m.reasoning;
   });
 }
-// â”€â”€â”€ Storage Keys â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ©¤©¤©¤ Storage Keys ©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤
 
 const SESSION_KEY_PREFIX = "ftre-active-session";
 const TABS_KEY_PREFIX = "ftre-open-tabs";
 
-/** ç”ŸæˆæŒ‰å·¥ä½œåŒºéš”ç¦»çš„ localStorage key */
+/** Éú³É°´¹¤×÷Çø¸ôÀëµÄ localStorage key */
 function sessionStorageKey(): string {
   const root = useWorkspace.getState().rootPath;
   return root
@@ -168,7 +168,7 @@ function tabsStorageKey(): string {
   return root ? `${TABS_KEY_PREFIX}:${workspaceHash(root)}` : TABS_KEY_PREFIX;
 }
 
-/** ä» localStorage æ¢å¤ openTabs */
+/** ´Ó localStorage »Ö¸´ openTabs */
 function loadTabsFromStorage(): string[] {
   try {
     const raw = localStorage.getItem(tabsStorageKey());
@@ -179,7 +179,7 @@ function loadTabsFromStorage(): string[] {
   return [];
 }
 
-/** æŒä¹…åŒ– openTabs åˆ° localStorage */
+/** ³Ö¾Ã»¯ openTabs µ½ localStorage */
 function saveTabsToStorage(tabs: string[]): void {
   try {
     localStorage.setItem(tabsStorageKey(), JSON.stringify(tabs));
@@ -256,7 +256,7 @@ export const useSession = create<SessionState>((set, get) => ({
       saveTabsToStorage(newTabs);
     }
 
-    // Switch immediately â€” render whatever is in memory (may be empty)
+    // Switch immediately ¡ª render whatever is in memory (may be empty)
     streamManager.switchChat(sessionId);
 
     try {
@@ -268,7 +268,7 @@ export const useSession = create<SessionState>((set, get) => ({
     // Fetch latest history from server if session is not currently busy
     const session = streamManager.getSession(sessionId);
     if (session.isBusy) {
-      // Session is actively streaming â€” don't overwrite with stale HTTP data
+      // Session is actively streaming ¡ª don't overwrite with stale HTTP data
       return;
     }
 
@@ -299,7 +299,7 @@ export const useSession = create<SessionState>((set, get) => ({
       })
       .catch((err) => {
         console.error("[Session] switchSession fetch error:", err);
-        // Silent â€” don't block the UI
+        // Silent ¡ª don't block the UI
       })
       .finally(() => {
         // Only clear if this session is still the one loading
@@ -404,7 +404,7 @@ export const useSession = create<SessionState>((set, get) => ({
   },
 }));
 
-// â”€â”€â”€ Auto-refresh session list on turn end â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ©¤©¤©¤ Auto-refresh session list on turn end ©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤
 
 streamManager.onTurnEnd(() => {
   // Refresh session list after each turn completes

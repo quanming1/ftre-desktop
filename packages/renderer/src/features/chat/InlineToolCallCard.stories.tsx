@@ -1,5 +1,5 @@
 /**
- * Story: InlineToolCallCard â€” All Tools x All States
+ * Story: InlineToolCallCard â€?All Tools x All States
  *
  * Renders every known tool in every lifecycle state:
  * - pending: tool announced, waiting for arguments
@@ -11,7 +11,7 @@
  */
 import type { Meta, StoryObj } from "@storybook/react";
 import { InlineToolCallCard } from "./InlineToolCallCard";
-import type { ToolCall } from "@/services/ws-stream-manager";
+import type { ToolCall } from "@/stores/chat";
 
 const meta: Meta<typeof InlineToolCallCard> = {
   title: "Chat/InlineToolCallCard",
@@ -48,7 +48,7 @@ const TOOLS: ToolFixture[] = [
   {
     name: "read_file",
     args: { path: "src/ftre/agent/loop.py", limit: 30 },
-    result: '1| """Agent loop â€” main message processing."""\n2| \n3| from __future__ import annotations\n4| \n5| import asyncio\n...\n30| from ftre.message import Message',
+    result: '1| """Agent loop â€?main message processing."""\n2| \n3| from __future__ import annotations\n4| \n5| import asyncio\n...\n30| from ftre.message import Message',
     error: "FileNotFoundError: [Errno 2] No such file or directory: 'not_exist.py'",
   },
   {
