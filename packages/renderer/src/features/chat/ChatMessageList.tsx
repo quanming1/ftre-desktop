@@ -1,5 +1,5 @@
 /**
- * ChatMessageList â€?Standalone message list component.
+ * ChatMessageList â€” Standalone message list component.
  *
  * Pure presentational: renders ChatMessage[] without any store dependency.
  * Can be used in:

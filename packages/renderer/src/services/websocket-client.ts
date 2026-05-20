@@ -1,25 +1,44 @@
 ﻿/**
- * WebSocket Client — ftre BusMessage 协议
+ * WebSocket Client — 连接 ftre gateway (ws://127.0.0.1:18790/)
  *
- * 上行：直接发送 JSON（content + media 等）
- * 下行：接收 ServerMessage（BusMessage 格式）
+ * 协议：
+ *   上行（client → server）: 任意 JSON，后端只看 data 字段
+ *   下行（server → client）: { id, type, data: AgentEvent, metadata }
+ *
+ * AgentEvent.data.type:
+ *   message, message_complete, reasoning, tool_call, tool_result,
+ *   tool_call_streaming, done, error, retry, usage_update
  */
 
-import { type ServerMessage, type ClientMessage, type MediaItem, isServerMessage, generateMessageId } from "./ws-protocol";
-
-export type { ServerMessage, MediaItem };
-
 // ─── Types ──────────────────────────────────────────────────────────
+
+/** 后端下行消息格式 */
+export interface ServerMessage {
+  id: string;
+  type: string; // "agent_event"
+  data: AgentEvent;
+  metadata: Record<string, unknown>;
+}
+
+/** Agent 事件（嵌套在 ServerMessage.data 中） */
+export interface AgentEvent {
+  type: string; // EventType enum value
+  data: Record<string, unknown>;
+}
+
+export type WsConnectionStatus =
+  | "disconnected"
+  | "connecting"
+  | "connected"
+  | "reconnecting";
 
 type MessageHandler = (msg: ServerMessage) => void;
 type ConnectionHandler = () => void;
 type StatusHandler = (status: WsConnectionStatus) => void;
 
-export type WsConnectionStatus = "disconnected" | "connecting" | "connected" | "reconnecting";
-
 // ─── Constants ──────────────────────────────────────────────────────
 
-const DEFAULT_WS_URL = `ws://${window.location.hostname || "127.0.0.1"}:18790/`;
+const DEFAULT_WS_URL = "ws://127.0.0.1:18790/";
 const RECONNECT_DELAYS = [1000, 2000, 4000, 8000, 15000, 30000];
 
 // ─── WebSocket Client ───────────────────────────────────────────────
@@ -75,10 +94,8 @@ class WebSocketClient {
 
       this.ws.onmessage = (event) => {
         try {
-          const msg = JSON.parse(event.data);
-          if (isServerMessage(msg)) {
-            this.messageHandlers.forEach((h) => h(msg));
-          }
+          const msg = JSON.parse(event.data) as ServerMessage;
+          this.messageHandlers.forEach((h) => h(msg));
         } catch (e) {
           console.error("[WS] Failed to parse message:", e);
         }
@@ -100,6 +117,7 @@ class WebSocketClient {
       };
     } catch (e) {
       console.error("[WS] Connect failed:", e);
+      this.setStatus("reconnecting");
       this.scheduleReconnect();
     }
   }
@@ -126,7 +144,8 @@ class WebSocketClient {
 
   // ─── Sending ────────────────────────────────────────────────────
 
-  send(data: ClientMessage): void {
+  /** 发送用户消息 */
+  send(data: Record<string, unknown>): void {
     if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
       console.warn("[WS] Cannot send, not connected");
       return;
@@ -134,12 +153,9 @@ class WebSocketClient {
     this.ws.send(JSON.stringify(data));
   }
 
-  sendRaw(data: Record<string, unknown>): void {
-    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
-      console.warn("[WS] Cannot send, not connected");
-      return;
-    }
-    this.ws.send(JSON.stringify(data));
+  /** 发送聊天消息（后端 AgentLoop 只看 data.content） */
+  sendChat(content: string): void {
+    this.send({ content });
   }
 
   // ─── Event Handlers ─────────────────────────────────────────────
@@ -183,6 +199,7 @@ class WebSocketClient {
 
   private scheduleReconnect(): void {
     const delay = RECONNECT_DELAYS[Math.min(this.reconnectAttempt, RECONNECT_DELAYS.length - 1)];
+    console.info(`[WS] Reconnecting in ${delay}ms (attempt ${this.reconnectAttempt + 1})`);
     this.reconnectTimer = setTimeout(() => {
       this.reconnectAttempt++;
       this.connect();
@@ -193,4 +210,3 @@ class WebSocketClient {
 // ─── Singleton ──────────────────────────────────────────────────────
 
 export const wsClient = new WebSocketClient();
-export type { MessageHandler };
