@@ -1,5 +1,5 @@
 /**
- * ChatView �?Chat message list + input.
+ * ChatView — Chat message list + input.
  *
  * Single component used in both App and Storybook.
  * Internally handles data source fallback:
@@ -9,9 +9,8 @@
 import { useState, useEffect, useMemo } from "react";
 import { useChat } from "@/stores/chat";
 import { useSession } from "@/stores/session";
-import { streamManager } from "@/stores/chat";
 import { wsClient } from "@/services/websocket-client";
-import type { ChatMessage, ChatSession } from "@/stores/chat";
+import type { ChatMessage } from "@/stores/chat";
 import { ChatMessageList } from "./ChatMessageList";
 import { ChatInput } from "./ChatInput";
 import { WsLogPanel, type LogEntry } from "./WsLogPanel";
@@ -19,50 +18,27 @@ import { WsLogPanel, type LogEntry } from "./WsLogPanel";
 // ─── Component ──────────────────────────────────────────────────────
 
 export function ChatView() {
-  // Try store first
-  const storeMessages = useChat((s) => s.messages);
-  const storeIsBusy = useChat((s) => s.isBusy);
-  const storeConnected = useChat((s) => s.connected);
+  const messages = useChat((s) => s.messages);
+  const isBusy = useChat((s) => s.isBusy);
+  const connected = useChat((s) => s.connected);
 
-  // Fallback: direct streamManager subscription (for Storybook where store may not be wired)
-  const [fallbackSession, setFallbackSession] = useState<ChatSession | null>(null);
-  const usesFallback = storeMessages.length === 0 && !storeConnected;
-
+  // Auto-connect on mount
   useEffect(() => {
-    if (!usesFallback) return;
-    // Ensure connection
     if (!wsClient.connected) wsClient.connect();
-
-    const unsub = streamManager.onChange((s) => {
-      setFallbackSession({ ...s, messages: [...s.messages] });
-    });
-    const unsubFocus = streamManager.onFocus(() => {
-      const active = streamManager.getActiveSession();
-      if (active) setFallbackSession({ ...active, messages: [...active.messages] });
-    });
-
-    const active = streamManager.getActiveSession();
-    if (active) setFallbackSession({ ...active, messages: [...active.messages] });
-
-    return () => { unsub(); unsubFocus(); };
-  }, [usesFallback]);
-
-  // Resolve data source
-  const messages = usesFallback ? (fallbackSession?.messages || []) : storeMessages;
-  const isBusy = usesFallback ? (fallbackSession?.isBusy || false) : storeIsBusy;
-  const connected = usesFallback ? wsClient.connected : storeConnected;
-  const chatId = streamManager.getActiveChatId();
+  }, []);
 
   // WS Log state (only active in Storybook / dev mode)
   const isStorybook = typeof window !== "undefined" && window.location.port === "6006";
   const [showLog, setShowLog] = useState(false);
   const [logEntries, setLogEntries] = useState<LogEntry[]>([]);
 
+  const chatId = useChat((s) => s.sessionId);
+
   // Determine if current session is a websocket session (can send messages)
   const sessionId = useChat((s) => s.sessionId);
   const allSessions = useSession((s) => s.allSessions);
   const currentSessionChannel = useMemo(() => {
-    if (!sessionId) return "websocket"; // default: allow sending
+    if (!sessionId) return "websocket";
     const found = allSessions.find(
       (s) => s.session_id === sessionId || s.key?.includes(sessionId),
     );
@@ -93,7 +69,7 @@ export function ChatView() {
         <div className="flex items-center gap-2 px-3 py-1 border-b border-white/10 bg-black/20">
           <span className={`w-2 h-2 rounded-full ${connected ? "bg-green-500" : "bg-red-500"}`} />
           <span className="text-[10px] text-t-ghost font-mono flex-1">
-            {chatId || "�?} | {messages.length} msgs
+            {chatId || "—"} | {messages.length} msgs
           </span>
           <button
             onClick={() => setShowLog((v) => !v)}
@@ -113,7 +89,7 @@ export function ChatView() {
       ) : (
         <div className="px-6 pb-4 pt-3">
           <div className="mx-auto w-full max-w-[960px] text-center py-3 text-[14px] text-t-ghost">
-            此会话来�?{currentSessionChannel} 渠道，仅供查�?
+            此会话来自 {currentSessionChannel} 渠道，仅供查看
           </div>
         </div>
       )}

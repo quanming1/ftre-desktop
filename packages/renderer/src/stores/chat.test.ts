@@ -1,24 +1,20 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { useChat } from "./chat";
 
-// Mock ws-stream-manager
-vi.mock("@/stores/chat", () => ({
-  streamManager: {
-    sendMessage: vi.fn(),
-    newChat: vi.fn(),
-    switchChat: vi.fn(),
-    getSession: vi.fn(() => ({
-      chatId: "",
-      messages: [],
-      toolCalls: [],
-      progress: null,
-      isBusy: false,
-      error: null,
-    })),
-    getActiveSession: vi.fn(),
-    onChange: vi.fn(),
-    onFocus: vi.fn(),
-    getAllChatIds: vi.fn(() => []),
+// Mock websocket-client (chat.ts uses it directly now)
+vi.mock("@/services/websocket-client", () => ({
+  wsClient: {
+    onMessage: vi.fn(),
+    onDisconnect: vi.fn(),
+    onConnect: vi.fn(),
+    onStatusChange: vi.fn(),
+    chatSend: vi.fn(),
+    sessionNew: vi.fn(),
+    sessionAttach: vi.fn(),
+    connect: vi.fn(),
+    disconnect: vi.fn(),
+    connected: false,
+    status: "disconnected",
   },
 }));
 
@@ -44,7 +40,7 @@ beforeEach(() => {
   resetStore();
 });
 
-describe("chat store â€?basic state", () => {
+describe("chat store â€” basic state", () => {
   it("defaults to empty messages", () => {
     expect(useChat.getState().messages).toHaveLength(0);
   });
@@ -65,7 +61,7 @@ describe("chat store â€?basic state", () => {
   });
 });
 
-describe("chat store â€?model", () => {
+describe("chat store â€” model", () => {
   it("setModel updates model", () => {
     useChat.getState().setModel("gpt-4");
     expect(useChat.getState().model).toBe("gpt-4");
@@ -78,7 +74,7 @@ describe("chat store â€?model", () => {
   });
 });
 
-describe("chat store â€?connection", () => {
+describe("chat store â€” connection", () => {
   it("setConnected updates connected state", () => {
     useChat.getState().setConnected(true);
     expect(useChat.getState().connected).toBe(true);
@@ -87,7 +83,7 @@ describe("chat store â€?connection", () => {
   });
 });
 
-describe("chat store â€?clearMessages", () => {
+describe("chat store â€” clearMessages", () => {
   it("resets messages and session state", () => {
     useChat.setState({
       messages: [
@@ -106,17 +102,17 @@ describe("chat store â€?clearMessages", () => {
   });
 });
 
-describe("chat store â€?sendMessage", () => {
-  it("calls streamManager.sendMessage", async () => {
-    const { streamManager } = await import("@/stores/chat");
+describe("chat store â€” sendMessage", () => {
+  it("calls wsClient.chatSend", async () => {
+    const { wsClient } = await import("@/services/websocket-client");
     useChat.getState().sendMessage("hello");
-    expect(streamManager.sendMessage).toHaveBeenCalledWith("hello");
+    expect(wsClient.chatSend).toHaveBeenCalled();
   });
 
   it("does not send empty messages", async () => {
-    const { streamManager } = await import("@/stores/chat");
-    (streamManager.sendMessage as any).mockClear();
+    const { wsClient } = await import("@/services/websocket-client");
+    (wsClient.chatSend as any).mockClear();
     useChat.getState().sendMessage("   ");
-    expect(streamManager.sendMessage).not.toHaveBeenCalled();
+    expect(wsClient.chatSend).not.toHaveBeenCalled();
   });
 });
