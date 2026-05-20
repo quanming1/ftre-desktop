@@ -1,5 +1,5 @@
 /**
- * ChatMessageList â€” Standalone message list component.
+ * ChatMessageList â€?Standalone message list component.
  *
  * Pure presentational: renders ChatMessage[] without any store dependency.
  * Can be used in:
@@ -9,7 +9,7 @@
  */
 import { memo, useRef, useEffect, useState, useCallback } from "react";
 import { ChevronUp } from "lucide-react";
-import type { ChatMessage } from "@/services/ws-stream-manager";
+import type { ChatMessage } from "@/stores/chat";
 import { UserMessage } from "./UserMessage";
 import { AssistantMessage } from "./AssistantMessage";
 

@@ -1,35 +1,40 @@
 /**
- * Chat store — syncs state from ws-stream-manager.
- *
- * DESIGN: This store owns `activeChatId` — the single source of truth for
- * which chat the UI is displaying. The stream manager emits data for ALL chats,
- * and this store filters to only propagate the active one to React.
- *
- * `activeChatId` changes only via:
- * - switchChat() — user explicitly picks a chat
- * - onFocus callback — server assigns a chat (session.ready, new session)
- *
- * TOOL CALLS: Tool calls are now embedded in messages (message.toolCalls),
- * not stored in a separate array. This is consistent with the OpenAI message format.
- */
+ * Chat Store �?直接消费 WebSocket 消息，维护聊天状态�? *
+ * 合并了原 ws-stream-manager + chat store 的职责：
+ * - 监听 wsClient 消息
+ * - 处理 agent_event（message、tool_call、done 等）
+ * - 维护 React 状�? */
 import { create } from "zustand";
 import { useShallow } from "zustand/shallow";
-import {
-  streamManager,
-  type ChatMessage,
-  type ChatSession,
-  type ToolCall,
-  type ProgressHint,
-} from "@/services/ws-stream-manager";
+import { wsClient } from "@/services/websocket-client";
 import type { WsConnectionStatus } from "@/services/websocket-client";
-import type { MediaItem } from "@/services/ws-protocol";
+import type { ServerMessage, MediaItem } from "@/services/ws-protocol";
 
-export type { ChatMessage, ToolCall, ProgressHint };
+export type { MediaItem };
+export type Role = "assistant" | "user" | "system";
 
-export interface RetryState {
-  attempt: number;
-  maxAttempts: number;
-  message: string;
+export interface ToolCall {
+  id: string;
+  name: string;
+  arguments: string;
+  status: "pending" | "running" | "ok" | "error";
+  result?: string;
+}
+
+export interface ChatMessage {
+  id: string;
+  role: Role;
+  content: string | null;
+  timestamp: number;
+  streaming?: boolean;
+  toolCalls?: ToolCall[];
+  reasoning?: string;
+}
+
+export interface ProgressHint {
+  id: string;
+  text: string;
+  timestamp: number;
 }
 
 export type ChatMode = "chat" | "plan";
@@ -39,7 +44,6 @@ interface ChatState {
   progress: ProgressHint | null;
   isBusy: boolean;
   error: string | null;
-  activeChatId: string | null;
   sessionId: string | null;
   connected: boolean;
   wsStatus: WsConnectionStatus;
@@ -47,12 +51,9 @@ interface ChatState {
   provider: string | null;
   agentId: string;
   mode: ChatMode;
-  retryState: RetryState | null;
-  contextTokens: number;
 
   sendMessage: (content: string, media?: MediaItem[]) => void;
   newChat: () => void;
-  switchChat: (chatId: string) => void;
   setConnected: (v: boolean) => void;
   setWsStatus: (status: WsConnectionStatus) => void;
   setModel: (model: string | null) => void;
@@ -62,51 +63,50 @@ interface ChatState {
   clearMessages: () => void;
 }
 
+// ─── Internal state (not in React) ──────────────────────────────────
+
+let idCounter = 0;
+function nextId(prefix = "msg"): string {
+  return `${prefix}_${Date.now()}_${++idCounter}`;
+}
+
+let currentMsgId: string | null = null;
+let contentBuffer = "";
+
+// ─── Store ──────────────────────────────────────────────────────────
+
 export const useChat = create<ChatState>((set, get) => {
-  // ─── Data updates: propagate session state to React ─────────────
-  streamManager.onChange((session: ChatSession) => {
-    const active = get().activeChatId;
-    console.log("[ChatStore] onChange:", {
-      sessionChatId: session.chatId,
-      activeChatId: active,
-      messageCount: session.messages.length,
-      willUpdate: !active || session.chatId === active,
-    });
-    // Only update UI state if this session is the one we're displaying
-    if (active && session.chatId !== active) {
-      return;
+  // 监听 WebSocket 消息
+  wsClient.onMessage((msg: ServerMessage) => {
+    if (msg.type !== "agent_event") return;
+
+    const serverSessionId = msg.metadata.session_id || "default";
+
+    // 同步 sessionId
+    if (get().sessionId !== serverSessionId) {
+      set({ sessionId: serverSessionId });
     }
-    set({
-      messages: [...session.messages],
-      progress: session.progress,
-      isBusy: session.isBusy,
-      error: session.error,
-      activeChatId: session.chatId,
-      sessionId: session.chatId,
-    });
+
+    const { type, data } = msg.data as { type: string; data: any };
+
+    switch (type) {
+      case "message": handleDelta(set, get, data.content || ""); break;
+      case "message_complete": handleComplete(set, get, data.content || ""); break;
+      case "reasoning": handleReasoning(set, get, data.content || ""); break;
+      case "tool_call": handleToolCall(set, get, data); break;
+      case "tool_call_streaming": handleToolStreaming(set, get, data); break;
+      case "tool_result": handleToolResult(set, get, data); break;
+      case "done": handleDone(set, get); break;
+      case "error": set({ error: `[${data.code}] ${data.message}` }); break;
+    }
   });
 
-  // ─── Focus changes: update which chat is displayed ──────────────
-  streamManager.onFocus((chatId: string) => {
-    const current = get().activeChatId;
-    const session = streamManager.getSession(chatId);
-    console.log("[ChatStore] onFocus:", {
-      chatId,
-      currentActiveChatId: current,
-      sessionMessageCount: session.messages.length,
-      willSkip: chatId === current,
-    });
-    if (chatId === current) return;
+  wsClient.onDisconnect(() => {
+    if (get().isBusy) set({ isBusy: false });
+  });
 
-    // Switch to the newly focused chat and load its current state
-    set({
-      activeChatId: chatId,
-      sessionId: chatId,
-      messages: [...session.messages],
-      progress: session.progress,
-      isBusy: session.isBusy,
-      error: session.error,
-    });
+  wsClient.onStatusChange((status) => {
+    set({ wsStatus: status, connected: status === "connected" });
   });
 
   return {
@@ -114,114 +114,180 @@ export const useChat = create<ChatState>((set, get) => {
     progress: null,
     isBusy: false,
     error: null,
-    activeChatId: null,
     sessionId: null,
     connected: false,
-    wsStatus: "disconnected" as WsConnectionStatus,
+    wsStatus: "disconnected",
     model: null,
     provider: null,
     agentId: "code_agent",
     mode: "chat",
-    retryState: null,
-    contextTokens: 0,
 
-    sendMessage: (content: string, media?: MediaItem[]) => {
+    sendMessage: (content, media) => {
       if (!content.trim() && (!media || media.length === 0)) return;
-      const { model, provider } = get();
-      console.log("[ChatStore] sendMessage with model/provider:", {
-        model,
-        provider,
-      });
-      streamManager.sendMessage(content, media, model, provider);
+      const msgs = [...get().messages, { id: nextId("user"), role: "user" as Role, content, timestamp: Date.now() }];
+      set({ messages: msgs, isBusy: true, error: null });
+      wsClient.send({ content, media });
     },
 
     newChat: () => {
-      streamManager.newChat();
+      currentMsgId = null;
+      contentBuffer = "";
+      set({ messages: [], isBusy: false, error: null, sessionId: null, progress: null });
     },
 
-    switchChat: (chatId: string) => {
-      streamManager.switchChat(chatId);
-    },
-
-    setConnected: (v: boolean) => set({ connected: v }),
-
-    setWsStatus: (status: WsConnectionStatus) =>
-      set({ wsStatus: status, connected: status === "connected" }),
-
-    setModel: (model: string | null) => set({ model }),
-
-    setProvider: (provider: string | null) => set({ provider }),
-
-    setAgentId: (id: string) => set({ agentId: id }),
-
+    setConnected: (v) => set({ connected: v }),
+    setWsStatus: (status) => set({ wsStatus: status, connected: status === "connected" }),
+    setModel: (model) => set({ model }),
+    setProvider: (provider) => set({ provider }),
+    setAgentId: (id) => set({ agentId: id }),
     setMode: (mode) => set({ mode }),
-
     clearMessages: () => {
-      set({
-        messages: [],
-        progress: null,
-        isBusy: false,
-        error: null,
-        activeChatId: null,
-        sessionId: null,
-        retryState: null,
-        contextTokens: 0,
-        agentId: "code_agent",
-      });
+      currentMsgId = null;
+      contentBuffer = "";
+      set({ messages: [], progress: null, isBusy: false, error: null, sessionId: null });
     },
   };
 });
 
+// ─── Event Handlers ─────────────────────────────────────────────────
+
+type Set = (partial: Partial<ChatState>) => void;
+type Get = () => ChatState;
+
+function handleDelta(set: Set, get: Get, text: string): void {
+  contentBuffer += text;
+  const msgs = get().messages;
+
+  if (!currentMsgId) {
+    currentMsgId = nextId("ast");
+    set({ messages: [...msgs, { id: currentMsgId, role: "assistant", content: contentBuffer, timestamp: Date.now(), streaming: true }] });
+  } else {
+    set({ messages: msgs.map((m) => m.id === currentMsgId ? { ...m, content: contentBuffer } : m) });
+  }
+}
+
+function handleComplete(set: Set, get: Get, content: string): void {
+  set({ messages: get().messages.map((m) => m.id === currentMsgId ? { ...m, content, streaming: false } : m) });
+  currentMsgId = null;
+  contentBuffer = "";
+}
+
+function handleReasoning(set: Set, get: Get, text: string): void {
+  const msgs = get().messages;
+  const last = msgs[msgs.length - 1];
+  if (last?.role === "assistant" && !last.content) {
+    set({ messages: msgs.map((m, i) => i === msgs.length - 1 ? { ...m, reasoning: (m.reasoning || "") + text } : m) });
+  } else {
+    set({ messages: [...msgs, { id: nextId("ast"), role: "assistant", content: null, timestamp: Date.now(), streaming: true, reasoning: text }] });
+  }
+}
+
+function handleToolCall(set: Set, get: Get, data: { id: string; name: string; arguments: any }): void {
+  const msgs = get().messages;
+  const msg = findOrCreateToolMsg(msgs);
+  const tc: ToolCall = { id: data.id, name: data.name, arguments: JSON.stringify(data.arguments), status: "running" };
+  const existing = msg.toolCalls?.find((t) => t.id === data.id);
+  if (existing) {
+    msg.toolCalls = msg.toolCalls!.map((t) => t.id === data.id ? tc : t);
+  } else {
+    msg.toolCalls = [...(msg.toolCalls || []), tc];
+  }
+  set({ messages: replaceMsg(msgs, msg) });
+}
+
+function handleToolStreaming(set: Set, get: Get, data: { tool_calls: Array<{ id?: string; name?: string; arguments_delta?: string }> }): void {
+  const msgs = get().messages;
+  const msg = findOrCreateToolMsg(msgs);
+  const toolCalls = [...(msg.toolCalls || [])];
+
+  for (const tc of data.tool_calls) {
+    if (!tc.id) continue;
+    const idx = toolCalls.findIndex((t) => t.id === tc.id);
+    if (idx >= 0) {
+      toolCalls[idx] = { ...toolCalls[idx], name: tc.name || toolCalls[idx].name, arguments: toolCalls[idx].arguments + (tc.arguments_delta || "") };
+    } else {
+      toolCalls.push({ id: tc.id, name: tc.name || "unknown", arguments: tc.arguments_delta || "", status: "pending" });
+    }
+  }
+  msg.toolCalls = toolCalls;
+  set({ messages: replaceMsg(msgs, msg) });
+}
+
+function handleToolResult(set: Set, get: Get, data: { id: string; result: string; error: string | null }): void {
+  const msgs = get().messages.map((m) => {
+    if (!m.toolCalls) return m;
+    const tc = m.toolCalls.find((t) => t.id === data.id);
+    if (!tc) return m;
+    return { ...m, toolCalls: m.toolCalls.map((t) => t.id === data.id ? { ...t, status: (data.error ? "error" : "ok") as ToolCall["status"], result: data.error || data.result } : t) };
+  });
+  set({ messages: msgs });
+}
+
+function handleDone(set: Set, get: Get): void {
+  const msgs = get().messages.map((m) => ({
+    ...m,
+    streaming: false,
+    toolCalls: m.toolCalls?.map((tc) => tc.status === "pending" || tc.status === "running" ? { ...tc, status: "ok" as const } : tc),
+  }));
+  currentMsgId = null;
+  contentBuffer = "";
+  set({ messages: msgs, isBusy: false, progress: null });
+}
+
+// ─── Helpers ────────────────────────────────────────────────────────
+
+function findOrCreateToolMsg(msgs: ChatMessage[]): ChatMessage {
+  for (let i = msgs.length - 1; i >= 0; i--) {
+    if (msgs[i].role === "user") break;
+    if (msgs[i].role === "assistant" && !msgs[i].content) return { ...msgs[i] };
+  }
+  return { id: nextId("ast"), role: "assistant", content: null, timestamp: Date.now(), streaming: true, toolCalls: [] };
+}
+
+function replaceMsg(msgs: ChatMessage[], msg: ChatMessage): ChatMessage[] {
+  const idx = msgs.findIndex((m) => m.id === msg.id);
+  if (idx >= 0) return msgs.map((m, i) => i === idx ? msg : m);
+  return [...msgs, msg];
+}
+
 // ─── Selectors ──────────────────────────────────────────────────────
 
-export const useMessageIds = (): string[] =>
-  useChat(useShallow((s) => s.messages.map((m) => m.id)));
-
-export const useMessageById = (id: string) =>
-  useChat((s) => s.messages.find((m) => m.id === id));
-
-/** @deprecated Use useIsBusy instead */
-export const useIsStreaming = () => useChat((s) => s.isBusy);
-
+export const useMessageIds = (): string[] => useChat(useShallow((s) => s.messages.map((m) => m.id)));
+export const useMessageById = (id: string) => useChat((s) => s.messages.find((m) => m.id === id));
 export const useIsBusy = () => useChat((s) => s.isBusy);
-
 export const useModel = () => useChat((s) => s.model);
-
 export const useProvider = () => useChat((s) => s.provider);
-
-export const useSessionId = () => useChat((s) => s.activeChatId);
-
+export const useSessionId = () => useChat((s) => s.sessionId);
 export const useAgentId = () => useChat((s) => s.agentId);
-
 export const useMode = () => useChat((s) => s.mode);
-
-export const useContextTokens = () => useChat((s) => s.contextTokens);
-
-export const useStreamingMessageId = () =>
-  useChat((s) => {
-    const streaming = s.messages.find((m) => m.streaming);
-    return streaming?.id ?? null;
-  });
-
 export const useWsStatus = () => useChat((s) => s.wsStatus);
-
 export const useProgress = () => useChat((s) => s.progress);
+export const useIsStreaming = () => useChat((s) => s.isBusy);
+export const useStreamingMessageId = () => useChat((s) => s.messages.find((m) => m.streaming)?.id ?? null);
 
-// ─── Deprecated ─────────────────────────────────────────────────────
-// Tool calls are now embedded in messages. These are kept for backward compatibility.
+// ─── streamManager 兼容对象（供 session.ts / api.ts 调用）────────────
 
-/** @deprecated Tool calls are now in message.toolCalls */
-export const useToolCalls = () => {
-  console.warn(
-    "[useToolCalls] Deprecated: Tool calls are now in message.toolCalls",
-  );
-  return [];
+export const streamManager = {
+  sendMessage: (content: string, media?: MediaItem[], model?: string | null, provider?: string | null) => {
+    useChat.getState().sendMessage(content, media);
+  },
+  newChat: () => useChat.getState().newChat(),
+  switchChat: (_chatId: string) => { /* MVP: �?session，暂不实�?*/ },
+  getSession: (_chatId: string) => ({ chatId: _chatId, messages: useChat.getState().messages, progress: null, isBusy: useChat.getState().isBusy, error: null }),
+  getActiveSession: () => ({ chatId: useChat.getState().sessionId || "", messages: useChat.getState().messages, progress: null, isBusy: useChat.getState().isBusy, error: null }),
+  syncHistory: (_chatId: string, messages: ChatMessage[]) => { useChat.setState({ messages }); },
+  loadHistory: (_chatId: string, messages: ChatMessage[]) => { useChat.setState({ messages }); },
+  onTurnEnd: (handler: () => void) => { /* TODO */ return () => { }; },
+  onChange: (_handler: any) => () => { },
+  onFocus: (_handler: any) => () => { },
+  get isStreaming() { return useChat.getState().isBusy; },
 };
 
-/** @deprecated Tool calls are now in message.toolCalls */
-export const useToolCallById = (_callId: string) => {
-  console.warn(
-    "[useToolCallById] Deprecated: Tool calls are now in message.toolCalls",
-  );
-  return undefined;
-};
+// 兼容类型导出
+export interface ChatSession {
+  chatId: string;
+  messages: ChatMessage[];
+  progress: ProgressHint | null;
+  isBusy: boolean;
+  error: string | null;
+}

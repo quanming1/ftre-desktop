@@ -1,10 +1,10 @@
 /**
- * InlineToolCallCard — Renders a tool call embedded in an assistant message.
+ * InlineToolCallCard �?Renders a tool call embedded in an assistant message.
  * Supports all states: pending, running, ok, error.
  */
 
 import { memo, useState, useCallback } from "react";
-import type { ToolCall } from "@/services/ws-stream-manager";
+import type { ToolCall } from "@/stores/chat";
 import {
   ChevronDown,
   ChevronRight,
@@ -132,10 +132,10 @@ export const InlineToolCallCard = memo(
 
           {/* Status label for pending/running */}
           {isPending && (
-            <span className="text-[11px] text-t-ghost mr-1">准备中</span>
+            <span className="text-[11px] text-t-ghost mr-1">准备�?/span>
           )}
           {isRunning && (
-            <span className="text-[11px] text-neon/70 mr-1">执行中</span>
+            <span className="text-[11px] text-neon/70 mr-1">执行�?/span>
           )}
 
           <StatusIndicator status={status} />
@@ -162,7 +162,7 @@ export const InlineToolCallCard = memo(
                     <span className="text-t-secondary truncate">
                       {typeof value === "string"
                         ? value.length > 100
-                          ? value.slice(0, 100) + "…"
+                          ? value.slice(0, 100) + "�?
                           : value
                         : JSON.stringify(value)}
                     </span>
@@ -175,7 +175,7 @@ export const InlineToolCallCard = memo(
             {isRunning && (
               <div className="mt-2 flex items-center gap-2 text-xs text-t-ghost">
                 <Loader2 size={12} className="animate-spin" />
-                <span>执行中...</span>
+                <span>执行�?..</span>
               </div>
             )}
 
