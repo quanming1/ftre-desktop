@@ -27,6 +27,11 @@ export interface ToolCall {
   result?: string;
 }
 
+/** 消息内容片段 — 按到达顺序保存文本和工具调用 */
+export type MessagePart =
+  | { type: "text"; text: string }
+  | { type: "tool_call"; toolCallId: string };
+
 export interface ChatMessage {
   id: string;
   role: Role;
@@ -35,6 +40,8 @@ export interface ChatMessage {
   streaming?: boolean;
   toolCalls?: ToolCall[];
   reasoning?: string;
+  /** 按顺序排列的内容片段。如果存在则优先用于渲染（替代 content + toolCalls 的固定顺序） */
+  parts?: MessagePart[];
 }
 
 export interface ProgressHint {
@@ -137,6 +144,8 @@ function getOrCreateStreamingMsg(): string {
           content: null,
           timestamp: Date.now(),
           streaming: true,
+          parts: [],
+          toolCalls: [],
         },
       ],
     });
@@ -144,33 +153,87 @@ function getOrCreateStreamingMsg(): string {
   return currentStreamingId;
 }
 
+/** 取当前 streaming 消息的拷贝（用于修改后 setState） */
+function getStreamingMsg(): { msg: ChatMessage; idx: number; msgs: ChatMessage[] } | null {
+  if (!currentStreamingId) return null;
+  const msgs = useChat.getState().messages;
+  const idx = msgs.findIndex((m) => m.id === currentStreamingId);
+  if (idx === -1) return null;
+  return { msg: msgs[idx], idx, msgs };
+}
+
+/** 把更新后的 msg 写回 store */
+function commitMsg(msgs: ChatMessage[], idx: number, msg: ChatMessage): void {
+  const updated = [...msgs];
+  updated[idx] = msg;
+  useChat.setState({ messages: updated });
+}
+
 function handleMessageDelta(data: { content: string }): void {
-  const msgId = getOrCreateStreamingMsg();
+  getOrCreateStreamingMsg();
   contentBuffer += data.content;
-  updateStreamingMessage(msgId, { content: contentBuffer });
+  const ref = getStreamingMsg();
+  if (!ref) return;
+
+  const parts = [...(ref.msg.parts || [])];
+  const last = parts[parts.length - 1];
+  if (last && last.type === "text") {
+    parts[parts.length - 1] = { type: "text", text: last.text + data.content };
+  } else {
+    parts.push({ type: "text", text: data.content });
+  }
+
+  commitMsg(ref.msgs, ref.idx, { ...ref.msg, content: contentBuffer, parts, streaming: true });
 }
 
 function handleReasoning(data: { content: string }): void {
-  const msgId = getOrCreateStreamingMsg();
+  getOrCreateStreamingMsg();
   reasoningBuffer += data.content;
-  updateStreamingMessage(msgId, { reasoning: reasoningBuffer });
+  const ref = getStreamingMsg();
+  if (!ref) return;
+  commitMsg(ref.msgs, ref.idx, { ...ref.msg, reasoning: reasoningBuffer });
 }
 
 function handleMessageComplete(data: { content: string }): void {
-  const msgId = getOrCreateStreamingMsg();
-  contentBuffer = data.content || contentBuffer;
-  updateStreamingMessage(msgId, { content: contentBuffer, streaming: false });
-  // Don't reset currentStreamingId yet — tool calls may follow in same turn
+  getOrCreateStreamingMsg();
+  // message_complete 给的是这一段文本的最终值。
+  // 如果 parts 里最后一个是 text，用最终值替换它（确保末段完整）
+  const ref = getStreamingMsg();
+  if (!ref) return;
+
+  const finalText = data.content || "";
+  const parts = [...(ref.msg.parts || [])];
+  const last = parts[parts.length - 1];
+
+  if (last && last.type === "text") {
+    // 用 message_complete 给的最终内容替换增量累积的最后一段文本
+    // 注意：finalText 是当前段的完整文本（不是整条消息）
+    // contentBuffer 累积的是整条消息所有文本
+    // 这里我们假设最后一个 text part 对应这个 finalText
+    parts[parts.length - 1] = { type: "text", text: finalText };
+    // 同步更新 contentBuffer 为整条消息文本拼接
+    contentBuffer = parts
+      .filter((p): p is { type: "text"; text: string } => p.type === "text")
+      .map((p) => p.text)
+      .join("");
+  }
+
+  commitMsg(ref.msgs, ref.idx, {
+    ...ref.msg,
+    content: contentBuffer,
+    parts,
+    streaming: false,
+  });
+  // tool_calls may still follow in same turn
 }
 
 function handleToolCall(data: { id: string; name: string; arguments: Record<string, unknown> }): void {
-  const msgId = getOrCreateStreamingMsg();
-  const msgs = useChat.getState().messages;
-  const idx = msgs.findIndex((m) => m.id === msgId);
-  if (idx === -1) return;
+  getOrCreateStreamingMsg();
+  const ref = getStreamingMsg();
+  if (!ref) return;
 
-  const msg = msgs[idx];
-  const toolCalls = [...(msg.toolCalls || [])];
+  const toolCalls = [...(ref.msg.toolCalls || [])];
+  const parts = [...(ref.msg.parts || [])];
   const argsStr = typeof data.arguments === "object" ? JSON.stringify(data.arguments) : String(data.arguments || "{}");
 
   const existing = toolCalls.findIndex((tc) => tc.id === data.id);
@@ -178,22 +241,23 @@ function handleToolCall(data: { id: string; name: string; arguments: Record<stri
     toolCalls[existing] = { ...toolCalls[existing], name: data.name, arguments: argsStr, status: "running" };
   } else {
     toolCalls.push({ id: data.id, name: data.name, arguments: argsStr, status: "running" });
+    // 仅在新增时往 parts 里插
+    if (!parts.some((p) => p.type === "tool_call" && p.toolCallId === data.id)) {
+      parts.push({ type: "tool_call", toolCallId: data.id });
+    }
   }
   toolArgBuffers.delete(data.id);
 
-  const updated = [...msgs];
-  updated[idx] = { ...msg, toolCalls };
-  useChat.setState({ messages: updated });
+  commitMsg(ref.msgs, ref.idx, { ...ref.msg, toolCalls, parts });
 }
 
 function handleToolCallStreaming(data: { tool_calls: Array<{ index?: number; id?: string; name?: string; arguments_delta?: string }> }): void {
-  const msgId = getOrCreateStreamingMsg();
-  const msgs = useChat.getState().messages;
-  const idx = msgs.findIndex((m) => m.id === msgId);
-  if (idx === -1) return;
+  getOrCreateStreamingMsg();
+  const ref = getStreamingMsg();
+  if (!ref) return;
 
-  const msg = msgs[idx];
-  const toolCalls = [...(msg.toolCalls || [])];
+  const toolCalls = [...(ref.msg.toolCalls || [])];
+  const parts = [...(ref.msg.parts || [])];
 
   for (const chunk of data.tool_calls) {
     if (!chunk.id) continue;
@@ -211,12 +275,13 @@ function handleToolCallStreaming(data: { tool_calls: Array<{ index?: number; id?
         arguments: chunk.arguments_delta || "",
         status: "running",
       });
+      if (!parts.some((p) => p.type === "tool_call" && p.toolCallId === chunk.id)) {
+        parts.push({ type: "tool_call", toolCallId: chunk.id });
+      }
     }
   }
 
-  const updated = [...msgs];
-  updated[idx] = { ...msg, toolCalls, streaming: true };
-  useChat.setState({ messages: updated });
+  commitMsg(ref.msgs, ref.idx, { ...ref.msg, toolCalls, parts, streaming: true });
 }
 
 function handleToolResult(data: { id: string; name: string; result: string; error?: string | null; status?: string }): void {
@@ -324,6 +389,7 @@ interface ChatState {
   contextTokens: number;
 
   sendMessage: (content: string) => void;
+  cancelStream: () => void;
   newChat: () => void;
   setConnected: (v: boolean) => void;
   setWsStatus: (status: WsConnectionStatus) => void;
@@ -368,7 +434,17 @@ export const useChat = create<ChatState>(() => ({
     });
 
     // Send to backend
-    wsClient.sendChat(content);
+    const { model, provider, agentId } = useChat.getState();
+    wsClient.sendChat(content, {
+      ...(model && { model }),
+      ...(provider && { provider }),
+      ...(agentId && { agent_id: agentId }),
+    });
+  },
+
+  cancelStream: () => {
+    wsClient.sendCancel();
+    useChat.setState({ isBusy: false });
   },
 
   newChat: () => {
