@@ -166,6 +166,7 @@ export const AssistantMessage = memo(
     );
     const displayContent = isStreaming ? throttledContent : message.content;
     const mdRef = useRef<HTMLDivElement>(null);
+    const containerRef = useRef<HTMLDivElement>(null);
 
     // 按钮点击处理 - 发送选中的按钮文本作为用户消息
     const handleButtonSelect = useCallback((label: string) => {
@@ -175,55 +176,84 @@ export const AssistantMessage = memo(
     }, []);
 
     useEffect(() => {
-      const container = mdRef.current;
-      if (!container) return;
+      const root = containerRef.current;
+      if (!root) return;
 
-      // 移除旧光标（如果有的话）
-      const old = container.querySelector(`[${CURSOR_ATTR}]`);
-      if (old) old.remove();
+      // 清理整个消息内的所有光标（覆盖所有 parts）
+      root.querySelectorAll(`[${CURSOR_ATTR}]`).forEach((el) => el.remove());
 
       if (!isStreaming) return;
 
-      // 创建光标元素
+      // 在最后一个 markdown 块（最后一段文本）末尾插入光标
+      const allMd = root.querySelectorAll<HTMLDivElement>(".markdown-body");
+      const target = allMd.length > 0 ? allMd[allMd.length - 1] : mdRef.current;
+      if (!target) return;
+
       const cursor = document.createElement("span");
       cursor.setAttribute(CURSOR_ATTR, "");
       cursor.className =
         "inline-block w-[6px] h-[14px] bg-neon ml-0.5 align-middle";
       cursor.style.animation = "blink 1s step-end infinite";
 
-      // 插入到最深的最后一个叶子元素内部
-      const target = findDeepestLastChild(container);
-      target.appendChild(cursor);
-    }, [isStreaming, displayContent]);
+      const leaf = findDeepestLastChild(target);
+      leaf.appendChild(cursor);
+    }, [isStreaming, displayContent, message.parts?.length]);
 
     return (
-      <div className="flex justify-start">
+      <div className="flex justify-start" ref={containerRef}>
         <div className="max-w-[90%]">
           <div className="text-[14px] leading-relaxed text-t-primary font-sans break-words">
             {/* 推理过程（折叠） */}
             {message.reasoning && <ReasoningBlock text={message.reasoning} />}
-            {/* 工具调用卡片（先于文本，因为工具先执行） */}
-            {message.toolCalls && message.toolCalls.length > 0 && (
-              <div className="mb-2 space-y-2">
-                {message.toolCalls.map((tc, idx) => (
-                  <InlineToolCallCard
-                    key={tc.id ?? `tc-${idx}`}
-                    toolCall={tc}
-                  />
-                ))}
+
+            {/* 优先按 parts 顺序渲染（保留 LLM 输出顺序） */}
+            {message.parts && message.parts.length > 0 ? (
+              <div className="space-y-2">
+                {message.parts.map((part, idx) => {
+                  if (part.type === "text") {
+                    return (
+                      <div key={`p-${idx}`} className="markdown-body" ref={idx === message.parts!.length - 1 ? mdRef : undefined}>
+                        <ReactMarkdown
+                          remarkPlugins={[remarkGfm]}
+                          components={markdownComponents}
+                        >
+                          {part.text}
+                        </ReactMarkdown>
+                      </div>
+                    );
+                  }
+                  // tool_call part
+                  const tc = message.toolCalls?.find((t) => t.id === part.toolCallId);
+                  if (!tc) return null;
+                  return <InlineToolCallCard key={part.toolCallId} toolCall={tc} />;
+                })}
               </div>
+            ) : (
+              <>
+                {/* Fallback: 旧消息（没有 parts）按原顺序渲染 */}
+                {message.toolCalls && message.toolCalls.length > 0 && (
+                  <div className="mb-2 space-y-2">
+                    {message.toolCalls.map((tc, idx) => (
+                      <InlineToolCallCard
+                        key={tc.id ?? `tc-${idx}`}
+                        toolCall={tc}
+                      />
+                    ))}
+                  </div>
+                )}
+                {displayContent && (
+                  <div className="markdown-body" ref={mdRef}>
+                    <ReactMarkdown
+                      remarkPlugins={[remarkGfm]}
+                      components={markdownComponents}
+                    >
+                      {displayContent}
+                    </ReactMarkdown>
+                  </div>
+                )}
+              </>
             )}
-            {/* 正文（工具执行后的总结） */}
-            {displayContent && (
-              <div className="markdown-body" ref={mdRef}>
-                <ReactMarkdown
-                  remarkPlugins={[remarkGfm]}
-                  components={markdownComponents}
-                >
-                  {displayContent}
-                </ReactMarkdown>
-              </div>
-            )}
+
             {/* 媒体内容 */}
             {message.media_urls && <MediaList urls={message.media_urls} />}
             {/* 按钮 */}

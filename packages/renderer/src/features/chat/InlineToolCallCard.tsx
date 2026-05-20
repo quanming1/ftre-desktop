@@ -55,11 +55,11 @@ function StatusIndicator({ status }: { status: ToolCall["status"] }) {
     case "running":
       return <Loader2 size={14} className="text-neon animate-spin" />;
     case "ok":
-      return <Check size={14} className="text-green-500" />;
+      return <Check size={14} className="text-green-500/80" />;
     case "error":
       return <X size={14} className="text-red-500" />;
     default:
-      return <Check size={14} className="text-green-500" />;
+      return <Check size={14} className="text-green-500/80" />;
   }
 }
 
@@ -112,17 +112,13 @@ export const InlineToolCallCard = memo(
 
     return (
       <div
-        className={`border rounded-lg overflow-hidden transition-colors ${
-          isError
-            ? "border-red-500/30 bg-red-500/5"
-            : "border-border-subtle bg-panel"
-        }`}
+        className="border border-border-subtle bg-panel rounded-3xl overflow-hidden"
       >
         <button
           onClick={toggleExpand}
-          className="w-full flex items-center gap-2 px-3 py-2 text-left hover:bg-white/5 transition-colors"
+          className="w-full flex items-center gap-2 px-4 py-2 text-left hover:bg-white/5 transition-colors"
         >
-          <span className="text-t-ghost">
+          <span className="text-t-ghost transition-transform duration-200">
             {isOpen ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
           </span>
           <Icon size={14} className="text-t-secondary shrink-0" />
@@ -141,73 +137,79 @@ export const InlineToolCallCard = memo(
           <StatusIndicator status={status} />
         </button>
 
-        {isOpen && (
-          <div className="px-3 pb-3 border-t border-border-subtle">
-            {/* Streaming args preview (pending state) */}
-            {isPending && !hasArgs && (
-              <div className="mt-2 flex items-center gap-1.5 text-xs text-t-ghost font-mono">
-                <Loader2 size={10} className="animate-spin" />
-                <span>等待参数...</span>
-              </div>
-            )}
+        <div
+          className={`grid transition-[grid-template-rows] duration-300 ease-out ${
+            isOpen ? "grid-rows-[1fr]" : "grid-rows-[0fr]"
+          }`}
+        >
+          <div className="overflow-hidden">
+            <div className="px-4 pb-3 border-t border-border-subtle/60">
+              {/* Streaming args preview (pending state) */}
+              {isPending && !hasArgs && (
+                <div className="mt-2 flex items-center gap-1.5 text-xs text-t-ghost font-mono">
+                  <Loader2 size={10} className="animate-spin" />
+                  <span>等待参数...</span>
+                </div>
+              )}
 
-            {/* Arguments */}
-            {hasArgs && (
-              <div className="mt-2 space-y-1 text-xs font-mono">
-                {Object.entries(parsedArgs).map(([key, value]) => (
-                  <div key={key} className="flex gap-2">
-                    <span className="text-t-ghost shrink-0">
-                      {key === "_raw" ? "args" : key}:
-                    </span>
-                    <span className="text-t-secondary truncate">
-                      {typeof value === "string"
-                        ? value.length > 100
-                          ? value.slice(0, 100) + "…"
-                          : value
-                        : JSON.stringify(value)}
-                    </span>
-                  </div>
-                ))}
-              </div>
-            )}
+              {/* Arguments */}
+              {hasArgs && (
+                <div className="mt-2 space-y-1 text-xs font-mono">
+                  {Object.entries(parsedArgs).map(([key, value]) => (
+                    <div key={key} className="flex gap-2">
+                      <span className="text-t-ghost shrink-0">
+                        {key === "_raw" ? "args" : key}:
+                      </span>
+                      <span className="text-t-secondary truncate">
+                        {typeof value === "string"
+                          ? value.length > 100
+                            ? value.slice(0, 100) + "…"
+                            : value
+                          : JSON.stringify(value)}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              )}
 
-            {/* Running indicator */}
-            {isRunning && (
-              <div className="mt-2 flex items-center gap-2 text-xs text-t-ghost">
-                <Loader2 size={12} className="animate-spin" />
-                <span>执行中...</span>
-              </div>
-            )}
+              {/* Running indicator */}
+              {isRunning && (
+                <div className="mt-2 flex items-center gap-2 text-xs text-t-ghost">
+                  <Loader2 size={12} className="animate-spin" />
+                  <span>执行中...</span>
+                </div>
+              )}
 
-            {/* Result */}
-            {isComplete && hasResult && (
-              <div className="mt-2 relative group">
-                <button
-                  onClick={handleCopy}
-                  className="absolute top-1 right-1 p-1 opacity-0 group-hover:opacity-100 transition-opacity bg-bg-primary/80 rounded"
-                  title="复制结果"
-                >
-                  {copied ? (
-                    <Check size={12} className="text-green-500" />
-                  ) : (
-                    <Copy size={12} className="text-t-ghost" />
-                  )}
-                </button>
-                <pre
-                  className={`p-2 bg-white/5 rounded text-xs font-mono overflow-x-auto ${
-                    isError ? "text-red-400" : "text-t-secondary"
-                  } ${
-                    toolCall.result!.length > 500
-                      ? "max-h-[200px] overflow-y-auto"
-                      : ""
-                  }`}
-                >
-                  {toolCall.result}
-                </pre>
-              </div>
-            )}
+              {/* Result */}
+              {isComplete && hasResult && (
+                <div className="mt-2 relative group">
+                  <button
+                    onClick={handleCopy}
+                    className="absolute top-1 right-1 p-1 opacity-0 group-hover:opacity-100 transition-opacity bg-bg-primary/80 rounded"
+                    title="复制结果"
+                  >
+                    {copied ? (
+                      <Check size={12} className="text-green-500" />
+                    ) : (
+                      <Copy size={12} className="text-t-ghost" />
+                    )}
+                  </button>
+                  <pre
+                    className={`p-2 bg-white/5 rounded text-xs font-mono overflow-x-auto ${
+                      isError ? "text-red-400" : "text-t-secondary"
+                    } ${
+                      toolCall.result!.length > 500
+                        ? "max-h-[200px] overflow-y-auto"
+                        : ""
+                    }`}
+                  >
+                    {toolCall.result}
+                  </pre>
+                </div>
+              )}
+            </div>
           </div>
-        )}
+        </div>
       </div>
     );
   },
