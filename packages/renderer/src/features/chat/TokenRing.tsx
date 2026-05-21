@@ -5,7 +5,7 @@ const MAX_TOKENS = 200_000;
 const CIRCUMFERENCE = 2 * Math.PI * 15.5; // ≈ 97.4
 
 export function TokenRing() {
-  const contextTokens = useChat((s) => s.contextTokens);
+  const contextTokens = useChat((s) => (s as any).contextTokens ?? 0);
 
   const pct = Math.min((contextTokens / MAX_TOKENS) * 100, 100);
   const offset = CIRCUMFERENCE - (pct / 100) * CIRCUMFERENCE;

@@ -2,7 +2,7 @@
  * Session store — tracks known chat sessions (local state).
  */
 import { create } from "zustand";
-import type { ChatMessage, ToolCall } from "./chat";
+import type { ChatMessage } from "./chat";
 import { useChat } from "./chat";
 import type { SessionSummary } from "@/services/api";
 import { fetchSessions, fetchSessionMessages } from "@/services/api";
@@ -19,51 +19,47 @@ function histId(): string {
 }
 
 /**
- * Convert v5 REST API messages into ChatMessage[] for rendering.
+ * 将后端事件流格式转换为 ChatMessage[] 用于渲染。
  *
- * v5 storage order per turn: [tool_call, tool_result*, assistant]
- * Render model: one assistant bubble per turn containing tool cards + final text.
+ * 后端格式: {id, session_id, type, data, timestamp}
+ * type: USER_INPUT / tool_call / tool_result / message_complete / done / error
  *
- * Algorithm (single pass, simple):
- * - user → push user bubble
- * - tool_call → get/create current turn's assistant bubble, attach tool cards
- * - tool_result → find matching tool card, set result + status
- * - assistant → get/create current turn's assistant bubble, set content + reasoning
+ * 转换规则：
+ * - USER_INPUT       → user bubble
+ * - tool_call        → 当前 turn 的 assistant bubble 里加 tool card
+ * - tool_result      → 找到对应 tool card，设置 result + status
+ * - message_complete → 当前 turn 的 assistant bubble 设置 content
+ * - done / error     → 跳过
  */
 function convertHistoryMessages(msgs: any[]): ChatMessage[] {
   const result: ChatMessage[] = [];
 
-  /** Get or create the assistant message for the current turn (after last user) */
+  /** 获取或创建当前 turn 的 assistant 消息 */
   function currentAssistant(fallbackId: string, fallbackTs: number): ChatMessage {
-    // Look backwards for existing assistant in this turn
     for (let i = result.length - 1; i >= 0; i--) {
       if (result[i].role === "assistant") return result[i];
       if (result[i].role === "user") break;
     }
-    // Create new
     const msg: ChatMessage = {
       id: fallbackId,
       role: "assistant",
       content: null,
       timestamp: fallbackTs,
       toolCalls: [],
+      parts: [],
     };
     result.push(msg);
     return msg;
   }
 
   for (const m of msgs) {
-    const role = m.role as string;
+    const type = m.type as string;
     const data = (m.data || {}) as Record<string, any>;
-    const ts = data.timestamp ? new Date(data.timestamp).getTime() : Date.now();
+    const ts = m.timestamp ? m.timestamp * 1000 : Date.now();
 
-    switch (role) {
-      case "user": {
-        const content = typeof data.content === "string"
-          ? data.content
-          : Array.isArray(data.content)
-            ? data.content.filter((b: any) => b.type === "text").map((b: any) => b.text).join("\n")
-            : "";
+    switch (type) {
+      case "USER_INPUT": {
+        const content = typeof data.content === "string" ? data.content : "";
         if (!content) break;
         result.push({ id: m.id || histId(), role: "user", content, timestamp: ts });
         break;
@@ -72,23 +68,24 @@ function convertHistoryMessages(msgs: any[]): ChatMessage[] {
       case "tool_call": {
         const ast = currentAssistant(m.id || histId(), ts);
         if (!ast.toolCalls) ast.toolCalls = [];
-        for (const call of (data.calls || [])) {
-          ast.toolCalls.push({
-            id: call.call_id,
-            name: call.name || "unknown",
-            arguments: typeof call.arguments === "object"
-              ? JSON.stringify(call.arguments)
-              : call.arguments || "{}",
-            status: "running",
-          });
-        }
+        if (!ast.parts) ast.parts = [];
+        const toolId = data.id || "";
+        ast.toolCalls.push({
+          id: toolId,
+          name: data.name || "unknown",
+          arguments: typeof data.arguments === "object"
+            ? JSON.stringify(data.arguments)
+            : data.arguments || "{}",
+          status: "running",
+        });
+        // 按顺序记录 tool_call 位置
+        ast.parts.push({ type: "tool_call", toolCallId: toolId });
         break;
       }
 
       case "tool_result": {
-        const callId = data.call_id;
+        const callId = data.id;
         const isError = !!data.error;
-        // Find the tool card in any assistant message (search backwards)
         for (let i = result.length - 1; i >= 0; i--) {
           const msg = result[i];
           if (msg.role === "user") break;
@@ -96,7 +93,7 @@ function convertHistoryMessages(msgs: any[]): ChatMessage[] {
             const tc = msg.toolCalls.find((t) => t.id === callId);
             if (tc) {
               tc.status = isError ? "error" : "ok";
-              tc.result = isError ? data.error : (data.output || "");
+              tc.result = isError ? data.error : (data.result || "");
               break;
             }
           }
@@ -104,48 +101,27 @@ function convertHistoryMessages(msgs: any[]): ChatMessage[] {
         break;
       }
 
-      case "assistant": {
-        const content = data.content ?? "";
-        const reasoning = data.reasoning
-          || data.thinking_blocks?.find((b: any) => b.thinking)?.thinking
-          || undefined;
-        // Skip truly empty messages
-        if (!content && !reasoning) break;
-        // Channel deliveries (e.g. cron pushes) don't belong to any user turn —
-        // push as standalone messages instead of merging into prior assistant.
-        const isChannelDelivery = m.metadata?._channel_delivery === true;
-        if (isChannelDelivery) {
-          result.push({
-            id: m.id || histId(),
-            role: "assistant",
-            content,
-            timestamp: ts,
-            ...(reasoning ? { reasoning } : {}),
-          });
-          break;
-        }
-        // Merge into current turn's assistant (which may already have tool cards)
+      case "message_complete": {
+        const content = data.content || "";
+        if (!content) break;
         const ast = currentAssistant(m.id || histId(), ts);
         ast.content = content;
-        if (reasoning) ast.reasoning = reasoning;
-        // Update id to the real assistant message id
         ast.id = m.id || ast.id;
+        if (!ast.parts) ast.parts = [];
+        // 按顺序记录 text 位置
+        ast.parts.push({ type: "text", text: content });
         break;
       }
 
-      // Legacy OpenAI format support
-      case "tool":
-        break; // handled via tool_result
-
+      // done / error / 其他 → 跳过
       default:
         break;
     }
   }
 
-  // Clean up: remove assistant messages that have no content AND no tool calls
   return result.filter((m) => {
     if (m.role !== "assistant") return true;
-    return m.content || (m.toolCalls && m.toolCalls.length > 0) || m.reasoning;
+    return m.content || (m.toolCalls && m.toolCalls.length > 0);
   });
 }
 // ─── Storage Keys ───────────────────────────────────────────────────
@@ -254,9 +230,16 @@ export const useSession = create<SessionState>((set, get) => ({
       saveTabsToStorage(newTabs);
     }
 
-    // Switch immediately — render whatever is in memory (may be empty)
-    // Switch: just clear and start fresh (single session per WS connection)
-    useChat.getState().newChat();
+    // Switch: clear messages, set sessionId
+    useChat.setState({
+      messages: [],
+      progress: null,
+      isBusy: false,
+      error: null,
+      sessionId,
+      retryState: null,
+      contextTokens: 0,
+    });
 
     try {
       localStorage.setItem(sessionStorageKey(), sessionId);
@@ -306,8 +289,8 @@ export const useSession = create<SessionState>((set, get) => ({
     saveTabsToStorage(newTabs);
 
     // If we closed the active one, switch to adjacent
-    const active = streamManager.getActiveSession();
-    if (active?.chatId === sessionId) {
+    const activeSessionId = useChat.getState().sessionId;
+    if (activeSessionId === sessionId) {
       if (newTabs.length > 0) {
         const closedIndex = openTabs.indexOf(sessionId);
         const nextIndex = Math.min(closedIndex, newTabs.length - 1);
