@@ -543,7 +543,7 @@ export function ModelSettings() {
       {providerNames.length === 0 ? (
         <div className="flex-1 flex items-center justify-center">
           <div className="text-center">
-            <div className="w-12 h-12 rounded-full bg-white/[0.03] flex items-center justify-center mx-auto mb-3">
+            <div className="w-12 h-12 rounded-full bg-panel flex items-center justify-center mx-auto mb-3">
               <Cpu size={20} className="text-t-ghost" />
             </div>
             <p className="text-[14px] text-t-muted mb-1">暂无供应商</p>

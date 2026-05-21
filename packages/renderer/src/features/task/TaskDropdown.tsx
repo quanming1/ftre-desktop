@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+﻿import { useEffect, useState } from 'react';
 import { ClipboardList, Timer } from 'lucide-react';
 import { useLayout } from '@/stores/layout';
 import { FloatingWindow } from '@/components/FloatingWindow';
@@ -25,7 +25,7 @@ export function TaskDropdown() {
     const tabBtn = (t: Tab, Icon: typeof ClipboardList, label: string) => (
         <button onClick={() => setTab(t)}
             className={`flex items-center gap-1.5 px-2.5 py-1 rounded text-[12px] font-mono transition-colors ${
-                tab === t ? 'text-white/80 bg-white/[0.06]' : 'text-white/30 hover:text-white/50'
+                tab === t ? 'text-t-primary bg-active' : 'text-t-ghost hover:text-t-dim'
             }`}>
             <Icon size={12} />{label}
         </button>

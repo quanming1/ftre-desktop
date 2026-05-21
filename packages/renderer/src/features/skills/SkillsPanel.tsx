@@ -56,7 +56,7 @@ export function SkillsPanel() {
   };
 
   return (
-    <div className="h-full flex text-white">
+    <div className="h-full flex text-t-primary">
       {/* Left Nav */}
       <nav className="w-[180px] border-r border-border flex flex-col py-4 shrink-0">
         <div className="px-4 mb-4">
@@ -83,7 +83,7 @@ export function SkillsPanel() {
           <div className="relative flex-1 max-w-[300px]">
             <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-t-ghost" />
             <input
-              className="w-full bg-black/20 border border-white/10 rounded-md pl-8 pr-3 py-1.5 text-xs text-white placeholder:text-t-ghost"
+              className="w-full bg-surface border border-border-subtle rounded-md pl-8 pr-3 py-1.5 text-xs text-t-primary placeholder:text-t-ghost"
               placeholder="搜索技能"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
@@ -98,12 +98,12 @@ export function SkillsPanel() {
         </div>
 
         {/* Add custom skill banner */}
-        <div className="mx-6 mb-4 flex items-center justify-between px-4 py-2.5 bg-white/[0.03] border border-white/10 rounded-lg">
+        <div className="mx-6 mb-4 flex items-center justify-between px-4 py-2.5 bg-panel border border-border-subtle rounded-lg">
           <div>
             <div className="text-xs text-t-primary">添加自定义技能</div>
             <div className="text-[11px] text-t-ghost">添加技能以解锁您或您团队的新功能。</div>
           </div>
-          <button className="flex items-center gap-1.5 px-3 py-1.5 text-xs bg-white/10 hover:bg-white/15 border border-white/10 rounded-md transition-colors">
+          <button className="flex items-center gap-1.5 px-3 py-1.5 text-xs bg-active hover:bg-hover border border-border-subtle rounded-md transition-colors">
             <Plus size={12} />
             添加
           </button>
@@ -132,7 +132,7 @@ function NavItem({ label, active, onClick }: { label: string; active: boolean; o
     <button
       onClick={onClick}
       className={`w-full text-left px-3 py-1.5 rounded-md text-xs transition-colors ${
-        active ? "bg-white/[0.06] text-t-primary" : "text-t-secondary hover:bg-white/[0.03]"
+        active ? "bg-active text-t-primary" : "text-t-secondary hover:bg-hover"
       }`}
     >
       {label}
@@ -145,7 +145,7 @@ function FilterButton({ label, active, onClick }: { label: string; active: boole
     <button
       onClick={onClick}
       className={`px-2.5 py-1 rounded-md transition-colors ${
-        active ? "bg-white/10 text-t-primary" : "text-t-ghost hover:text-t-secondary"
+        active ? "bg-active text-t-primary" : "text-t-ghost hover:text-t-secondary"
       }`}
     >
       {label}
@@ -157,7 +157,7 @@ function SkillCard({ skill, onToggle }: { skill: Skill; onToggle: () => void }) 
   const sourceLabel = skill.source === "official" ? "官方" : skill.source === "community" ? "社区" : "自定义";
 
   return (
-    <div className="p-4 border border-white/10 rounded-lg hover:border-white/20 transition-colors">
+    <div className="p-4 border border-border-subtle rounded-lg hover:border-border transition-colors">
       {/* Header */}
       <div className="flex items-start justify-between mb-2">
         <div className="flex items-center gap-2">
@@ -168,9 +168,9 @@ function SkillCard({ skill, onToggle }: { skill: Skill; onToggle: () => void }) 
           {/* Toggle */}
           <button
             onClick={onToggle}
-            className={`w-9 h-5 rounded-full transition-colors relative ${skill.enabled ? "bg-neon/80" : "bg-white/10"}`}
+            className={`w-9 h-5 rounded-full transition-colors relative ${skill.enabled ? "bg-neon/80" : "bg-active"}`}
           >
-            <div className={`absolute top-0.5 w-4 h-4 rounded-full bg-white transition-transform ${skill.enabled ? "left-[18px]" : "left-0.5"}`} />
+            <div className={`absolute top-0.5 w-4 h-4 rounded-full bg-t-primary transition-transform ${skill.enabled ? "left-[18px]" : "left-0.5"}`} />
           </button>
         </div>
       </div>
@@ -185,7 +185,7 @@ function SkillCard({ skill, onToggle }: { skill: Skill; onToggle: () => void }) 
           <span>·</span>
           <span>更新于 {skill.updatedAt}</span>
         </div>
-        <button className="p-1 rounded hover:bg-white/10 text-t-ghost">
+        <button className="p-1 rounded hover:bg-hover text-t-ghost">
           <MoreHorizontal size={12} />
         </button>
       </div>
