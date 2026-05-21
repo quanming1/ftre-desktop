@@ -37,7 +37,23 @@
     --color-warning: var(--ftre-status-warning);
     --color-info: var(--ftre-status-info);
 
+    /* 字体 */
     --font-mono:
         "JetBrains Mono", "Cascadia Code", "Fira Code", "Consolas", monospace;
     --font-sans: "Inter", -apple-system, "Segoe UI", sans-serif;
+
+    /* 字号 — 语义化 */
+    --text-xs: 11px;
+    --text-sm: 12px;
+    --text-base: 14px;
+    --text-md: 15px;
+    --text-lg: 16px;
+    --text-xl: 18px;
+
+    /* 圆角 — 语义化 */
+    --radius-sm: 4px;
+    --radius-md: 8px;
+    --radius-lg: 12px;
+    --radius-xl: 16px;
+    --radius-pill: 9999px;
 }
