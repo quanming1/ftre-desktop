@@ -409,7 +409,7 @@ export const UserMessage = memo(
               <div
                 ref={messageRef}
                 onContextMenu={handleContextMenu}
-                className="text-[16px] leading-relaxed text-t-primary bg-panel px-4 py-3 rounded-3xl whitespace-pre-wrap break-words font-sans cursor-default"
+                className="text-[var(--text-lg)] leading-relaxed text-t-primary bg-panel px-4 py-3 rounded-[var(--radius-pill)] whitespace-pre-wrap break-words font-sans cursor-default"
               >
                 {hasParts ? (
                   <PartsContent parts={message.parts!} />
