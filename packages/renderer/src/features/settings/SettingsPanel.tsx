@@ -30,7 +30,7 @@ function SettingsCategory({
     <div
       className={`border border-border rounded-lg p-4 transition-colors ${
         isClickable
-          ? "cursor-pointer hover:border-accent hover:bg-white/[0.02]"
+          ? "cursor-pointer hover:border-accent hover:bg-hover"
           : "opacity-50 cursor-not-allowed"
       }`}
       onClick={isClickable ? onClick : undefined}

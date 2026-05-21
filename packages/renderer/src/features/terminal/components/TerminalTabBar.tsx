@@ -182,7 +182,7 @@ export function TerminalTabBar({ instances, activeTerminalId, onToggleSearch }: 
 
     /** 获取 tab 状态圆点的颜色 */
     const getDotColor = (inst: TerminalInstance, isActive: boolean): string => {
-        if (inst.exited && inst.exitCode !== 0) return "bg-[#ff4444]";
+        if (inst.exited && inst.exitCode !== 0) return "bg-red-500";
         if (inst.exited) return "bg-t-ghost";
         if (isActive) return "bg-neon";
         return "bg-t-ghost";
@@ -190,7 +190,7 @@ export function TerminalTabBar({ instances, activeTerminalId, onToggleSearch }: 
 
     return (
         <>
-            <nav className="flex items-center bg-[#232323] h-10 px-1 gap-0.5 border-b border-white/[0.05] shrink-0 select-none relative z-10">
+            <nav className="flex items-center bg-panel h-10 px-1 gap-0.5 border-b border-border-subtle shrink-0 select-none relative z-10">
                 {instances.map((inst) => {
                     const isActive = inst.id === activeTerminalId;
                     const isRenaming = inst.id === renamingId;
@@ -207,7 +207,7 @@ export function TerminalTabBar({ instances, activeTerminalId, onToggleSearch }: 
                             className={`flex items-center h-[34px] px-3 gap-2 text-[11px] font-mono transition-colors group cursor-grab active:cursor-grabbing min-w-[100px] ${
                                 isActive
                                     ? "bg-base rounded-t-md text-neon border-b-2 border-neon"
-                                    : "text-t-ghost hover:bg-white/[0.04] hover:text-t-muted"
+                                    : "text-t-ghost hover:bg-hover hover:text-t-muted"
                             }`}
                         >
                             {/* 状态圆点 */}
@@ -267,7 +267,7 @@ export function TerminalTabBar({ instances, activeTerminalId, onToggleSearch }: 
                             <button
                                 onClick={handleNewTerminal}
                                 aria-label="新建终端"
-                                className="w-8 h-8 flex items-center justify-center rounded-md hover:bg-white/[0.08] transition-colors text-t-ghost hover:text-t-muted"
+                                className="w-8 h-8 flex items-center justify-center rounded-md hover:bg-hover transition-colors text-t-ghost hover:text-t-muted"
                             >
                                 <Plus size={16} strokeWidth={1.5} />
                             </button>
@@ -276,20 +276,20 @@ export function TerminalTabBar({ instances, activeTerminalId, onToggleSearch }: 
                             <button
                                 onClick={handleShellMenuClick}
                                 aria-label="选择 Shell 类型"
-                                className="w-8 h-8 flex items-center justify-center rounded-md hover:bg-white/[0.08] transition-colors text-t-ghost hover:text-t-muted"
+                                className="w-8 h-8 flex items-center justify-center rounded-md hover:bg-hover transition-colors text-t-ghost hover:text-t-muted"
                             >
                                 <ChevronDown size={14} strokeWidth={1.5} />
                             </button>
                         </Tooltip>
 
                         {/* 分隔线 */}
-                        <div className="w-px h-4 bg-white/[0.1] mx-1" />
+                        <div className="w-px h-4 bg-border-subtle mx-1" />
 
                         <Tooltip content="搜索终端 (Ctrl+Shift+F)" side="bottom">
                             <button
                                 onClick={onToggleSearch}
                                 aria-label="搜索终端"
-                                className="w-8 h-8 flex items-center justify-center rounded-md hover:bg-white/[0.08] transition-colors text-t-ghost hover:text-t-muted"
+                                className="w-8 h-8 flex items-center justify-center rounded-md hover:bg-hover transition-colors text-t-ghost hover:text-t-muted"
                             >
                                 <Search size={15} strokeWidth={1.5} />
                             </button>
@@ -298,7 +298,7 @@ export function TerminalTabBar({ instances, activeTerminalId, onToggleSearch }: 
                             <button
                                 onClick={handleClear}
                                 aria-label="清除终端"
-                                className="w-8 h-8 flex items-center justify-center rounded-md hover:bg-white/[0.08] transition-colors text-t-ghost hover:text-t-muted"
+                                className="w-8 h-8 flex items-center justify-center rounded-md hover:bg-hover transition-colors text-t-ghost hover:text-t-muted"
                             >
                                 <Trash2 size={15} strokeWidth={1.5} />
                             </button>
