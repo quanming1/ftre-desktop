@@ -7,7 +7,7 @@ import {
   useCallback,
   useState,
 } from "react";
-import { useMessageById, useIsBusy, useChat, useProgress } from "@/stores/chat";
+import { useMessageById, useIsBusy, useChat } from "@/stores/chat";
 import { useAutoScrollToBottom } from "@/hooks/auto-scroll";
 import type { ChatMessage } from "@/stores/chat";
 import { UserMessage } from "./UserMessage";
@@ -106,7 +106,6 @@ function countRounds(messages: ChatMessage[]): number {
 
 /** Progress indicator shown when agent is processing */
 const ProgressIndicator = memo(function ProgressIndicator() {
-  const progress = useProgress();
   const isBusy = useIsBusy();
 
   if (!isBusy) return null;
@@ -114,24 +113,19 @@ const ProgressIndicator = memo(function ProgressIndicator() {
   return (
     <div className="flex items-center gap-2 py-1">
       <span className="text-[12px] text-neon/60 font-mono">ftre</span>
-      {progress ? (
-        <span className="text-[12px] text-t-secondary italic">
-          {progress.text}
-        </span>
-      ) : (
-        <div className="flex gap-[3px]">
-          {[0, 1, 2].map((i) => (
-            <div
-              key={i}
-              className="w-[4px] h-[4px] bg-neon"
-              style={{
-                animation: "thinking 1.2s ease-in-out infinite",
-                animationDelay: `${i * 0.2}s`,
-              }}
-            />
-          ))}
-        </div>
-      )}
+      <span className="text-[12px] text-t-secondary italic">思考中...</span>
+      <div className="flex gap-[3px]">
+        {[0, 1, 2].map((i) => (
+          <div
+            key={i}
+            className="w-[4px] h-[4px] bg-neon"
+            style={{
+              animation: "thinking 1.2s ease-in-out infinite",
+              animationDelay: `${i * 0.2}s`,
+            }}
+          />
+        ))}
+      </div>
     </div>
   );
 });

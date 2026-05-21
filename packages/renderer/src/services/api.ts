@@ -148,20 +148,15 @@ function encodeSessionKey(sessionIdOrKey: string): string {
 }
 
 /**
- * v5 REST API message format (same as WebSocket format).
- * Each message has: id, role, and data (the actual message content).
+ * 后端事件消息格式（新）。
+ * 每条消息: {id, session_id, type, data, timestamp}
  */
 export interface SessionMessage {
   id: string;
-  role:
-  | "user"
-  | "assistant"
-  | "assistant.delta"
-  | "tool_call"
-  | "tool_result"
-  | "system"
-  | "control";
+  session_id: string;
+  type: string;  // USER_INPUT / tool_call / tool_result / message_complete / done / error
   data: Record<string, any>;
+  timestamp: number;
 }
 
 /**
