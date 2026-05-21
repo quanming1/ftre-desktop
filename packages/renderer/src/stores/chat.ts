@@ -433,17 +433,19 @@ export const useChat = create<ChatState>(() => ({
       retryState: null,
     });
 
-    // Send to backend
-    const { model, provider, agentId } = useChat.getState();
+    // Send to backend（带 session_id，后端据此加载/存储历史）
+    const { model, provider, agentId, sessionId } = useChat.getState();
     wsClient.sendChat(content, {
       ...(model && { model }),
       ...(provider && { provider }),
       ...(agentId && { agent_id: agentId }),
+      ...(sessionId && { session_id: sessionId }),
     });
   },
 
   cancelStream: () => {
-    wsClient.sendCancel();
+    const { sessionId } = useChat.getState();
+    wsClient.sendCancel(sessionId || undefined);
     useChat.setState({ isBusy: false });
   },
 
