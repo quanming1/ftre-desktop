@@ -1,4 +1,4 @@
-/**
+﻿/**
  * InlineToolCallCard — 工具调用卡片（嵌入 assistant 消息中）
  */
 import { memo, useState, useCallback } from "react";
@@ -93,7 +93,7 @@ export const InlineToolCallCard = memo(
     const isOpen = expanded || (isError && !expanded);
 
     return (
-      <div className="w-full border border-border-subtle rounded-3xl overflow-hidden bg-panel">
+      <div className="w-full border border-border-subtle rounded-[var(--radius-pill)] overflow-hidden bg-panel">
         {/* 标题栏 */}
         <button
           onClick={toggleExpand}
@@ -103,11 +103,11 @@ export const InlineToolCallCard = memo(
             {isOpen ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
           </span>
           <Icon size={13} className="text-t-muted shrink-0" />
-          <span className="text-[12px] font-mono text-t-primary flex-1 truncate">
+          <span className="text-[var(--text-sm)] font-mono text-t-primary flex-1 truncate">
             {toolCall.name ?? "unknown"}
           </span>
-          {isPending && <span className="text-[11px] text-t-ghost">准备中</span>}
-          {isRunning && <span className="text-[11px] text-neon/80">执行中</span>}
+          {isPending && <span className="text-[var(--text-xs)] text-t-ghost">准备中</span>}
+          {isRunning && <span className="text-[var(--text-xs)] text-neon/80">执行中</span>}
           <StatusIndicator status={status} />
         </button>
 
@@ -118,7 +118,7 @@ export const InlineToolCallCard = memo(
 
               {/* 等待参数 */}
               {isPending && !hasArgs && (
-                <div className="flex items-center gap-2 text-[13px] text-t-dim font-mono">
+                <div className="flex items-center gap-2 text-[var(--text-md)] text-t-dim font-mono">
                   <Loader2 size={12} className="animate-spin" />
                   <span>等待参数...</span>
                 </div>
@@ -128,7 +128,7 @@ export const InlineToolCallCard = memo(
               {hasArgs && (
                 <div className="space-y-1.5">
                   {Object.entries(parsedArgs).map(([key, value]) => (
-                    <div key={key} className="flex gap-2 text-[13px] font-mono leading-relaxed">
+                    <div key={key} className="flex gap-2 text-[var(--text-md)] font-mono leading-relaxed">
                       <span className="text-t-dim shrink-0 select-none">
                         {key === "_raw" ? "args" : key}:
                       </span>
@@ -144,7 +144,7 @@ export const InlineToolCallCard = memo(
 
               {/* 执行中 */}
               {isRunning && (
-                <div className="mt-3 flex items-center gap-2 text-[13px] text-t-dim">
+                <div className="mt-3 flex items-center gap-2 text-[var(--text-md)] text-t-dim">
                   <Loader2 size={13} className="animate-spin text-neon" />
                   <span>执行中...</span>
                 </div>
@@ -163,7 +163,7 @@ export const InlineToolCallCard = memo(
                       : <Copy size={13} className="text-t-dim" />
                     }
                   </button>
-                  <pre className={`p-3 rounded-lg bg-base text-[13px] font-mono leading-relaxed overflow-x-auto ${
+                  <pre className={`p-3 rounded-lg bg-base text-[var(--text-md)] font-mono leading-relaxed overflow-x-auto ${
                     isError ? "text-red-500" : "text-t-secondary"
                   } ${toolCall.result!.length > 500 ? "max-h-[240px] overflow-y-auto" : ""}`}>
                     {toolCall.result}
