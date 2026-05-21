@@ -1,4 +1,4 @@
-/**
+﻿/**
  * ScheduledTaskPanel — 定时任务面板（只读）
  *
  * 参考截图风格：大标题 + 描述预览 + 底部元信息行
@@ -104,7 +104,7 @@ function JobCard({ job }: { job: CronJob }) {
     : job.payload.message || "";
 
   return (
-    <div className="px-5 py-4 rounded-xl border border-border/30 hover:bg-white/[0.015] transition-colors">
+    <div className="px-5 py-4 rounded-xl border border-border/30 hover:bg-surface transition-colors">
       {/* Row 1: Title + toggle — clickable */}
       <div
         className="flex items-start gap-3 cursor-pointer"
@@ -259,7 +259,7 @@ function RunHistory({ runs }: { runs: RunRecord[] }) {
         {runs.slice(0, 8).map((run, i) => (
           <div
             key={i}
-            className="flex items-center gap-3 px-3 py-2 rounded-md bg-white/[0.02] text-[11px]"
+            className="flex items-center gap-3 px-3 py-2 rounded-md bg-hover text-[11px]"
           >
             <span className={`font-medium ${
               run.status === "ok" ? "text-neon/70" : run.status === "error" ? "text-red-400/70" : "text-t-ghost"

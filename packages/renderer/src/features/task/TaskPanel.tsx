@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+﻿import { useState, useMemo } from 'react';
 import {
   Loader2, ChevronDown, ChevronRight, ChevronLeft, ChevronsRight,
   RefreshCw, FileArchive, Brain, Timer, Zap, Terminal,
@@ -41,7 +41,7 @@ function fmtDuration(s: number, e: number) {
 // ─── 状态 & 类型配置 ────────────────────────────────────────────────
 
 const STATUS_CFG: Record<string, { label: string; dot: string; text: string }> = {
-  pending:   { label: 'Pending',   dot: 'bg-white/40',                                                    text: 'text-white/50' },
+  pending:   { label: 'Pending',   dot: 'bg-t-ghost',                                                     text: 'text-t-muted' },
   running:   { label: 'Running',   dot: 'bg-sky-400 shadow-[0_0_6px_rgba(56,189,248,.5)] animate-pulse',  text: 'text-sky-400' },
   completed: { label: 'Done',      dot: 'bg-emerald-400 shadow-[0_0_6px_rgba(52,211,153,.4)]',            text: 'text-emerald-400' },
   failed:    { label: 'Failed',    dot: 'bg-red-400 shadow-[0_0_6px_rgba(248,113,113,.4)]',               text: 'text-red-400' },
@@ -98,8 +98,8 @@ function TypeIcon({ type }: { type: string }) {
 function Field({ label, value, mono }: { label: string; value: string; mono?: boolean }) {
   return (
     <div className="flex flex-col gap-0.5">
-      <span className="text-[10px] uppercase tracking-wider text-white/40">{label}</span>
-      <span className={`text-[11px] text-white/70 ${mono ? 'font-mono' : ''}`}>{value}</span>
+      <span className="text-[10px] uppercase tracking-wider text-t-ghost">{label}</span>
+      <span className={`text-[11px] text-t-secondary ${mono ? 'font-mono' : ''}`}>{value}</span>
     </div>
   );
 }
@@ -113,7 +113,7 @@ function DetailPanel({ task }: { task: TaskItem }) {
   const hasResult = result && result !== '(无回复)';
 
   return (
-    <div className="px-5 py-3 space-y-3 bg-white/[0.015]">
+    <div className="px-5 py-3 space-y-3 bg-surface">
       <div className="grid grid-cols-3 gap-x-6 gap-y-2">
         <Field label="Task ID" value={task.id.slice(0, 12)} mono />
         <Field label="Session" value={task.session_id ? task.session_id.slice(0, 12) : '-'} mono />
@@ -125,7 +125,7 @@ function DetailPanel({ task }: { task: TaskItem }) {
 
       {/* 类型专属字段 */}
       {task.type === 'compaction' && (
-        <div className="grid grid-cols-3 gap-x-6 gap-y-2 pt-2 border-t border-white/[0.04]">
+        <div className="grid grid-cols-3 gap-x-6 gap-y-2 pt-2 border-t border-border-subtle">
           <Field label="Parent ID" value={String(d.parent_id || '-')} mono />
           {d.elapsed !== undefined && <Field label="Agent Time" value={`${d.elapsed}s`} />}
           {d.submitted !== undefined && <Field label="Submitted" value={d.submitted ? 'Yes' : 'No'} />}
@@ -133,7 +133,7 @@ function DetailPanel({ task }: { task: TaskItem }) {
       )}
 
       {task.type === 'memory_update' && (
-        <div className="space-y-2 pt-2 border-t border-white/[0.04]">
+        <div className="space-y-2 pt-2 border-t border-border-subtle">
           <div className="grid grid-cols-3 gap-x-6 gap-y-2">
             {d.workspace != null && <Field label="Workspace" value={String(d.workspace)} />}
             {d.elapsed !== undefined && <Field label="Agent Time" value={`${d.elapsed}s`} />}
@@ -144,7 +144,7 @@ function DetailPanel({ task }: { task: TaskItem }) {
                 {showResult ? '▾ Result' : '▸ Result'}
               </button>
               {showResult && (
-                <pre className="mt-1.5 p-2.5 rounded-md bg-black/30 border border-white/[0.06] text-[11px] text-white/60 font-mono leading-relaxed whitespace-pre-wrap break-words max-h-[200px] overflow-y-auto">
+                <pre className="mt-1.5 p-2.5 rounded-md bg-panel border border-border-subtle text-[11px] text-t-muted font-mono leading-relaxed whitespace-pre-wrap break-words max-h-[200px] overflow-y-auto">
                   {result}
                 </pre>
               )}
@@ -154,7 +154,7 @@ function DetailPanel({ task }: { task: TaskItem }) {
       )}
 
       {task.type === 'scheduled' && (
-        <div className="grid grid-cols-3 gap-x-6 gap-y-2 pt-2 border-t border-white/[0.04]">
+        <div className="grid grid-cols-3 gap-x-6 gap-y-2 pt-2 border-t border-border-subtle">
           <Field label="Name" value={String(d.name || '-')} />
           <Field label="Strategy" value={String(d.strategy || '-')} />
           <Field label="Cron" value={String(d.cron || '-')} mono />
@@ -165,14 +165,14 @@ function DetailPanel({ task }: { task: TaskItem }) {
       )}
 
       {task.type === 'scheduled_result' && (
-        <div className="space-y-2 pt-2 border-t border-white/[0.04]">
+        <div className="space-y-2 pt-2 border-t border-border-subtle">
           <div className="grid grid-cols-3 gap-x-6 gap-y-2">
             <Field label="Strategy" value={String(d.strategy || '-')} />
             <Field label="Workspace" value={String(d.workspace || '-')} />
             {d.session_id ? <Field label="Session" value={String(d.session_id).slice(0, 12)} mono /> : null}
           </div>
           {hasResult && (
-            <pre className="p-2.5 rounded-md bg-black/30 border border-white/[0.06] text-[11px] text-white/60 font-mono leading-relaxed whitespace-pre-wrap break-words max-h-[200px] overflow-y-auto">
+            <pre className="p-2.5 rounded-md bg-panel border border-border-subtle text-[11px] text-t-muted font-mono leading-relaxed whitespace-pre-wrap break-words max-h-[200px] overflow-y-auto">
               {result}
             </pre>
           )}
@@ -181,7 +181,7 @@ function DetailPanel({ task }: { task: TaskItem }) {
 
       {/* 未知类型 fallback */}
       {!['compaction', 'memory_update', 'scheduled', 'scheduled_result'].includes(task.type) && Object.keys(d).length > 0 && (
-        <pre className="p-2.5 rounded-md bg-black/30 border border-white/[0.06] text-[11px] text-white/60 font-mono whitespace-pre-wrap break-all">
+        <pre className="p-2.5 rounded-md bg-panel border border-border-subtle text-[11px] text-t-muted font-mono whitespace-pre-wrap break-all">
           {JSON.stringify(d, null, 2)}
         </pre>
       )}
@@ -195,19 +195,19 @@ function TaskRow({ task }: { task: TaskItem }) {
   const [open, setOpen] = useState(false);
 
   return (
-    <div className={`border-b border-white/[0.03] ${open ? 'bg-white/[0.02]' : ''}`}>
+    <div className={`border-b border-border-subtle ${open ? 'bg-hover' : ''}`}>
       <div
         onClick={() => setOpen(!open)}
-        className="h-9 px-4 flex items-center gap-4 cursor-pointer hover:bg-white/[0.03] transition-colors"
+        className="h-9 px-4 flex items-center gap-4 cursor-pointer hover:bg-hover transition-colors"
       >
-        <ChevronRight size={11} className={`text-white/20 shrink-0 transition-transform ${open ? 'rotate-90' : ''}`} />
+        <ChevronRight size={11} className={`text-t-faint shrink-0 transition-transform ${open ? 'rotate-90' : ''}`} />
         <div className="w-[72px] shrink-0"><StatusBadge status={task.status} /></div>
         <div className="w-[68px] shrink-0"><TypeIcon type={task.type} /></div>
-        <div className="flex-1 text-[11px] text-white/50 font-mono truncate">{task.id.slice(0, 16)}</div>
-        <div className="w-12 text-[11px] text-white/45 font-mono text-right shrink-0" title={fmtTime(task.created_at)}>
+        <div className="flex-1 text-[11px] text-t-dim font-mono truncate">{task.id.slice(0, 16)}</div>
+        <div className="w-12 text-[11px] text-t-dim font-mono text-right shrink-0" title={fmtTime(task.created_at)}>
           {fmtRelative(task.created_at)}
         </div>
-        <div className="w-14 text-[11px] text-white/45 font-mono text-right shrink-0">
+        <div className="w-14 text-[11px] text-t-dim font-mono text-right shrink-0">
           {fmtDuration(task.started_at, task.completed_at)}
         </div>
       </div>
@@ -228,15 +228,15 @@ function PillFilter<T extends string>({
   onChange: (v: T) => void;
 }) {
   return (
-    <div className="flex items-center gap-0.5 bg-white/[0.03] rounded-md p-0.5">
+    <div className="flex items-center gap-0.5 bg-hover rounded-md p-0.5">
       {options.map((o) => (
         <button
           key={o.value}
           onClick={() => onChange(o.value)}
           className={`px-2 py-0.5 rounded text-[11px] font-mono transition-colors ${
             value === o.value
-              ? 'bg-white/[0.08] text-white/80'
-              : 'text-white/45 hover:text-white/60'
+              ? 'bg-active text-t-primary'
+              : 'text-t-dim hover:text-t-muted'
           }`}
         >
           {o.label}
@@ -272,14 +272,14 @@ function Pagination() {
   const end = Math.min(page * pageSize, total);
 
   return (
-    <div className="shrink-0 h-8 px-4 flex items-center border-t border-white/[0.04] text-[11px] font-mono text-white/50">
+    <div className="shrink-0 h-8 px-4 flex items-center border-t border-border-subtle text-[11px] font-mono text-t-dim">
       <span>{start}–{end} of {total}</span>
       <select
         value={pageSize}
         onChange={(e) => setPageSize(Number(e.target.value) as PageSize)}
-        className="ml-3 bg-transparent text-[11px] text-white/50 font-mono outline-none cursor-pointer"
+        className="ml-3 bg-transparent text-[11px] text-t-dim font-mono outline-none cursor-pointer"
       >
-        {PAGE_SIZE_OPTIONS.map((n) => <option key={n} value={n} className="bg-[#111]">{n}/page</option>)}
+        {PAGE_SIZE_OPTIONS.map((n) => <option key={n} value={n} className="bg-elevated">{n}/page</option>)}
       </select>
 
       <div className="flex-1" />
@@ -291,7 +291,7 @@ function Pagination() {
             key={p}
             onClick={() => setPage(p)}
             className={`w-5 h-5 flex items-center justify-center rounded text-[11px] transition-colors ${
-              p === page ? 'bg-white/[0.08] text-white/80' : 'text-white/45 hover:text-white/60'
+              p === page ? 'bg-active text-t-primary' : 'text-t-dim hover:text-t-muted'
             }`}
           >
             {p}
@@ -305,7 +305,7 @@ function Pagination() {
 
 function PgBtn({ onClick, disabled, children }: { onClick: () => void; disabled: boolean; children: React.ReactNode }) {
   return (
-    <button onClick={onClick} disabled={disabled} className={`p-0.5 transition-colors ${disabled ? 'text-white/15' : 'text-white/45 hover:text-white/70'}`}>
+    <button onClick={onClick} disabled={disabled} className={`p-0.5 transition-colors ${disabled ? 'text-t-faint' : 'text-t-dim hover:text-t-secondary'}`}>
       {children}
     </button>
   );
@@ -331,14 +331,14 @@ export function TaskPanel() {
   }, [tasks]);
 
   return (
-    <div className="h-full flex flex-col overflow-hidden bg-[#0c0c0c]">
+    <div className="h-full flex flex-col overflow-hidden bg-base">
       {/* 工具栏 */}
-      <div className="shrink-0 px-3 py-2 flex items-center gap-3 border-b border-white/[0.04]">
+      <div className="shrink-0 px-3 py-2 flex items-center gap-3 border-b border-border-subtle">
         <PillFilter options={STATUS_FILTERS} value={filters.status} onChange={(v) => setFilter({ status: v })} />
         <PillFilter options={TYPE_FILTERS} value={filters.type} onChange={(v) => setFilter({ type: v })} />
 
-        <button onClick={() => loadTasks(true)} className="p-1 rounded hover:bg-white/[0.06] transition-colors" title="Refresh">
-          <RefreshCw size={12} className={`text-white/40 hover:text-white/70 ${loading ? 'animate-spin' : ''}`} />
+        <button onClick={() => loadTasks(true)} className="p-1 rounded hover:bg-hover transition-colors" title="Refresh">
+          <RefreshCw size={12} className={`text-t-ghost hover:text-t-secondary ${loading ? 'animate-spin' : ''}`} />
         </button>
 
         <div className="flex-1" />
@@ -346,7 +346,7 @@ export function TaskPanel() {
         <div className="flex items-center gap-3 text-[11px] font-mono">
           {stats.running > 0 && <span className="text-sky-400">{stats.running} running</span>}
           {stats.failed > 0 && <span className="text-red-400">{stats.failed} failed</span>}
-          <span className="text-white/40">{total} total</span>
+          <span className="text-t-ghost">{total} total</span>
         </div>
       </div>
 
@@ -355,10 +355,10 @@ export function TaskPanel() {
         {tasks.length === 0 ? (
           <div className="flex flex-col items-center justify-center h-full gap-2">
             {loading
-              ? <Loader2 size={16} className="text-white/30 animate-spin" />
+              ? <Loader2 size={16} className="text-t-ghost animate-spin" />
               : <>
-                  <Terminal size={20} className="text-white/20" />
-                  <span className="text-[12px] text-white/35 font-mono">No tasks</span>
+                  <Terminal size={20} className="text-t-faint" />
+                  <span className="text-[12px] text-t-ghost font-mono">No tasks</span>
                 </>
             }
           </div>

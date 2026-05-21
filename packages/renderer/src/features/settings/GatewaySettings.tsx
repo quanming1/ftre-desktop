@@ -131,7 +131,7 @@ export function GatewaySettings() {
       <div className="flex items-center gap-3">
         <button
           onClick={handleSave}
-          className="px-4 h-9 rounded-md bg-accent text-white text-[13px] font-medium hover:bg-accent/90 transition-colors"
+          className="px-4 h-9 rounded-md bg-accent text-t-primary text-[13px] font-medium hover:bg-accent/90 transition-colors"
         >
           保存并重连
         </button>
