@@ -38,6 +38,7 @@ export {
   setActiveThemeId,
   registerTheme,
   getAvailableThemes,
+  getThemeIdForMode,
   type FtreThemeDefinition,
   type FtreThemeTokenRule,
 } from "./themes";

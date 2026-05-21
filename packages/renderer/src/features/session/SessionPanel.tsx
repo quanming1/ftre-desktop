@@ -715,8 +715,8 @@ export function SessionPanel() {
                             <div
                               className={`truncate text-[13px] ${
                                 isSessionActive
-                                  ? "text-t-primary"
-                                  : "text-t-secondary"
+                                  ? "text-t-primary font-medium"
+                                  : "text-t-primary"
                               }`}
                             >
                               {session.title || "New Session"}

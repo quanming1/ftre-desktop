@@ -13,13 +13,15 @@ import {
     type TerminalInstanceInfo,
     type ManagedTerminal,
     type WorkspaceTerminals,
-    TERM_OPTIONS,
+    getTerminalOptionsWithTheme,
     generateId,
     extractDirName,
     isContainerVisible,
 } from './terminal-config';
 import { loadAddons } from './terminal-addons';
 import { attachKeybindings, clampFontSize, getDefaultFontSize } from './terminal-keybindings';
+import { useTheme } from '@/stores/theme';
+import { getTerminalTheme } from './terminal-theme';
 
 // ═══════════════════════════════════════════════════════════════════════
 // TerminalSessionManager
@@ -32,6 +34,36 @@ export class TerminalSessionManager {
     private activeWorkspace: string | null = null;
     /** 全局字体大小（所有终端共享） */
     private fontSize: number = getDefaultFontSize();
+    /** useTheme 订阅清理函数 */
+    private themeUnsubscribe: (() => void) | null = null;
+
+    constructor() {
+        this.initThemeSubscription();
+    }
+
+    /**
+     * 订阅 useTheme store 的 resolvedMode 变化，
+     * 变化时遍历所有存活 xterm 实例热更新主题。
+     */
+    private initThemeSubscription(): void {
+        this.themeUnsubscribe = useTheme.subscribe((state, prev) => {
+            if (state.resolvedMode !== prev.resolvedMode) {
+                this.applyThemeToAll(state.resolvedMode);
+            }
+        });
+    }
+
+    /**
+     * 遍历所有存活 xterm 实例，更新主题为当前 resolvedMode 对应主题。
+     */
+    private applyThemeToAll(resolved: 'light' | 'dark'): void {
+        const theme = getTerminalTheme(resolved);
+        for (const ws of this.workspaces.values()) {
+            for (const managed of ws.terminals.values()) {
+                managed.term.options.theme = theme;
+            }
+        }
+    }
 
     // ── 工作区分组 ──────────────────────────────────────────────────
 
@@ -81,7 +113,8 @@ export class TerminalSessionManager {
             }
 
             // 创建 xterm.js 实例
-            const term = new Terminal({ ...TERM_OPTIONS, fontSize: this.fontSize });
+            const resolved = useTheme.getState().resolvedMode;
+            const term = new Terminal({ ...getTerminalOptionsWithTheme(resolved), fontSize: this.fontSize });
             const { fit, search } = loadAddons(term);
 
             // 注册按键处理
@@ -519,6 +552,10 @@ export class TerminalSessionManager {
     // ── 清理 ────────────────────────────────────────────────────────
 
     disposeAll(): void {
+        // 清理主题订阅
+        this.themeUnsubscribe?.();
+        this.themeUnsubscribe = null;
+
         for (const ws of this.workspaces.values()) {
             for (const managed of ws.terminals.values()) {
                 this.disposeManaged(managed);
@@ -550,7 +587,7 @@ export class TerminalSessionManager {
         managed.cleanupExit();
         managed.cleanupRestartListener?.();
         if (!managed.info.exited) {
-            window.desktop?.terminal.kill(managed.info.ptyId).catch(() => {});
+            window.desktop?.terminal.kill(managed.info.ptyId).catch(() => { });
         }
         managed.term.dispose();
         managed.container = null;

@@ -113,7 +113,19 @@ function convertHistoryMessages(msgs: any[]): ChatMessage[] {
         break;
       }
 
-      // done / error / 其他 → 跳过
+      case "error": {
+        const errMsg = data.message || "未知错误";
+        result.push({
+          id: m.id || histId(),
+          role: "assistant",
+          content: errMsg,
+          timestamp: ts,
+          isError: true,
+        });
+        break;
+      }
+
+      // done / 其他 → 跳过
       default:
         break;
     }

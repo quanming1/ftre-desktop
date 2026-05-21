@@ -22,7 +22,7 @@ export function registerFtreTheme(
     style.getPropertyValue(name).trim() || fallback;
 
   const cssOverrides: Record<string, string> = {
-    "editor.background": cssVar("--color-base", "#1e1e1e"),
+    "editor.background": cssVar("--ftre-bg-base", "#1e1e1e"),
   };
 
   monaco.editor.defineTheme(theme.id, {

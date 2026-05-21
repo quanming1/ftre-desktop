@@ -5,6 +5,7 @@ export const darcula: FtreThemeDefinition = {
   label: "Darcula",
   base: "vs-dark",
   inherit: true,
+  mode: "dark",
   tokenRules: [
     // ── 注释 ──
     { token: "comment", foreground: "808080" },

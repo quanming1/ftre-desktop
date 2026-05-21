@@ -11,32 +11,32 @@ export const ftreUiPreset: Partial<Config> = {
   theme: {
     extend: {
       colors: {
-        // Background layers (dark to light)
-        "ftre-base": "var(--ftre-base, #1a1b1d)",
-        "ftre-surface": "var(--ftre-surface, #1a1b1d)",
-        "ftre-elevated": "var(--ftre-elevated, #252526)",
-        "ftre-panel": "var(--ftre-panel, #2d2d2d)",
-        "ftre-menu-bg": "var(--ftre-menu-bg, #252526)",
+        // Background layers
+        "ftre-base": "var(--ftre-base)",
+        "ftre-surface": "var(--ftre-surface)",
+        "ftre-elevated": "var(--ftre-elevated)",
+        "ftre-panel": "var(--ftre-panel)",
+        "ftre-menu-bg": "var(--ftre-menu-bg)",
         // Brand colors (neon green)
-        "ftre-accent": "var(--ftre-accent, #00ff88)",
-        "ftre-accent-hover": "var(--ftre-accent-hover, #00cc6e)",
-        "ftre-accent-dim": "var(--ftre-accent-dim, rgba(0, 255, 136, 0.12))",
-        "ftre-accent-ghost": "var(--ftre-accent-ghost, rgba(0, 255, 136, 0.06))",
+        "ftre-accent": "var(--ftre-accent)",
+        "ftre-accent-hover": "var(--ftre-accent-hover)",
+        "ftre-accent-dim": "var(--ftre-accent-dim)",
+        "ftre-accent-ghost": "var(--ftre-accent-ghost)",
         // Borders
-        "ftre-border": "var(--ftre-border, #3c3c3c)",
-        "ftre-border-subtle": "var(--ftre-border-subtle, #454545)",
+        "ftre-border": "var(--ftre-border)",
+        "ftre-border-subtle": "var(--ftre-border-subtle)",
         // Text hierarchy
-        "ftre-text-primary": "var(--ftre-text-primary, #e8e8e8)",
-        "ftre-text-secondary": "var(--ftre-text-secondary, #cccccc)",
-        "ftre-text-muted": "var(--ftre-text-muted, #aab0b8)",
-        "ftre-text-dim": "var(--ftre-text-dim, #969ca6)",
-        "ftre-text-ghost": "var(--ftre-text-ghost, #888e98)",
-        "ftre-text-faint": "var(--ftre-text-faint, #7a8088)",
+        "ftre-text-primary": "var(--ftre-text-primary)",
+        "ftre-text-secondary": "var(--ftre-text-secondary)",
+        "ftre-text-muted": "var(--ftre-text-muted)",
+        "ftre-text-dim": "var(--ftre-text-dim)",
+        "ftre-text-ghost": "var(--ftre-text-ghost)",
+        "ftre-text-faint": "var(--ftre-text-faint)",
         // Semantic colors
-        "ftre-success": "var(--ftre-success, #00ff88)",
-        "ftre-warning": "var(--ftre-warning, #d29922)",
-        "ftre-error": "var(--ftre-error, #f85149)",
-        "ftre-info": "var(--ftre-info, #58a6ff)",
+        "ftre-success": "var(--ftre-success)",
+        "ftre-warning": "var(--ftre-warning)",
+        "ftre-error": "var(--ftre-error)",
+        "ftre-info": "var(--ftre-info)",
       },
       keyframes: {
         "ftre-enter": {
@@ -87,34 +87,37 @@ export default ftreUiPreset;
 /**
  * CSS variables reference (aligned with ftre design system):
  *
+ * All variables are defined in tokens.css with light/dark values.
+ * No fallback values are needed — the Token file guarantees definitions.
+ *
  * Background layers:
- * --ftre-base: Main background (default: #1a1b1d)
- * --ftre-surface: Sidebar/panel background (default: #1a1b1d)
- * --ftre-elevated: Floating elements (default: #252526)
- * --ftre-panel: Input/card background (default: #2d2d2d)
- * --ftre-menu-bg: Menu/dropdown background (default: #252526)
+ * --ftre-base: Main background
+ * --ftre-surface: Sidebar/panel background
+ * --ftre-elevated: Floating elements
+ * --ftre-panel: Input/card background
+ * --ftre-menu-bg: Menu/dropdown background
  *
  * Brand colors:
- * --ftre-accent: Primary accent/neon green (default: #00ff88)
- * --ftre-accent-hover: Accent hover state (default: #00cc6e)
- * --ftre-accent-dim: Low opacity accent for selection (default: rgba(0,255,136,0.12))
- * --ftre-accent-ghost: Ultra-low opacity accent (default: rgba(0,255,136,0.06))
+ * --ftre-accent: Primary accent/neon green
+ * --ftre-accent-hover: Accent hover state
+ * --ftre-accent-dim: Low opacity accent for selection
+ * --ftre-accent-ghost: Ultra-low opacity accent
  *
  * Borders:
- * --ftre-border: Primary border (default: #3c3c3c)
- * --ftre-border-subtle: Secondary border (default: #454545)
+ * --ftre-border: Primary border
+ * --ftre-border-subtle: Secondary border
  *
  * Text hierarchy:
- * --ftre-text-primary: Primary text (default: #e8e8e8)
- * --ftre-text-secondary: Secondary text (default: #cccccc)
- * --ftre-text-muted: Auxiliary text (default: #aab0b8)
- * --ftre-text-dim: Dimmed text (default: #969ca6)
- * --ftre-text-ghost: Placeholder text (default: #888e98)
- * --ftre-text-faint: Timestamp/weakest text (default: #7a8088)
+ * --ftre-text-primary: Primary text
+ * --ftre-text-secondary: Secondary text
+ * --ftre-text-muted: Auxiliary text
+ * --ftre-text-dim: Dimmed text
+ * --ftre-text-ghost: Placeholder text
+ * --ftre-text-faint: Timestamp/weakest text
  *
  * Semantic colors:
- * --ftre-success: Success state (default: #00ff88)
- * --ftre-warning: Warning state (default: #d29922)
- * --ftre-error: Error state (default: #f85149)
- * --ftre-info: Info/link state (default: #58a6ff)
+ * --ftre-success: Success state
+ * --ftre-warning: Warning state
+ * --ftre-error: Error state
+ * --ftre-info: Info/link state
  */

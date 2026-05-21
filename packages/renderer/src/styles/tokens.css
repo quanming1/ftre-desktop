@@ -65,17 +65,17 @@ html[data-theme="light"] {
   --ftre-bg-hover: rgba(0, 0, 0, 0.04);
   --ftre-bg-active: rgba(0, 0, 0, 0.06);
 
-  /* 边框 — 极淡，不抢视觉 */
-  --ftre-border-default: #e8e8ea;
-  --ftre-border-subtle: #efefef;
+  /* 边框 — 清晰可见但不抢焦点 */
+  --ftre-border-default: #dcdcde;
+  --ftre-border-subtle: #e8e8ea;
 
-  /* 文字 — 主色用深灰而非纯黑，层次分明 */
-  --ftre-text-primary: #1a1a1a;
-  --ftre-text-secondary: #4a4a4a;
-  --ftre-text-muted: #6b6b6b;
-  --ftre-text-dim: #8c8c8c;
-  --ftre-text-ghost: #b0b0b0;
-  --ftre-text-faint: #d0d0d0;
+  /* 文字 — 加深层次，确保清晰可读 */
+  --ftre-text-primary: #111111;
+  --ftre-text-secondary: #333333;
+  --ftre-text-muted: #555555;
+  --ftre-text-dim: #777777;
+  --ftre-text-ghost: #999999;
+  --ftre-text-faint: #bbbbbb;
 
   /* 强调色 — 降低饱和度避免刺眼 */
   --ftre-accent-default: #059669;

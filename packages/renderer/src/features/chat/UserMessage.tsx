@@ -375,14 +375,14 @@ export const UserMessage = memo(
               <Tooltip content="复制" side="top">
                 <button
                   onClick={handleCopy}
-                  className={`flex items-center justify-center w-7 h-7 text-t-ghost hover:text-t-secondary rounded-md hover:bg-hover transition-all ${
+                  className={`flex items-center justify-center w-9 h-9 text-t-ghost hover:text-t-secondary rounded-md hover:bg-hover transition-all ${
                     isHovered ? "opacity-100" : "opacity-0 pointer-events-none"
                   }`}
                 >
                   {copied ? (
-                    <Check size={15} className="text-green-500" />
+                    <Check size={18} className="text-green-500" />
                   ) : (
-                    <Copy size={15} />
+                    <Copy size={18} />
                   )}
                 </button>
               </Tooltip>
@@ -409,7 +409,7 @@ export const UserMessage = memo(
               <div
                 ref={messageRef}
                 onContextMenu={handleContextMenu}
-                className="text-[16px] leading-relaxed text-t-primary bg-panel px-4 py-3 rounded-xl rounded-br-sm whitespace-pre-wrap break-words font-sans cursor-default"
+                className="text-[16px] leading-relaxed text-t-primary bg-panel px-4 py-3 rounded-3xl whitespace-pre-wrap break-words font-sans cursor-default"
               >
                 {hasParts ? (
                   <PartsContent parts={message.parts!} />

@@ -34,6 +34,7 @@ export interface ChatMessage {
   toolCalls?: ToolCall[];
   reasoning?: string;
   parts?: MessagePart[];
+  isError?: boolean;
 }
 
 export interface RetryState {
@@ -233,7 +234,19 @@ function dispatchMessage(msg: ServerMessage): void {
 
     case "error": {
       const { message: errMsg, code } = d as any;
-      useChat.setState({ error: `[${code}] ${errMsg}`, isBusy: false });
+      // 将错误作为一条 assistant 消息显示在对话中
+      const errorMsg: ChatMessage = {
+        id: nextId("err"),
+        role: "assistant",
+        content: errMsg,
+        timestamp: Date.now(),
+        isError: true,
+      };
+      useChat.setState({
+        messages: [...useChat.getState().messages, errorMsg],
+        error: `[${code}] ${errMsg}`,
+        isBusy: false,
+      });
       resetStreamingState();
       break;
     }

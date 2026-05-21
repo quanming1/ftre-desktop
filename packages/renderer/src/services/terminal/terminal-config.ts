@@ -1,8 +1,9 @@
 /**
- * 终端常量、主题、配置和类型定义
+ * 终端常量、配置和类型定义
  */
 
 import type { ITerminalOptions } from '@xterm/xterm';
+import { getTerminalTheme } from './terminal-theme';
 
 // ═══════════════════════════════════════════════════════════════════════
 // 类型定义
@@ -58,29 +59,6 @@ export interface WorkspaceTerminals {
 // 常量
 // ═══════════════════════════════════════════════════════════════════════
 
-export const TERM_THEME = {
-    background: '#1e1e1e',
-    foreground: '#ddd',
-    cursor: '#00ff88',
-    selectionBackground: '#00ff8833',
-    black: '#1e1e1e',
-    brightBlack: '#6e7681',
-    white: '#ddd',
-    brightWhite: '#ffffff',
-    blue: '#00bbff',
-    brightBlue: '#60a5fa',
-    green: '#00ff88',
-    brightGreen: '#4ade80',
-    red: '#ff4444',
-    brightRed: '#ff6666',
-    yellow: '#ffaa00',
-    brightYellow: '#ffd700',
-    cyan: '#00bbff',
-    brightCyan: '#93c5fd',
-    magenta: '#c084fc',
-    brightMagenta: '#d8b4fe',
-};
-
 export const DEFAULT_FONT_SIZE = 13;
 export const MIN_FONT_SIZE = 8;
 export const MAX_FONT_SIZE = 28;
@@ -88,11 +66,21 @@ export const MAX_FONT_SIZE = 28;
 export const TERM_OPTIONS: ITerminalOptions = {
     fontSize: DEFAULT_FONT_SIZE,
     fontFamily: "'JetBrains Mono', 'Cascadia Code', 'Consolas', monospace",
-    theme: TERM_THEME,
     cursorBlink: true,
     scrollback: 5000,
     allowProposedApi: true,
 };
+
+/**
+ * 获取包含动态主题的完整终端选项。
+ * 必须在 DOM 就绪后调用（getTerminalTheme 依赖 getComputedStyle）。
+ */
+export function getTerminalOptionsWithTheme(resolved: 'light' | 'dark'): ITerminalOptions {
+    return {
+        ...TERM_OPTIONS,
+        theme: getTerminalTheme(resolved),
+    };
+}
 
 // ═══════════════════════════════════════════════════════════════════════
 // 工具函数
