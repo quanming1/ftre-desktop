@@ -11,6 +11,8 @@ export interface FtreThemeDefinition {
   label: string;
   base: editor.BuiltinTheme;
   inherit: boolean;
+  /** 该主题适用的 resolved mode */
+  mode: "light" | "dark";
   tokenRules: FtreThemeTokenRule[];
   editorColors: Record<string, string>;
 }

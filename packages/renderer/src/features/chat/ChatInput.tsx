@@ -308,7 +308,7 @@ export function ChatInput() {
               renderElement={renderElement}
               onKeyDown={onKeyDown}
               placeholder="描述你想要做什么... 输入 / 选择 Skill"
-              className="w-full bg-transparent text-[14px] text-t-primary outline-none resize-none px-5 py-4 font-sans overflow-y-auto overflow-x-hidden"
+              className="w-full bg-transparent text-[16px] text-t-primary outline-none resize-none px-5 py-4 font-sans overflow-y-auto overflow-x-hidden"
               style={{
                 minHeight: 64,
                 maxHeight: 180,
