@@ -93,7 +93,7 @@ function MediaList({ urls }: { urls: Array<{ url: string; name?: string }> }) {
             href={`http://127.0.0.1:18790${media.url}`}
             target="_blank"
             rel="noopener noreferrer"
-            className="inline-flex items-center gap-1 px-2 py-1 bg-white/6 rounded text-sm text-t-secondary hover:text-t-primary"
+            className="inline-flex items-center gap-1 px-2 py-1 bg-surface rounded text-sm text-t-secondary hover:text-t-primary"
           >
             📎 {media.name || "附件"}
           </a>
@@ -123,7 +123,7 @@ function ButtonMatrix({
             <button
               key={colIdx}
               onClick={() => onSelect(label)}
-              className="px-3 py-1.5 text-sm bg-white/8 hover:bg-white/12 text-t-primary rounded-lg border border-border-subtle transition-colors"
+            className="px-3 py-1.5 text-sm bg-surface hover:bg-hover text-t-primary rounded-lg border border-border-subtle transition-colors"
             >
               {label}
             </button>
@@ -148,11 +148,106 @@ function ReasoningBlock({ text }: { text: string }) {
         {expanded ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
       </button>
       {expanded && (
-        <div className="mt-1.5 pl-5 border-l-2 border-white/8 text-[12px] text-t-dim leading-relaxed whitespace-pre-wrap max-h-[300px] overflow-y-auto">
+        <div className="mt-1.5 pl-5 border-l-2 border-border-subtle text-[12px] text-t-dim leading-relaxed whitespace-pre-wrap max-h-[300px] overflow-y-auto">
           {text}
         </div>
       )}
     </div>
+  );
+}
+
+/** 连续多个 tool_call 的堆叠折叠 UI */
+function ToolCallStack({ toolCalls }: { toolCalls: ToolCall[] }) {
+  const [expanded, setExpanded] = useState(false);
+
+  if (toolCalls.length === 1) {
+    return <InlineToolCallCard toolCall={toolCalls[0]} />;
+  }
+
+  if (!expanded) {
+    return (
+      <div>
+        <InlineToolCallCard toolCall={toolCalls[0]} />
+        {/* 堆叠指示条 — 点击展开 */}
+        <div
+          onClick={() => setExpanded(true)}
+          className="cursor-pointer group"
+        >
+          <div className="mx-2 h-[6px] -mt-[3px] border border-t-0 border-border-subtle rounded-b-2xl bg-panel/80 group-hover:bg-hover transition-colors" />
+          <div className="mx-4 h-[5px] -mt-[2px] border border-t-0 border-border-subtle/60 rounded-b-2xl bg-panel/50 group-hover:bg-hover/50 transition-colors" />
+          <div className="text-center text-[11px] text-t-ghost mt-0.5 group-hover:text-t-dim transition-colors">
+            +{toolCalls.length - 1} 个工具调用
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div>
+      <div className="space-y-1.5">
+        {toolCalls.map((tc) => (
+          <InlineToolCallCard key={tc.id} toolCall={tc} />
+        ))}
+      </div>
+      {/* 收起指示条 */}
+      <div
+        onClick={() => setExpanded(false)}
+        className="cursor-pointer mt-1 text-center text-[11px] text-t-ghost hover:text-t-dim transition-colors"
+      >
+        收起
+      </div>
+    </div>
+  );
+}
+
+/** 将 parts 分组渲染：连续 tool_call 合并为堆叠 */
+function PartsRenderer({
+  parts,
+  toolCalls,
+  mdRef,
+}: {
+  parts: import("@/stores/chat").MessagePart[];
+  toolCalls: ToolCall[];
+  mdRef: React.RefObject<HTMLDivElement | null>;
+}) {
+  // 将 parts 分组：连续的 tool_call 合并为一组
+  const groups: Array<{ type: "text"; text: string; isLast: boolean } | { type: "tools"; calls: ToolCall[] }> = [];
+  let pendingTools: ToolCall[] = [];
+
+  const flushTools = () => {
+    if (pendingTools.length > 0) {
+      groups.push({ type: "tools", calls: [...pendingTools] });
+      pendingTools = [];
+    }
+  };
+
+  parts.forEach((part, idx) => {
+    if (part.type === "text") {
+      flushTools();
+      groups.push({ type: "text", text: part.text, isLast: idx === parts.length - 1 });
+    } else {
+      const tc = toolCalls.find((t) => t.id === part.toolCallId);
+      if (tc) pendingTools.push(tc);
+    }
+  });
+  flushTools();
+
+  return (
+    <>
+      {groups.map((group, idx) => {
+        if (group.type === "text") {
+          return (
+            <div key={`g-${idx}`} className="markdown-body" ref={group.isLast ? mdRef : undefined}>
+              <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>
+                {group.text}
+              </ReactMarkdown>
+            </div>
+          );
+        }
+        return <ToolCallStack key={`g-${idx}`} toolCalls={group.calls} />;
+      })}
+    </>
   );
 }
 
@@ -202,31 +297,14 @@ export const AssistantMessage = memo(
     return (
       <div className="flex justify-start" ref={containerRef}>
         <div className="max-w-[90%]">
-          <div className="text-[14px] leading-relaxed text-t-primary font-sans break-words">
+          <div className="text-[16px] leading-relaxed text-t-primary font-sans break-words">
             {/* 推理过程（折叠） */}
             {message.reasoning && <ReasoningBlock text={message.reasoning} />}
 
             {/* 优先按 parts 顺序渲染（保留 LLM 输出顺序） */}
             {message.parts && message.parts.length > 0 ? (
               <div className="space-y-2">
-                {message.parts.map((part, idx) => {
-                  if (part.type === "text") {
-                    return (
-                      <div key={`p-${idx}`} className="markdown-body" ref={idx === message.parts!.length - 1 ? mdRef : undefined}>
-                        <ReactMarkdown
-                          remarkPlugins={[remarkGfm]}
-                          components={markdownComponents}
-                        >
-                          {part.text}
-                        </ReactMarkdown>
-                      </div>
-                    );
-                  }
-                  // tool_call part
-                  const tc = message.toolCalls?.find((t) => t.id === part.toolCallId);
-                  if (!tc) return null;
-                  return <InlineToolCallCard key={part.toolCallId} toolCall={tc} />;
-                })}
+                <PartsRenderer parts={message.parts} toolCalls={message.toolCalls || []} mdRef={mdRef} />
               </div>
             ) : (
               <>

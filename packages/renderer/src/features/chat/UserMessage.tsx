@@ -80,7 +80,7 @@ function CodeChip({
   return (
     <span
       onClick={handleClick}
-      className="inline-flex items-center gap-1 px-1.5 py-0.5 mx-0.5 rounded text-[11px] font-mono bg-white/[0.06] text-t-secondary border border-border-subtle align-baseline cursor-pointer hover:bg-white/[0.1] hover:text-t-primary transition-colors"
+      className="inline-flex items-center gap-1 px-1.5 py-0.5 mx-0.5 rounded text-[11px] font-mono bg-surface text-t-secondary border border-border-subtle align-baseline cursor-pointer hover:bg-hover hover:text-t-primary transition-colors"
       title={`${data.path} L${data.lines[0]}-L${data.lines[1]} — 点击打开`}
     >
       <svg
@@ -375,7 +375,7 @@ export const UserMessage = memo(
               <Tooltip content="复制" side="top">
                 <button
                   onClick={handleCopy}
-                  className={`flex items-center justify-center w-7 h-7 text-t-ghost hover:text-t-secondary rounded-md hover:bg-white/[0.06] transition-all ${
+                  className={`flex items-center justify-center w-7 h-7 text-t-ghost hover:text-t-secondary rounded-md hover:bg-hover transition-all ${
                     isHovered ? "opacity-100" : "opacity-0 pointer-events-none"
                   }`}
                 >
@@ -392,7 +392,7 @@ export const UserMessage = memo(
                 <Tooltip content="Fork 会话" side="top">
                   <button
                     onClick={handleFork}
-                    className={`flex items-center justify-center w-7 h-7 text-t-ghost hover:text-t-secondary rounded-md hover:bg-white/[0.06] transition-all ${
+                    className={`flex items-center justify-center w-7 h-7 text-t-ghost hover:text-t-secondary rounded-md hover:bg-hover transition-all ${
                       isHovered
                         ? "opacity-100"
                         : "opacity-0 pointer-events-none"
@@ -409,7 +409,7 @@ export const UserMessage = memo(
               <div
                 ref={messageRef}
                 onContextMenu={handleContextMenu}
-                className="text-[14px] leading-relaxed text-t-primary bg-panel px-4 py-3 rounded-xl rounded-br-sm whitespace-pre-wrap break-words font-sans cursor-default"
+                className="text-[16px] leading-relaxed text-t-primary bg-panel px-4 py-3 rounded-xl rounded-br-sm whitespace-pre-wrap break-words font-sans cursor-default"
               >
                 {hasParts ? (
                   <PartsContent parts={message.parts!} />

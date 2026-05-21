@@ -19,6 +19,7 @@ import { ResizeHandle } from "@/components/ResizeHandle";
 import { useLayout, type PanelId } from "@/stores/layout";
 import { useWorkspace } from "@/stores/workspace";
 import { useEditor } from "@/stores/editor";
+import { useTheme } from "@/stores/theme";
 import { useGlobalShortcuts } from "@/lib/shortcuts";
 import { registerDefaultShortcuts } from "@/lib/default-shortcuts";
 import { globalEventStream } from "@/services/global-event-stream";
@@ -27,6 +28,7 @@ import { performanceMetrics } from "@/services/performance-metrics";
 export function Workbench() {
   const [filePaletteOpen, setFilePaletteOpen] = useState(false);
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
+  const resolvedMode = useTheme((s) => s.resolvedMode);
 
   // Layout store state
   const sidebarWidth = useLayout((s) => s.sidebarWidth);
@@ -282,7 +284,7 @@ export function Workbench() {
   };
 
   return (
-    <div className="h-screen w-screen flex flex-col bg-[#333333] overflow-hidden">
+    <div className="h-screen w-screen flex flex-col bg-elevated overflow-hidden">
       <TitleBar />
 
       {/* Main area - use CSS order to control panel arrangement without remounting */}
@@ -428,7 +430,7 @@ export function Workbench() {
       <GlobalSearchPalette />
       <Toaster
         position="bottom-left"
-        theme="dark"
+        theme={resolvedMode}
         richColors
         closeButton
         expand={false}
