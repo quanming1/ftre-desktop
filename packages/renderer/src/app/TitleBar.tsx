@@ -60,7 +60,7 @@ export function TitleBar() {
   };
 
   return (
-    <div className="h-[var(--titlebar-height)] bg-[#333333] flex items-center shrink-0 relative z-50" style={drag}>
+    <div className="h-[var(--titlebar-height)] bg-elevated flex items-center shrink-0 relative z-50" style={drag}>
 
       {/* ── 左侧: Logo 菜单 + Git 指示器 ── */}
       <div className="flex items-center shrink-0 h-full" style={noDrag}>
@@ -69,7 +69,7 @@ export function TitleBar() {
         <div ref={menuAreaRef} className="relative h-full">
           <button
             onClick={() => { setLogoMenuOpen((v) => !v); setHoveredMenu(null); }}
-            className={`flex items-center justify-center w-[46px] h-full hover:bg-white/[0.06] transition-colors ${logoMenuOpen ? "bg-white/[0.08]" : ""}`}
+            className={`flex items-center justify-center w-[46px] h-full hover:bg-hover transition-colors ${logoMenuOpen ? "bg-active" : ""}`}
           >
             <PixelLogo size={2} />
           </button>
@@ -85,7 +85,7 @@ export function TitleBar() {
                 >
                   <div
                     className={`flex items-center justify-between px-3.5 py-2 text-[13px] font-sans cursor-default transition-colors ${
-                      hoveredMenu === menuName ? "bg-white/[0.08] text-t-primary" : "text-t-secondary"
+                      hoveredMenu === menuName ? "bg-active text-t-primary" : "text-t-secondary"
                     }`}
                   >
                     <span>{menuName}</span>
@@ -103,7 +103,7 @@ export function TitleBar() {
                             onClick={() => !disabled && handleMenuItemClick(item)}
                             disabled={disabled}
                             className={`w-full px-3.5 py-2 text-[13px] flex items-center justify-between font-sans transition-colors ${
-                              disabled ? "text-t-ghost cursor-default" : "text-t-secondary hover:bg-white/[0.08] hover:text-t-primary"
+                              disabled ? "text-t-ghost cursor-default" : "text-t-secondary hover:bg-active hover:text-t-primary"
                             }`}
                           >
                             <span>{item.label}</span>
@@ -160,7 +160,7 @@ export function TitleBar() {
             <button
               onClick={toggleTaskPanel}
               className={`h-full px-3 flex items-center gap-1.5 text-[12px] font-mono transition-colors ${
-                taskPanelOpen ? "text-t-primary bg-white/[0.06]" : "text-t-dim hover:bg-white/[0.06] hover:text-t-muted"
+                taskPanelOpen ? "text-t-primary bg-hover" : "text-t-dim hover:bg-hover hover:text-t-muted"
               }`}
             >
               <ClipboardList size={14} strokeWidth={1.5} />
@@ -171,7 +171,7 @@ export function TitleBar() {
             <button
               onClick={toggleTerminal}
               className={`h-full px-3 flex items-center gap-1.5 text-[12px] font-mono transition-colors ${
-                terminalOpen ? "text-t-primary bg-white/[0.06]" : "text-t-dim hover:bg-white/[0.06] hover:text-t-muted"
+                terminalOpen ? "text-t-primary bg-hover" : "text-t-dim hover:bg-hover hover:text-t-muted"
               }`}
             >
               <Terminal size={14} strokeWidth={1.5} />
@@ -181,10 +181,10 @@ export function TitleBar() {
 
         <div className="w-[1px] h-[14px] bg-border mx-0.5" />
 
-        <button onClick={() => window.desktop.window.minimize()} className="w-[46px] h-full flex items-center justify-center text-t-muted hover:bg-white/[0.08] transition-colors">
+        <button onClick={() => window.desktop.window.minimize()} className="w-[46px] h-full flex items-center justify-center text-t-muted hover:bg-active transition-colors">
           <Minus size={14} strokeWidth={1.5} />
         </button>
-        <button onClick={handleMaximize} className="w-[46px] h-full flex items-center justify-center text-t-muted hover:bg-white/[0.08] transition-colors">
+        <button onClick={handleMaximize} className="w-[46px] h-full flex items-center justify-center text-t-muted hover:bg-active transition-colors">
           {isMaximized ? <Copy size={10} strokeWidth={1.5} /> : <Square size={10} strokeWidth={1.5} />}
         </button>
         <button
