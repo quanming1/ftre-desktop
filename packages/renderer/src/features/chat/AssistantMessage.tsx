@@ -302,7 +302,7 @@ export const AssistantMessage = memo(
               {message.content}
             </div>
           ) : (
-          <div className="text-[16px] leading-relaxed text-t-primary font-sans break-words">
+          <div className="text-[var(--text-lg)] leading-relaxed text-t-primary font-sans break-words">
             {/* 推理过程（折叠） */}
             {message.reasoning && <ReasoningBlock text={message.reasoning} />}
 
