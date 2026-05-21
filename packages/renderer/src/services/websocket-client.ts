@@ -158,17 +158,17 @@ class WebSocketClient {
     this.send({
       id: crypto.randomUUID().slice(0, 16),
       type: "user_input",
-      data: { content },
+      data: { content, session_id: metadata?.session_id || "" },
       metadata: metadata || {},
     });
   }
 
   /** 取消当前执行 */
-  sendCancel(): void {
+  sendCancel(sessionId?: string): void {
     this.send({
       id: crypto.randomUUID().slice(0, 16),
       type: "cancel",
-      data: {},
+      data: { session_id: sessionId || "" },
     });
   }
 

@@ -94,8 +94,7 @@ export async function fetchSessions(
     const data = await res.json();
     const sessions = data.sessions || [];
     return sessions.map((s: any) => {
-      const sessionId = s.key || s.session_id;
-      // Cache the mapping for later API calls (key is used directly as session_id)
+      const sessionId = s.id || s.key || s.session_id;
       if (s.key) {
         registerSessionKey(sessionId, s.key);
       }
@@ -105,15 +104,11 @@ export async function fetchSessions(
         workspace: s.workspace,
         agent_id: s.agent_id,
         title: s.title,
-        created_at: s.created_at
-          ? new Date(s.created_at).getTime() / 1000
-          : undefined,
-        updated_at: s.updated_at
-          ? new Date(s.updated_at).getTime() / 1000
-          : undefined,
+        created_at: s.created_at,
+        updated_at: s.updated_at,
         meta: s.meta,
         source: s.source,
-        channel: (s.channel as SessionChannel) || "unknown",
+        channel: (s.channel as SessionChannel) || "websocket",
       };
     });
   } catch {
@@ -171,26 +166,22 @@ export interface SessionMessage {
 
 /**
  * Fetch messages for a session from REST API.
- * Returns raw v5 format: `{id, role, data}[]`.
- * The consumer (e.g., ws-stream-manager.loadHistory) handles format conversion.
+ * 新后端返回格式: { messages: [{id, session_id, type, data, timestamp}] }
  */
 export async function fetchSessionMessages(
   sessionId: string,
 ): Promise<SessionMessage[]> {
   try {
-    const key = encodeSessionKey(sessionId);
     const res = await fetch(
-      `http://127.0.0.1:18790/api/sessions/${key}/messages`,
+      `http://127.0.0.1:18790/api/sessions/${encodeURIComponent(sessionId)}/messages`,
     );
     if (!res.ok) return [];
-    // v5 response: { title: string, messages: SessionMessage[] }
     const data = await res.json();
     const messages = data.messages || [];
     console.log("[API] fetchSessionMessages response:", {
       sessionId,
       messageCount: messages.length,
       sampleMessage: messages[0],
-      isV5Format: messages[0] && "role" in messages[0] && "data" in messages[0],
     });
     return messages;
   } catch (e) {
