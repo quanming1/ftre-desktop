@@ -5,6 +5,24 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>AI IDE</title>
+    <script>
+        // 同步读取持久化模式，在 CSS 加载前设置 data-theme
+        (function () {
+            var mode = 'system';
+            try {
+                var cached = localStorage.getItem('ftre-theme-mode-cache');
+                if (cached === 'light' || cached === 'dark' || cached === 'system') {
+                    mode = cached;
+                }
+            } catch (e) { }
+            var resolved = mode;
+            if (mode === 'system') {
+                resolved = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+            }
+            document.documentElement.setAttribute('data-theme', resolved);
+            document.documentElement.style.backgroundColor = resolved === 'dark' ? '#1a1b1d' : '#ffffff';
+        })();
+    </script>
 </head>
 
 <body>

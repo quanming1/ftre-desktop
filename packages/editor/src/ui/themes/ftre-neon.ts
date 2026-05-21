@@ -15,6 +15,7 @@ export const ftreNeon: FtreThemeDefinition = {
   label: "ftre Neon",
   base: "vs-dark",
   inherit: true,
+  mode: "dark",
   tokenRules: [
     // ── 注释 ──
     { token: "comment", foreground: "637777", fontStyle: "italic" },

@@ -1,14 +1,17 @@
 export type { FtreThemeDefinition, FtreThemeTokenRule } from "./types";
 export { darcula } from "./darcula";
 export { ftreNeon } from "./ftre-neon";
+export { ftreLight } from "./ftre-light";
 
 import type { FtreThemeDefinition } from "./types";
 import { darcula } from "./darcula";
 import { ftreNeon } from "./ftre-neon";
+import { ftreLight } from "./ftre-light";
 
 const builtinThemes: Record<string, FtreThemeDefinition> = {
   [darcula.id]: darcula,
   [ftreNeon.id]: ftreNeon,
+  [ftreLight.id]: ftreLight,
 };
 
 let activeThemeId = darcula.id;
@@ -36,4 +39,8 @@ export function getAvailableThemes(): { id: string; label: string }[] {
     id: t.id,
     label: t.label,
   }));
+}
+
+export function getThemeIdForMode(resolved: 'light' | 'dark'): string {
+  return resolved === 'light' ? 'ftre-light' : 'ftre-dark';
 }

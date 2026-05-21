@@ -1,0 +1,6 @@
+[
+  "packages/editor/src/ui/themes/darcula.ts",
+  "packages/editor/src/ui/themes/ftre-neon.ts",
+  "packages/editor/src/ui/themes/ftre-light.ts",
+  "packages/renderer/src/styles/tokens.css"
+]

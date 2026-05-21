@@ -297,6 +297,11 @@ export const AssistantMessage = memo(
     return (
       <div className="flex justify-start" ref={containerRef}>
         <div className="max-w-[90%]">
+          {message.isError ? (
+            <div className="px-3 py-2 rounded-lg text-[13px] text-t-dim italic leading-relaxed">
+              {message.content}
+            </div>
+          ) : (
           <div className="text-[16px] leading-relaxed text-t-primary font-sans break-words">
             {/* 推理过程（折叠） */}
             {message.reasoning && <ReasoningBlock text={message.reasoning} />}
@@ -343,6 +348,7 @@ export const AssistantMessage = memo(
               />
             )}
           </div>
+          )}
         </div>
       </div>
     );

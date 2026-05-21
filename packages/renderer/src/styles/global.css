@@ -38,8 +38,8 @@
 .spinner {
   width: 10px;
   height: 10px;
-  border: 1.5px solid #3c3c3c;
-  border-top-color: #00ff88;
+  border: 1.5px solid var(--ftre-border-default);
+  border-top-color: var(--ftre-accent-default);
   border-radius: 50%;
   animation: spin 0.8s linear infinite;
 }
@@ -60,13 +60,13 @@
 }
 
 .tabbar-scroll-area .os-scrollbar-handle {
-  background: rgba(255, 255, 255, 0.22);
+  background: var(--ftre-scrollbar-thumb);
   border-radius: 9999px;
 }
 
 .tabbar-scroll-area .os-scrollbar:hover .os-scrollbar-handle,
 .tabbar-scroll-area .os-scrollbar.os-scrollbar-pressed .os-scrollbar-handle {
-  background: rgba(255, 255, 255, 0.34);
+  background: var(--ftre-scrollbar-thumb-hover);
 }
 
 /* ===== Sonner Toast 样式覆盖 ===== */
@@ -89,13 +89,13 @@
   width: 28px !important;
   height: 28px !important;
   border: none !important;
-  background: rgba(255, 255, 255, 0.08) !important;
-  color: #888 !important;
+  background: var(--ftre-accent-ghost) !important;
+  color: var(--ftre-text-ghost) !important;
   border-radius: 6px !important;
   cursor: pointer !important;
 }
 
 [data-sonner-toaster] [data-close-button]:hover {
-  background: rgba(255, 255, 255, 0.16) !important;
-  color: #e8e8e8 !important;
+  background: var(--ftre-accent-dim) !important;
+  color: var(--ftre-text-primary) !important;
 }
