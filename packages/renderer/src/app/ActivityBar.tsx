@@ -1,6 +1,7 @@
 import { MessageSquare, Zap, Clock, Settings } from "lucide-react";
 import { useState } from "react";
 import { useLayout } from "@/stores/layout";
+import { ThemeSwitcher } from "@/components/ThemeSwitcher";
 
 export function ActivityBar() {
   const activeLeftPanel = useLayout((s) => s.activeLeftPanel);
@@ -15,7 +16,7 @@ export function ActivityBar() {
 
   return (
     <>
-      <aside className="w-[72px] h-full bg-[#333333] border-r border-border flex flex-col items-center pt-6 pb-4 justify-between shrink-0">
+      <aside className="w-[72px] h-full bg-elevated border-r border-border flex flex-col items-center pt-6 pb-4 justify-between shrink-0">
         {/* Top */}
         <div className="flex flex-col items-center gap-5">
           {items.map(({ id, icon: Icon, label }) => (
@@ -36,6 +37,7 @@ export function ActivityBar() {
 
         {/* Bottom */}
         <div className="flex flex-col items-center gap-5">
+          <ThemeSwitcher />
           <button
             onClick={() => setSettingsOpen(true)}
             className="flex flex-col items-center gap-1 w-full px-2 py-1.5 rounded-lg transition-colors text-t-dim hover:text-t-muted"
@@ -91,8 +93,8 @@ function SettingsDialog({ onClose }: { onClose: () => void }) {
                   onClick={() => setActiveSection(item.id)}
                   className={`w-[calc(100%-16px)] mx-2 text-left px-3 py-2.5 text-[13px] rounded-md transition-colors ${
                     activeSection === item.id
-                      ? "bg-white/[0.06] text-t-primary"
-                      : "text-t-secondary hover:bg-white/[0.04]"
+                      ? "bg-hover text-t-primary"
+                      : "text-t-secondary hover:bg-hover"
                   }`}
                 >
                   {item.label}
@@ -105,7 +107,7 @@ function SettingsDialog({ onClose }: { onClose: () => void }) {
         {/* Right Content */}
         <div className="flex-1 flex flex-col overflow-hidden">
           <div className="flex items-center justify-end px-4 py-2 border-b border-border">
-            <button onClick={onClose} className="p-1 rounded hover:bg-white/10 text-t-ghost hover:text-t-primary transition-colors">
+            <button onClick={onClose} className="p-1 rounded hover:bg-hover text-t-ghost hover:text-t-primary transition-colors">
               <X size={16} />
             </button>
           </div>

@@ -1,0 +1,203 @@
+/**
+ * FTRE Design Token — 唯一颜色来源
+ *
+ * 命名约定：--ftre-{category}-{role}
+ * 类别：bg, border, text, accent, status, selection, scrollbar
+ * 示例：--ftre-bg-base, --ftre-text-primary, --ftre-accent-default
+ *
+ * ⚠️ 仅此文件允许出现 Color Literal。
+ */
+
+/* ===== Dark Mode (默认 / 基线) ===== */
+html[data-theme="dark"] {
+  /* 背景 */
+  --ftre-bg-base: #1a1b1d;
+  --ftre-bg-surface: #1a1b1d;
+  --ftre-bg-elevated: #252526;
+  --ftre-bg-panel: #2d2d2d;
+  --ftre-bg-menu: #252526;
+  --ftre-bg-hover: rgba(255, 255, 255, 0.06);
+  --ftre-bg-active: rgba(255, 255, 255, 0.08);
+
+  /* 边框 */
+  --ftre-border-default: #3c3c3c;
+  --ftre-border-subtle: #454545;
+
+  /* 文字 */
+  --ftre-text-primary: #e8e8e8;
+  --ftre-text-secondary: #cccccc;
+  --ftre-text-muted: #aab0b8;
+  --ftre-text-dim: #969ca6;
+  --ftre-text-ghost: #888e98;
+  --ftre-text-faint: #7a8088;
+
+  /* 强调色 */
+  --ftre-accent-default: #00ff88;
+  --ftre-accent-hover: #00cc6e;
+  --ftre-accent-dim: rgba(0, 255, 136, 0.12);
+  --ftre-accent-ghost: rgba(0, 255, 136, 0.06);
+
+  /* 状态 */
+  --ftre-status-success: #00ff88;
+  --ftre-status-warning: #d29922;
+  --ftre-status-error: #f85149;
+  --ftre-status-danger: #f85149;
+  --ftre-status-info: #58a6ff;
+
+  /* 选区 */
+  --ftre-selection-bg: rgba(0, 255, 136, 0.15);
+  --ftre-selection-fg: #ffffff;
+
+  /* 滚动条 */
+  --ftre-scrollbar-thumb: #454545;
+  --ftre-scrollbar-thumb-hover: rgba(0, 255, 136, 0.3);
+  --ftre-scrollbar-track: transparent;
+}
+
+/* ===== Light Mode ===== */
+html[data-theme="light"] {
+  /* 背景 — 参考 Manus 风格，偏白但不刺眼 */
+  --ftre-bg-base: #ffffff;
+  --ftre-bg-surface: #f8f8f7;
+  --ftre-bg-elevated: #ebebeb;
+  --ftre-bg-panel: #f0f0f1;
+  --ftre-bg-menu: #ffffff;
+  --ftre-bg-hover: rgba(0, 0, 0, 0.04);
+  --ftre-bg-active: rgba(0, 0, 0, 0.06);
+
+  /* 边框 — 极淡，不抢视觉 */
+  --ftre-border-default: #e8e8ea;
+  --ftre-border-subtle: #efefef;
+
+  /* 文字 — 主色用深灰而非纯黑，层次分明 */
+  --ftre-text-primary: #1a1a1a;
+  --ftre-text-secondary: #4a4a4a;
+  --ftre-text-muted: #6b6b6b;
+  --ftre-text-dim: #8c8c8c;
+  --ftre-text-ghost: #b0b0b0;
+  --ftre-text-faint: #d0d0d0;
+
+  /* 强调色 — 降低饱和度避免刺眼 */
+  --ftre-accent-default: #059669;
+  --ftre-accent-hover: #047857;
+  --ftre-accent-dim: rgba(5, 150, 105, 0.10);
+  --ftre-accent-ghost: rgba(5, 150, 105, 0.05);
+
+  /* 状态 */
+  --ftre-status-success: #059669;
+  --ftre-status-warning: #d97706;
+  --ftre-status-error: #dc2626;
+  --ftre-status-danger: #dc2626;
+  --ftre-status-info: #2563eb;
+
+  /* 选区 */
+  --ftre-selection-bg: rgba(5, 150, 105, 0.15);
+  --ftre-selection-fg: #1a1a1a;
+
+  /* 滚动条 */
+  --ftre-scrollbar-thumb: #c4c4c8;
+  --ftre-scrollbar-thumb-hover: rgba(5, 150, 105, 0.4);
+  --ftre-scrollbar-track: transparent;
+}
+
+/* ===== 向后兼容别名 (DEPRECATED — 将在 v0.3.0 移除) ===== */
+:root {
+  /* @deprecated 使用 --ftre-bg-base，将在 v0.3.0 移除 */
+  --bg-base: var(--ftre-bg-base);
+  /* @deprecated 使用 --ftre-bg-surface，将在 v0.3.0 移除 */
+  --bg-surface: var(--ftre-bg-surface);
+  /* @deprecated 使用 --ftre-bg-elevated，将在 v0.3.0 移除 */
+  --bg-elevated: var(--ftre-bg-elevated);
+  /* @deprecated 使用 --ftre-bg-panel，将在 v0.3.0 移除 */
+  --bg-hover: var(--ftre-bg-panel);
+  /* @deprecated 使用 --ftre-bg-panel，将在 v0.3.0 移除 */
+  --bg-active: var(--ftre-bg-panel);
+
+  /* @deprecated 使用 --ftre-text-primary，将在 v0.3.0 移除 */
+  --text-primary: var(--ftre-text-primary);
+  /* @deprecated 使用 --ftre-text-secondary，将在 v0.3.0 移除 */
+  --text-secondary: var(--ftre-text-secondary);
+  /* @deprecated 使用 --ftre-text-muted，将在 v0.3.0 移除 */
+  --text-muted: var(--ftre-text-muted);
+
+  /* @deprecated 使用 --ftre-accent-default，将在 v0.3.0 移除 */
+  --accent: var(--ftre-accent-default);
+  /* @deprecated 使用 --ftre-accent-hover，将在 v0.3.0 移除 */
+  --accent-hover: var(--ftre-accent-hover);
+  /* @deprecated 使用 --ftre-accent-dim，将在 v0.3.0 移除 */
+  --accent-muted: var(--ftre-accent-dim);
+
+  /* @deprecated 使用 --ftre-accent-default，将在 v0.3.0 移除 */
+  --ftre-accent: var(--ftre-accent-default);
+  /* @deprecated 使用 --ftre-accent-dim，将在 v0.3.0 移除 */
+  --ftre-accent-dim: var(--ftre-accent-dim);
+
+  /* @deprecated 使用 --ftre-status-success，将在 v0.3.0 移除 */
+  --success: var(--ftre-status-success);
+  /* @deprecated 使用 --ftre-status-warning，将在 v0.3.0 移除 */
+  --warning: var(--ftre-status-warning);
+  /* @deprecated 使用 --ftre-status-error，将在 v0.3.0 移除 */
+  --error: var(--ftre-status-error);
+  /* @deprecated 使用 --ftre-status-info，将在 v0.3.0 移除 */
+  --info: var(--ftre-status-info);
+
+  /* @ftre/ui 兼容 — @deprecated 将在 v0.3.0 移除 */
+  /* @deprecated 使用 --ftre-bg-base，将在 v0.3.0 移除 */
+  --ftre-base: var(--ftre-bg-base);
+  /* @deprecated 使用 --ftre-bg-surface，将在 v0.3.0 移除 */
+  --ftre-surface: var(--ftre-bg-surface);
+  /* @deprecated 使用 --ftre-bg-elevated，将在 v0.3.0 移除 */
+  --ftre-elevated: var(--ftre-bg-elevated);
+  /* @deprecated 使用 --ftre-bg-panel，将在 v0.3.0 移除 */
+  --ftre-panel: var(--ftre-bg-panel);
+  /* @deprecated 使用 --ftre-bg-menu，将在 v0.3.0 移除 */
+  --ftre-menu-bg: var(--ftre-bg-menu);
+  /* @deprecated 使用 --ftre-border-default，将在 v0.3.0 移除 */
+  --ftre-border: var(--ftre-border-default);
+  /* @deprecated 使用 --ftre-border-subtle，将在 v0.3.0 移除 */
+  --ftre-border-subtle: var(--ftre-border-subtle);
+  /* @deprecated 使用 --ftre-text-primary，将在 v0.3.0 移除 */
+  --ftre-text-primary: var(--ftre-text-primary);
+  /* @deprecated 使用 --ftre-text-secondary，将在 v0.3.0 移除 */
+  --ftre-text-secondary: var(--ftre-text-secondary);
+  /* @deprecated 使用 --ftre-text-muted，将在 v0.3.0 移除 */
+  --ftre-text-muted: var(--ftre-text-muted);
+  /* @deprecated 使用 --ftre-text-dim，将在 v0.3.0 移除 */
+  --ftre-text-dim: var(--ftre-text-dim);
+  /* @deprecated 使用 --ftre-text-ghost，将在 v0.3.0 移除 */
+  --ftre-text-ghost: var(--ftre-text-ghost);
+  /* @deprecated 使用 --ftre-text-faint，将在 v0.3.0 移除 */
+  --ftre-text-faint: var(--ftre-text-faint);
+  /* @deprecated 使用 --ftre-accent-hover，将在 v0.3.0 移除 */
+  --ftre-accent-hover: var(--ftre-accent-hover);
+  /* @deprecated 使用 --ftre-accent-ghost，将在 v0.3.0 移除 */
+  --ftre-accent-ghost: var(--ftre-accent-ghost);
+  /* @deprecated 使用 --ftre-status-danger，将在 v0.3.0 移除 */
+  --ftre-danger: var(--ftre-status-danger);
+  /* @deprecated 使用 --ftre-status-error，将在 v0.3.0 移除 */
+  --ftre-error: var(--ftre-status-error);
+  /* @deprecated 使用 --ftre-status-warning，将在 v0.3.0 移除 */
+  --ftre-warning: var(--ftre-status-warning);
+  /* @deprecated 使用 --ftre-status-info，将在 v0.3.0 移除 */
+  --ftre-info: var(--ftre-status-info);
+  /* @deprecated 使用 --ftre-status-success，将在 v0.3.0 移除 */
+  --ftre-success: var(--ftre-status-success);
+
+  /* 间距/字体/圆角 — 非颜色变量，保持不变 */
+  --gap-xs: 4px;
+  --gap-sm: 8px;
+  --gap-md: 12px;
+  --gap-lg: 16px;
+  --gap-xl: 24px;
+  --font-mono: "JetBrains Mono", "Cascadia Code", "Fira Code", "Consolas", monospace;
+  --font-sans: "Inter", -apple-system, "Segoe UI", sans-serif;
+  --font-size-xs: 11px;
+  --font-size-sm: 12px;
+  --font-size-md: 13px;
+  --font-size-lg: 14px;
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --titlebar-height: 40px;
+  /* @deprecated 使用 --ftre-bg-base，将在 v0.3.0 移除 */
+  --color-base: var(--ftre-bg-base);
+}

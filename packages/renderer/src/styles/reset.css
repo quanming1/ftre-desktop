@@ -14,20 +14,20 @@
   #root {
     height: 100%;
     overflow: hidden;
-    background: #1a1b1d;
-    color: #ddd;
+    background: var(--ftre-bg-base);
+    color: var(--ftre-text-primary);
     font-family:
       "Inter",
       -apple-system,
       "Segoe UI",
       sans-serif;
-    font-size: 13px;
+    font-size: 14px;
     -webkit-font-smoothing: antialiased;
   }
 
   ::selection {
-    background: rgba(0, 255, 136, 0.15);
-    color: #fff;
+    background: var(--ftre-selection-bg);
+    color: var(--ftre-selection-fg);
   }
 
   ::-webkit-scrollbar {
@@ -38,11 +38,11 @@
     background: transparent;
   }
   ::-webkit-scrollbar-thumb {
-    background: #454545;
+    background: var(--ftre-scrollbar-thumb);
     border-radius: 0;
   }
   ::-webkit-scrollbar-thumb:hover {
-    background: rgba(0, 255, 136, 0.3);
+    background: var(--ftre-scrollbar-thumb-hover);
   }
 
   button {
@@ -61,7 +61,7 @@
   }
 
   a {
-    color: #00ff88;
+    color: var(--ftre-accent-default);
     text-decoration: none;
   }
 }

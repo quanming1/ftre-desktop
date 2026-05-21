@@ -61,7 +61,7 @@ function SkillDropdown({
           className={`w-full flex items-center gap-2 px-3 py-1.5 text-left transition-colors ${
             i === selectedIndex
               ? "bg-neon/10 text-neon"
-              : "text-t-secondary hover:bg-white/5"
+              : "text-t-secondary hover:bg-hover"
           }`}
         >
           <Zap size={12} className="shrink-0 opacity-60" />
@@ -328,7 +328,7 @@ export function ChatInput() {
             {/* 右侧：工具按钮 & 发送 */}
             <div className="flex items-center gap-1">
               <TokenRing />
-              <div className="w-px h-3.5 bg-white/[0.08] mx-0.5" />
+              <div className="w-px h-3.5 bg-border-subtle mx-0.5" />
               {isBusy ? (
                 <button
                   onClick={handleCancel}
@@ -342,7 +342,7 @@ export function ChatInput() {
                   className={`h-9 w-9 flex items-center justify-center rounded-lg transition-all ${
                     !inputEditor.isEmpty
                       ? "bg-neon text-base hover:bg-neon/80 shadow-[0_0_8px_rgba(var(--neon-rgb,56,189,248),0.22)]"
-                      : "bg-white/[0.06] text-t-ghost"
+                      : "bg-surface text-t-ghost"
                   }`}
                 >
                   <ArrowUp size={16} />

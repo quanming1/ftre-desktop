@@ -536,7 +536,7 @@ export function SessionPanel() {
             onClick={() => setWorkspaceMenuOpen((v) => !v)}
             onMouseEnter={() => setHeaderHovered(true)}
             onMouseLeave={() => setHeaderHovered(false)}
-            className="w-full px-4 py-3.5 flex items-center gap-3 hover:bg-white/[0.02] transition-colors border-b border-border/50"
+            className="w-full px-4 py-3.5 flex items-center gap-3 hover:bg-hover transition-colors border-b border-border/50"
           >
             <span
               className="shrink-0 w-9 h-9 rounded-lg text-[12px] font-semibold flex items-center justify-center text-white"
@@ -579,7 +579,7 @@ export function SessionPanel() {
                     className={`w-full flex items-center gap-3 px-3 py-3 relative transition-all duration-150 ease-out ${
                       isActive
                         ? "text-neon bg-neon/[0.06]"
-                        : "text-t-muted hover:text-t-primary hover:bg-white/[0.04] active:scale-[0.98] active:duration-100"
+                        : "text-t-muted hover:text-t-primary hover:bg-hover active:scale-[0.98] active:duration-100"
                     }`}
                   >
                     <span
@@ -706,8 +706,8 @@ export function SessionPanel() {
                           mt-1 flex items-center gap-2 px-3 py-2.5 cursor-pointer select-none transition-colors rounded-md border border-transparent
                           ${
                             isSessionActive
-                              ? "bg-white/[0.06]"
-                              : "bg-transparent border-border/30 hover:bg-white/[0.03]"
+                              ? "bg-active"
+                              : "bg-transparent border-border/30 hover:bg-hover"
                           }
                         `}
                         >
@@ -757,7 +757,7 @@ export function SessionPanel() {
                           {isSessionHovered && (
                             <button
                               onClick={(e) => showSessionMenu(e, session)}
-                              className="shrink-0 p-1 rounded text-t-dim hover:text-t-primary hover:bg-white/[0.08] transition-colors"
+                              className="shrink-0 p-1 rounded text-t-dim hover:text-t-primary hover:bg-hover transition-colors"
                             >
                               <MoreHorizontal size={14} />
                             </button>
@@ -829,7 +829,7 @@ export function SessionPanel() {
               <div className="px-4 py-3 border-t border-border flex justify-end gap-2">
                 <button
                   onClick={() => setRenamingSession(null)}
-                  className="px-3 py-1.5 rounded text-[12px] text-t-muted hover:bg-white/[0.06]"
+                  className="px-3 py-1.5 rounded text-[12px] text-t-muted hover:bg-hover"
                 >
                   取消
                 </button>

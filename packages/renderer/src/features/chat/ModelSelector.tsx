@@ -197,7 +197,7 @@ export const ModelSelector = memo(function ModelSelector() {
     <div className="relative" ref={panelRef}>
       <button
         onClick={() => setOpen(!open)}
-        className="flex items-center gap-1.5 text-[13px] h-9 px-3 rounded-md font-mono transition-colors duration-150 text-t-muted hover:text-t-primary hover:bg-white/[0.05]"
+        className="flex items-center gap-1.5 text-[13px] h-9 px-3 rounded-md font-mono transition-colors duration-150 text-t-muted hover:text-t-primary hover:bg-hover"
       >
         <span className="truncate max-w-[200px]">{getDisplayName()}</span>
         <ChevronDown size={12} className="shrink-0 opacity-60" />
@@ -266,7 +266,7 @@ export const ModelSelector = memo(function ModelSelector() {
                             className={`w-full px-3 py-1.5 text-left text-[13px] flex items-center justify-between transition-colors ${
                               isSelected
                                 ? "text-accent bg-accent/10"
-                                : "text-t-secondary hover:text-t-primary hover:bg-white/[0.04]"
+                                : "text-t-secondary hover:text-t-primary hover:bg-hover"
                             }`}
                           >
                             <span className="truncate">

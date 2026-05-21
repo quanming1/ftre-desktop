@@ -1,7 +1,7 @@
 .markdown-body {
-  font-size: 14px;
-  line-height: 1.6;
-  color: var(--text-primary);
+  font-size: 15px;
+  line-height: 1.7;
+  color: var(--ftre-text-primary);
 }
 
 .markdown-body p {
@@ -15,13 +15,13 @@
 .markdown-body code {
   font-family: var(--font-mono);
   font-size: 12px;
-  background: var(--bg-elevated);
+  background: var(--ftre-bg-elevated);
   padding: 1px 4px;
   border-radius: 3px;
 }
 
 .markdown-body pre {
-  background: var(--bg-base);
+  background: var(--ftre-bg-base);
   padding: var(--gap-sm) var(--gap-md);
   border-radius: var(--radius-sm);
   overflow-x: auto;
@@ -47,7 +47,7 @@
 
 .markdown-body blockquote {
   padding-left: var(--gap-md);
-  color: var(--text-secondary);
+  color: var(--ftre-text-secondary);
   margin: var(--gap-sm) 0;
 }
 
@@ -55,7 +55,7 @@
 .markdown-body h2,
 .markdown-body h3 {
   margin: var(--gap-md) 0 var(--gap-sm) 0;
-  color: var(--text-primary);
+  color: var(--ftre-text-primary);
 }
 
 .markdown-body h1 {
@@ -86,7 +86,7 @@
 }
 
 .markdown-body th {
-  color: var(--text-muted);
+  color: var(--ftre-text-muted);
 }
 
 @keyframes blink {
