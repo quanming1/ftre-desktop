@@ -33,17 +33,20 @@ window.addEventListener("error", (event) => {
 
 import * as monaco from "monaco-editor";
 import { getTextModelResolverService } from "@ftre/editor/workbench";
-import { registerFtreTheme, getActiveThemeId } from "@ftre/editor/ui";
+import { registerFtreTheme, getThemeIdForMode } from "@ftre/editor/ui";
 import { initEditorHostBridge } from "../features/editor/editor-host-bridge";
+import { setHljsTheme } from "@/lib/hljs-theme-loader";
+import { useTheme } from "@/stores/theme";
 import React from "react";
 import { createRoot } from "react-dom/client";
 import { ErrorBoundary, TooltipProvider } from "@ftre/ui";
 import { App } from "./App";
+import "../styles/tokens.css";
 import "../styles/tailwind.css";
 import "../styles/reset.css";
 import "../styles/global.css";
 import "../styles/markdown.css";
-import "highlight.js/styles/github-dark.min.css";
+
 import "@ftre/ui/styles.css";
 import "overlayscrollbars/styles/overlayscrollbars.css";
 import "sonner/dist/styles.css";
@@ -54,12 +57,6 @@ initEditorHostBridge();
 // ── WebSocket 连接初始化 ──
 import { initConnection } from "@/services/api";
 import { wsClient } from "@/services/websocket-client";
-import { useChat } from "@/stores/chat";
-
-// Register handlers BEFORE connection to avoid race condition
-wsClient.onConnect(() => useChat.getState().setConnected(true));
-wsClient.onDisconnect(() => useChat.getState().setConnected(false));
-wsClient.onStatusChange((status) => useChat.getState().setWsStatus(status));
 
 // Load saved gateway URL then connect
 (async () => {
@@ -76,16 +73,40 @@ wsClient.onStatusChange((status) => useChat.getState().setWsStatus(status));
 const textModelService = getTextModelResolverService();
 textModelService.init(monaco);
 
-// 预注册主题（在编辑器创建前完成，避免首帧白色闪烁）
-registerFtreTheme(monaco);
-monaco.editor.setTheme(getActiveThemeId());
+// 初始化 Theme Manager → 注册 Monaco 主题 → 渲染
+(async () => {
+  // 1. 确认/修正 mode（从 IPC store 读取持久化值）
+  await useTheme.getState().init();
 
-createRoot(document.getElementById("root")!).render(
-  <React.StrictMode>
-    <TooltipProvider>
-      <ErrorBoundary level="app">
-        <App />
-      </ErrorBoundary>
-    </TooltipProvider>
-  </React.StrictMode>,
-);
+  // 2. 使用 resolvedMode 获取正确的 Monaco 主题 id
+  const resolvedMode = useTheme.getState().resolvedMode;
+  const themeId = getThemeIdForMode(resolvedMode);
+
+  // 3. 注册并激活 Monaco 主题
+  registerFtreTheme(monaco, themeId);
+  monaco.editor.setTheme(themeId);
+
+  // 4. 设置 highlight.js 主题
+  setHljsTheme(resolvedMode);
+
+  // 5. 订阅后续 resolvedMode 变化，同步 Monaco 与 highlight.js
+  useTheme.subscribe((state, prev) => {
+    if (state.resolvedMode !== prev.resolvedMode) {
+      const newThemeId = getThemeIdForMode(state.resolvedMode);
+      registerFtreTheme(monaco, newThemeId);
+      monaco.editor.setTheme(newThemeId);
+      setHljsTheme(state.resolvedMode);
+    }
+  });
+
+  // 6. React 渲染
+  createRoot(document.getElementById("root")!).render(
+    <React.StrictMode>
+      <TooltipProvider>
+        <ErrorBoundary level="app">
+          <App />
+        </ErrorBoundary>
+      </TooltipProvider>
+    </React.StrictMode>,
+  );
+})();
