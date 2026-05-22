@@ -1,7 +1,6 @@
 import { MessageSquare, Zap, Clock, Settings } from "lucide-react";
 import { useState } from "react";
 import { useLayout } from "@/stores/layout";
-import { ThemeSwitcher } from "@/components/ThemeSwitcher";
 
 export function ActivityBar() {
   const activeLeftPanel = useLayout((s) => s.activeLeftPanel);
@@ -37,7 +36,6 @@ export function ActivityBar() {
 
         {/* Bottom */}
         <div className="flex flex-col items-center gap-5">
-          <ThemeSwitcher />
           <button
             onClick={() => setSettingsOpen(true)}
             className="flex flex-col items-center gap-1 w-full px-2 py-1.5 rounded-lg transition-colors text-t-dim hover:text-t-muted"
@@ -65,11 +63,6 @@ function SettingsDialog({ onClose }: { onClose: () => void }) {
   const [activeSection, setActiveSection] = useState("general");
 
   const navSections = [
-    { group: "账户", items: [
-      { id: "account", label: "账户" },
-      { id: "usage", label: "用量与计费" },
-      { id: "personalization", label: "个性化" },
-    ]},
     { group: "功能", items: [
       { id: "general", label: "通用" },
       { id: "models", label: "模型" },
@@ -115,10 +108,7 @@ function SettingsDialog({ onClose }: { onClose: () => void }) {
             {activeSection === "models" && <ModelSettings />}
             {activeSection === "gateway" && <GatewaySettings />}
             {activeSection === "agents" && <AgentDefSettings />}
-            {activeSection === "general" && <PlaceholderSection title="通用" description="通用设置（开发中）" />}
-            {activeSection === "account" && <PlaceholderSection title="账户" description="账户管理（开发中）" />}
-            {activeSection === "usage" && <PlaceholderSection title="用量与计费" description="用量统计（开发中）" />}
-            {activeSection === "personalization" && <PlaceholderSection title="个性化" description="个性化设置（开发中）" />}
+            {activeSection === "general" && <GeneralSettings />}
           </div>
         </div>
       </div>
@@ -126,11 +116,45 @@ function SettingsDialog({ onClose }: { onClose: () => void }) {
   );
 }
 
-function PlaceholderSection({ title, description }: { title: string; description: string }) {
+import { useTheme, type ThemeMode } from "@/stores/theme";
+import { Sun, Moon, Monitor } from "lucide-react";
+
+function GeneralSettings() {
+  const mode = useTheme((s) => s.mode);
+  const setMode = useTheme((s) => s.setMode);
+
+  const options: { value: ThemeMode; label: string; icon: typeof Sun }[] = [
+    { value: "light", label: "浅色", icon: Sun },
+    { value: "dark", label: "深色", icon: Moon },
+    { value: "system", label: "跟随系统", icon: Monitor },
+  ];
+
   return (
-    <div className="text-center py-16">
-      <h3 className="text-sm font-medium text-t-primary mb-2">{title}</h3>
-      <p className="text-xs text-t-ghost">{description}</p>
+    <div className="space-y-6">
+      <div>
+        <h2 className="text-[16px] font-semibold text-t-primary mb-2">通用设置</h2>
+      </div>
+
+      {/* 主题切换 */}
+      <div>
+        <label className="block text-[13px] font-medium text-t-primary mb-3">外观主题</label>
+        <div className="flex gap-2">
+          {options.map(({ value, label, icon: Icon }) => (
+            <button
+              key={value}
+              onClick={() => setMode(value)}
+              className={`flex items-center gap-2 px-4 py-2.5 rounded-lg border text-[13px] transition-colors ${
+                mode === value
+                  ? "border-neon/50 bg-neon-ghost text-t-primary"
+                  : "border-border-subtle bg-elevated text-t-secondary hover:bg-hover"
+              }`}
+            >
+              <Icon size={16} />
+              {label}
+            </button>
+          ))}
+        </div>
+      </div>
     </div>
   );
 }
