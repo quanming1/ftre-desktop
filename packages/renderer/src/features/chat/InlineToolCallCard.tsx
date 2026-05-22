@@ -93,7 +93,7 @@ export const InlineToolCallCard = memo(
     const isOpen = expanded || (isError && !expanded);
 
     return (
-      <div className="w-full border border-border-subtle rounded-[var(--radius-pill)] overflow-hidden bg-panel">
+      <div className="w-full border border-border-subtle overflow-hidden bg-panel rounded-[20px]">
         {/* 标题栏 */}
         <button
           onClick={toggleExpand}
