@@ -328,7 +328,7 @@ export const useChat = create<ChatState>(() => ({
     if (sessionId) {
       doSend(sessionId);
     } else {
-      fetch("http://127.0.0.1:18790/api/sessions", { method: "POST" })
+      fetch("http://127.0.0.1:18790/api/sessions?channel_id=ws", { method: "POST" })
         .then((r) => r.json())
         .then((data) => { useChat.setState({ sessionId: data.session_id }); doSend(data.session_id); })
         .catch(() => useChat.setState({ isBusy: false, error: "创建会话失败" }));
