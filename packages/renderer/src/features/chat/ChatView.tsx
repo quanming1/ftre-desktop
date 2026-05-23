@@ -10,9 +10,9 @@ import { useState, useEffect, useMemo } from "react";
 import { useChat } from "@/stores/chat";
 import { useSession } from "@/stores/session";
 import { wsClient } from "@/services/websocket-client";
-import type { ChatMessage } from "@/stores/chat";
 import { ChatMessageList } from "./ChatMessageList";
 import { ChatInput } from "./ChatInput";
+import { WelcomeView } from "./WelcomeView";
 import { WsLogPanel, type LogEntry } from "./WsLogPanel";
 
 // ─── Component ──────────────────────────────────────────────────────
@@ -80,18 +80,22 @@ export function ChatView() {
         </div>
       )}
 
-      {/* Message list */}
-      <ChatMessageList messages={messages} isBusy={isBusy} className="flex-1" />
-
-      {/* Input */}
-      {canSend ? (
-        <ChatInput />
+      {/* 主内容：空会话 + 可发送 → 居中欢迎页；否则正常的消息列表 + 输入框 */}
+      {messages.length === 0 && !isBusy && canSend ? (
+        <WelcomeView />
       ) : (
-        <div className="px-6 pb-4 pt-3">
-          <div className="mx-auto w-full max-w-[960px] text-center py-3 text-[14px] text-t-ghost">
-            此会话来自 {currentSessionChannel} 渠道，仅供查看
-          </div>
-        </div>
+        <>
+          <ChatMessageList messages={messages} isBusy={isBusy} className="flex-1" />
+          {canSend ? (
+            <ChatInput />
+          ) : (
+            <div className="px-6 pb-4 pt-3">
+              <div className="mx-auto w-full max-w-[960px] text-center py-3 text-[14px] text-t-ghost">
+                此会话来自 {currentSessionChannel} 渠道，仅供查看
+              </div>
+            </div>
+          )}
+        </>
       )}
 
       {/* WS Log overlay (Storybook only) */}
