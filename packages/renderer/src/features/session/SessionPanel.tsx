@@ -703,7 +703,7 @@ export function SessionPanel() {
                           }
                           onMouseLeave={() => setHoveredSession(null)}
                           className={`
-                          mt-1 flex items-center gap-2 px-3 py-2.5 cursor-pointer select-none transition-colors rounded-md border border-transparent
+                          mt-1 flex items-center gap-2 px-3 py-2.5 cursor-pointer select-none transition-colors rounded-lg border border-transparent
                           ${
                             isSessionActive
                               ? "bg-active"
