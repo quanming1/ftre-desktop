@@ -19,6 +19,7 @@ import {
 import {
   Button,
   Input,
+  Switch,
   AlertDialog,
   AlertDialogTrigger,
   AlertDialogContent,
@@ -29,13 +30,19 @@ import {
   AlertDialogAction,
   AlertDialogCancel,
 } from "@ftre/ui";
-import { AI_BASE_CONFIG_PATH } from "@/lib/paths";
+import { fetchAppConfig, saveAppConfig } from "@/services/api";
 
 // ─── Types ──────────────────────────────────────────────────────────
 
 interface ModelItem {
   name: string;
   id: string;
+  /** 上下文窗口大小（token 数），可空 */
+  context_window?: number | null;
+  /** 最大输出 token 数，可空 */
+  max_output?: number | null;
+  /** 是否支持视觉输入（图片） */
+  vision?: boolean;
 }
 
 interface ProviderConfig {
@@ -146,21 +153,14 @@ function maskKey(key: string | null | undefined): string {
 }
 
 async function readConfig(): Promise<AiBaseConfig> {
-  try {
-    const result = await window.desktop.fs.readFile(AI_BASE_CONFIG_PATH);
-    const raw = typeof result === "string" ? result : result?.content || "";
-    if (!raw) return {};
-    return JSON.parse(raw);
-  } catch {
-    return {};
-  }
+  return (await fetchAppConfig()) as AiBaseConfig;
 }
 
 async function writeConfig(config: AiBaseConfig): Promise<void> {
-  await window.desktop.fs.writeFile(
-    AI_BASE_CONFIG_PATH,
-    JSON.stringify(config, null, 2),
-  );
+  const ok = await saveAppConfig(config as Record<string, any>);
+  if (!ok) {
+    throw new Error("保存配置失败");
+  }
 }
 
 function getProviderLabel(name: string): string {
@@ -237,13 +237,21 @@ export function ModelSettings() {
     setEditKey(p?.api_key || "");
     setEditBase(p?.api_base || "");
     setEditProtocol(p?.api_protocol || "");
-    // models 可能是字符串数组 ["model-id"] 或对象数组 [{name, id}]
+    // models 兼容：旧格式（字符串 / {name,id}）+ 新格式（带 context_window/max_output/vision）
     const rawModels = p?.models || [];
-    const models: ModelItem[] = rawModels.map((m: string | ModelItem) => {
+    const models: ModelItem[] = rawModels.map((m: string | Record<string, any>) => {
       if (typeof m === "string") {
         return { name: m, id: m };
       }
-      return m as ModelItem;
+      return {
+        name: m.name ?? "",
+        id: m.id ?? "",
+        context_window:
+          typeof m.context_window === "number" ? m.context_window : null,
+        max_output:
+          typeof m.max_output === "number" ? m.max_output : null,
+        vision: !!m.vision,
+      };
     });
     setEditModels(models);
     setShowKey(false);
@@ -284,12 +292,41 @@ export function ModelSettings() {
       const updated = { ...config };
       if (!updated.providers) updated.providers = {};
 
-      // 过滤掉空的模型，并只保留 name 和 id 字段
+      // 过滤掉空的模型，只保留有 name 或 id 的；空字段不写入 JSON
       const validModels = editModels
         .filter((m) => m.name.trim() || m.id.trim())
-        .map((m) => ({ name: m.name.trim(), id: m.id.trim() }));
+        .map((m) => {
+          const out: Record<string, any> = {
+            name: m.name.trim(),
+            id: m.id.trim(),
+          };
+          if (typeof m.context_window === "number" && m.context_window > 0) {
+            out.context_window = m.context_window;
+          }
+          if (typeof m.max_output === "number" && m.max_output > 0) {
+            out.max_output = m.max_output;
+          }
+          if (m.vision) {
+            out.vision = true;
+          }
+          return out;
+        });
 
       const providerName = editName.trim();
+
+      // 改名/新建时检查与其他 provider 是否重名
+      const existingNames = Object.keys(updated.providers);
+      const collidesWith =
+        isNew || providerName !== editOriginalName
+          ? existingNames.find(
+              (n) => n === providerName && n !== editOriginalName,
+            )
+          : undefined;
+      if (collidesWith) {
+        setError(`已存在同名供应商: ${collidesWith}`);
+        setSaving(false);
+        return;
+      }
 
       // 如果是编辑且名称改变了，删除旧记录
       if (!isNew && editOriginalName && editOriginalName !== providerName) {
@@ -324,10 +361,17 @@ export function ModelSettings() {
   // ─── Model List Actions ─────────────────────────────────────────
 
   const addModel = () => {
-    setEditModels([...editModels, { name: "", id: "" }]);
+    setEditModels([
+      ...editModels,
+      { name: "", id: "", context_window: null, max_output: null, vision: false },
+    ]);
   };
 
-  const updateModel = (index: number, field: "name" | "id", value: string) => {
+  const updateModel = <K extends keyof ModelItem>(
+    index: number,
+    field: K,
+    value: ModelItem[K],
+  ) => {
     const updated = [...editModels];
     updated[index] = { ...updated[index], [field]: value };
     setEditModels(updated);
@@ -348,40 +392,39 @@ export function ModelSettings() {
             setView("list");
             setError(null);
           }}
-          className="flex items-center gap-1.5 text-[13px] text-t-muted hover:text-t-primary transition-colors mb-6 self-start"
+          className="flex items-center gap-1 text-[12px] text-t-muted hover:text-t-primary transition-colors mb-5 self-start"
         >
-          <ChevronLeft size={16} />
+          <ChevronLeft size={14} />
           返回
         </button>
 
-        <h2 className="text-[18px] font-medium text-t-primary mb-1">
+        <h2 className="text-[16px] font-medium text-t-primary mb-0.5">
           {isNew ? "添加供应商" : getProviderLabel(editName)}
         </h2>
-        <p className="text-[13px] text-t-muted mb-6">配置 API 连接和可用模型</p>
+        <p className="text-[12px] text-t-muted mb-5">配置 API 连接和可用模型</p>
 
         {error && (
-          <div className="mb-4 px-3 py-2 bg-red-500/10 text-red-400 text-[13px] rounded-md">
+          <div className="mb-4 px-3 py-2 bg-red-500/[0.08] border border-red-500/20 text-red-400/90 text-[12px] rounded-md">
             {error}
           </div>
         )}
 
-        <div className="space-y-5 flex-1 overflow-y-auto px-0.5">
+        <div className="space-y-4 flex-1 overflow-y-auto px-0.5">
           {/* Provider Name */}
           <div>
-            <label className="block text-[12px] text-t-muted mb-1.5">
+            <label className="block text-[11px] text-t-muted mb-1.5">
               供应商名称
             </label>
             <Input
               value={editName}
               onChange={(e) => setEditName(e.target.value)}
               placeholder="如：OpenAI、Anthropic、DeepSeek"
-              disabled={!isNew}
             />
           </div>
 
           {/* API Key */}
           <div>
-            <label className="block text-[12px] text-t-muted mb-1.5">
+            <label className="block text-[11px] text-t-muted mb-1.5">
               API Key
             </label>
             <div className="relative">
@@ -397,14 +440,14 @@ export function ModelSettings() {
                 onClick={() => setShowKey((p) => !p)}
                 className="absolute right-3 top-1/2 -translate-y-1/2 text-t-ghost hover:text-t-secondary transition-colors"
               >
-                {showKey ? <EyeOff size={14} /> : <Eye size={14} />}
+                {showKey ? <EyeOff size={13} /> : <Eye size={13} />}
               </button>
             </div>
           </div>
 
           {/* API Base */}
           <div>
-            <label className="block text-[12px] text-t-muted mb-1.5">
+            <label className="block text-[11px] text-t-muted mb-1.5">
               API Base URL
             </label>
             <Input
@@ -417,13 +460,13 @@ export function ModelSettings() {
 
           {/* API Protocol */}
           <div>
-            <label className="block text-[12px] text-t-muted mb-1.5">
+            <label className="block text-[11px] text-t-muted mb-1.5">
               API 协议
             </label>
             <select
               value={editProtocol}
               onChange={(e) => setEditProtocol(e.target.value)}
-              className="w-full h-9 px-3 rounded-md bg-elevated border border-border text-[13px] text-t-primary focus:outline-none focus:border-accent appearance-none"
+              className="w-full h-8 px-3 rounded-md bg-elevated border border-border text-[13px] text-t-primary focus:outline-none focus:border-accent appearance-none"
             >
               {API_PROTOCOLS.map((opt) => (
                 <option key={opt.value} value={opt.value}>
@@ -431,73 +474,175 @@ export function ModelSettings() {
                 </option>
               ))}
             </select>
-            <p className="text-[11px] text-t-ghost mt-1">
+            <p className="text-[10.5px] text-t-ghost mt-1">
               自定义网关通常选择"OpenAI 兼容"
             </p>
           </div>
 
           {/* Models List */}
-          <div>
+          <div className="pt-1">
             <div className="flex items-center justify-between mb-2">
-              <label className="block text-[12px] text-t-muted">模型列表</label>
+              <label className="block text-[11px] text-t-muted">
+                模型列表
+              </label>
               <button
                 onClick={addModel}
-                className="flex items-center gap-1 text-[12px] text-accent hover:text-accent/80 transition-colors"
+                className="flex items-center gap-1 text-[11px] text-accent hover:text-accent/80 transition-colors"
               >
-                <Plus size={14} />
+                <Plus size={12} />
                 添加模型
               </button>
             </div>
 
             {editModels.length === 0 ? (
-              <div className="text-[12px] text-t-ghost py-4 text-center border border-dashed border-border rounded-md">
-                暂无模型，点击上方"添加模型"
+              <div className="text-[11.5px] text-t-ghost py-5 text-center border border-dashed border-border-subtle rounded-md">
+                暂无模型，点击右上角"添加模型"
               </div>
             ) : (
-              <div className="space-y-2">
-                {/* Header */}
-                <div className="flex gap-2 text-[11px] text-t-ghost px-1">
-                  <div className="flex-1">名称</div>
-                  <div className="flex-1">模型 ID</div>
-                  <div className="w-8"></div>
-                </div>
-                {/* Rows */}
+              <div className="space-y-2.5">
                 {editModels.map((model, index) => (
-                  <div key={index} className="flex gap-2 items-center">
-                    <Input
-                      value={model.name}
-                      onChange={(e) =>
-                        updateModel(index, "name", e.target.value)
-                      }
-                      placeholder="如：GPT-4o"
-                      className="flex-1 text-[13px]"
-                    />
-                    <Input
-                      value={model.id}
-                      onChange={(e) => updateModel(index, "id", e.target.value)}
-                      placeholder="如：gpt-4o"
-                      className="flex-1 text-[13px] font-mono"
-                    />
-                    <button
-                      onClick={() => removeModel(index)}
-                      className="w-8 h-8 flex items-center justify-center text-t-ghost hover:text-red-400 transition-colors"
-                    >
-                      <Trash2 size={14} />
-                    </button>
+                  <div
+                    key={index}
+                    className="rounded-md border border-border-subtle bg-elevated/30 p-3 space-y-2.5"
+                  >
+                    {/* 顶部：标题 + 删除 */}
+                    <div className="flex items-center justify-between">
+                      <span className="text-[10.5px] text-t-ghost uppercase tracking-wide">
+                        模型 {index + 1}
+                      </span>
+                      <button
+                        onClick={() => removeModel(index)}
+                        title="移除"
+                        className="w-6 h-6 flex items-center justify-center text-t-ghost hover:text-red-400 transition-colors"
+                      >
+                        <Trash2 size={13} />
+                      </button>
+                    </div>
+
+                    {/* 名称 */}
+                    <div>
+                      <label className="block text-[10.5px] text-t-muted mb-1">
+                        名称
+                      </label>
+                      <Input
+                        value={model.name}
+                        onChange={(e) =>
+                          updateModel(index, "name", e.target.value)
+                        }
+                        placeholder="如：GPT-4o"
+                        className="text-[13px]"
+                      />
+                    </div>
+
+                    {/* 模型 ID */}
+                    <div>
+                      <label className="block text-[10.5px] text-t-muted mb-1">
+                        模型 ID
+                      </label>
+                      <Input
+                        value={model.id}
+                        onChange={(e) =>
+                          updateModel(index, "id", e.target.value)
+                        }
+                        placeholder="如：gpt-4o"
+                        className="text-[13px] font-mono"
+                      />
+                    </div>
+
+                    {/* 上下文 + 最大输出（两列） */}
+                    <div className="grid grid-cols-2 gap-2.5">
+                      <div>
+                        <label className="block text-[10.5px] text-t-muted mb-1">
+                          上下文 (token)
+                        </label>
+                        <Input
+                          type="text"
+                          inputMode="numeric"
+                          value={
+                            model.context_window == null
+                              ? ""
+                              : String(model.context_window)
+                          }
+                          onChange={(e) => {
+                            const raw = e.target.value.trim();
+                            if (!raw)
+                              return updateModel(
+                                index,
+                                "context_window",
+                                null,
+                              );
+                            if (!/^\d+$/.test(raw)) return;
+                            updateModel(
+                              index,
+                              "context_window",
+                              parseInt(raw, 10),
+                            );
+                          }}
+                          placeholder="128000"
+                          className="text-[13px] font-mono"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-[10.5px] text-t-muted mb-1">
+                          最大输出 (token)
+                        </label>
+                        <Input
+                          type="text"
+                          inputMode="numeric"
+                          value={
+                            model.max_output == null
+                              ? ""
+                              : String(model.max_output)
+                          }
+                          onChange={(e) => {
+                            const raw = e.target.value.trim();
+                            if (!raw)
+                              return updateModel(index, "max_output", null);
+                            if (!/^\d+$/.test(raw)) return;
+                            updateModel(
+                              index,
+                              "max_output",
+                              parseInt(raw, 10),
+                            );
+                          }}
+                          placeholder="8192"
+                          className="text-[13px] font-mono"
+                        />
+                      </div>
+                    </div>
+
+                    {/* 支持图片 */}
+                    <div className="flex items-center justify-between pt-2 mt-1 border-t border-border-subtle/60">
+                      <div>
+                        <div className="text-[12px] text-t-secondary leading-tight">
+                          支持图片输入
+                        </div>
+                        <div className="text-[10.5px] text-t-ghost mt-0.5 leading-tight">
+                          开启后可在聊天发送图片附件
+                        </div>
+                      </div>
+                      <Switch
+                        size="sm"
+                        checked={!!model.vision}
+                        onCheckedChange={(v) =>
+                          updateModel(index, "vision", v)
+                        }
+                      />
+                    </div>
                   </div>
                 ))}
               </div>
             )}
-            <p className="text-[11px] text-t-ghost mt-2">
+            <p className="text-[10.5px] text-t-ghost mt-2">
               配置后可在聊天界面快速切换模型
             </p>
           </div>
         </div>
 
         {/* Actions */}
-        <div className="mt-6 pt-4 border-t border-border flex gap-3">
+        <div className="mt-5 pt-4 border-t border-border-subtle flex gap-2.5">
           <Button onClick={handleSave} disabled={saving}>
-            <Save size={14} />
+            <Save size={13} />
             {saving ? "保存中..." : "保存"}
           </Button>
           <Button
@@ -517,7 +662,7 @@ export function ModelSettings() {
   // ─── List View ──────────────────────────────────────────────────
 
   if (loading) {
-    return <div className="text-[13px] text-t-ghost p-4">加载中...</div>;
+    return <div className="text-[12px] text-t-ghost p-4">加载中...</div>;
   }
 
   const providers = config?.providers || {};
@@ -526,15 +671,15 @@ export function ModelSettings() {
   return (
     <div className="h-full flex flex-col">
       {/* Header */}
-      <div className="flex items-center justify-between mb-6">
+      <div className="flex items-center justify-between mb-5">
         <div>
-          <h1 className="text-[18px] font-medium text-t-primary">供应商配置</h1>
-          <p className="text-[13px] text-t-muted mt-0.5">
+          <h1 className="text-[16px] font-medium text-t-primary">供应商配置</h1>
+          <p className="text-[12px] text-t-muted mt-0.5">
             管理 AI 模型供应商和可用模型
           </p>
         </div>
         <Button size="sm" onClick={handleAdd}>
-          <Plus size={14} />
+          <Plus size={13} />
           添加
         </Button>
       </div>

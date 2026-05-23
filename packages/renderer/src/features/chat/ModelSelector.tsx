@@ -1,13 +1,13 @@
 /**
  * ModelSelector — 模型选择器
  *
- * 从 ~/.ai-base/config.json 读取已配置的 providers 和 models 列表
+ * 通过后端 /api/config 读取已配置的 providers 和 models 列表
  * 用户可以选择 provider 下的具体模型
  */
 
 import { useState, useEffect, useRef, memo, useCallback } from "react";
 import { Check, ChevronDown, Search } from "lucide-react";
-import { AI_BASE_CONFIG_PATH } from "@/lib/paths";
+import { fetchAppConfig, saveAppConfig } from "@/services/api";
 import { useChat } from "@/stores/chat";
 
 interface ModelItem {
@@ -52,66 +52,55 @@ interface ConfigData {
 }
 
 async function readConfig(): Promise<ConfigData> {
-  try {
-    const result = await window.desktop.fs.readFile(AI_BASE_CONFIG_PATH);
-    const raw = typeof result === "string" ? result : result?.content || "";
-    if (!raw)
-      return { currentModel: "", currentProvider: "auto", providers: [] };
-
-    const config = JSON.parse(raw);
-    const currentModel = config.agents?.defaults?.model || "";
-    const currentProvider = config.agents?.defaults?.provider || "auto";
-
-    // 解析 providers，只显示有 api_key 且有 models 的
-    const providersObj = config.providers || {};
-    const providers: ProviderInfo[] = Object.entries(providersObj)
-      .filter(([_, cfg]: [string, any]) => {
-        const hasApiKey = !!(cfg?.api_key || cfg?.apiKey);
-        const hasModels = Array.isArray(cfg?.models) && cfg.models.length > 0;
-        return hasApiKey && hasModels;
-      })
-      .map(([name, cfg]: [string, any]) => {
-        // models 可能是字符串数组 ["model-id"] 或对象数组 [{name, id}]
-        const rawModels = cfg.models || [];
-        const models: ModelItem[] = rawModels.map((m: string | ModelItem) => {
-          if (typeof m === "string") {
-            return { name: m, id: m };
-          }
-          return m;
-        });
-        return {
-          name,
-          label: PROVIDER_LABELS[name] || name,
-          models,
-        };
-      });
-
-    return { currentModel, currentProvider, providers };
-  } catch {
+  const config = await fetchAppConfig();
+  if (!config || Object.keys(config).length === 0) {
     return { currentModel: "", currentProvider: "auto", providers: [] };
   }
+
+  const currentModel = config.agents?.defaults?.model || "";
+  const currentProvider = config.agents?.defaults?.provider || "auto";
+
+  // 解析 providers，只显示有 api_key 且有 models 的
+  const providersObj = config.providers || {};
+  const providers: ProviderInfo[] = Object.entries(providersObj)
+    .filter(([_, cfg]: [string, any]) => {
+      const hasApiKey = !!(cfg?.api_key || cfg?.apiKey);
+      const hasModels = Array.isArray(cfg?.models) && cfg.models.length > 0;
+      return hasApiKey && hasModels;
+    })
+    .map(([name, cfg]: [string, any]) => {
+      // models 可能是字符串数组 ["model-id"] 或对象数组 [{name, id}]
+      const rawModels = cfg.models || [];
+      const models: ModelItem[] = rawModels.map((m: string | ModelItem) => {
+        if (typeof m === "string") {
+          return { name: m, id: m };
+        }
+        return m;
+      });
+      return {
+        name,
+        label: PROVIDER_LABELS[name] || name,
+        models,
+      };
+    });
+
+  return { currentModel, currentProvider, providers };
 }
 
 async function writeModelToConfig(
   model: string,
   provider: string,
 ): Promise<void> {
-  try {
-    const result = await window.desktop.fs.readFile(AI_BASE_CONFIG_PATH);
-    const raw = typeof result === "string" ? result : result?.content || "";
-    const config = raw ? JSON.parse(raw) : {};
+  const config = await fetchAppConfig();
 
-    if (!config.agents) config.agents = { defaults: {} };
-    if (!config.agents.defaults) config.agents.defaults = {};
-    config.agents.defaults.model = model;
-    config.agents.defaults.provider = provider;
+  if (!config.agents) config.agents = { defaults: {} };
+  if (!config.agents.defaults) config.agents.defaults = {};
+  config.agents.defaults.model = model;
+  config.agents.defaults.provider = provider;
 
-    await window.desktop.fs.writeFile(
-      AI_BASE_CONFIG_PATH,
-      JSON.stringify(config, null, 2),
-    );
-  } catch (e) {
-    console.error("[ModelSelector] Failed to write config:", e);
+  const ok = await saveAppConfig(config);
+  if (!ok) {
+    console.error("[ModelSelector] Failed to write config");
   }
 }
 
