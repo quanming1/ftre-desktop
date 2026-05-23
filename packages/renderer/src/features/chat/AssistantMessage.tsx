@@ -5,7 +5,9 @@ import type { ChatMessage, ToolCall } from "@/stores/chat";
 import { CodeBlock } from "./CodeBlock";
 import { useThrottledValue } from "@/hooks/useThrottledValue";
 import { InlineToolCallCard } from "./InlineToolCallCard";
-import { ChevronDown, ChevronRight, Brain } from "lucide-react";
+import { ChevronDown, ChevronRight, Brain, Copy, Check } from "lucide-react";
+import { Tooltip, TooltipProvider } from "@ftre/ui";
+import { useNotification } from "@/stores/notification";
 
 /** Markdown 渲染组件映射（稳定引用，不会导致重渲染） */
 const markdownComponents = {
@@ -60,79 +62,6 @@ function findDeepestLastChild(el: Element): Element {
 }
 
 const CURSOR_ATTR = "data-streaming-cursor";
-
-/** 渲染媒体 URL 列表 */
-function MediaList({ urls }: { urls: Array<{ url: string; name?: string }> }) {
-  if (!urls || urls.length === 0) return null;
-  return (
-    <div className="flex flex-wrap gap-2 mt-2">
-      {urls.map((media, i) => {
-        const isImage =
-          media.url.includes("/api/media/") ||
-          media.name?.match(/\.(png|jpg|jpeg|gif|webp)$/i);
-        if (isImage) {
-          return (
-            <a
-              key={i}
-              href={`http://127.0.0.1:18790${media.url}`}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="block"
-            >
-              <img
-                src={`http://127.0.0.1:18790${media.url}`}
-                alt={media.name || "media"}
-                className="max-w-[300px] max-h-[200px] rounded-lg border border-border-subtle"
-              />
-            </a>
-          );
-        }
-        return (
-          <a
-            key={i}
-            href={`http://127.0.0.1:18790${media.url}`}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="inline-flex items-center gap-1 px-2 py-1 bg-surface rounded text-sm text-t-secondary hover:text-t-primary"
-          >
-            📎 {media.name || "附件"}
-          </a>
-        );
-      })}
-    </div>
-  );
-}
-
-/** 渲染按钮矩阵 */
-function ButtonMatrix({
-  buttons,
-  prompt,
-  onSelect,
-}: {
-  buttons: string[][];
-  prompt?: string;
-  onSelect: (label: string) => void;
-}) {
-  if (!buttons || buttons.length === 0) return null;
-  return (
-    <div className="mt-3 space-y-2">
-      {prompt && <div className="text-sm text-t-secondary mb-2">{prompt}</div>}
-      {buttons.map((row, rowIdx) => (
-        <div key={rowIdx} className="flex flex-wrap gap-2">
-          {row.map((label, colIdx) => (
-            <button
-              key={colIdx}
-              onClick={() => onSelect(label)}
-            className="px-3 py-1.5 text-sm bg-surface hover:bg-hover text-t-primary rounded-lg border border-border-subtle transition-colors"
-            >
-              {label}
-            </button>
-          ))}
-        </div>
-      ))}
-    </div>
-  );
-}
 
 /** Collapsible reasoning/thinking block */
 function ReasoningBlock({ text }: { text: string }) {
@@ -252,7 +181,15 @@ function PartsRenderer({
 }
 
 export const AssistantMessage = memo(
-  function AssistantMessage({ message }: { message: ChatMessage }) {
+  function AssistantMessage({
+    message,
+    showActions = false,
+    turnUsage,
+  }: {
+    message: ChatMessage;
+    showActions?: boolean;
+    turnUsage?: ChatMessage["usage"];
+  }) {
     const isStreaming = message.streaming ?? false;
     const throttledContent = useThrottledValue(
       message.content,
@@ -263,12 +200,29 @@ export const AssistantMessage = memo(
     const mdRef = useRef<HTMLDivElement>(null);
     const containerRef = useRef<HTMLDivElement>(null);
 
-    // 按钮点击处理 - 发送选中的按钮文本作为用户消息
-    const handleButtonSelect = useCallback((label: string) => {
-      import("@/stores/chat").then(({ useChat }) => {
-        useChat.getState().sendMessage(label);
-      });
-    }, []);
+    // 复制本条消息文本（含 parts 文本片段，去掉工具调用）
+    const [copied, setCopied] = useState(false);
+    const handleCopy = useCallback(async () => {
+      let text = "";
+      if (message.parts && message.parts.length > 0) {
+        text = message.parts
+          .filter((p: any) => p.type === "text")
+          .map((p: any) => p.text)
+          .join("\n");
+      } else {
+        text = message.content ?? "";
+      }
+      try {
+        await navigator.clipboard.writeText(text);
+        setCopied(true);
+        setTimeout(() => setCopied(false), 2000);
+      } catch {
+        useNotification.getState().addNotification({
+          level: "error",
+          message: "复制失败",
+        });
+      }
+    }, [message.parts, message.content]);
 
     useEffect(() => {
       const root = containerRef.current;
@@ -337,15 +291,46 @@ export const AssistantMessage = memo(
               </>
             )}
 
-            {/* 媒体内容 */}
-            {message.media_urls && <MediaList urls={message.media_urls} />}
-            {/* 按钮 */}
-            {message.buttons && (
-              <ButtonMatrix
-                buttons={message.buttons}
-                prompt={message.button_prompt}
-                onSelect={handleButtonSelect}
-              />
+            {/* 本轮最后一条 assistant：操作按钮组 */}
+            {showActions && !isStreaming && !message.isError && (
+              <div className="mt-2 flex items-center gap-1">
+                <TooltipProvider>
+                  <Tooltip content={copied ? "已复制" : "复制"} side="top">
+                    <button
+                      onClick={handleCopy}
+                      className="flex items-center justify-center w-8 h-8 text-t-ghost hover:text-t-secondary rounded-md hover:bg-hover transition-colors"
+                    >
+                      {copied ? (
+                        <Check size={15} className="text-green-500" />
+                      ) : (
+                        <Copy size={15} />
+                      )}
+                    </button>
+                  </Tooltip>
+
+                  {(turnUsage ?? message.usage) && (
+                    <Tooltip
+                      content={
+                        <div className="text-[11px] leading-snug">
+                          <div>本轮输入: {(turnUsage ?? message.usage)?.prompt_tokens ?? "-"}</div>
+                          <div>本轮输出: {(turnUsage ?? message.usage)?.completion_tokens ?? "-"}</div>
+                          <div>本轮新增: {(turnUsage ?? message.usage)?.total_tokens ?? "-"}</div>
+                        </div>
+                      }
+                      side="top"
+                    >
+                      <span className="ml-1 inline-flex items-center h-8 px-2 text-[11px] font-mono text-t-ghost rounded-md hover:bg-hover hover:text-t-secondary transition-colors cursor-default">
+                        {(() => {
+                          const u = turnUsage ?? message.usage;
+                          if (!u) return null;
+                          if (u.total_tokens != null) return `${u.total_tokens} tok`;
+                          return `${u.prompt_tokens ?? 0}+${u.completion_tokens ?? 0} tok`;
+                        })()}
+                      </span>
+                    </Tooltip>
+                  )}
+                </TooltipProvider>
+              </div>
             )}
           </div>
           )}
@@ -373,10 +358,11 @@ export const AssistantMessage = memo(
     return (
       prev.message.content === next.message.content &&
       prev.message.streaming === next.message.streaming &&
-      prev.message.media_urls === next.message.media_urls &&
-      prev.message.buttons === next.message.buttons &&
       toolCallsEqual() &&
-      prev.message.reasoning === next.message.reasoning
+      prev.message.reasoning === next.message.reasoning &&
+      prev.showActions === next.showActions &&
+      prev.message.usage === next.message.usage &&
+      prev.turnUsage === next.turnUsage
     );
   },
 );

@@ -35,6 +35,12 @@ export interface ChatMessage {
   reasoning?: string;
   parts?: MessagePart[];
   isError?: boolean;
+  usage?: {
+    prompt_tokens?: number;
+    completion_tokens?: number;
+    total_tokens?: number;
+    [key: string]: any;
+  };
 }
 
 export interface RetryState {
@@ -214,6 +220,15 @@ function dispatchMessage(msg: ServerMessage): void {
           break;
         }
       }
+      break;
+    }
+
+    case "usage_update": {
+      // 把 usage 累加/覆盖到当前 streaming 的 assistant 消息上
+      const usage = (d as any).usage;
+      if (!usage) break;
+      ensureStreamingMsg();
+      updateStreaming((m) => ({ ...m, usage }));
       break;
     }
 
