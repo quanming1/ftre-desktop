@@ -99,3 +99,169 @@
   background: var(--ftre-accent-dim) !important;
   color: var(--ftre-text-primary) !important;
 }
+
+
+/* ===== Chat 代码块 ===== *
+ * 用 CSS 变量驱动主题：在 light / dark 下分别提供卡片底色和 token 调色板。
+ * 用 !important 压住 .markdown-body code 的全局浅色样式。
+ */
+
+/* — 暗色主题（默认） — */
+.codeblock-card {
+  --cb-bg: #0e0f12;
+  --cb-fg: #e7e7ea;
+  --cb-header-fg: rgba(244, 244, 246, 0.95);
+  --cb-icon-fg: #9ca0aa;
+  --cb-icon-fg-hover: #f4f4f6;
+  --cb-icon-bg-hover: rgba(255, 255, 255, 0.06);
+  --cb-active: #62e094;
+  --cb-keyword: #f0a8ff;
+  --cb-string: #ffd484;
+  --cb-number: #ffb27a;
+  --cb-comment: #6f7380;
+  --cb-title: #f1f1f4;
+  --cb-attr: #ffd1a8;
+  --cb-params: #f5b8a0;
+  --cb-type: #b9b3ff;
+  --cb-deletion: #ff8e98;
+  --cb-addition: #84e496;
+  --cb-scroll: rgba(255, 255, 255, 0.08);
+  --cb-scroll-hover: rgba(255, 255, 255, 0.16);
+  background: var(--cb-bg);
+  color: var(--cb-fg);
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.04) inset;
+}
+
+/* — 亮色主题：浅卡片 + 经典 GitHub Light token 调色板 — */
+html[data-theme="light"] .codeblock-card {
+  --cb-bg: #f6f7f9;
+  --cb-fg: #1f2328;
+  --cb-header-fg: #1f2328;
+  --cb-icon-fg: #6e7781;
+  --cb-icon-fg-hover: #1f2328;
+  --cb-icon-bg-hover: rgba(0, 0, 0, 0.06);
+  --cb-active: #1a7f37;
+  --cb-keyword: #cf222e;     /* 关键字 红 */
+  --cb-string: #0a3069;      /* 字符串 深蓝 */
+  --cb-number: #0550ae;
+  --cb-comment: #6e7781;
+  --cb-title: #6639ba;       /* 函数名 紫 */
+  --cb-attr: #116329;        /* 属性 绿 */
+  --cb-params: #24292f;
+  --cb-type: #953800;        /* 类型 棕橙 */
+  --cb-deletion: #82071e;
+  --cb-addition: #116329;
+  --cb-scroll: rgba(0, 0, 0, 0.12);
+  --cb-scroll-hover: rgba(0, 0, 0, 0.22);
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.06) inset;
+}
+
+.codeblock-card pre {
+  background: transparent !important;
+  color: var(--cb-fg) !important;
+  border: none !important;
+  border-radius: 0 !important;
+  margin: 0 !important;
+  /* 卡片内边距：左右 20px / 底 18px / 顶 6px（紧贴 header） */
+  padding: 6px 20px 18px 20px !important;
+}
+
+.codeblock-card code {
+  background: transparent !important;
+  color: var(--cb-fg) !important;
+  padding: 0 !important;
+  border: none !important;
+  border-radius: 0 !important;
+  font-size: inherit !important;
+}
+
+.codeblock-card .codeblock-header span {
+  color: var(--cb-header-fg);
+}
+
+.codeblock-icon-btn {
+  color: var(--cb-icon-fg);
+}
+.codeblock-icon-btn:hover {
+  color: var(--cb-icon-fg-hover);
+  background: var(--cb-icon-bg-hover);
+}
+.codeblock-icon-btn.is-active,
+.codeblock-icon-btn.is-active:hover {
+  color: var(--cb-active);
+  background: transparent;
+}
+
+/* hljs token 颜色 */
+.codeblock-card .hljs-keyword,
+.codeblock-card .hljs-selector-tag,
+.codeblock-card .hljs-built_in,
+.codeblock-card .hljs-meta,
+.codeblock-card .hljs-name,
+.codeblock-card .hljs-tag,
+.codeblock-card .hljs-doctag {
+  color: var(--cb-keyword) !important;
+}
+
+.codeblock-card .hljs-string,
+.codeblock-card .hljs-regexp,
+.codeblock-card .hljs-symbol,
+.codeblock-card .hljs-template-tag,
+.codeblock-card .hljs-template-variable {
+  color: var(--cb-string) !important;
+}
+
+.codeblock-card .hljs-number,
+.codeblock-card .hljs-literal,
+.codeblock-card .hljs-bullet {
+  color: var(--cb-number) !important;
+}
+
+.codeblock-card .hljs-comment,
+.codeblock-card .hljs-quote {
+  color: var(--cb-comment) !important;
+  font-style: italic;
+}
+
+.codeblock-card .hljs-title,
+.codeblock-card .hljs-title.function_,
+.codeblock-card .hljs-section {
+  color: var(--cb-title) !important;
+  font-weight: 600;
+}
+
+.codeblock-card .hljs-attr,
+.codeblock-card .hljs-attribute,
+.codeblock-card .hljs-variable,
+.codeblock-card .hljs-property {
+  color: var(--cb-attr) !important;
+}
+
+.codeblock-card .hljs-params {
+  color: var(--cb-params) !important;
+}
+
+.codeblock-card .hljs-type,
+.codeblock-card .hljs-class .hljs-title {
+  color: var(--cb-type) !important;
+}
+
+.codeblock-card .hljs-deletion {
+  color: var(--cb-deletion) !important;
+}
+
+.codeblock-card .hljs-addition {
+  color: var(--cb-addition) !important;
+}
+
+/* 滚动条 */
+.codeblock-card pre::-webkit-scrollbar {
+  height: 6px;
+}
+.codeblock-card pre::-webkit-scrollbar-thumb {
+  background: var(--cb-scroll);
+  border-radius: 9999px;
+}
+.codeblock-card pre::-webkit-scrollbar-thumb:hover {
+  background: var(--cb-scroll-hover);
+}

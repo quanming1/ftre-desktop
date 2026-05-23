@@ -1,10 +1,106 @@
-import { useState, useEffect, useRef, memo, useCallback } from "react";
-import { Copy, Check } from "lucide-react";
+import { useState, useEffect, useRef, memo, useCallback, createContext, useContext } from "react";
+import { Copy, Check, Download } from "lucide-react";
 import hljs from "highlight.js/lib/common";
+
+/**
+ * StreamingContext — 让嵌套的 CodeBlock 知道当前 markdown 是否处于 streaming。
+ * streaming 时跳过 hljs 高亮，避免每个 token 都重排 DOM。
+ */
+export const StreamingContext = createContext(false);
 
 export interface CodeBlockProps {
   language: string;
   code: string;
+}
+
+/** 语言显示名映射（首字母大写 / 多词美化） */
+const LANG_DISPLAY: Record<string, string> = {
+  ts: "TypeScript",
+  typescript: "TypeScript",
+  tsx: "TSX",
+  js: "JavaScript",
+  javascript: "JavaScript",
+  jsx: "JSX",
+  py: "Python",
+  python: "Python",
+  rb: "Ruby",
+  ruby: "Ruby",
+  go: "Go",
+  rust: "Rust",
+  rs: "Rust",
+  java: "Java",
+  kotlin: "Kotlin",
+  kt: "Kotlin",
+  swift: "Swift",
+  c: "C",
+  cpp: "C++",
+  "c++": "C++",
+  cs: "C#",
+  csharp: "C#",
+  php: "PHP",
+  sh: "Shell",
+  bash: "Bash",
+  zsh: "Zsh",
+  fish: "Fish",
+  shell: "Shell",
+  powershell: "PowerShell",
+  ps1: "PowerShell",
+  pwsh: "PowerShell",
+  cmd: "CMD",
+  bat: "Batch",
+  sql: "SQL",
+  json: "JSON",
+  yaml: "YAML",
+  yml: "YAML",
+  toml: "TOML",
+  xml: "XML",
+  html: "HTML",
+  css: "CSS",
+  scss: "SCSS",
+  sass: "Sass",
+  less: "Less",
+  md: "Markdown",
+  markdown: "Markdown",
+  dockerfile: "Dockerfile",
+  makefile: "Makefile",
+  text: "Text",
+  plaintext: "Text",
+  vue: "Vue",
+  svelte: "Svelte",
+};
+
+function displayName(lang: string): string {
+  if (!lang) return "Text";
+  const key = lang.toLowerCase();
+  return LANG_DISPLAY[key] ?? lang.charAt(0).toUpperCase() + lang.slice(1);
+}
+
+/** 文件扩展名映射（下载用） */
+const LANG_EXT: Record<string, string> = {
+  typescript: "ts",
+  tsx: "tsx",
+  javascript: "js",
+  jsx: "jsx",
+  python: "py",
+  ruby: "rb",
+  rust: "rs",
+  bash: "sh",
+  shell: "sh",
+  powershell: "ps1",
+  pwsh: "ps1",
+  cmd: "bat",
+  batch: "bat",
+  markdown: "md",
+  dockerfile: "Dockerfile",
+  makefile: "Makefile",
+  plaintext: "txt",
+  text: "txt",
+};
+
+function inferExt(lang: string): string {
+  if (!lang) return "txt";
+  const key = lang.toLowerCase();
+  return LANG_EXT[key] ?? key;
 }
 
 export const CodeBlock = memo(
@@ -13,10 +109,17 @@ export const CodeBlock = memo(
     const codeRef = useRef<HTMLElement>(null);
     const containerRef = useRef<HTMLDivElement>(null);
     const highlightedRef = useRef(false);
+    const isStreaming = useContext(StreamingContext);
 
-    // IntersectionObserver 懒高亮：只在代码块进入可视区域时才调 highlight.js
-    // 避免屏幕外的代码块生成大量 <span> DOM 节点
+    // streaming 时不高亮：避免代码持续增长导致 hljs 反复全量高亮
     useEffect(() => {
+      if (isStreaming) {
+        const codeEl = codeRef.current;
+        if (codeEl) codeEl.removeAttribute("data-highlighted");
+        highlightedRef.current = false;
+        return;
+      }
+
       highlightedRef.current = false;
       const container = containerRef.current;
       const codeEl = codeRef.current;
@@ -32,11 +135,11 @@ export const CodeBlock = memo(
             observer.disconnect();
           }
         },
-        { rootMargin: "200px" }, // 提前 200px 开始高亮，滚动到时已经就绪
+        { rootMargin: "200px" },
       );
       observer.observe(container);
       return () => observer.disconnect();
-    }, [code, language]);
+    }, [code, language, isStreaming]);
 
     const handleCopy = useCallback(async () => {
       try {
@@ -48,36 +151,58 @@ export const CodeBlock = memo(
       }
     }, [code]);
 
-    const displayLang = language || "text";
+    const handleDownload = useCallback(() => {
+      const blob = new Blob([code], { type: "text/plain;charset=utf-8" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `snippet.${inferExt(language)}`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 0);
+    }, [code, language]);
+
+    const langSlug = (language || "text").toLowerCase();
+    const langLabel = displayName(language);
 
     return (
-      <div ref={containerRef} className="rounded my-1.5 border border-border/60 group/codeblock">
+      <div
+        ref={containerRef}
+        className="codeblock-card my-2 w-full overflow-hidden rounded-xl"
+      >
         {/* Header */}
-        <div className="flex items-center justify-between h-[28px] px-2.5 bg-surface/80 border-b border-border/40">
-          <span className="text-[11px] text-t-ghost font-mono select-none" data-testid="code-lang">
-            {displayLang}
-          </span>
-          <button
-            onClick={handleCopy}
-            className={`
-              flex items-center gap-1 h-[20px] px-1.5
-              rounded text-[11px] font-mono
-              ${copied
-                ? "text-neon/90"
-                : "text-t-ghost opacity-0 group-hover/codeblock:opacity-100 hover:text-t-secondary hover:bg-white/[0.04]"
-              }
-            `}
-            data-testid="copy-btn"
+        <div className="codeblock-header flex items-center justify-between h-12 pl-5 pr-3">
+          <span
+            className="text-[13px] font-semibold tracking-wide select-none"
+            data-testid="code-lang"
           >
-            {copied ? <Check size={11} /> : <Copy size={11} />}
-            <span>{copied ? "Copied" : "Copy"}</span>
-          </button>
+            {langLabel}
+          </span>
+          <div className="flex items-center gap-1">
+            <IconButton
+              label="Download"
+              onClick={handleDownload}
+              data-testid="download-btn"
+            >
+              <Download size={16} strokeWidth={1.75} />
+            </IconButton>
+            <IconButton
+              label={copied ? "Copied" : "Copy"}
+              onClick={handleCopy}
+              active={copied}
+              data-testid="copy-btn"
+            >
+              {copied ? <Check size={16} strokeWidth={2} /> : <Copy size={16} strokeWidth={1.75} />}
+            </IconButton>
+          </div>
         </div>
-        {/* Code body */}
-        <pre className="!m-0 !rounded-none bg-base/50 px-3 py-2.5 overflow-x-auto">
+
+        {/* Code body — padding 由 .codeblock-card pre 全局规则控制 */}
+        <pre className="overflow-x-auto">
           <code
             ref={codeRef}
-            className={`language-${displayLang} !bg-transparent text-[12px] leading-[1.6] font-mono`}
+            className={`language-${langSlug} text-[13px] leading-[1.7] font-mono`}
             data-testid="code-content"
           >
             {code}
@@ -86,7 +211,35 @@ export const CodeBlock = memo(
       </div>
     );
   },
-  (prev, next) => {
-    return prev.code === next.code && prev.language === next.language;
-  },
+  (prev, next) => prev.code === next.code && prev.language === next.language,
 );
+
+// ─── 内部小组件 ────────────────────────────────────────────────────
+
+interface IconButtonProps {
+  label: string;
+  onClick: () => void;
+  active?: boolean;
+  children: React.ReactNode;
+  "data-testid"?: string;
+}
+
+function IconButton({ label, onClick, active, children, ...rest }: IconButtonProps) {
+  return (
+    <button
+      type="button"
+      title={label}
+      aria-label={label}
+      onClick={onClick}
+      className={`
+        codeblock-icon-btn
+        inline-flex items-center justify-center w-9 h-9 rounded-md
+        transition-colors
+        ${active ? "is-active" : ""}
+      `}
+      data-testid={rest["data-testid"]}
+    >
+      {children}
+    </button>
+  );
+}
