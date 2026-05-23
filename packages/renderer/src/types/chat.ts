@@ -40,25 +40,39 @@ export interface EmailPartData {
 /**
  * 消息部分 — 前后端统一的 parts 协议
  *
- * - text:      纯文本段
- * - code_ref:  代码引用段（文件 + 行号 + 代码内容）
- * - email:     邮件消息段（发件人 + 主题 + 正文 + 线程 ID）
- * - skill_ref: Skill 引用段（通过 / 触发选择）
+ * - text:       纯文本段
+ * - code_ref:   代码引用段（文件 + 行号 + 代码内容）
+ * - email:      邮件消息段（发件人 + 主题 + 正文 + 线程 ID）
+ * - skill_ref:  Skill 引用段（通过 / 触发选择）
+ * - image:      图片附件段（前端渲染用；上送时拆到 attachments 字段，本 part 由 user 消息回显使用）
  */
 export type MessagePart =
   | { type: "text"; data: string }
   | {
-      type: "code_ref";
-      data: {
-        path: string;
-        lines: [number, number];
-        raw: string;
-        name: string;
-      };
-    }
+    type: "code_ref";
+    data: {
+      path: string;
+      lines: [number, number];
+      raw: string;
+      name: string;
+    };
+  }
   | { type: "email"; data: EmailPartData }
   | { type: "archive_ref"; data: ArchiveRefData }
-  | { type: "skill_ref"; data: SkillRefData };
+  | { type: "skill_ref"; data: SkillRefData }
+  | {
+    type: "image";
+    data: {
+      /** data:<mime>;base64,<...> 的完整 URL，可直接用作 <img src> */
+      url: string;
+      /** 原始文件名（仅展示） */
+      name?: string;
+      /** MIME 类型 */
+      mime?: string;
+      /** 解码后字节数 */
+      bytes?: number;
+    };
+  };
 
 export interface ChatMessage {
   id: string;
