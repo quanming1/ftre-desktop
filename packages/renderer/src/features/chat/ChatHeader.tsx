@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef, useEffect } from "react";
+import { useState, useCallback, useRef, useEffect, useMemo } from "react";
 import { MoreHorizontal, Pencil, Archive } from "lucide-react";
 import { useChat } from "@/stores/chat";
 import { useSession } from "@/stores/session";
@@ -9,10 +9,22 @@ import { Tooltip } from "@ftre/ui";
 
 export function ChatHeader() {
   const sessionId = useChat((s) => s.sessionId);
+  const messages = useChat((s) => s.messages);
   const sessions = useSession((s) => s.sessions);
   const allSessions = useSession((s) => s.allSessions);
   const loadAllSessions = useSession((s) => s.loadAllSessions);
   const deleteSession = useSession((s) => s.deleteSession);
+
+  // 当前会话的累计 token 用量：取最近一条带 usage 的 assistant 消息的 total_tokens
+  const totalUsage = useMemo(() => {
+    for (let i = messages.length - 1; i >= 0; i--) {
+      const m = messages[i];
+      if (m.role === "assistant" && m.usage?.total_tokens != null) {
+        return m.usage;
+      }
+    }
+    return null;
+  }, [messages]);
 
   const [isRenaming, setIsRenaming] = useState(false);
   const [renameValue, setRenameValue] = useState("");
@@ -145,14 +157,32 @@ export function ChatHeader() {
       </div>
 
       {sessionId && (
-        <Tooltip content="更多操作" side="bottom">
-          <button
-            onClick={showContextMenu}
-            className="p-1 rounded hover:bg-hover text-t-secondary hover:text-t-primary"
-          >
-            <MoreHorizontal size={16} />
-          </button>
-        </Tooltip>
+        <div className="flex items-center gap-1">
+          {totalUsage && (
+            <Tooltip
+              content={
+                <div className="text-[11px] leading-snug">
+                  <div>累计输入: {totalUsage.prompt_tokens ?? "-"}</div>
+                  <div>累计输出: {totalUsage.completion_tokens ?? "-"}</div>
+                  <div>合计: {totalUsage.total_tokens ?? "-"}</div>
+                </div>
+              }
+              side="bottom"
+            >
+              <span className="px-2 py-0.5 text-[11px] font-mono text-t-ghost rounded-md hover:bg-hover hover:text-t-secondary transition-colors cursor-default">
+                {totalUsage.total_tokens} tok
+              </span>
+            </Tooltip>
+          )}
+          <Tooltip content="更多操作" side="bottom">
+            <button
+              onClick={showContextMenu}
+              className="p-1 rounded hover:bg-hover text-t-secondary hover:text-t-primary"
+            >
+              <MoreHorizontal size={16} />
+            </button>
+          </Tooltip>
+        </div>
       )}
 
       {contextMenu && (

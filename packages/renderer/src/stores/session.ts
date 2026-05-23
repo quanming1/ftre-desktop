@@ -113,6 +113,14 @@ function convertHistoryMessages(msgs: any[]): ChatMessage[] {
         break;
       }
 
+      case "usage_update": {
+        const usage = data.usage;
+        if (!usage) break;
+        const ast = currentAssistant(m.id || histId(), ts);
+        ast.usage = usage;
+        break;
+      }
+
       case "error": {
         const errMsg = data.message || "未知错误";
         result.push({
