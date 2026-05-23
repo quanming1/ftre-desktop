@@ -1,218 +1,207 @@
 ﻿/**
- * ScheduledTaskPanel — 定时任务面板（只读）
+ * ScheduledTaskPanel — 定时任务面板（CRUD）
  *
- * 参考截图风格：大标题 + 描述预览 + 底部元信息行
+ * 后端契约（~/.ftre/cron/<job_id>.json）：
+ *   { id, cron, title, prompt, created_at, run_history: number[] }
+ *
+ * UI:
+ *   - 顶部：标题 + 刷新 + 新建按钮
+ *   - 列表：卡片式，点击展开详情；hover 时显示编辑 / 删除
+ *   - 编辑/创建：行内表单 sheet（cron / title / prompt 三字段）
  */
-import { useState, useEffect, useCallback } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
-  RefreshCw, Clock, Repeat, Calendar, Loader2, Shield, ChevronDown, Send,
+  RefreshCw,
+  Calendar,
+  Loader2,
+  ChevronDown,
+  Plus,
+  Pencil,
+  Trash2,
+  X,
+  AlertCircle,
 } from "lucide-react";
-import { wsClient } from "@/services/websocket-client";
-
-// ─── Types ──────────────────────────────────────────────────────────
-
-interface CronSchedule {
-  kind: "at" | "every" | "cron";
-  at_ms?: number | null;
-  every_ms?: number | null;
-  expr?: string | null;
-  tz?: string | null;
-}
-
-interface CronPayload {
-  kind: "system_event" | "agent_turn";
-  message: string;
-  deliver: boolean;
-  channel?: string | null;
-  to?: string | null;
-  session_key?: string | null;
-}
-
-interface CronJobState {
-  next_run_at_ms?: number | null;
-  last_run_at_ms?: number | null;
-  last_status?: "ok" | "error" | "skipped" | null;
-  last_error?: string | null;
-  run_history?: Array<{
-    run_at_ms: number;
-    status: string;
-    duration_ms: number;
-    error?: string | null;
-  }>;
-}
-
-interface CronJob {
-  id: string;
-  name: string;
-  enabled: boolean;
-  schedule: CronSchedule;
-  payload: CronPayload;
-  state: CronJobState;
-  created_at_ms: number;
-  updated_at_ms: number;
-  delete_after_run: boolean;
-}
+import {
+  fetchCronJobs,
+  createCronJob,
+  updateCronJob,
+  deleteCronJob,
+  type CronJob,
+  type CronJobInput,
+} from "@/services/api";
+import { useNotification } from "@/stores/notification";
 
 // ─── Helpers ────────────────────────────────────────────────────────
 
-function fmtTime(ms: number | null | undefined): string {
-  if (!ms) return "—";
+function fmtTime(ts: number | undefined | null): string {
+  if (!ts) return "—";
+  const ms = ts < 1e12 ? ts * 1000 : ts; // 兼容秒/毫秒
   const d = new Date(ms);
   const p = (n: number) => String(n).padStart(2, "0");
   const today = new Date();
-  const isToday = d.getDate() === today.getDate() && d.getMonth() === today.getMonth() && d.getFullYear() === today.getFullYear();
-  if (isToday) return `今天 ${p(d.getHours())}:${p(d.getMinutes())}`;
+  const sameDay =
+    d.getFullYear() === today.getFullYear() &&
+    d.getMonth() === today.getMonth() &&
+    d.getDate() === today.getDate();
+  if (sameDay) return `今天 ${p(d.getHours())}:${p(d.getMinutes())}`;
   return `${p(d.getMonth() + 1)}/${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
 }
 
-function fmtInterval(schedule: CronSchedule): string {
-  if (schedule.kind === "cron" && schedule.expr) return schedule.expr;
-  if (schedule.kind === "every" && schedule.every_ms) {
-    const ms = schedule.every_ms;
-    if (ms % 86_400_000 === 0) return `每 ${ms / 86_400_000} 天`;
-    if (ms % 3_600_000 === 0) return `每 ${ms / 3_600_000} 小时`;
-    if (ms % 60_000 === 0) return `每 ${ms / 60_000} 分钟`;
-    return `每 ${ms / 1000} 秒`;
+function fmtRelative(ts: number | undefined | null): string {
+  if (!ts) return "—";
+  const seconds = ts < 1e12 ? ts : ts / 1000;
+  const diff = Date.now() / 1000 - seconds;
+  if (diff < 0) return "刚刚";
+  if (diff < 60) return `${Math.floor(diff)}秒前`;
+  if (diff < 3600) return `${Math.floor(diff / 60)}分钟前`;
+  if (diff < 86400) return `${Math.floor(diff / 3600)}小时前`;
+  return `${Math.floor(diff / 86400)}天前`;
+}
+
+/** 5 段 cron 简单合法性自检（前端立即反馈，正式校验由后端 croniter 做）*/
+function quickValidateCron(expr: string): string | null {
+  const trimmed = expr.trim();
+  if (!trimmed) return "cron 表达式不能为空";
+  const segs = trimmed.split(/\s+/);
+  if (segs.length !== 5) {
+    return "cron 表达式必须是 5 段（分 时 日 月 周）";
   }
-  if (schedule.kind === "at") return "单次执行";
-  return "—";
-}
-
-function scheduleIcon(kind: string) {
-  if (kind === "cron") return Calendar;
-  if (kind === "every") return Repeat;
-  return Clock;
-}
-
-function statusLabel(job: CronJob): { text: string; cls: string } {
-  if (!job.enabled) return { text: "已禁用", cls: "text-t-ghost" };
-  if (job.state.last_status === "error") return { text: "失败", cls: "text-red-400" };
-  if (job.state.last_status === "ok") return { text: "成功", cls: "text-neon" };
-  return { text: "待机", cls: "text-t-dim" };
+  return null;
 }
 
 // ─── Job Card ───────────────────────────────────────────────────────
 
-function JobCard({ job }: { job: CronJob }) {
+function JobCard({
+  job,
+  onEdit,
+  onDelete,
+}: {
+  job: CronJob;
+  onEdit: () => void;
+  onDelete: () => void;
+}) {
   const [expanded, setExpanded] = useState(false);
-  const isSystem = job.payload.kind === "system_event";
-  const Icon = scheduleIcon(job.schedule.kind);
-  const status = statusLabel(job);
-
-  const description = isSystem
-    ? (job.name === "dream" ? "长期记忆整合 — 定期将短期对话记忆合并到长期知识库" : "系统内部维护任务")
-    : job.payload.message || "";
+  const history = job.run_history || [];
+  const lastRun = history.length > 0 ? history[history.length - 1] : undefined;
 
   return (
     <div className="px-5 py-4 rounded-xl border border-border/30 hover:bg-surface transition-colors">
-      {/* Row 1: Title + toggle — clickable */}
-      <div
-        className="flex items-start gap-3 cursor-pointer"
-        onClick={() => setExpanded(!expanded)}
-      >
-        {/* Icon */}
-        <div className={`mt-1 shrink-0 w-7 h-7 rounded-full flex items-center justify-center ${
-          isSystem ? "bg-amber-400/10" : "bg-neon/10"
-        }`}>
-          {isSystem
-            ? <Shield size={14} className="text-amber-400/70" />
-            : <Icon size={14} className="text-neon/70" />
-          }
-        </div>
-
-        <div className="flex-1 min-w-0">
-          {/* Title */}
-          <h3 className="text-[18px] text-t-primary font-medium leading-tight truncate">
-            {job.name}
-          </h3>
-
-          {/* Description preview (1 line) */}
-          {description && (
-            <p className="text-[12px] text-t-dim mt-1 leading-relaxed line-clamp-1">
-              {description}
-            </p>
-          )}
-
-          {/* Meta row: interval · last run · status */}
-          <div className="flex items-center gap-2 mt-2 flex-wrap">
-            <span className="inline-flex items-center gap-1 text-[11px] text-t-muted">
-              <Icon size={10} className="text-t-ghost" />
-              {fmtInterval(job.schedule)}
-            </span>
-
-            {job.state.last_run_at_ms && (
-              <>
-                <span className="text-t-ghost text-[11px]">·</span>
-                <span className="text-[11px] text-t-dim">
-                  上次执行 {fmtTime(job.state.last_run_at_ms)}
-                </span>
-              </>
-            )}
-
-            <span className="text-t-ghost text-[11px]">·</span>
-            <span className={`text-[11px] font-medium ${status.cls}`}>
-              {status.text}
-            </span>
-
-            {job.payload.channel && (
-              <>
-                <span className="text-t-ghost text-[11px]">·</span>
-                <span className="inline-flex items-center gap-1 text-[11px] text-t-dim">
-                  <Send size={9} className="text-t-ghost" />
-                  {job.payload.channel}
-                </span>
-              </>
-            )}
+      {/* Row 1: 标题 + 操作按钮 */}
+      <div className="flex items-start gap-3">
+        <button
+          onClick={() => setExpanded((v) => !v)}
+          className="flex-1 min-w-0 flex items-start gap-3 text-left"
+        >
+          {/* Icon */}
+          <div className="mt-1 shrink-0 w-7 h-7 rounded-full flex items-center justify-center bg-neon/10">
+            <Calendar size={14} className="text-neon/70" />
           </div>
-        </div>
 
-        {/* Chevron indicator */}
-        <ChevronDown
-          size={14}
-          className={`shrink-0 mt-2 text-t-ghost transition-transform duration-150 ${expanded ? "rotate-180" : ""}`}
-        />
+          <div className="flex-1 min-w-0">
+            {/* Title */}
+            <h3 className="text-[15px] text-t-primary font-medium leading-tight truncate">
+              {job.title}
+            </h3>
+
+            {/* Prompt 预览 */}
+            {job.prompt && (
+              <p className="text-[12px] text-t-dim mt-1 leading-relaxed line-clamp-1">
+                {job.prompt}
+              </p>
+            )}
+
+            {/* Meta row */}
+            <div className="flex items-center gap-2 mt-2 flex-wrap">
+              <span className="inline-flex items-center gap-1 text-[11px] font-mono text-t-secondary bg-hover px-1.5 py-0.5 rounded">
+                {job.cron}
+              </span>
+
+              {lastRun && (
+                <>
+                  <span className="text-t-ghost text-[11px]">·</span>
+                  <span className="text-[11px] text-t-dim">
+                    上次 {fmtRelative(lastRun)}
+                  </span>
+                </>
+              )}
+
+              <span className="text-t-ghost text-[11px]">·</span>
+              <span className="text-[11px] text-t-dim">
+                累计 {history.length} 次
+              </span>
+            </div>
+          </div>
+
+          <ChevronDown
+            size={14}
+            className={`shrink-0 mt-2 text-t-ghost transition-transform duration-150 ${
+              expanded ? "rotate-180" : ""
+            }`}
+          />
+        </button>
+
+        {/* 操作按钮 */}
+        <div className="flex items-center gap-1 shrink-0 mt-1">
+          <button
+            onClick={onEdit}
+            title="编辑"
+            className="w-7 h-7 rounded flex items-center justify-center text-t-ghost hover:text-t-primary hover:bg-hover transition-colors"
+          >
+            <Pencil size={13} />
+          </button>
+          <button
+            onClick={onDelete}
+            title="删除"
+            className="w-7 h-7 rounded flex items-center justify-center text-t-ghost hover:text-red-400 hover:bg-hover transition-colors"
+          >
+            <Trash2 size={13} />
+          </button>
+        </div>
       </div>
 
-      {/* Expanded detail */}
+      {/* 展开详情 */}
       {expanded && (
         <div className="mt-3 ml-9 space-y-3">
-          {/* Full message */}
-          {description && (
+          {/* Prompt 全文 */}
+          {job.prompt && (
             <div className="px-3 py-2.5 rounded-md bg-elevated border border-border/50">
               <p className="text-[12px] text-t-secondary leading-relaxed whitespace-pre-wrap break-words">
-                {description}
+                {job.prompt}
               </p>
             </div>
           )}
 
-          {/* Delivery */}
-          {job.payload.deliver && job.payload.channel && job.payload.to && (
-            <div className="flex items-center gap-1.5 text-[11px] text-t-dim">
-              <Send size={10} className="text-t-ghost" />
-              <span>{job.payload.channel}</span>
-              <span className="text-t-ghost">→</span>
-              <span className="text-t-muted">{job.payload.to}</span>
-            </div>
-          )}
-
-          {/* Meta grid */}
-          <div className="grid grid-cols-2 @[500px]:grid-cols-3 gap-x-6 gap-y-2">
-            <MetaField label="下次运行" value={fmtTime(job.state.next_run_at_ms)} />
-            <MetaField label="上次运行" value={fmtTime(job.state.last_run_at_ms)} />
-            <MetaField label="任务 ID" value={job.id} />
-            {job.schedule.tz && <MetaField label="时区" value={job.schedule.tz} />}
+          {/* Meta 网格 */}
+          <div className="grid grid-cols-2 gap-x-6 gap-y-2">
+            <MetaField label="任务 ID" value={job.id} mono />
+            <MetaField label="创建时间" value={fmtTime(job.created_at)} />
+            <MetaField label="上次运行" value={fmtTime(lastRun)} />
+            <MetaField label="累计运行" value={`${history.length} 次`} />
           </div>
 
-          {/* Error */}
-          {job.state.last_error && (
-            <div className="px-3 py-2 rounded-md bg-red-400/[0.04] border border-red-400/[0.08]">
-              <p className="text-[11px] text-red-400/70 leading-relaxed">{job.state.last_error}</p>
+          {/* 最近 8 次运行 */}
+          {history.length > 0 && (
+            <div>
+              <div className="text-[10px] uppercase tracking-wider text-t-ghost mb-1.5">
+                最近运行
+              </div>
+              <div className="space-y-1">
+                {history.slice(-8).reverse().map((ts, i) => (
+                  <div
+                    key={i}
+                    className="flex items-center gap-3 px-3 py-1.5 rounded-md bg-hover text-[11px] font-mono"
+                  >
+                    <span className="text-t-dim">{fmtTime(ts)}</span>
+                    <span className="text-t-ghost">{fmtRelative(ts)}</span>
+                  </div>
+                ))}
+              </div>
+              {history.length > 8 && (
+                <p className="text-[10px] text-t-ghost mt-1.5">
+                  还有 {history.length - 8} 条历史记录
+                </p>
+              )}
             </div>
-          )}
-
-          {/* Run history */}
-          {job.state.run_history && job.state.run_history.length > 0 && (
-            <RunHistory runs={job.state.run_history} />
           )}
         </div>
       )}
@@ -220,75 +209,165 @@ function JobCard({ job }: { job: CronJob }) {
   );
 }
 
-// ─── Run History ────────────────────────────────────────────────────
-
-interface RunRecord {
-  run_at_ms: number;
-  status: string;
-  duration_ms: number;
-  error?: string | null;
-}
-
-function fmtDuration(ms: number): string {
-  if (ms < 1000) return `${ms}ms`;
-  const sec = ms / 1000;
-  if (sec < 60) return `${sec.toFixed(1)}s`;
-  const min = Math.floor(sec / 60);
-  const remainSec = Math.round(sec % 60);
-  return `${min}m${remainSec}s`;
-}
-
-function RunHistory({ runs }: { runs: RunRecord[] }) {
-  const total = runs.length;
-  const okCount = runs.filter((r) => r.status === "ok").length;
-  const errorCount = runs.filter((r) => r.status === "error").length;
-  const avgDuration = total > 0 ? Math.round(runs.reduce((s, r) => s + r.duration_ms, 0) / total) : 0;
-
+function MetaField({
+  label,
+  value,
+  mono,
+}: {
+  label: string;
+  value: string;
+  mono?: boolean;
+}) {
   return (
     <div>
-      {/* Header */}
-      <div className="flex items-center gap-3 mb-2">
-        <span className="text-[11px] text-t-muted">执行记录</span>
-        <span className="text-[10px] text-t-ghost">
-          {okCount} 成功{errorCount > 0 ? ` · ${errorCount} 失败` : ""} · 平均 {fmtDuration(avgDuration)}
-        </span>
+      <div className="text-[10px] text-t-ghost uppercase tracking-wider">
+        {label}
       </div>
-
-      {/* Run list */}
-      <div className="space-y-1">
-        {runs.slice(0, 8).map((run, i) => (
-          <div
-            key={i}
-            className="flex items-center gap-3 px-3 py-2 rounded-md bg-hover text-[11px]"
-          >
-            <span className={`font-medium ${
-              run.status === "ok" ? "text-neon/70" : run.status === "error" ? "text-red-400/70" : "text-t-ghost"
-            }`}>
-              {run.status === "ok" ? "成功" : run.status === "error" ? "失败" : "跳过"}
-            </span>
-            <span className="text-t-dim font-mono">{fmtTime(run.run_at_ms)}</span>
-            <span className="text-t-ghost font-mono">{fmtDuration(run.duration_ms)}</span>
-            {run.error && (
-              <span className="flex-1 text-red-400/50 truncate text-[10px]">{run.error}</span>
-            )}
-          </div>
-        ))}
+      <div
+        className={`text-[12px] mt-0.5 text-t-muted ${mono ? "font-mono" : ""}`}
+      >
+        {value}
       </div>
-
-      {total > 8 && (
-        <p className="text-[10px] text-t-ghost mt-1.5 pl-3">还有 {total - 8} 条</p>
-      )}
     </div>
   );
 }
 
-// ─── Meta Field ─────────────────────────────────────────────────────
+// ─── 编辑/创建 表单 ────────────────────────────────────────────────
 
-function MetaField({ label, value, valueClass }: { label: string; value: string; valueClass?: string }) {
+interface JobFormProps {
+  initial?: CronJob | null;
+  onCancel: () => void;
+  onSubmit: (input: CronJobInput) => Promise<void>;
+}
+
+function JobForm({ initial, onCancel, onSubmit }: JobFormProps) {
+  const [cron, setCron] = useState(initial?.cron || "");
+  const [title, setTitle] = useState(initial?.title || "");
+  const [prompt, setPrompt] = useState(initial?.prompt || "");
+  const [error, setError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+
+  const handleSubmit = async () => {
+    const cronErr = quickValidateCron(cron);
+    if (cronErr) return setError(cronErr);
+    if (!title.trim()) return setError("请填写标题");
+    if (!prompt.trim()) return setError("请填写 prompt");
+    setError(null);
+    setSaving(true);
+    try {
+      await onSubmit({
+        cron: cron.trim(),
+        title: title.trim(),
+        prompt: prompt.trim(),
+      });
+    } catch (e) {
+      setError((e as Error).message || "保存失败");
+    } finally {
+      setSaving(false);
+    }
+  };
+
   return (
-    <div className="py-1">
-      <div className="text-[10px] text-t-ghost">{label}</div>
-      <div className={`text-[12px] font-mono mt-0.5 ${valueClass || "text-t-muted"}`}>{value}</div>
+    <div className="px-5 py-4 rounded-xl border border-neon/30 bg-elevated/50 space-y-3">
+      <div className="flex items-center justify-between">
+        <h3 className="text-[14px] text-t-primary font-medium">
+          {initial ? "编辑定时任务" : "新建定时任务"}
+        </h3>
+        <button
+          onClick={onCancel}
+          className="w-6 h-6 rounded flex items-center justify-center text-t-ghost hover:text-t-primary hover:bg-hover transition-colors"
+        >
+          <X size={14} />
+        </button>
+      </div>
+
+      {/* 字段 */}
+      <Field label="标题" required>
+        <input
+          type="text"
+          value={title}
+          onChange={(e) => setTitle(e.target.value)}
+          placeholder="如：每天提醒喝水"
+          className="w-full bg-surface border border-border-subtle rounded-md px-3 py-2 text-[13px] text-t-primary placeholder:text-t-ghost focus:outline-none focus:border-neon/50"
+        />
+      </Field>
+
+      <Field
+        label="Cron 表达式"
+        required
+        hint="5 段：分 时 日 月 周。例：*/5 * * * *（每5分钟）、0 9 * * *（每天9点）"
+      >
+        <input
+          type="text"
+          value={cron}
+          onChange={(e) => setCron(e.target.value)}
+          placeholder="*/5 * * * *"
+          className="w-full bg-surface border border-border-subtle rounded-md px-3 py-2 text-[13px] font-mono text-t-primary placeholder:text-t-ghost focus:outline-none focus:border-neon/50"
+        />
+      </Field>
+
+      <Field
+        label="Prompt"
+        required
+        hint="到期触发时发给 agent 的指令；不要写「每天/每隔X分钟」等频率词，频率由 cron 表达"
+      >
+        <textarea
+          value={prompt}
+          onChange={(e) => setPrompt(e.target.value)}
+          placeholder="例：写一首诗，要求选一个国家作为灵感，注明国家名"
+          rows={4}
+          className="w-full bg-surface border border-border-subtle rounded-md px-3 py-2 text-[13px] text-t-primary placeholder:text-t-ghost focus:outline-none focus:border-neon/50 resize-none"
+        />
+      </Field>
+
+      {error && (
+        <div className="flex items-start gap-2 px-3 py-2 rounded-md bg-red-400/[0.06] border border-red-400/[0.15]">
+          <AlertCircle size={12} className="text-red-400/80 mt-0.5 shrink-0" />
+          <p className="text-[12px] text-red-400/90 leading-relaxed">{error}</p>
+        </div>
+      )}
+
+      {/* Actions */}
+      <div className="flex justify-end gap-2 pt-1">
+        <button
+          onClick={onCancel}
+          disabled={saving}
+          className="px-3 py-1.5 text-[12px] text-t-secondary rounded-md hover:bg-hover transition-colors disabled:opacity-40"
+        >
+          取消
+        </button>
+        <button
+          onClick={handleSubmit}
+          disabled={saving}
+          className="px-3 py-1.5 text-[12px] font-medium text-base bg-neon rounded-md hover:bg-neon/80 transition-colors disabled:opacity-40 inline-flex items-center gap-1.5"
+        >
+          {saving && <Loader2 size={11} className="animate-spin" />}
+          {initial ? "保存" : "创建"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function Field({
+  label,
+  required,
+  hint,
+  children,
+}: {
+  label: string;
+  required?: boolean;
+  hint?: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="space-y-1">
+      <label className="block text-[11px] text-t-secondary">
+        {label}
+        {required && <span className="text-red-400/80 ml-1">*</span>}
+      </label>
+      {children}
+      {hint && <p className="text-[10px] text-t-ghost leading-relaxed">{hint}</p>}
     </div>
   );
 }
@@ -300,58 +379,140 @@ export function ScheduledTaskPanel() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  const fetchJobs = useCallback(async () => {
+  /**
+   * 表单状态：null = 关闭，"new" = 新建，CronJob = 编辑
+   */
+  const [editing, setEditing] = useState<null | "new" | CronJob>(null);
+
+  const reload = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      const wsUrl = wsClient.url;
-      const httpUrl = wsUrl.replace(/^ws(s?):\/\//, "http$1://").replace(/\/$/, "");
-      const resp = await fetch(`${httpUrl}/api/cron/jobs`);
-      if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-      const data = await resp.json();
-      setJobs(data.jobs || []);
-    } catch (e: any) {
-      setError(e.message || "加载失败");
-      setJobs([]);
+      const data = await fetchCronJobs();
+      setJobs(data);
+    } catch (e) {
+      setError((e as Error).message || "加载失败");
     } finally {
       setLoading(false);
     }
   }, []);
 
-  useEffect(() => { fetchJobs(); }, [fetchJobs]);
+  useEffect(() => {
+    reload();
+  }, [reload]);
 
-  const enabledCount = jobs.filter((j) => j.enabled).length;
+  const handleCreate = useCallback(
+    async (input: CronJobInput) => {
+      const res = await createCronJob(input);
+      if ("error" in res) {
+        useNotification.getState().addNotification({
+          level: "error",
+          message: `创建失败: ${res.error}`,
+        });
+        throw new Error(res.error);
+      }
+      setEditing(null);
+      await reload();
+    },
+    [reload],
+  );
+
+  const handleUpdate = useCallback(
+    async (jobId: string, input: CronJobInput) => {
+      const res = await updateCronJob(jobId, input);
+      if ("error" in res) {
+        useNotification.getState().addNotification({
+          level: "error",
+          message: `更新失败: ${res.error}`,
+        });
+        throw new Error(res.error);
+      }
+      setEditing(null);
+      await reload();
+    },
+    [reload],
+  );
+
+  const handleDelete = useCallback(
+    async (job: CronJob) => {
+      if (!confirm(`确定删除「${job.title}」？`)) return;
+      const res = await deleteCronJob(job.id);
+      if ("error" in res) {
+        useNotification.getState().addNotification({
+          level: "error",
+          message: `删除失败: ${res.error}`,
+        });
+        return;
+      }
+      await reload();
+    },
+    [reload],
+  );
+
+  const sortedJobs = useMemo(
+    () =>
+      [...jobs].sort(
+        (a, b) => (b.created_at || 0) - (a.created_at || 0),
+      ),
+    [jobs],
+  );
 
   return (
-    <div className="h-full flex flex-col bg-surface @container">
+    <div className="h-full flex flex-col bg-surface">
       {/* Header */}
       <div className="shrink-0 px-5 py-4 flex items-center justify-between border-b border-border/50">
         <div>
           <h1 className="text-[17px] text-t-primary font-semibold">定时任务</h1>
-          <p className="text-[11px] text-t-dim mt-0.5">{enabledCount} 个任务运行中</p>
+          <p className="text-[11px] text-t-dim mt-0.5">
+            {jobs.length} 个任务
+          </p>
         </div>
-        <button
-          onClick={fetchJobs}
-          disabled={loading}
-          className="p-2 rounded-md text-t-secondary bg-elevated hover:bg-panel hover:text-neon transition-colors disabled:opacity-30"
-        >
-          <RefreshCw size={14} className={loading ? "animate-spin" : ""} />
-        </button>
+        <div className="flex items-center gap-1.5">
+          <button
+            onClick={reload}
+            disabled={loading}
+            title="刷新"
+            className="p-2 rounded-md text-t-secondary hover:bg-hover hover:text-t-primary transition-colors disabled:opacity-30"
+          >
+            <RefreshCw
+              size={14}
+              className={loading ? "animate-spin" : ""}
+            />
+          </button>
+          <button
+            onClick={() => setEditing("new")}
+            className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-md text-[12px] font-medium bg-neon text-base hover:bg-neon/80 transition-colors"
+          >
+            <Plus size={13} />
+            新建
+          </button>
+        </div>
       </div>
 
       {/* List */}
-      <div className="flex-1 overflow-y-auto">
+      <div className="flex-1 overflow-y-auto px-4 py-3 space-y-2">
+        {/* 新建 form 在最上方 */}
+        {editing === "new" && (
+          <JobForm
+            initial={null}
+            onCancel={() => setEditing(null)}
+            onSubmit={handleCreate}
+          />
+        )}
+
+        {/* 状态：loading */}
         {loading && jobs.length === 0 && (
           <div className="flex items-center justify-center py-16">
             <Loader2 size={16} className="text-t-ghost animate-spin" />
           </div>
         )}
 
+        {/* 状态：error */}
         {error && !loading && (
           <div className="text-center px-4 py-12">
-            <p className="text-[12px] text-red-400/60">{error}</p>
+            <p className="text-[12px] text-red-400/70">{error}</p>
             <button
-              onClick={fetchJobs}
+              onClick={reload}
               className="mt-2 text-[11px] text-t-ghost hover:text-neon transition-colors"
             >
               重试
@@ -359,18 +520,34 @@ export function ScheduledTaskPanel() {
           </div>
         )}
 
-        {!loading && !error && jobs.length === 0 && (
+        {/* 状态：empty */}
+        {!loading && !error && jobs.length === 0 && editing !== "new" && (
           <div className="text-center px-4 py-16">
             <p className="text-[14px] text-t-dim">暂无定时任务</p>
-            <p className="text-[12px] text-t-ghost mt-1">在对话中让 AI 创建定时提醒</p>
+            <p className="text-[12px] text-t-ghost mt-1">
+              点击右上角「新建」或在对话中让 AI 创建
+            </p>
           </div>
         )}
 
-        {jobs.map((job) => (
-          <div key={job.id} className="px-4 py-1.5">
-            <JobCard job={job} />
-          </div>
-        ))}
+        {/* 任务列表 */}
+        {sortedJobs.map((job) =>
+          editing && typeof editing !== "string" && editing.id === job.id ? (
+            <JobForm
+              key={job.id}
+              initial={editing}
+              onCancel={() => setEditing(null)}
+              onSubmit={(input) => handleUpdate(job.id, input)}
+            />
+          ) : (
+            <JobCard
+              key={job.id}
+              job={job}
+              onEdit={() => setEditing(job)}
+              onDelete={() => handleDelete(job)}
+            />
+          ),
+        )}
       </div>
     </div>
   );

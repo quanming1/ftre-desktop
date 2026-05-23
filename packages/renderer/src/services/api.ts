@@ -202,6 +202,129 @@ export async function triggerCompaction(
   return { status: "ok" };
 }
 
+// ─── App Config (~/.ftre/config.json via backend) ─────────────────
+//
+// 之前是前端通过 Electron IPC 直接读写 config.json；现在统一走后端 HTTP API，
+// 这样浏览器场景也能用，并且后端能在写入时做校验/格式化。
+
+const CONFIG_API = "http://127.0.0.1:18790/api/config";
+
+/** 读取应用配置（providers / agents.defaults 等）。失败返回空对象。 */
+export async function fetchAppConfig(): Promise<Record<string, any>> {
+  try {
+    const res = await fetch(CONFIG_API);
+    if (!res.ok) return {};
+    const data = await res.json();
+    return data && typeof data === "object" ? data : {};
+  } catch (e) {
+    console.error("[api] fetchAppConfig failed:", e);
+    return {};
+  }
+}
+
+/** 全量覆盖写应用配置。返回是否成功。 */
+export async function saveAppConfig(config: Record<string, any>): Promise<boolean> {
+  try {
+    const res = await fetch(CONFIG_API, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(config),
+    });
+    return res.ok;
+  } catch (e) {
+    console.error("[api] saveAppConfig failed:", e);
+    return false;
+  }
+}
+
+// ─── Cron Jobs (~/.ftre/cron/<job_id>.json via backend) ───────────
+
+const CRON_API = "http://127.0.0.1:18790/api/cron";
+
+/** 后端 cron job 数据结构（与 ftre/tools/cron.py 一致）*/
+export interface CronJob {
+  id: string;
+  cron: string;
+  title: string;
+  prompt: string;
+  created_at: number;
+  run_history: number[];
+}
+
+/** 创建 / 更新时的可编辑字段 */
+export interface CronJobInput {
+  cron: string;
+  title: string;
+  prompt: string;
+}
+
+async function _readError(res: Response): Promise<string> {
+  try {
+    const data = await res.json();
+    if (typeof data?.detail === "string") return data.detail;
+    return `HTTP ${res.status}`;
+  } catch {
+    return `HTTP ${res.status}`;
+  }
+}
+
+export async function fetchCronJobs(): Promise<CronJob[]> {
+  try {
+    const res = await fetch(CRON_API);
+    if (!res.ok) return [];
+    const data = await res.json();
+    return Array.isArray(data?.jobs) ? data.jobs : [];
+  } catch (e) {
+    console.error("[api] fetchCronJobs failed:", e);
+    return [];
+  }
+}
+
+export async function createCronJob(
+  input: CronJobInput,
+): Promise<{ job: CronJob } | { error: string }> {
+  try {
+    const res = await fetch(CRON_API, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(input),
+    });
+    if (!res.ok) return { error: await _readError(res) };
+    return { job: (await res.json()) as CronJob };
+  } catch (e) {
+    return { error: (e as Error).message || "网络错误" };
+  }
+}
+
+export async function updateCronJob(
+  jobId: string,
+  patch: Partial<CronJobInput>,
+): Promise<{ job: CronJob } | { error: string }> {
+  try {
+    const res = await fetch(`${CRON_API}/${encodeURIComponent(jobId)}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(patch),
+    });
+    if (!res.ok) return { error: await _readError(res) };
+    return { job: (await res.json()) as CronJob };
+  } catch (e) {
+    return { error: (e as Error).message || "网络错误" };
+  }
+}
+
+export async function deleteCronJob(jobId: string): Promise<{ ok: true } | { error: string }> {
+  try {
+    const res = await fetch(`${CRON_API}/${encodeURIComponent(jobId)}`, {
+      method: "DELETE",
+    });
+    if (!res.ok && res.status !== 204) return { error: await _readError(res) };
+    return { ok: true };
+  } catch (e) {
+    return { error: (e as Error).message || "网络错误" };
+  }
+}
+
 // ─── Models ─────────────────────────────────────────────────────────
 
 export async function fetchModels(): Promise<string[]> {
@@ -221,15 +344,10 @@ export interface LLMProvider {
 const AI_BASE_CONFIG_PATH = "~/.ai-base/config.json";
 
 async function readAiBaseConfig(): Promise<Record<string, any>> {
-  try {
-    const result = await window.desktop.fs.readFile(AI_BASE_CONFIG_PATH);
-    // IPC returns { content: string, language?: string } or { content: "", error: string }
-    const raw = typeof result === "string" ? result : result?.content || "";
-    if (!raw) return {};
-    return JSON.parse(raw);
-  } catch {
-    return {};
-  }
+  // Backed by HTTP API now; AI_BASE_CONFIG_PATH kept as an unused legacy path constant
+  // to ease future migration (will be removed when Electron bundle no longer references it).
+  void AI_BASE_CONFIG_PATH;
+  return fetchAppConfig();
 }
 
 /**
