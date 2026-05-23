@@ -3,26 +3,36 @@
  *
  * 职责：纯 UI 壳 + 事件绑定
  * - 渲染 Slate 编辑器（通过 ChatInputEditor 实例）
- * - 绑定发送/取消/快捷键
+ * - 在编辑器之上独立维护一栏附件区（不进 Slate 富文本树）
+ * - 绑定发送/取消/快捷键、粘贴/拖拽图片
  * - 监听外部事件（ftre:insert-code-ref、ftre:insert-archive-ref）
- * - 不直接操作 Slate API，全部委托给 ChatInputEditor
- * - 发送消息通过 useChat store（会自动带上 model/provider）
- * - 支持 / 触发 skill 选择弹窗
  */
 import { useCallback, useEffect, useMemo, useState, useRef } from "react";
 import { Slate, Editable } from "slate-react";
 import { Range } from "slate";
-import { ArrowUp, Eye, EyeOff, Zap } from "lucide-react";
+import { ArrowUp, Zap, Paperclip, X, Image as ImageIcon } from "lucide-react";
 import { useChat, type RetryState } from "@/stores/chat";
 import { useLayout } from "@/stores/layout";
 import { useWorkspace } from "@/stores/workspace";
+import { useNotification } from "@/stores/notification";
 import { fetchSkills, type SkillDef } from "@/services/api";
 import { AgentSelector } from "./AgentSelector";
 import { ModelSelector } from "./ModelSelector";
 import { TokenRing } from "./TokenRing";
 import { RetryPanel } from "./RetryPanel";
-import { ChatInputEditor, renderElement } from "./slate";
+import {
+  ChatInputEditor,
+  renderElement,
+  IMAGE_MAX_PER_MESSAGE,
+  type ImageRef,
+  type ImageAttachmentDTO,
+} from "./slate";
 import type { CodeRef, ArchiveRef, SkillRef } from "./slate";
+import {
+  fileToImageRef,
+  extractImageFiles,
+  ImageValidationError,
+} from "./slate/imageUtils";
 
 // ─── Skill 候选列表组件 ────────────────────────────────────────────
 
@@ -72,6 +82,64 @@ function SkillDropdown({
   );
 }
 
+// ─── 附件栏 ────────────────────────────────────────────────────────
+
+function formatBytes(n: number): string {
+  if (n >= 1024 * 1024) return `${(n / 1024 / 1024).toFixed(1)} MB`;
+  if (n >= 1024) return `${Math.round(n / 1024)} KB`;
+  return `${n} B`;
+}
+
+function AttachmentBar({
+  attachments,
+  onRemove,
+}: {
+  attachments: ImageRef[];
+  onRemove: (id: string) => void;
+}) {
+  if (attachments.length === 0) return null;
+  return (
+    <div className="flex flex-wrap gap-2 px-4 pt-3">
+      {attachments.map((att) => {
+        const url = `data:${att.mimeType};base64,${att.base64}`;
+        return (
+          <div
+            key={att.id}
+            className="group relative inline-flex items-center gap-2 pl-1 pr-2 py-1 rounded-md border border-border bg-hover text-t-primary text-[12px] max-w-[260px]"
+          >
+            {/* 缩略图 */}
+            <img
+              src={url}
+              alt={att.name || "image"}
+              className="block w-7 h-7 rounded object-cover bg-elevated shrink-0"
+              draggable={false}
+            />
+            {/* 文件名 + 大小 */}
+            <div className="flex flex-col min-w-0 leading-tight">
+              <span className="truncate flex items-center gap-1">
+                <ImageIcon size={10} className="opacity-60 shrink-0" />
+                <span className="truncate">{att.name || "image"}</span>
+              </span>
+              <span className="text-t-muted text-[10px]">
+                {formatBytes(att.bytes)}
+              </span>
+            </div>
+            {/* 删除 */}
+            <button
+              type="button"
+              onClick={() => onRemove(att.id)}
+              title="移除"
+              className="ml-1 inline-flex items-center justify-center w-5 h-5 rounded text-t-muted hover:text-t-primary hover:bg-active transition-colors"
+            >
+              <X size={12} />
+            </button>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 // ─── 主组件 ────────────────────────────────────────────────────────
 
 export function ChatInput() {
@@ -84,6 +152,9 @@ export function ChatInput() {
   const workspace = useWorkspace((s) => s.rootPath);
   const autoFollow = useLayout((s) => s.autoFollowFiles);
   const toggleAutoFollow = useLayout((s) => s.toggleAutoFollowFiles);
+
+  // ── 附件栏状态 ──
+  const [attachments, setAttachments] = useState<ImageRef[]>([]);
 
   // ── Skill 弹窗状态 ──
   const [skillSearch, setSkillSearch] = useState<{
@@ -144,30 +215,144 @@ export function ChatInput() {
   );
 
   // ── 发送 ──
-  const handleSend = useCallback(async () => {
+  const handleSend = useCallback(() => {
     const state = useChat.getState();
     if (state.isBusy) return;
-    const { text, codeRefs, archiveRefs, skillRefs, parts } =
-      inputEditor.serialize();
+
+    const { text, codeRefs, archiveRefs, skillRefs } = inputEditor.serialize();
+    const hasAttachments = attachments.length > 0;
     if (
       !text &&
       codeRefs.length === 0 &&
       archiveRefs.length === 0 &&
-      skillRefs.length === 0
+      skillRefs.length === 0 &&
+      !hasAttachments
     )
       return;
 
+    const dto: ImageAttachmentDTO[] = attachments.map((a) => ({
+      type: "image",
+      mime_type: a.mimeType,
+      data: a.base64,
+      ...(a.name ? { name: a.name } : {}),
+    }));
+
     inputEditor.clear();
     setSkillSearch(null);
+    setAttachments([]);
 
-    // Send via chat store (which passes model/provider to streamManager)
-    state.sendMessage(text);
-  }, [inputEditor]);
+    state.sendMessage(text, dto.length > 0 ? dto : undefined);
+  }, [inputEditor, attachments]);
 
   // ── 取消 ──
   const handleCancel = useCallback(() => {
     useChat.getState().cancelStream();
   }, []);
+
+  // ── 图片附件：上传 / 粘贴 / 拖拽 共用入口 ──
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [isDragging, setIsDragging] = useState(false);
+
+  const handleAddImages = useCallback(
+    async (files: File[]) => {
+      if (files.length === 0) return;
+      // 用函数式 setState 拿到最新长度，避免闭包陈旧值
+      let overflow = 0;
+      let accepted: File[] = [];
+      setAttachments((prev) => {
+        const remaining = IMAGE_MAX_PER_MESSAGE - prev.length;
+        if (remaining <= 0) {
+          overflow = files.length;
+          accepted = [];
+          return prev;
+        }
+        accepted = files.slice(0, remaining);
+        overflow = files.length - accepted.length;
+        return prev;
+      });
+
+      if (accepted.length === 0) {
+        useNotification.getState().addNotification({
+          level: "warning",
+          message: `最多附加 ${IMAGE_MAX_PER_MESSAGE} 张图片`,
+        });
+        return;
+      }
+      if (overflow > 0) {
+        useNotification.getState().addNotification({
+          level: "warning",
+          message: `已忽略 ${overflow} 张：单条消息最多 ${IMAGE_MAX_PER_MESSAGE} 张`,
+        });
+      }
+
+      for (const file of accepted) {
+        try {
+          const ref = await fileToImageRef(file);
+          setAttachments((prev) => [...prev, ref]);
+        } catch (err) {
+          const msg =
+            err instanceof ImageValidationError
+              ? err.message
+              : `图片处理失败: ${(err as Error).message || err}`;
+          useNotification.getState().addNotification({
+            level: "error",
+            message: msg,
+          });
+        }
+      }
+    },
+    [],
+  );
+
+  const handleRemoveAttachment = useCallback((id: string) => {
+    setAttachments((prev) => prev.filter((a) => a.id !== id));
+  }, []);
+
+  const handlePickImages = useCallback(() => {
+    fileInputRef.current?.click();
+  }, []);
+
+  const handleFileInputChange = useCallback(
+    (e: React.ChangeEvent<HTMLInputElement>) => {
+      const files = Array.from(e.target.files || []);
+      e.target.value = ""; // 允许重复选择同一文件
+      handleAddImages(files);
+    },
+    [handleAddImages],
+  );
+
+  const handlePaste = useCallback(
+    (e: React.ClipboardEvent) => {
+      const files = extractImageFiles(e.clipboardData);
+      if (files.length > 0) {
+        e.preventDefault();
+        handleAddImages(files);
+      }
+    },
+    [handleAddImages],
+  );
+
+  const handleDragOver = useCallback((e: React.DragEvent) => {
+    if (Array.from(e.dataTransfer.types).includes("Files")) {
+      e.preventDefault();
+      setIsDragging(true);
+    }
+  }, []);
+
+  const handleDragLeave = useCallback((e: React.DragEvent) => {
+    if (e.currentTarget === e.target) setIsDragging(false);
+  }, []);
+
+  const handleDrop = useCallback(
+    (e: React.DragEvent) => {
+      const files = extractImageFiles(e.dataTransfer);
+      setIsDragging(false);
+      if (files.length === 0) return;
+      e.preventDefault();
+      handleAddImages(files);
+    },
+    [handleAddImages],
+  );
 
   // ── 键盘 ──
   const onKeyDown = useCallback(
@@ -264,13 +449,13 @@ export function ChatInput() {
       if (!step) return;
       const confirmText =
         step === "execute" ? "确认任务，开始执行" : `确认，进入下一步: ${step}`;
-
-      // Send via chat store (which passes model/provider to streamManager)
       useChat.getState().sendMessage(confirmText);
     };
     window.addEventListener("ftre:plan-next-step", handler);
     return () => window.removeEventListener("ftre:plan-next-step", handler);
   }, []);
+
+  const canSend = !inputEditor.isEmpty || attachments.length > 0;
 
   return (
     <div className="px-6 pb-4 pt-3">
@@ -281,7 +466,12 @@ export function ChatInput() {
         )}
 
         <div
+          onDragOver={handleDragOver}
+          onDragLeave={handleDragLeave}
+          onDrop={handleDrop}
           className={`relative bg-panel border border-border-subtle focus-within:border-neon/30 transition-colors shadow-sm ${
+            isDragging ? "border-neon/50 ring-1 ring-neon/30" : ""
+          } ${
             retryState && retryExpanded
               ? "rounded-b-3xl border-t-0"
               : "rounded-3xl"
@@ -298,6 +488,12 @@ export function ChatInput() {
             </div>
           )}
 
+          {/* 附件栏（位于编辑器上方，独立于 Slate） */}
+          <AttachmentBar
+            attachments={attachments}
+            onRemove={handleRemoveAttachment}
+          />
+
           {/* 编辑区 */}
           <Slate
             editor={inputEditor.editor}
@@ -307,6 +503,7 @@ export function ChatInput() {
             <Editable
               renderElement={renderElement}
               onKeyDown={onKeyDown}
+              onPaste={handlePaste}
               placeholder="描述你想要做什么... 输入 / 选择 Skill"
               className="w-full bg-transparent text-[var(--text-xl)] text-t-primary outline-none resize-none px-5 py-4 font-sans font-medium overflow-y-auto overflow-x-hidden"
               style={{
@@ -318,11 +515,36 @@ export function ChatInput() {
             />
           </Slate>
 
+          {/* 隐藏的图片选择器 */}
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="image/png,image/jpeg,image/webp,image/gif"
+            multiple
+            className="hidden"
+            onChange={handleFileInputChange}
+          />
+
+          {/* 拖拽到输入框时的视觉提示 */}
+          {isDragging && (
+            <div className="pointer-events-none absolute inset-0 flex items-center justify-center rounded-3xl bg-hover border-2 border-dashed border-neon/50 text-t-primary text-sm">
+              松开以添加图片
+            </div>
+          )}
+
           {/* 工具栏 */}
           <div className="flex items-center justify-between px-4 py-3">
-            {/* 左侧：模型选择 */}
+            {/* 左侧：模型选择 + 附件 */}
             <div className="flex items-center gap-1">
               <ModelSelector />
+              <button
+                type="button"
+                onClick={handlePickImages}
+                title="附加图片（也可粘贴 / 拖拽）"
+                className="h-8 w-8 flex items-center justify-center rounded-md text-t-secondary hover:text-t-primary hover:bg-hover transition-colors"
+              >
+                <Paperclip size={15} />
+              </button>
             </div>
 
             {/* 右侧：工具按钮 & 发送 */}
@@ -340,7 +562,7 @@ export function ChatInput() {
                 <button
                   onClick={handleSend}
                   className={`h-9 w-9 flex items-center justify-center rounded-lg transition-all ${
-                    !inputEditor.isEmpty
+                    canSend
                       ? "bg-neon text-base hover:bg-neon/80 shadow-[0_0_8px_rgba(var(--neon-rgb,56,189,248),0.22)]"
                       : "bg-surface text-t-ghost"
                   }`}

@@ -45,6 +45,21 @@ export interface SkillRef {
   description: string;
 }
 
+// ── Image 业务数据 ──
+
+export interface ImageRef {
+  /** 本地随机 id（用于 React key、删除定位） */
+  id: string;
+  /** MIME，限定 image/* 子集 */
+  mimeType: string;
+  /** 纯 base64（不带 data: 前缀） */
+  base64: string;
+  /** 原始文件名，仅展示 */
+  name?: string;
+  /** 解码后字节数（用于尺寸提示） */
+  bytes: number;
+}
+
 // ── Slate Elements ──
 
 export interface ParagraphElement {

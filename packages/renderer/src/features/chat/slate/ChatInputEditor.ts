@@ -33,6 +33,24 @@ import type {
 } from "./types";
 import type { MessagePart } from "@/types/chat";
 
+// ── 图片附件校验常量（由附件栏使用，与后端 ws_channel 校验一致）──
+export const IMAGE_MIME_WHITELIST: readonly string[] = [
+  "image/png",
+  "image/jpeg",
+  "image/webp",
+  "image/gif",
+];
+export const IMAGE_MAX_BYTES = 3 * 1024 * 1024; // 3 MB
+export const IMAGE_MAX_PER_MESSAGE = 8;
+
+/** 直接可作为 user_input.data.attachments 上送的形态 */
+export interface ImageAttachmentDTO {
+  type: "image";
+  mime_type: string;
+  data: string;
+  name?: string;
+}
+
 export interface SerializedInput {
   text: string;
   codeRefs: CodeRef[];
@@ -260,18 +278,19 @@ export class ChatInputEditor {
         const lineTexts: string[] = []; // 纯文本（不含 chip 占位符）
         let pendingText = ""; // 累积的文本，遇到 chip 时 flush
 
+        const flush = () => {
+          if (pendingText) {
+            parts.push({ type: "text", data: pendingText });
+            lineTexts.push(pendingText);
+            pendingText = "";
+          }
+        };
+
         for (const child of node.children) {
           if (SlateElement.isElement(child) && child.type === "code-chip") {
             const chip = child as CodeChipElement;
             codeRefs.push(chip.codeRef);
-
-            // flush 累积的文本到 parts
-            if (pendingText) {
-              parts.push({ type: "text", data: pendingText });
-              lineTexts.push(pendingText);
-              pendingText = "";
-            }
-
+            flush();
             parts.push({
               type: "code_ref",
               data: {
@@ -287,14 +306,7 @@ export class ChatInputEditor {
           ) {
             const chip = child as ArchiveChipElement;
             archiveRefs.push(chip.archiveRef);
-
-            // flush 累积的文本到 parts
-            if (pendingText) {
-              parts.push({ type: "text", data: pendingText });
-              lineTexts.push(pendingText);
-              pendingText = "";
-            }
-
+            flush();
             parts.push({
               type: "archive_ref",
               data: {
@@ -308,14 +320,7 @@ export class ChatInputEditor {
           ) {
             const chip = child as SkillChipElement;
             skillRefs.push(chip.skillRef);
-
-            // flush 累积的文本到 parts
-            if (pendingText) {
-              parts.push({ type: "text", data: pendingText });
-              lineTexts.push(pendingText);
-              pendingText = "";
-            }
-
+            flush();
             parts.push({
               type: "skill_ref",
               data: {
@@ -328,12 +333,7 @@ export class ChatInputEditor {
           }
         }
 
-        // flush 段落末尾的文本
-        if (pendingText) {
-          parts.push({ type: "text", data: pendingText });
-          lineTexts.push(pendingText);
-        }
-
+        flush();
         textParts.push(lineTexts.join(""));
       }
     }

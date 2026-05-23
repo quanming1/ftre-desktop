@@ -3,7 +3,7 @@ import type { MessagePart, ArchiveRefData, SkillRefData } from "@/types/chat";
 import type { ChatMessage as WsChatMessage } from "@/stores/chat";
 
 /** Extended message type for UserMessage — supports both WS messages and legacy rich messages */
-interface ChatMessage extends WsChatMessage {
+interface ChatMessage extends Omit<WsChatMessage, "parts"> {
   parts?: MessagePart[];
   codeRefs?: any[];
   diffMeta?: { base_hash: string; final_hash: string; workspace: string };
@@ -150,6 +150,41 @@ function getMessageText(message: ChatMessage): string {
       .join("");
   }
   return message.content ?? "";
+}
+
+/**
+ * 渲染附件区（仅图片）
+ * 显示在气泡顶部，hover 缩略图无操作；点击放大暂未实现
+ */
+function AttachmentStrip({
+  attachments,
+}: {
+  attachments: NonNullable<WsChatMessage["attachments"]>;
+}) {
+  if (attachments.length === 0) return null;
+  return (
+    <div className="flex flex-wrap gap-2 mb-2">
+      {attachments.map((att, i) => {
+        if (att.type !== "image") return null;
+        return (
+          <a
+            key={i}
+            href={att.url}
+            target="_blank"
+            rel="noreferrer"
+            title={att.name || "image"}
+            className="inline-block rounded-md overflow-hidden border border-border-subtle bg-surface hover:border-neon/40 transition-colors max-w-[200px] max-h-[200px]"
+          >
+            <img
+              src={att.url}
+              alt={att.name || "image"}
+              className="block w-auto h-auto max-w-[200px] max-h-[200px] object-contain"
+            />
+          </a>
+        );
+      })}
+    </div>
+  );
 }
 
 interface RollbackPreviewData {
@@ -447,6 +482,9 @@ export const UserMessage = memo(
                   }}
                   className="text-[var(--text-lg)] leading-relaxed text-t-primary bg-panel px-4 py-3 whitespace-pre-wrap break-words font-sans cursor-default"
                 >
+                  {message.attachments && message.attachments.length > 0 && (
+                    <AttachmentStrip attachments={message.attachments} />
+                  )}
                   {hasParts ? (
                     <PartsContent parts={message.parts!} />
                   ) : (
@@ -504,6 +542,7 @@ export const UserMessage = memo(
     return (
       prev.message.content === next.message.content &&
       prev.message.parts === next.message.parts &&
+      prev.message.attachments === next.message.attachments &&
       prev.message.id === next.message.id
     );
   },
