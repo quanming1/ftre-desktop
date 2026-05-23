@@ -10,7 +10,7 @@
 import { useCallback, useEffect, useMemo, useState, useRef } from "react";
 import { Slate, Editable } from "slate-react";
 import { Range } from "slate";
-import { ArrowUp, Zap, Paperclip, X, Image as ImageIcon } from "lucide-react";
+import { ArrowUp, Zap, Paperclip, X } from "lucide-react";
 import { useChat, type RetryState } from "@/stores/chat";
 import { useLayout } from "@/stores/layout";
 import { useWorkspace } from "@/stores/workspace";
@@ -18,7 +18,6 @@ import { useNotification } from "@/stores/notification";
 import { fetchSkills, type SkillDef } from "@/services/api";
 import { AgentSelector } from "./AgentSelector";
 import { ModelSelector } from "./ModelSelector";
-import { TokenRing } from "./TokenRing";
 import { RetryPanel } from "./RetryPanel";
 import {
   ChatInputEditor,
@@ -116,10 +115,7 @@ function AttachmentBar({
             />
             {/* 文件名 + 大小 */}
             <div className="flex flex-col min-w-0 leading-tight">
-              <span className="truncate flex items-center gap-1">
-                <ImageIcon size={10} className="opacity-60 shrink-0" />
-                <span className="truncate">{att.name || "image"}</span>
-              </span>
+              <span className="truncate">{att.name || "image"}</span>
               <span className="text-t-muted text-[10px]">
                 {formatBytes(att.bytes)}
               </span>
@@ -534,9 +530,8 @@ export function ChatInput() {
 
           {/* 工具栏 */}
           <div className="flex items-center justify-between px-4 py-3">
-            {/* 左侧：模型选择 + 附件 */}
+            {/* 左侧：附件 */}
             <div className="flex items-center gap-1">
-              <ModelSelector />
               <button
                 type="button"
                 onClick={handlePickImages}
@@ -547,9 +542,9 @@ export function ChatInput() {
               </button>
             </div>
 
-            {/* 右侧：工具按钮 & 发送 */}
+            {/* 右侧：模型选择 + 发送 */}
             <div className="flex items-center gap-1">
-              <TokenRing />
+              <ModelSelector />
               <div className="w-px h-3.5 bg-border-subtle mx-0.5" />
               {isBusy ? (
                 <button
