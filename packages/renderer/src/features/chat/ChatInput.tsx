@@ -283,8 +283,8 @@ export function ChatInput() {
         <div
           className={`relative bg-panel border border-border-subtle focus-within:border-neon/30 transition-colors shadow-sm ${
             retryState && retryExpanded
-              ? "rounded-b-2xl border-t-0"
-              : "rounded-2xl"
+              ? "rounded-b-3xl border-t-0"
+              : "rounded-3xl"
           }`}
         >
           {/* Skill 弹窗 */}
@@ -308,7 +308,7 @@ export function ChatInput() {
               renderElement={renderElement}
               onKeyDown={onKeyDown}
               placeholder="描述你想要做什么... 输入 / 选择 Skill"
-              className="w-full bg-transparent text-[var(--text-lg)] text-t-primary outline-none resize-none px-5 py-4 font-sans overflow-y-auto overflow-x-hidden"
+              className="w-full bg-transparent text-[var(--text-xl)] text-t-primary outline-none resize-none px-5 py-4 font-sans font-medium overflow-y-auto overflow-x-hidden"
               style={{
                 minHeight: 64,
                 maxHeight: 180,
