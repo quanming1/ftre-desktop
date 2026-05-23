@@ -1,4 +1,4 @@
-import { memo, useCallback, useState, useRef } from "react";
+import { memo, useCallback, useState, useRef, useLayoutEffect } from "react";
 import type { MessagePart, ArchiveRefData, SkillRefData } from "@/types/chat";
 import type { ChatMessage as WsChatMessage } from "@/stores/chat";
 
@@ -19,6 +19,8 @@ import {
   Check,
   GitFork,
   Zap,
+  ChevronDown,
+  ChevronUp,
 } from "lucide-react";
 import { useChat } from "@/stores/chat";
 import { useEditor } from "@/stores/editor";
@@ -177,6 +179,30 @@ export const UserMessage = memo(
     } | null>(null);
 
     const messageRef = useRef<HTMLDivElement>(null);
+    const bubbleRef = useRef<HTMLDivElement>(null);
+
+    // 动态圆角：短消息接近胶囊，长消息收敛到固定值
+    const [bubbleRadius, setBubbleRadius] = useState<number>(20);
+    // 折叠：超长内容默认折叠，提供展开按钮
+    const COLLAPSE_HEIGHT_PX = 320; // 超过此高度则启用折叠
+    const [isOverflowing, setIsOverflowing] = useState(false);
+    const [collapsed, setCollapsed] = useState(true);
+
+    // 监测气泡真实高度：动态调整圆角 + 判断是否需要折叠
+    useLayoutEffect(() => {
+      const el = bubbleRef.current;
+      if (!el) return;
+      const apply = () => {
+        const h = el.scrollHeight;
+        // 圆角 = clamp(12, h/2, 20)
+        setBubbleRadius(Math.max(12, Math.min(h / 2, 20)));
+        setIsOverflowing(h > COLLAPSE_HEIGHT_PX + 8);
+      };
+      apply();
+      const ro = new ResizeObserver(apply);
+      ro.observe(el);
+      return () => ro.disconnect();
+    }, [message.content, message.parts]);
 
     // 检查是否可以回滚（不在处理中，有 sessionId）
     const canRollback = !isBusy && !!sessionId;
@@ -406,15 +432,56 @@ export const UserMessage = memo(
 
             {/* 消息内容 */}
             <div className="max-w-[85%]">
-              <div
-                ref={messageRef}
-                onContextMenu={handleContextMenu}
-                className="text-[var(--text-lg)] leading-relaxed text-t-primary bg-panel px-4 py-3 rounded-[var(--radius-pill)] whitespace-pre-wrap break-words font-sans cursor-default"
-              >
-                {hasParts ? (
-                  <PartsContent parts={message.parts!} />
-                ) : (
-                  message.content
+              <div className="relative">
+                <div
+                  ref={(node) => {
+                    messageRef.current = node;
+                    bubbleRef.current = node;
+                  }}
+                  onContextMenu={handleContextMenu}
+                  style={{
+                    borderRadius: bubbleRadius,
+                    maxHeight:
+                      isOverflowing && collapsed ? COLLAPSE_HEIGHT_PX : undefined,
+                    overflow: isOverflowing && collapsed ? "hidden" : undefined,
+                  }}
+                  className="text-[var(--text-lg)] leading-relaxed text-t-primary bg-panel px-4 py-3 whitespace-pre-wrap break-words font-sans cursor-default"
+                >
+                  {hasParts ? (
+                    <PartsContent parts={message.parts!} />
+                  ) : (
+                    message.content
+                  )}
+                </div>
+
+                {/* 折叠时底部渐隐遮罩 */}
+                {isOverflowing && collapsed && (
+                  <div
+                    className="pointer-events-none absolute left-0 right-0 bottom-0 h-12 bg-gradient-to-t from-panel to-transparent"
+                    style={{
+                      borderBottomLeftRadius: bubbleRadius,
+                      borderBottomRightRadius: bubbleRadius,
+                    }}
+                  />
+                )}
+
+                {/* 展开/收起按钮 */}
+                {isOverflowing && (
+                  <Tooltip
+                    content={collapsed ? "展开文字" : "收起"}
+                    side="top"
+                  >
+                    <button
+                      onClick={() => setCollapsed((v) => !v)}
+                      className="absolute right-3 bottom-3 w-7 h-7 flex items-center justify-center rounded-full bg-elevated/95 text-t-secondary hover:text-t-primary hover:bg-hover border border-border-subtle shadow-sm transition-colors"
+                    >
+                      {collapsed ? (
+                        <ChevronDown size={16} />
+                      ) : (
+                        <ChevronUp size={16} />
+                      )}
+                    </button>
+                  </Tooltip>
                 )}
               </div>
             </div>
