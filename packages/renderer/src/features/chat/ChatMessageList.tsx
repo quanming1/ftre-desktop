@@ -94,9 +94,47 @@ export const ChatMessageList = memo(function ChatMessageList({
           </div>
         )}
 
-        {visibleMessages.map((msg) => (
-          <MessageItem key={msg.id} message={msg} />
-        ))}
+        {visibleMessages.map((msg, i) => {
+          // 判断 assistant 消息是否为"本轮最后一条"：
+          // - 是 assistant 角色
+          // - 不在流式中
+          // - 后面紧跟的不是 assistant（下一条是 user / system / 没有下一条）
+          const next = visibleMessages[i + 1];
+          const isLastOfTurn =
+            msg.role === "assistant" &&
+            !msg.streaming &&
+            (!next || next.role !== "assistant");
+
+          // 计算"本轮新增 token"：当前 assistant 的 total_tokens
+          // 减去最近一条更早的有 usage 的 assistant 的 total_tokens
+          let turnUsage: ChatMessage["usage"] | undefined;
+          if (msg.role === "assistant" && msg.usage) {
+            let prevTotal = 0;
+            for (let j = i - 1; j >= 0; j--) {
+              const prev = visibleMessages[j];
+              if (prev.role === "assistant" && prev.usage?.total_tokens != null) {
+                prevTotal = prev.usage.total_tokens;
+                break;
+              }
+            }
+            const cur = msg.usage;
+            turnUsage = {
+              prompt_tokens: cur.prompt_tokens,
+              completion_tokens: cur.completion_tokens,
+              total_tokens:
+                cur.total_tokens != null ? cur.total_tokens - prevTotal : undefined,
+            };
+          }
+
+          return (
+            <MessageItem
+              key={msg.id}
+              message={msg}
+              showActions={isLastOfTurn}
+              turnUsage={turnUsage}
+            />
+          );
+        })}
 
         {/* Typing indicator */}
         {isBusy && !messages.some((m) => m.streaming) && (
@@ -125,12 +163,26 @@ export const ChatMessageList = memo(function ChatMessageList({
 
 // ─── Message Item ───────────────────────────────────────────────────
 
-const MessageItem = memo(function MessageItem({ message }: { message: ChatMessage }) {
+const MessageItem = memo(function MessageItem({
+  message,
+  showActions = false,
+  turnUsage,
+}: {
+  message: ChatMessage;
+  showActions?: boolean;
+  turnUsage?: ChatMessage["usage"];
+}) {
   if (message.role === "user") {
     return <UserMessage message={message} />;
   }
   if (message.role === "assistant") {
-    return <AssistantMessage message={message} />;
+    return (
+      <AssistantMessage
+        message={message}
+        showActions={showActions}
+        turnUsage={turnUsage}
+      />
+    );
   }
   if (message.role === "system") {
     return (
