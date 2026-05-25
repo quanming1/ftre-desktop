@@ -30,20 +30,9 @@ import {
   AlertDialogAction,
   AlertDialogCancel,
 } from "@ftre/ui";
-import { fetchAppConfig, saveAppConfig } from "@/services/api";
+import { fetchAppConfig, saveAppConfig, type ModelItem } from "@/services/api";
 
 // ─── Types ──────────────────────────────────────────────────────────
-
-interface ModelItem {
-  name: string;
-  id: string;
-  /** 上下文窗口大小（token 数），可空 */
-  context_window?: number | null;
-  /** 最大输出 token 数，可空 */
-  max_output?: number | null;
-  /** 是否支持视觉输入（图片） */
-  vision?: boolean;
-}
 
 interface ProviderConfig {
   api_key?: string | null;
@@ -61,7 +50,6 @@ interface AiBaseConfig {
 // ─── Constants ──────────────────────────────────────────────────────
 
 const API_PROTOCOLS: { value: string; label: string }[] = [
-  { value: "", label: "自动（按模型名推断）" },
   { value: "openai", label: "OpenAI 兼容" },
   { value: "anthropic", label: "Anthropic" },
   { value: "azure", label: "Azure OpenAI" },
@@ -284,6 +272,14 @@ export function ModelSettings() {
       setError("API Key 不能为空");
       return;
     }
+    if (!editBase.trim()) {
+      setError("API Base URL 不能为空");
+      return;
+    }
+    if (!editProtocol.trim()) {
+      setError("请选择 API 协议");
+      return;
+    }
     if (!config) return;
 
     setSaving(true);
@@ -292,25 +288,56 @@ export function ModelSettings() {
       const updated = { ...config };
       if (!updated.providers) updated.providers = {};
 
-      // 过滤掉空的模型，只保留有 name 或 id 的；空字段不写入 JSON
-      const validModels = editModels
-        .filter((m) => m.name.trim() || m.id.trim())
-        .map((m) => {
-          const out: Record<string, any> = {
-            name: m.name.trim(),
-            id: m.id.trim(),
-          };
-          if (typeof m.context_window === "number" && m.context_window > 0) {
-            out.context_window = m.context_window;
-          }
-          if (typeof m.max_output === "number" && m.max_output > 0) {
-            out.max_output = m.max_output;
-          }
-          if (m.vision) {
-            out.vision = true;
-          }
-          return out;
+      // 至少一个模型
+      if (editModels.length === 0) {
+        setError("至少需要配置一个模型");
+        setSaving(false);
+        return;
+      }
+
+      // 模型字段全量必填校验，定位到具体行
+      const validModels: Record<string, any>[] = [];
+      for (let i = 0; i < editModels.length; i++) {
+        const m = editModels[i];
+        const label = m.name.trim() || m.id.trim() || `模型 ${i + 1}`;
+
+        if (!m.name.trim()) {
+          setError(`「${label}」需要填写名称`);
+          setSaving(false);
+          return;
+        }
+        if (!m.id.trim()) {
+          setError(`「${label}」需要填写模型 ID`);
+          setSaving(false);
+          return;
+        }
+        if (
+          typeof m.context_window !== "number" ||
+          !Number.isFinite(m.context_window) ||
+          m.context_window <= 0
+        ) {
+          setError(`「${label}」需要填写上下文 (token)`);
+          setSaving(false);
+          return;
+        }
+        if (
+          typeof m.max_output !== "number" ||
+          !Number.isFinite(m.max_output) ||
+          m.max_output <= 0
+        ) {
+          setError(`「${label}」需要填写最大输出 (token)`);
+          setSaving(false);
+          return;
+        }
+
+        validModels.push({
+          name: m.name.trim(),
+          id: m.id.trim(),
+          context_window: m.context_window,
+          max_output: m.max_output,
+          vision: !!m.vision,
         });
+      }
 
       const providerName = editName.trim();
 
@@ -335,9 +362,9 @@ export function ModelSettings() {
 
       updated.providers[providerName] = {
         api_key: editKey.trim(),
-        api_base: editBase.trim() || null,
-        api_protocol: editProtocol.trim() || null,
-        models: validModels.length > 0 ? validModels : undefined,
+        api_base: editBase.trim(),
+        api_protocol: editProtocol.trim(),
+        models: validModels,
       };
 
       await writeConfig(updated);
@@ -414,6 +441,7 @@ export function ModelSettings() {
           <div>
             <label className="block text-[11px] text-t-muted mb-1.5">
               供应商名称
+              <span className="text-red-400 ml-0.5">*</span>
             </label>
             <Input
               value={editName}
@@ -426,6 +454,7 @@ export function ModelSettings() {
           <div>
             <label className="block text-[11px] text-t-muted mb-1.5">
               API Key
+              <span className="text-red-400 ml-0.5">*</span>
             </label>
             <div className="relative">
               <Input
@@ -449,6 +478,7 @@ export function ModelSettings() {
           <div>
             <label className="block text-[11px] text-t-muted mb-1.5">
               API Base URL
+              <span className="text-red-400 ml-0.5">*</span>
             </label>
             <Input
               value={editBase}
@@ -462,12 +492,16 @@ export function ModelSettings() {
           <div>
             <label className="block text-[11px] text-t-muted mb-1.5">
               API 协议
+              <span className="text-red-400 ml-0.5">*</span>
             </label>
             <select
               value={editProtocol}
               onChange={(e) => setEditProtocol(e.target.value)}
               className="w-full h-8 px-3 rounded-md bg-elevated border border-border text-[13px] text-t-primary focus:outline-none focus:border-accent appearance-none"
             >
+              <option value="" disabled>
+                请选择
+              </option>
               {API_PROTOCOLS.map((opt) => (
                 <option key={opt.value} value={opt.value}>
                   {opt.label}
@@ -484,6 +518,7 @@ export function ModelSettings() {
             <div className="flex items-center justify-between mb-2">
               <label className="block text-[11px] text-t-muted">
                 模型列表
+                <span className="text-red-400 ml-0.5">*</span>
               </label>
               <button
                 onClick={addModel}
@@ -496,7 +531,7 @@ export function ModelSettings() {
 
             {editModels.length === 0 ? (
               <div className="text-[11.5px] text-t-ghost py-5 text-center border border-dashed border-border-subtle rounded-md">
-                暂无模型，点击右上角"添加模型"
+                至少需要一个模型，点击右上角"添加模型"
               </div>
             ) : (
               <div className="space-y-2.5">
@@ -523,6 +558,7 @@ export function ModelSettings() {
                     <div>
                       <label className="block text-[10.5px] text-t-muted mb-1">
                         名称
+                        <span className="text-red-400 ml-0.5">*</span>
                       </label>
                       <Input
                         value={model.name}
@@ -538,6 +574,7 @@ export function ModelSettings() {
                     <div>
                       <label className="block text-[10.5px] text-t-muted mb-1">
                         模型 ID
+                        <span className="text-red-400 ml-0.5">*</span>
                       </label>
                       <Input
                         value={model.id}
@@ -554,6 +591,7 @@ export function ModelSettings() {
                       <div>
                         <label className="block text-[10.5px] text-t-muted mb-1">
                           上下文 (token)
+                          <span className="text-red-400 ml-0.5">*</span>
                         </label>
                         <Input
                           type="text"
@@ -578,13 +616,14 @@ export function ModelSettings() {
                               parseInt(raw, 10),
                             );
                           }}
-                          placeholder="128000"
+                          placeholder="必填，如 128000"
                           className="text-[13px] font-mono"
                         />
                       </div>
                       <div>
                         <label className="block text-[10.5px] text-t-muted mb-1">
                           最大输出 (token)
+                          <span className="text-red-400 ml-0.5">*</span>
                         </label>
                         <Input
                           type="text"
@@ -605,7 +644,7 @@ export function ModelSettings() {
                               parseInt(raw, 10),
                             );
                           }}
-                          placeholder="8192"
+                          placeholder="必填，如 8192"
                           className="text-[13px] font-mono"
                         />
                       </div>
