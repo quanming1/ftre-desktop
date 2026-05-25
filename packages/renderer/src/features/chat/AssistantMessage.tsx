@@ -67,8 +67,8 @@ function ReasoningBlock({ text }: { text: string }) {
 }
 
 /**
- * 按 parts 顺序行内渲染：每个 tool_call 独立渲染；text 段切块（已闭合块走 memo）。
- * 流式且为最后一段 text 时对内容做 throttle，仅尾块随 token 重渲。
+ * 按 parts 顺序行内渲染：每个 tool_call 独立渲染；text 段切块（已闭合块走 memo）；
+ * reasoning 段用折叠 ReasoningBlock。流式且为最后一段 text 时对内容做 throttle。
  */
 function PartsRenderer({
   parts,
@@ -94,6 +94,9 @@ function PartsRenderer({
           const tc = toolCalls.find((t) => t.id === p.toolCallId);
           if (!tc) return null;
           return <InlineToolCallCard key={`tc-${tc.id}`} toolCall={tc} />;
+        }
+        if (p.type === "reasoning") {
+          return <ReasoningBlock key={`r-${i}`} text={p.text} />;
         }
         return (
           <TextPart
@@ -208,8 +211,6 @@ export const AssistantMessage = memo(
           ) : (
             <StreamingContext.Provider value={isStreaming}>
               <div className="text-[var(--text-lg)] leading-relaxed text-t-primary font-sans break-words">
-                {message.reasoning && <ReasoningBlock text={message.reasoning} />}
-
                 {message.parts && message.parts.length > 0 ? (
                   <div className="space-y-2">
                     <PartsRenderer
@@ -221,6 +222,8 @@ export const AssistantMessage = memo(
                   </div>
                 ) : (
                   <>
+                    {/* fallback：parts 为空但有 reasoning（如老历史只有 m.reasoning 字段） */}
+                    {message.reasoning && <ReasoningBlock text={message.reasoning} />}
                     {message.toolCalls && message.toolCalls.length > 0 && (
                       <div className="mb-2 space-y-2">
                         {message.toolCalls.map((tc, i) => (

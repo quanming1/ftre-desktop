@@ -28,6 +28,7 @@ export interface ToolCall {
 
 export type MessagePart =
   | { type: "text"; text: string }
+  | { type: "reasoning"; text: string }
   | { type: "tool_call"; toolCallId: string };
 
 /** 用户消息附件（与后端 attachments 协议同形，base64 已转成 data URL） */
@@ -263,7 +264,51 @@ export function applyEvent(b: Bucket, ev: BusEvent): void {
     case "reasoning": {
       ensure();
       const chunk = d.content || "";
-      replaceTail((m) => ({ ...m, reasoning: (m.reasoning ?? "") + chunk }));
+      if (!chunk) return;
+      replaceTail((m) => {
+        const parts = [...(m.parts || [])];
+        const lastPart = parts[parts.length - 1];
+        // 跟 message chunk 同思路：连续累积到末尾的 reasoning part；遇到边界
+        // （tool_call / text）会自动 push 新 reasoning part，区分多轮。
+        if (lastPart?.type === "reasoning") {
+          parts[parts.length - 1] = { type: "reasoning", text: lastPart.text + chunk };
+        } else {
+          parts.push({ type: "reasoning", text: chunk });
+        }
+        return { ...m, parts, reasoning: (m.reasoning ?? "") + chunk };
+      });
+      return;
+    }
+
+    // ─── 一轮思考的完整文本（对应 message_complete 的 reasoning 版） ───
+    // 时序：实时下出现在 reasoning chunks 之后、message_complete 之前；
+    //       历史回放时数据库只存 reasoning_complete，没有 chunk。
+    // 处理：找最近一个 reasoning part 替换成权威总和（不是追加）。多轮思考
+    // 通过 parts 顺序天然区分（前一轮 reasoning_complete 之后，message_complete /
+    // tool_call 已经把 lastPart 推开，下一轮 reasoning chunk 会另起一段）。
+    case "reasoning_complete": {
+      ensure();
+      const final = d.content || "";
+      if (!final) return;
+      replaceTail((m) => {
+        const parts = [...(m.parts || [])];
+        let lastReasoningIdx = -1;
+        for (let i = parts.length - 1; i >= 0; i--) {
+          if (parts[i].type === "reasoning") { lastReasoningIdx = i; break; }
+        }
+        if (lastReasoningIdx >= 0) {
+          parts[lastReasoningIdx] = { type: "reasoning", text: final };
+        } else {
+          // 这一轮没流过 chunks（典型历史回放路径） → 直接 push
+          parts.push({ type: "reasoning", text: final });
+        }
+        // 兼容旧字段：把所有 reasoning part 文本拼起来
+        const reasoning = parts
+          .filter((p): p is { type: "reasoning"; text: string } => p.type === "reasoning")
+          .map((p) => p.text)
+          .join("\n\n");
+        return { ...m, parts, reasoning };
+      });
       return;
     }
 
