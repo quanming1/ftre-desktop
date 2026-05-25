@@ -46,14 +46,15 @@ export function retryLastMessage(): void {
 
 // ─── Sessions ───────────────────────────────────────────────────────
 
-/** Known session channel types */
-const SESSION_CHANNELS = ["websocket", "dmwork", "cli", "telegram"] as const;
+/** Known session channel types (backend channel_id 取值)。
+ *  ws = WebSocket（聊天）；cron = 定时任务；其它由插件/扩展 channel 决定。 */
+const SESSION_CHANNELS = ["ws", "cron", "dmwork", "cli", "telegram"] as const;
 type KnownChannel = (typeof SESSION_CHANNELS)[number];
 export type SessionChannel = KnownChannel | "unknown";
 
 export interface SessionSummary {
   session_id: string;
-  /** Original key from backend (e.g., "websocket:uuid", "dmwork:xxx") */
+  /** Original key from backend (e.g., "ws::sess_xxx") */
   key?: string;
   workspace?: string;
   agent_id?: string;
@@ -62,7 +63,8 @@ export interface SessionSummary {
   updated_at?: number;
   meta?: Record<string, any>;
   source?: string;
-  channel?: SessionChannel;
+  /** 后端 channel_id 原值。空串 / 未知 → "unknown" */
+  channel: SessionChannel;
 }
 
 /**
@@ -98,6 +100,16 @@ export async function fetchSessions(
       if (s.key) {
         registerSessionKey(sessionId, s.key);
       }
+      // 后端字段名是 channel_id，老格式可能用 channel
+      const rawChannel: string =
+        (typeof s.channel_id === "string" && s.channel_id) ||
+        (typeof s.channel === "string" && s.channel) ||
+        "";
+      const channel: SessionChannel = (
+        SESSION_CHANNELS as readonly string[]
+      ).includes(rawChannel)
+        ? (rawChannel as SessionChannel)
+        : (rawChannel ? (rawChannel as SessionChannel) : "unknown");
       return {
         session_id: sessionId,
         key: s.key,
@@ -108,7 +120,7 @@ export async function fetchSessions(
         updated_at: s.updated_at,
         meta: s.meta,
         source: s.source,
-        channel: (s.channel as SessionChannel) || "websocket",
+        channel,
       };
     });
   } catch {
@@ -247,6 +259,8 @@ export interface CronJob {
   cron: string;
   title: string;
   prompt: string;
+  /** 禁用后调度器跳过该任务，但任务定义和历史保留 */
+  disabled?: boolean;
   created_at: number;
   run_history: number[];
 }
@@ -256,6 +270,7 @@ export interface CronJobInput {
   cron: string;
   title: string;
   prompt: string;
+  disabled?: boolean;
 }
 
 async function _readError(res: Response): Promise<string> {
