@@ -2,12 +2,12 @@
  * ScheduledTaskPanel — 定时任务面板（CRUD）
  *
  * 后端契约（~/.ftre/cron/<job_id>.json）：
- *   { id, cron, title, prompt, created_at, run_history: number[] }
+ *   { id, cron, title, prompt, disabled, created_at, run_history: number[] }
  *
  * UI:
  *   - 顶部：标题 + 刷新 + 新建按钮
- *   - 列表：卡片式，点击展开详情；hover 时显示编辑 / 删除
- *   - 编辑/创建：行内表单 sheet（cron / title / prompt 三字段）
+ *   - 列表：卡片式，点击展开详情；hover 时显示启停 / 编辑 / 删除
+ *   - 编辑/创建：行内表单 sheet（cron / title / prompt + 启用开关）
  */
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
@@ -20,7 +20,10 @@ import {
   Trash2,
   X,
   AlertCircle,
+  Power,
+  PowerOff,
 } from "lucide-react";
+import { Switch } from "@ftre/ui";
 import {
   fetchCronJobs,
   createCronJob,
@@ -75,17 +78,26 @@ function JobCard({
   job,
   onEdit,
   onDelete,
+  onToggleDisabled,
 }: {
   job: CronJob;
   onEdit: () => void;
   onDelete: () => void;
+  onToggleDisabled: () => void;
 }) {
   const [expanded, setExpanded] = useState(false);
   const history = job.run_history || [];
   const lastRun = history.length > 0 ? history[history.length - 1] : undefined;
+  const isDisabled = !!job.disabled;
 
   return (
-    <div className="px-5 py-4 rounded-xl border border-border/30 hover:bg-surface transition-colors">
+    <div
+      className={`px-5 py-4 rounded-xl border transition-colors ${
+        isDisabled
+          ? "border-border/30 bg-elevated/20 opacity-70 hover:opacity-100"
+          : "border-border/30 hover:bg-surface"
+      }`}
+    >
       {/* Row 1: 标题 + 操作按钮 */}
       <div className="flex items-start gap-3">
         <button
@@ -93,15 +105,34 @@ function JobCard({
           className="flex-1 min-w-0 flex items-start gap-3 text-left"
         >
           {/* Icon */}
-          <div className="mt-1 shrink-0 w-7 h-7 rounded-full flex items-center justify-center bg-neon/10">
-            <Calendar size={14} className="text-neon/70" />
+          <div
+            className={`mt-1 shrink-0 w-7 h-7 rounded-full flex items-center justify-center ${
+              isDisabled ? "bg-hover" : "bg-neon/10"
+            }`}
+          >
+            <Calendar
+              size={14}
+              className={isDisabled ? "text-t-ghost" : "text-neon/70"}
+            />
           </div>
 
           <div className="flex-1 min-w-0">
             {/* Title */}
-            <h3 className="text-[15px] text-t-primary font-medium leading-tight truncate">
-              {job.title}
-            </h3>
+            <div className="flex items-center gap-2 min-w-0">
+              <h3
+                className={`text-[15px] font-medium leading-tight truncate ${
+                  isDisabled ? "text-t-muted line-through decoration-t-ghost/40" : "text-t-primary"
+                }`}
+              >
+                {job.title}
+              </h3>
+              {isDisabled && (
+                <span className="shrink-0 inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-hover text-t-muted border border-border-subtle">
+                  <PowerOff size={9} />
+                  已禁用
+                </span>
+              )}
+            </div>
 
             {/* Prompt 预览 */}
             {job.prompt && (
@@ -142,6 +173,17 @@ function JobCard({
 
         {/* 操作按钮 */}
         <div className="flex items-center gap-1 shrink-0 mt-1">
+          <button
+            onClick={onToggleDisabled}
+            title={isDisabled ? "启用" : "禁用"}
+            className={`w-7 h-7 rounded flex items-center justify-center transition-colors ${
+              isDisabled
+                ? "text-t-ghost hover:text-neon hover:bg-hover"
+                : "text-t-ghost hover:text-amber-400 hover:bg-hover"
+            }`}
+          >
+            {isDisabled ? <Power size={13} /> : <PowerOff size={13} />}
+          </button>
           <button
             onClick={onEdit}
             title="编辑"
@@ -244,6 +286,7 @@ function JobForm({ initial, onCancel, onSubmit }: JobFormProps) {
   const [cron, setCron] = useState(initial?.cron || "");
   const [title, setTitle] = useState(initial?.title || "");
   const [prompt, setPrompt] = useState(initial?.prompt || "");
+  const [disabled, setDisabled] = useState(!!initial?.disabled);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
@@ -259,6 +302,7 @@ function JobForm({ initial, onCancel, onSubmit }: JobFormProps) {
         cron: cron.trim(),
         title: title.trim(),
         prompt: prompt.trim(),
+        disabled,
       });
     } catch (e) {
       setError((e as Error).message || "保存失败");
@@ -319,6 +363,23 @@ function JobForm({ initial, onCancel, onSubmit }: JobFormProps) {
           className="w-full bg-surface border border-border-subtle rounded-md px-3 py-2 text-[13px] text-t-primary placeholder:text-t-ghost focus:outline-none focus:border-neon/50 resize-none"
         />
       </Field>
+
+      {/* 启用开关 */}
+      <div className="flex items-center justify-between pt-1 pb-1">
+        <div>
+          <div className="text-[12px] text-t-secondary leading-tight">
+            启用调度
+          </div>
+          <div className="text-[10.5px] text-t-ghost mt-0.5 leading-tight">
+            关闭后调度器跳过该任务，但保留任务定义和历史
+          </div>
+        </div>
+        <Switch
+          size="sm"
+          checked={!disabled}
+          onCheckedChange={(v) => setDisabled(!v)}
+        />
+      </div>
 
       {error && (
         <div className="flex items-start gap-2 px-3 py-2 rounded-md bg-red-400/[0.06] border border-red-400/[0.15]">
@@ -449,6 +510,29 @@ export function ScheduledTaskPanel() {
     [reload],
   );
 
+  const handleToggleDisabled = useCallback(
+    async (job: CronJob) => {
+      const next = !job.disabled;
+      // 乐观更新：先改本地，避免 PATCH 期间 UI 闪烁
+      setJobs((prev) =>
+        prev.map((j) => (j.id === job.id ? { ...j, disabled: next } : j)),
+      );
+      const res = await updateCronJob(job.id, { disabled: next });
+      if ("error" in res) {
+        useNotification.getState().addNotification({
+          level: "error",
+          message: `${next ? "禁用" : "启用"}失败: ${res.error}`,
+        });
+        // 回滚
+        await reload();
+        return;
+      }
+      // 后端返回最新 job，与 reload 等价
+      setJobs((prev) => prev.map((j) => (j.id === job.id ? res.job : j)));
+    },
+    [reload],
+  );
+
   const sortedJobs = useMemo(
     () =>
       [...jobs].sort(
@@ -457,6 +541,9 @@ export function ScheduledTaskPanel() {
     [jobs],
   );
 
+  const enabledCount = jobs.filter((j) => !j.disabled).length;
+  const disabledCount = jobs.length - enabledCount;
+
   return (
     <div className="h-full flex flex-col bg-surface">
       {/* Header */}
@@ -464,7 +551,11 @@ export function ScheduledTaskPanel() {
         <div>
           <h1 className="text-[17px] text-t-primary font-semibold">定时任务</h1>
           <p className="text-[11px] text-t-dim mt-0.5">
-            {jobs.length} 个任务
+            {jobs.length === 0
+              ? "暂无任务"
+              : disabledCount > 0
+                ? `${enabledCount} 启用 · ${disabledCount} 禁用`
+                : `${enabledCount} 个任务`}
           </p>
         </div>
         <div className="flex items-center gap-1.5">
@@ -545,6 +636,7 @@ export function ScheduledTaskPanel() {
               job={job}
               onEdit={() => setEditing(job)}
               onDelete={() => handleDelete(job)}
+              onToggleDisabled={() => handleToggleDisabled(job)}
             />
           ),
         )}

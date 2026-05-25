@@ -38,13 +38,13 @@ export function ChatView() {
   const sessionId = useChat((s) => s.sessionId);
   const allSessions = useSession((s) => s.allSessions);
   const currentSessionChannel = useMemo(() => {
-    if (!sessionId) return "websocket";
+    if (!sessionId) return "ws";
     const found = allSessions.find(
       (s) => s.session_id === sessionId || s.key?.includes(sessionId),
     );
-    return found?.channel || "websocket";
+    return found?.channel || "ws";
   }, [sessionId, allSessions]);
-  const canSend = currentSessionChannel === "websocket";
+  const canSend = currentSessionChannel === "ws";
 
   // Log interceptor (only in storybook)
   useEffect(() => {
@@ -80,8 +80,11 @@ export function ChatView() {
         </div>
       )}
 
-      {/* 主内容：空会话 + 可发送 → 居中欢迎页；否则正常的消息列表 + 输入框 */}
-      {messages.length === 0 && !isBusy && canSend ? (
+      {/* 主内容：
+          - 仅在没有 sessionId（纯新会话还没创建）+ 可发送 → 居中欢迎页
+          - 已有 sessionId 但消息暂时为空（切换中、历史加载中、空会话） → 走正常列表
+            它内部的"No messages"空态比欢迎页低调，不会和正在到来的消息抢闪。 */}
+      {!sessionId && !isBusy && canSend ? (
         <WelcomeView />
       ) : (
         <>
@@ -90,8 +93,11 @@ export function ChatView() {
             <ChatInput />
           ) : (
             <div className="px-6 pb-4 pt-3">
-              <div className="mx-auto w-full max-w-[960px] text-center py-3 text-[14px] text-t-ghost">
-                此会话来自 {currentSessionChannel} 渠道，仅供查看
+              <div className="mx-auto w-full max-w-[960px] flex items-center justify-center gap-1.5 py-2 text-[12px] text-t-ghost">
+                <span className="inline-flex items-center px-1.5 py-0.5 rounded bg-hover font-mono text-[11px] text-t-muted">
+                  {currentSessionChannel}
+                </span>
+                <span>渠道的会话仅供查看</span>
               </div>
             </div>
           )}

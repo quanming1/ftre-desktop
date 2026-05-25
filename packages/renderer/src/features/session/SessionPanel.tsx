@@ -17,6 +17,7 @@ import {
   Terminal,
   MessageCircle,
   HelpCircle,
+  Calendar,
 } from "lucide-react";
 import { useSession } from "@/stores/session";
 import { useChat } from "@/stores/chat";
@@ -128,9 +129,10 @@ function getSourceLabel(source: string): string {
   );
 }
 
-// Channel 标签和图标映射
+// Channel 标签和图标映射（key = 后端 channel_id）
 const CHANNEL_LABELS: Record<string, string> = {
-  websocket: "Web",
+  ws: "Web 聊天",
+  cron: "定时任务",
   dmwork: "DMWork",
   cli: "CLI",
   telegram: "Telegram",
@@ -138,7 +140,8 @@ const CHANNEL_LABELS: Record<string, string> = {
 };
 
 const CHANNEL_ICONS: Record<string, typeof Globe> = {
-  websocket: Globe,
+  ws: Globe,
+  cron: Calendar,
   dmwork: Bot,
   cli: Terminal,
   telegram: MessageCircle,
@@ -449,46 +452,93 @@ export function SessionPanel() {
   }, [currentWorkspace]);
   const visibleSessions = useMemo(() => {
     if (!currentWorkspace) return [];
+    let list: SessionSummary[];
     if (selectedSource === "all") {
       // Deduplicate sessions by session_id when combining all source groups
       const seen = new Set<string>();
-      return currentWorkspace.sourceGroups
+      list = currentWorkspace.sourceGroups
         .flatMap((group) => group.sessions)
         .filter((session) => {
           if (seen.has(session.session_id)) return false;
           seen.add(session.session_id);
           return true;
-        })
-        .sort((a, b) => (b.updated_at ?? 0) - (a.updated_at ?? 0));
+        });
+    } else {
+      const selectedGroup = currentWorkspace.sourceGroups.find(
+        (group) => group.source === selectedSource,
+      );
+      list = selectedGroup ? [...selectedGroup.sessions] : [];
     }
-    const selectedGroup = currentWorkspace.sourceGroups.find(
-      (group) => group.source === selectedSource,
-    );
-    return selectedGroup ? selectedGroup.sessions : [];
-  }, [currentWorkspace, selectedSource]);
-  const displayedSessions = useMemo(
-    () => (showAllSessions ? visibleSessions : visibleSessions.slice(0, 5)),
-    [visibleSessions, showAllSessions],
-  );
-  const hasMoreSessions = visibleSessions.length > 5;
-  const groupedDisplayedSessions = useMemo(() => {
-    const grouped: Record<SessionTimeBucketKey, SessionSummary[]> = {
-      running: [],
-      just_now: [],
-      today: [],
-      yesterday: [],
-      long_ago: [],
-    };
-    displayedSessions.forEach((session) => {
-      const isRunning = false; // TODO: check streaming state via ws-stream-manager
-      const bucket = getSessionTimeBucket(session.updated_at ?? 0, isRunning);
-      grouped[bucket].push(session);
+    // 排序：ws 固定置顶；同组内按 updated_at 倒序。
+    return list.sort((a, b) => {
+      const aWs = a.channel === "ws" ? 1 : 0;
+      const bWs = b.channel === "ws" ? 1 : 0;
+      if (aWs !== bWs) return bWs - aWs;
+      return (b.updated_at ?? 0) - (a.updated_at ?? 0);
     });
-    return SESSION_TIME_BUCKETS.map((bucket) => ({
-      ...bucket,
-      sessions: grouped[bucket.key],
-    })).filter((bucket) => bucket.sessions.length > 0);
-  }, [displayedSessions]);
+  }, [currentWorkspace, selectedSource]);
+
+  // 折叠时每个 channel section 各自只展示前 N 个
+  const PER_SECTION_VISIBLE = 5;
+  const hasMoreSessions = useMemo(() => {
+    // 按 channel 计数；任意一个 channel 超过阈值就需要展开按钮
+    const counts: Record<string, number> = {};
+    for (const s of visibleSessions) {
+      const key = s.channel || "unknown";
+      counts[key] = (counts[key] || 0) + 1;
+    }
+    return Object.values(counts).some((n) => n > PER_SECTION_VISIBLE);
+  }, [visibleSessions]);
+
+  const groupedDisplayedSessions = useMemo(() => {
+    // 第一层：按 channel_id 原值分组
+    // 第二层：time bucket
+    // 顺序：ws 固定置顶，其余 channel 按 visibleSessions 出现顺序
+    const orderedKeys: string[] = [];
+    const bySection: Record<string, SessionSummary[]> = {};
+    for (const s of visibleSessions) {
+      const key = s.channel || "unknown";
+      if (!(key in bySection)) {
+        bySection[key] = [];
+        orderedKeys.push(key);
+      }
+      bySection[key].push(s);
+    }
+
+    const buildBuckets = (list: SessionSummary[]) => {
+      const grouped: Record<SessionTimeBucketKey, SessionSummary[]> = {
+        running: [],
+        just_now: [],
+        today: [],
+        yesterday: [],
+        long_ago: [],
+      };
+      list.forEach((session) => {
+        const isRunning = false; // TODO: check streaming state via ws-stream-manager
+        const bucket = getSessionTimeBucket(
+          session.updated_at ?? 0,
+          isRunning,
+        );
+        grouped[bucket].push(session);
+      });
+      return SESSION_TIME_BUCKETS.map((bucket) => ({
+        ...bucket,
+        sessions: grouped[bucket.key],
+      })).filter((bucket) => bucket.sessions.length > 0);
+    };
+
+    return orderedKeys.map((key) => {
+      const all = bySection[key];
+      const shown = showAllSessions ? all : all.slice(0, PER_SECTION_VISIBLE);
+      return {
+        key,
+        label: key,
+        total: all.length,
+        hidden: all.length - shown.length,
+        buckets: buildBuckets(shown),
+      };
+    });
+  }, [visibleSessions, showAllSessions]);
 
   useEffect(() => {
     if (!currentWorkspace) return;
@@ -667,104 +717,135 @@ export function SessionPanel() {
                   当前分类下暂无会话
                 </div>
               ) : (
-                groupedDisplayedSessions.map((bucket) => (
-                  <div key={bucket.key} className="mb-2">
-                    <div className="px-1 py-1 text-[10px] text-t-ghost">
-                      {bucket.label}
+                groupedDisplayedSessions.map((section, sIdx) => (
+                  <div
+                    key={section.key}
+                    className={sIdx > 0 ? "mt-4" : undefined}
+                  >
+                    {/* Channel section header */}
+                    <div className="flex items-center gap-2 px-1 mb-1">
+                      <span className="text-[10.5px] text-t-muted tracking-wider font-mono">
+                        {section.label}
+                      </span>
+                      <span className="flex-1 h-px bg-border-subtle/60" />
+                      <span className="text-[10px] text-t-ghost">
+                        {section.total}
+                      </span>
                     </div>
-                    {bucket.sessions.map((session, idx) => {
-                      const stripPrefix = (id: string) =>
-                        id.includes(":") ? id.substring(id.indexOf(":") + 1) : id;
-                      const isSessionActive =
-                        stripPrefix(session.session_id) === stripPrefix(currentSessionId || "");
-                      const isSessionHovered =
-                        hoveredSession === session.session_id;
-                      const isStreaming = false; // TODO: check via ws-stream-manager
-                      const isLoading = loadingSessionId === session.session_id;
-                      const time = timeAgo(session.updated_at ?? 0);
-                      const ChannelIcon = getChannelIcon(session.channel);
-                      const channelLabel = getChannelLabel(session.channel);
 
-                      return (
-                        <div
-                          key={`${bucket.key}-${session.session_id}-${idx}`}
-                          ref={(el) => {
-                            if (el) {
-                              sessionRefs.current.set(session.session_id, el);
-                            } else {
-                              sessionRefs.current.delete(session.session_id);
-                            }
-                          }}
-                          onClick={() =>
-                            handleSwitchSession(session.session_id)
-                          }
-                          onMouseEnter={() =>
-                            setHoveredSession(session.session_id)
-                          }
-                          onMouseLeave={() => setHoveredSession(null)}
-                          className={`
-                          mt-1 flex items-center gap-2 px-3 py-2.5 cursor-pointer select-none transition-colors rounded-lg border border-transparent
-                          ${
-                            isSessionActive
-                              ? "bg-active"
-                              : "bg-transparent border-border/30 hover:bg-hover"
-                          }
-                        `}
-                        >
-                          <div className="flex-1 min-w-0">
-                            <div
-                              className={`truncate text-[13px] ${
-                                isSessionActive
-                                  ? "text-t-primary font-medium"
-                                  : "text-t-primary"
-                              }`}
-                            >
-                              {session.title || "New Session"}
-                            </div>
-                            <div className="flex items-center gap-1.5 mt-0.5">
-                              {/* Channel icon - only show for non-websocket */}
-                              {session.channel &&
-                                session.channel !== "websocket" && (
-                                  <Tooltip content={channelLabel} side="top">
-                                    <span className="text-t-ghost">
-                                      <ChannelIcon size={10} />
-                                    </span>
-                                  </Tooltip>
-                                )}
-                              <span
-                                className="text-[11px]"
-                                style={{
-                                  opacity: time.opacity,
-                                  color: "var(--color-t-dim)",
-                                }}
-                              >
-                                {time.text}
-                              </span>
-                              {isStreaming && (
-                                <Loader2
-                                  size={10}
-                                  className="text-neon animate-spin"
-                                />
-                              )}
-                              {isLoading && !isStreaming && (
-                                <Loader2
-                                  size={10}
-                                  className="text-t-ghost animate-spin"
-                                />
-                              )}
-                            </div>
-                          </div>
-                          {isSessionHovered && (
-                            <button
-                              onClick={(e) => showSessionMenu(e, session)}
-                              className="shrink-0 p-1 rounded text-t-dim hover:text-t-primary hover:bg-hover transition-colors"
-                            >
-                              <MoreHorizontal size={14} />
-                            </button>
-                          )}
+                    {/* Time buckets */}
+                    {section.buckets.map((bucket) => (
+                      <div key={bucket.key} className="mb-2">
+                        <div className="px-1 py-1 text-[10px] text-t-ghost">
+                          {bucket.label}
                         </div>
-                      );
-                    })}
+                        {bucket.sessions.map((session, idx) => {
+                          const stripPrefix = (id: string) =>
+                            id.includes(":")
+                              ? id.substring(id.indexOf(":") + 1)
+                              : id;
+                          const isSessionActive =
+                            stripPrefix(session.session_id) ===
+                            stripPrefix(currentSessionId || "");
+                          const isSessionHovered =
+                            hoveredSession === session.session_id;
+                          const isStreaming = false; // TODO: check via ws-stream-manager
+                          const isLoading =
+                            loadingSessionId === session.session_id;
+                          const time = timeAgo(session.updated_at ?? 0);
+                          const ChannelIcon = getChannelIcon(session.channel);
+                          const channelLabel = getChannelLabel(session.channel);
+
+                          return (
+                            <div
+                              key={`${section.key}-${bucket.key}-${session.session_id}-${idx}`}
+                              ref={(el) => {
+                                if (el) {
+                                  sessionRefs.current.set(
+                                    session.session_id,
+                                    el,
+                                  );
+                                } else {
+                                  sessionRefs.current.delete(
+                                    session.session_id,
+                                  );
+                                }
+                              }}
+                              onClick={() =>
+                                handleSwitchSession(session.session_id)
+                              }
+                              onMouseEnter={() =>
+                                setHoveredSession(session.session_id)
+                              }
+                              onMouseLeave={() => setHoveredSession(null)}
+                              className={`
+                              mt-1 flex items-center gap-2 px-3 py-2.5 cursor-pointer select-none transition-colors rounded-lg border border-transparent
+                              ${
+                                isSessionActive
+                                  ? "bg-active"
+                                  : "bg-transparent border-border/30 hover:bg-hover"
+                              }
+                            `}
+                            >
+                              <div className="flex-1 min-w-0">
+                                <div
+                                  className={`truncate text-[13px] ${
+                                    isSessionActive
+                                      ? "text-t-primary font-medium"
+                                      : "text-t-primary"
+                                  }`}
+                                >
+                                  {session.title || "New Session"}
+                                </div>
+                                <div className="flex items-center gap-1.5 mt-0.5">
+                                  {/* Channel icon - 仅非 ws（外部/系统）显示 */}
+                                  {session.channel &&
+                                    session.channel !== "ws" && (
+                                      <Tooltip
+                                        content={channelLabel}
+                                        side="top"
+                                      >
+                                        <span className="text-t-ghost">
+                                          <ChannelIcon size={10} />
+                                        </span>
+                                      </Tooltip>
+                                    )}
+                                  <span
+                                    className="text-[11px]"
+                                    style={{
+                                      opacity: time.opacity,
+                                      color: "var(--color-t-dim)",
+                                    }}
+                                  >
+                                    {time.text}
+                                  </span>
+                                  {isStreaming && (
+                                    <Loader2
+                                      size={10}
+                                      className="text-neon animate-spin"
+                                    />
+                                  )}
+                                  {isLoading && !isStreaming && (
+                                    <Loader2
+                                      size={10}
+                                      className="text-t-ghost animate-spin"
+                                    />
+                                  )}
+                                </div>
+                              </div>
+                              {isSessionHovered && (
+                                <button
+                                  onClick={(e) => showSessionMenu(e, session)}
+                                  className="shrink-0 p-1 rounded text-t-dim hover:text-t-primary hover:bg-hover transition-colors"
+                                >
+                                  <MoreHorizontal size={14} />
+                                </button>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    ))}
                   </div>
                 ))
               )}
