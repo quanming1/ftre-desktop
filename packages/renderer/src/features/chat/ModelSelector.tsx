@@ -7,18 +7,9 @@
 
 import { useState, useEffect, useRef, memo, useCallback } from "react";
 import { Check, ChevronDown, Search, Settings2, ImageIcon } from "lucide-react";
-import { fetchAppConfig, saveAppConfig } from "@/services/api";
+import { fetchAppConfig, saveAppConfig, type ModelItem } from "@/services/api";
 import { useChat } from "@/stores/chat";
 import { OPEN_SETTINGS_EVENT } from "@/app/ActivityBar";
-
-interface ModelItem {
-  name: string;
-  id: string;
-  /** 上下文窗口大小（token 数） */
-  context_window?: number | null;
-  /** 是否支持视觉输入（图片） */
-  vision?: boolean;
-}
 
 interface ProviderInfo {
   name: string;
@@ -179,6 +170,17 @@ export const ModelSelector = memo(function ModelSelector() {
   const currentProvider = useChat((s) => s.provider) || "auto";
   const setModel = useChat((s) => s.setModel);
   const setProvider = useChat((s) => s.setProvider);
+  const setContextWindow = useChat((s) => s.setContextWindow);
+
+  /** 在 providers 中找到 (provider, modelId) 对应的 context_window；找不到回 null */
+  const findContextWindow = useCallback(
+    (providerName: string, modelId: string, list: ProviderInfo[]): number | null => {
+      const p = list.find((x) => x.name === providerName);
+      const m = p?.models.find((mm) => mm.id === modelId);
+      return typeof m?.context_window === "number" ? m.context_window : null;
+    },
+    [],
+  );
 
   const loadConfig = useCallback(async () => {
     const data = await readConfig();
@@ -190,7 +192,13 @@ export const ModelSelector = memo(function ModelSelector() {
     if (data.currentProvider) {
       setProvider(data.currentProvider);
     }
-  }, [setModel, setProvider]);
+    // 同步 context_window：让 TokenRing 能计算用量比例
+    if (data.currentModel && data.currentProvider) {
+      setContextWindow(
+        findContextWindow(data.currentProvider, data.currentModel, data.providers),
+      );
+    }
+  }, [setModel, setProvider, setContextWindow, findContextWindow]);
 
   useEffect(() => {
     loadConfig();
@@ -221,6 +229,7 @@ export const ModelSelector = memo(function ModelSelector() {
     // 更新 store
     setModel(modelId);
     setProvider(providerName);
+    setContextWindow(findContextWindow(providerName, modelId, providers));
     setOpen(false);
     // 写入配置文件持久化
     await writeModelToConfig(modelId, providerName);

@@ -197,8 +197,71 @@ export async function fetchSessionMessages(
   }
 }
 
-export async function fetchUsage(_sessionId: string): Promise<number> {
-  return 0;
+/** 后端 token_usage 响应（与 ftre/api/routes.py 对应） */
+export interface TokenUsage {
+  /** 最近一次 LLM 实算的 usage；从未跑过则为 null */
+  anchor:
+  | {
+    prompt_tokens: number;
+    completion_tokens: number;
+    total_tokens: number;
+    /** 锚点事件 timestamp（epoch 秒） */
+    at: number;
+    source: "usage_update" | "done";
+  }
+  | null;
+  /** 锚点之后会进下次 prompt 但尚未实算的事件估算 */
+  pending_estimated: number;
+  /** anchor.total_tokens + pending_estimated；无锚点时退化为全量估算 */
+  total: number;
+}
+
+/** 拉取该 session 的 token 用量。失败抛出，由调用方决定是否保留上一次值。 */
+export async function fetchTokenUsage(sessionId: string): Promise<TokenUsage> {
+  const res = await fetch(
+    `http://127.0.0.1:18790/api/sessions/${encodeURIComponent(sessionId)}/token_usage`,
+  );
+  if (!res.ok) {
+    throw new Error(`token_usage HTTP ${res.status}`);
+  }
+  const data = await res.json();
+  return {
+    anchor: data?.anchor ?? null,
+    pending_estimated: Number(data?.pending_estimated) || 0,
+    total: Number(data?.total) || 0,
+  };
+}
+
+/**
+ * @deprecated 历史接口；保留只是为了兼容旧调用，实际等价于 fetchTokenUsage().total。
+ */
+export async function fetchUsage(sessionId: string): Promise<number> {
+  if (!sessionId) return 0;
+  try {
+    const usage = await fetchTokenUsage(sessionId);
+    return usage.total;
+  } catch {
+    return 0;
+  }
+}
+
+// ─── 模型 / 供应商类型（前端共用） ─────────────────────────────────
+
+/**
+ * 单条模型定义。与 config.json 里 providers[name].models[*] 字段对齐。
+ * ModelSelector / ModelSettings / TokenRing 三处共用。
+ */
+export interface ModelItem {
+  /** 显示名 */
+  name: string;
+  /** 模型 ID（API 调用时使用） */
+  id: string;
+  /** 上下文窗口大小（token 数） */
+  context_window?: number | null;
+  /** 最大输出 token 数 */
+  max_output?: number | null;
+  /** 是否支持视觉输入（图片） */
+  vision?: boolean;
 }
 
 export async function updateSession(
