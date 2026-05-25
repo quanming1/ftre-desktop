@@ -1,147 +1,64 @@
-import { useRef, useEffect, useCallback, useMemo } from 'react';
-import { useScrollbarDrag } from './useScrollbarDrag';
-import { bindRef } from './bindRef';
+import { useRef, useEffect, useCallback, useMemo } from "react";
+import { useScrollbarDrag } from "./useScrollbarDrag";
+import { bindRef } from "./bindRef";
 
-/** wheel 事件防抖时间（毫秒），在此时间内不进行自动滚动，防止用户向上滚动时抖动 */
-const WHEEL_DEBOUNCE_MS = 200;
-/** 距离底部多少像素以内时，自动恢复滚动锁定 */
-const FORCE_LOCK_DISTANCE = 100;
-/** 距离底部多少像素以内视为"已到底"，用于处理亚像素精度问题 */
-const SNAP_TO_BOTTOM_THRESHOLD = 10;
-/** 滚动重试最大次数，防止无限循环 */
-const MAX_SCROLL_RETRIES = 5;
+/**
+ * 距底部 < LOCK_THRESHOLD px → 视为"用户在底部 / 想跟随"。
+ * 任意输入路径（wheel / 触摸板 / 触屏 / 键盘 / 滚动条拖拽）都会触发 scroll 事件，
+ * 在 handler 里重新评估这个距离即可决定是否继续跟随，无需 drift 检测 / wheel 防抖。
+ */
+const LOCK_THRESHOLD = 100;
 
 export function useAutoScrollToBottom(
-  deps?: React.DependencyList,
-  config = {
-    autoScrollLockDefault: true,
-  },
+  deps?: any[],
+  config: { autoScrollLockDefault: boolean } = { autoScrollLockDefault: true },
 ) {
   const containerRef = useRef<HTMLElement>(null);
-  const autoScrollLock = useRef(config.autoScrollLockDefault); // 自动滚动锁，true为自动滚动到最下，默认开启
-  const lastWheelTopTime = useRef<number>(0); // 上一次wheel的时间，WHEEL_DEBOUNCE_MS 以内不进行滚动防止抖动
+  const lockRef = useRef(config.autoScrollLockDefault);
 
+  // 切 session 等场景：重置锁
   useEffect(() => {
     if (!deps) return;
-    autoScrollLock.current = config.autoScrollLockDefault;
-    lastWheelTopTime.current = 0;
+    lockRef.current = config.autoScrollLockDefault;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, deps ?? []);
 
-  const scrollbarDragRef = useScrollbarDrag({
-    onDragging: (direction) => {
-      if (direction === 'up') {
-        autoScrollLock.current = false;
-      } else if (direction === 'down') {
-        lastWheelTopTime.current = 0;
-      }
-    },
-  });
-
-  // 滚动重试 RAF ID，用于取消
-  const scrollRetryRaf = useRef<number | null>(null);
-
-  const scrollToBottom = useCallback((behavior: ScrollBehavior = 'instant') => {
-    const container = containerRef.current;
-    if (!container || !autoScrollLock.current) return;
-
-    // 取消之前的重试链，避免累积
-    if (scrollRetryRaf.current) {
-      cancelAnimationFrame(scrollRetryRaf.current);
-      scrollRetryRaf.current = null;
-    }
-
-    let retryCount = 0;
-    let lastScrollHeight = 0;
-
-    const attemptScroll = () => {
-      if (!container || !autoScrollLock.current) return;
-
-      const { scrollHeight, scrollTop, clientHeight } = container;
-      const distanceFromBottom = scrollHeight - scrollTop - clientHeight;
-
-      // 执行滚动
-      container.scrollTo({ top: scrollHeight, behavior: 'instant' });
-
-      // 使用 RAF 延迟检查，等待布局更新
-      scrollRetryRaf.current = requestAnimationFrame(() => {
-        scrollRetryRaf.current = null;
-        if (!container || !autoScrollLock.current) return;
-
-        const newScrollHeight = container.scrollHeight;
-        const newDistance = newScrollHeight - container.scrollTop - container.clientHeight;
-
-        // 如果 scrollHeight 变化了（内容还在渲染）或者还没到底部，则重试
-        const heightChanged = newScrollHeight !== lastScrollHeight;
-        const notAtBottom = newDistance > SNAP_TO_BOTTOM_THRESHOLD;
-
-        if ((heightChanged || notAtBottom) && retryCount < MAX_SCROLL_RETRIES) {
-          lastScrollHeight = newScrollHeight;
-          retryCount++;
-          // 下一帧再次尝试
-          scrollRetryRaf.current = requestAnimationFrame(attemptScroll);
-        }
-      });
-    };
-
-    attemptScroll();
+  const scrollToBottom = useCallback(() => {
+    const el = containerRef.current;
+    if (!el || !lockRef.current) return;
+    el.scrollTo({ top: el.scrollHeight, behavior: "instant" });
   }, []);
 
-  /** 强制重置锁状态（用于"新一轮对话开始"等场景） */
+  /** 用于"新一轮对话开始"时强制重新跟随。 */
   const resetLock = useCallback(() => {
-    autoScrollLock.current = true;
-    lastWheelTopTime.current = 0;
+    lockRef.current = true;
   }, []);
 
+  // 滚动条拖拽：让 useScrollbarDrag 持有 ref，这样 scroll 事件正常发出
+  const dragRef = useScrollbarDrag<HTMLElement>();
+
+  // scroll handler：唯一的锁状态来源——是否在底部范围内。
+  // wheel handler 仅作为"上滚立即解锁"的快速路径，scroll 事件兜底。
   useEffect(() => {
-    const container = containerRef.current;
-    if (!container) return;
-
-    const handleWheel = (e: WheelEvent) => {
-      if (e.deltaY < 0) {
-        lastWheelTopTime.current = Date.now();
-        autoScrollLock.current = false;
-      } else if (e.deltaY > 0) {
-        lastWheelTopTime.current = 0;
-      }
+    const el = containerRef.current;
+    if (!el) return;
+    const onScroll = () => {
+      const dist = el.scrollHeight - el.scrollTop - el.clientHeight;
+      lockRef.current = dist < LOCK_THRESHOLD;
     };
-
-    const handleScroll = () => {
-      if (Date.now() - lastWheelTopTime.current < WHEEL_DEBOUNCE_MS) {
-        return;
-      }
-
-      const { scrollTop, scrollHeight, clientHeight } = container;
-      const distanceFromBottom = scrollHeight - scrollTop - clientHeight;
-      if (distanceFromBottom < FORCE_LOCK_DISTANCE) {
-        autoScrollLock.current = true;
-      }
+    const onWheel = (e: WheelEvent) => {
+      if (e.deltaY < 0) lockRef.current = false;
     };
-
-    container.addEventListener('wheel', handleWheel);
-    container.addEventListener('scroll', handleScroll);
+    el.addEventListener("scroll", onScroll, { passive: true });
+    el.addEventListener("wheel", onWheel, { passive: true });
     return () => {
-      container.removeEventListener('wheel', handleWheel);
-      container.removeEventListener('scroll', handleScroll);
-    };
-  }, [containerRef.current]);
-
-  // 清理滚动重试 RAF
-  useEffect(() => {
-    return () => {
-      if (scrollRetryRaf.current) {
-        cancelAnimationFrame(scrollRetryRaf.current);
-        scrollRetryRaf.current = null;
-      }
+      el.removeEventListener("scroll", onScroll);
+      el.removeEventListener("wheel", onWheel);
     };
   }, []);
 
-  // 稳定 ref 引用，避免每次渲染都创建新 callback 导致下游 mergedRef 重建
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  const stableRef = useMemo(() => bindRef(containerRef, scrollbarDragRef), []);
+  const ref = useMemo(() => bindRef(containerRef, dragRef), []);
 
-  return {
-    ref: stableRef,
-    scrollToBottom,
-    resetLock,
-  };
+  return { ref, scrollToBottom, resetLock };
 }
