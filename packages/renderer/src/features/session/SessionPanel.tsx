@@ -4,7 +4,6 @@ import {
   MoreHorizontal,
   Search,
   Loader2,
-  RefreshCw,
   Archive,
   Pencil,
   Copy,
@@ -291,10 +290,6 @@ export function SessionPanel() {
     },
     [newSession],
   );
-
-  const handleRefreshWorkspace = useCallback(() => {
-    loadAllSessions();
-  }, [loadAllSessions]);
 
   const handleSwitchSession = useCallback(
     (sessionId: string) => {
@@ -668,7 +663,7 @@ export function SessionPanel() {
           )}
         </div>
 
-        {/* 新增会话 + 搜索 + 刷新 */}
+        {/* 新增会话 */}
         <div className="shrink-0 px-3 py-2.5 flex items-center gap-2">
           <button
             onClick={(e) => handleNewSession(e, rootPath || "")}
@@ -678,6 +673,7 @@ export function SessionPanel() {
             <Plus size={15} />
             <span>新增会话</span>
           </button>
+          {/* TODO 暂时隐藏：搜索会话
           <Tooltip content="搜索会话" side="bottom">
             <button
               onClick={handleSearchToggle}
@@ -690,14 +686,7 @@ export function SessionPanel() {
               <Search size={15} />
             </button>
           </Tooltip>
-          <Tooltip content="刷新会话" side="bottom">
-            <button
-              onClick={handleRefreshWorkspace}
-              className="flex items-center justify-center h-9 w-9 rounded text-t-secondary bg-elevated hover:bg-panel hover:text-neon transition-colors"
-            >
-              <RefreshCw size={15} />
-            </button>
-          </Tooltip>
+          */}
         </div>
 
         {/* 搜索框（展开时显示） */}
