@@ -194,6 +194,10 @@ export function applyEvent(b: Bucket, ev: BusEvent): void {
       replaceTail((m) => {
         const parts = [...(m.parts || [])];
         const lastPart = parts[parts.length - 1];
+        // 看 lastPart：是 text 就追加，遇到 tool_call 边界（多轮）会自动 push 新 text part。
+        // 这跟 message_complete 的"找最后一个 text 替换"是配套设计：
+        // - message 用 lastPart 决定"开新 text part 还是继续累积"，区分轮次
+        // - message_complete 在轮次的 text 累积完成后回填权威总和（找最后一个 text 替换）
         if (lastPart?.type === "text") parts[parts.length - 1] = { type: "text", text: lastPart.text + chunk };
         else if (chunk) parts.push({ type: "text", text: chunk });
         return { ...m, parts, content: (m.content ?? "") + chunk, streaming: true };
@@ -209,10 +213,17 @@ export function applyEvent(b: Bucket, ev: BusEvent): void {
       const final = d.content || "";
       replaceTail((m) => {
         const parts = [...(m.parts || [])];
-        const lastPart = parts[parts.length - 1];
-        if (lastPart?.type === "text") {
-          parts[parts.length - 1] = { type: "text", text: final };
+        // 找最后一个 text part（不是简单看 parts 末尾，因为后续可能插入 tool_call）。
+        // message_complete 是当轮 LLM 文本的"权威总和"，必须替换已累积的 text，
+        // 而不是 push 新 text part —— 否则会出现重复渲染。
+        let lastTextIdx = -1;
+        for (let i = parts.length - 1; i >= 0; i--) {
+          if (parts[i].type === "text") { lastTextIdx = i; break; }
+        }
+        if (lastTextIdx >= 0) {
+          parts[lastTextIdx] = { type: "text", text: final };
         } else if (final) {
+          // 这一轮没流过 message chunk（比如纯 tool_call 轮）→ 才插入新 text part
           parts.push({ type: "text", text: final });
         }
         const content = parts

@@ -19,6 +19,7 @@ import { fetchSkills, type SkillDef } from "@/services/api";
 import { AgentSelector } from "./AgentSelector";
 import { ModelSelector } from "./ModelSelector";
 import { TokenRing } from "./TokenRing";
+import { WorkspaceBadge } from "./WorkspaceBadge";
 import { RetryPanel } from "./RetryPanel";
 import {
   ChatInputEditor,
@@ -531,7 +532,7 @@ export function ChatInput() {
 
           {/* 工具栏 */}
           <div className="flex items-center justify-between px-4 py-3">
-            {/* 左侧：附件 */}
+            {/* 左侧：附件 + 当前工作区（只读） */}
             <div className="flex items-center gap-1">
               <button
                 type="button"
@@ -541,6 +542,7 @@ export function ChatInput() {
               >
                 <Paperclip size={15} />
               </button>
+              <WorkspaceBadge />
             </div>
 
             {/* 右侧：模型选择 + 上下文用量 + 发送 */}
