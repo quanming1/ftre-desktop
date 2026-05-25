@@ -173,8 +173,8 @@ function GeneralSettings() {
   const setMode = useTheme((s) => s.setMode);
 
   const options: { value: ThemeMode; label: string; icon: typeof Sun }[] = [
-    { value: "light", label: "浅色", icon: Sun },
-    { value: "dark", label: "深色", icon: Moon },
+    { value: "light", label: "浅色模式", icon: Sun },
+    { value: "dark", label: "深色模式", icon: Moon },
     { value: "system", label: "跟随系统", icon: Monitor },
   ];
 
@@ -187,23 +187,88 @@ function GeneralSettings() {
       {/* 主题切换 */}
       <div>
         <label className="block text-[13px] font-medium text-t-primary mb-3">外观主题</label>
-        <div className="flex gap-2">
-          {options.map(({ value, label, icon: Icon }) => (
-            <button
-              key={value}
-              onClick={() => setMode(value)}
-              className={`flex items-center gap-2 px-4 py-2.5 rounded-lg border text-[13px] transition-colors ${
-                mode === value
-                  ? "border-neon/50 bg-neon-ghost text-t-primary"
-                  : "border-border-subtle bg-elevated text-t-secondary hover:bg-hover"
-              }`}
-            >
-              <Icon size={16} />
-              {label}
-            </button>
-          ))}
+        <div className="grid grid-cols-3 gap-3">
+          {options.map(({ value, label, icon: Icon }) => {
+            const selected = mode === value;
+            return (
+              <button
+                key={value}
+                onClick={() => setMode(value)}
+                aria-pressed={selected}
+                className={`flex flex-col items-center gap-2 p-2 rounded-xl border-2 transition-all ${
+                  selected
+                    ? "border-accent ring-1 ring-accent/40"
+                    : "border-transparent hover:border-border-subtle"
+                }`}
+              >
+                <ThemePreviewCard variant={value} />
+                <div
+                  className={`flex items-center gap-1.5 text-[12px] ${
+                    selected ? "text-t-primary" : "text-t-secondary"
+                  }`}
+                >
+                  <Icon size={13} strokeWidth={1.8} />
+                  <span>{label}</span>
+                </div>
+              </button>
+            );
+          })}
         </div>
       </div>
+    </div>
+  );
+}
+
+/** 主题预览卡片：浅色 / 深色 / 半色（跟随系统） */
+function ThemePreviewCard({ variant }: { variant: ThemeMode }) {
+  if (variant === "system") {
+    // 半浅半深的拼接预览
+    return (
+      <div className="relative w-full aspect-[16/10] rounded-lg overflow-hidden border border-border-subtle">
+        <div className="absolute inset-0 grid grid-cols-2">
+          <ThemePreviewHalf scheme="light" half="left" />
+          <ThemePreviewHalf scheme="dark" half="right" />
+        </div>
+      </div>
+    );
+  }
+  return (
+    <div className="w-full aspect-[16/10] rounded-lg overflow-hidden border border-border-subtle">
+      <ThemePreviewHalf scheme={variant} half="full" />
+    </div>
+  );
+}
+
+/** 单边预览 */
+function ThemePreviewHalf({
+  scheme,
+  half,
+}: {
+  scheme: "light" | "dark";
+  half: "left" | "right" | "full";
+}) {
+  const isDark = scheme === "dark";
+  const bg = isDark ? "bg-[#1f2125]" : "bg-white";
+  const lineMain = isDark ? "bg-white/12" : "bg-black/8";
+  const lineSub = isDark ? "bg-white/6" : "bg-black/4";
+  const dotBg = isDark ? "bg-white/15" : "bg-black/10";
+
+  return (
+    <div className={`relative w-full h-full ${bg}`}>
+      {/* 顶部三个伪装窗口控制点 */}
+      <div className={`absolute left-2 top-1.5 flex gap-1 ${half === "right" ? "opacity-0" : ""}`}>
+        <div className={`w-1 h-1 rounded-full ${lineSub}`} />
+        <div className={`w-1 h-1 rounded-full ${lineSub}`} />
+        <div className={`w-1 h-1 rounded-full ${lineSub}`} />
+      </div>
+      {/* 两条占位文字线 */}
+      <div className={`absolute left-3 right-3 top-4 h-1 rounded-full ${lineMain}`} />
+      <div
+        className={`absolute left-3 top-6 h-1 rounded-full ${lineSub}`}
+        style={{ width: half === "full" ? "55%" : "70%" }}
+      />
+      {/* 右下角圆形按钮 */}
+      <div className={`absolute right-2 bottom-1.5 w-3 h-1.5 rounded-full ${dotBg}`} />
     </div>
   );
 }
