@@ -404,6 +404,14 @@ wsClient.onMessage((msg: ServerMessage) => {
   if (!sid) return;
   applyEvent(bucket(sid), { type: ev.type, data: ev.data });
   mirror(sid);
+
+  // 实时事件结束后刷新 token 估算：
+  // - done: 一次完整 LLM 轮次结束，后端刚写入新的 usage_update，重读拿到最新 anchor
+  // - external_message: 别的 session 注入了消息，pending 部分会增长
+  // 只对当前活跃 session 刷新，避免后台 session 频繁打接口
+  if ((ev.type === "done" || ev.type === "external_message") && useChat.getState().sessionId === sid) {
+    useChat.getState().refreshTokenUsage(sid);
+  }
 });
 
 wsClient.onConnect(() => useChat.setState({ connected: true, wsStatus: "connected" }));
@@ -439,6 +447,29 @@ interface ChatState {
   model: string | null;
   provider: string | null;
   agentId: string;
+  /** 当前会话的总 token 用量明细。
+   *  由后端 GET /api/sessions/{id}/token_usage 提供，在切换 session、流式 done
+   *  和 external_message 到达时刷新。
+   *  - anchor: 最近一次 LLM 实算的 usage（无则 null）
+   *  - pending_estimated: 锚点之后未实算的事件估算
+   *  - total: anchor.total_tokens + pending_estimated */
+  tokenUsage: {
+    anchor: {
+      prompt_tokens: number;
+      completion_tokens: number;
+      total_tokens: number;
+      at: number;
+      source: "usage_update" | "done";
+    } | null;
+    pending_estimated: number;
+    total: number;
+  } | null;
+  /** @deprecated 保留 contextTokens 兼容旧 selector，等价于 tokenUsage?.total ?? 0 */
+  contextTokens: number;
+  /** 当前选中模型的上下文窗口大小（token 数）。
+   *  由 ModelSelector 在选择模型 / 加载默认值时同步进来；用于 TokenRing 计算用量比例。
+   *  null 表示尚未选择或模型未配置 context_window。 */
+  contextWindow: number | null;
 
   sendMessage: (
     content: string,
@@ -463,6 +494,10 @@ interface ChatState {
   setModel: (model: string | null) => void;
   setProvider: (provider: string | null) => void;
   setAgentId: (id: string) => void;
+  /** 同步当前模型的上下文窗口大小（由 ModelSelector 写入） */
+  setContextWindow: (n: number | null) => void;
+  /** 主动刷新当前 session 的 token 估算（异步，失败静默） */
+  refreshTokenUsage: (sessionId?: string) => Promise<void>;
 }
 
 export const useChat = create<ChatState>((set, get) => ({
@@ -476,6 +511,9 @@ export const useChat = create<ChatState>((set, get) => ({
   model: null,
   provider: null,
   agentId: "code_agent",
+  contextTokens: 0,
+  tokenUsage: null,
+  contextWindow: null,
 
   sendMessage: (content, attachments) => {
     const trimmed = content.trim();
@@ -540,13 +578,15 @@ export const useChat = create<ChatState>((set, get) => ({
     mirror(sid);
   },
 
-  newChat: () => set({ sessionId: null, messages: [], isBusy: false, error: null, retryState: null }),
+  newChat: () => set({ sessionId: null, messages: [], isBusy: false, error: null, retryState: null, contextTokens: 0, tokenUsage: null }),
 
   switchTo: (sessionId, initialMessages) => {
     const b = bucket(sessionId);
     if (initialMessages && b.messages.length === 0) b.messages = initialMessages;
-    set({ sessionId, messages: b.messages, isBusy: b.isBusy, error: b.error, retryState: b.retryState });
+    set({ sessionId, messages: b.messages, isBusy: b.isBusy, error: b.error, retryState: b.retryState, contextTokens: 0, tokenUsage: null });
     wsClient.attach(sessionId);
+    // 异步拉一次最新 token 估算（不阻塞 UI 切换）
+    void get().refreshTokenUsage(sessionId);
   },
 
   hydrateSession: (sessionId, messages) => {
@@ -589,6 +629,26 @@ export const useChat = create<ChatState>((set, get) => ({
   setModel: (model) => set({ model }),
   setProvider: (provider) => set({ provider }),
   setAgentId: (id) => set({ agentId: id }),
+  setContextWindow: (n) => set({ contextWindow: n }),
+
+  refreshTokenUsage: async (sessionId) => {
+    const sid = sessionId ?? get().sessionId;
+    if (!sid) {
+      set({ contextTokens: 0, tokenUsage: null });
+      return;
+    }
+    try {
+      // 动态 import 打破 chat ↔ api 之间的循环（api 也会 import chat store）
+      const { fetchTokenUsage } = await import("@/services/api");
+      const usage = await fetchTokenUsage(sid);
+      // 刷新过程中如果用户已经切走了 session，丢弃这次结果
+      if (get().sessionId !== sid) return;
+      set({ contextTokens: usage.total, tokenUsage: usage });
+    } catch (e) {
+      // HTTP/网络失败：保留上一次值，避免 UI 闪到 0
+      console.error("[chat] refreshTokenUsage failed:", e);
+    }
+  },
 }));
 
 // ─── Selectors ──────────────────────────────────────────────────────

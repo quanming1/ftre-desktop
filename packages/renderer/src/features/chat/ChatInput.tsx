@@ -18,6 +18,7 @@ import { useNotification } from "@/stores/notification";
 import { fetchSkills, type SkillDef } from "@/services/api";
 import { AgentSelector } from "./AgentSelector";
 import { ModelSelector } from "./ModelSelector";
+import { TokenRing } from "./TokenRing";
 import { RetryPanel } from "./RetryPanel";
 import {
   ChatInputEditor,
@@ -542,10 +543,11 @@ export function ChatInput() {
               </button>
             </div>
 
-            {/* 右侧：模型选择 + 发送 */}
+            {/* 右侧：模型选择 + 上下文用量 + 发送 */}
             <div className="flex items-center gap-1">
               <ModelSelector />
               <div className="w-px h-3.5 bg-border-subtle mx-0.5" />
+              <TokenRing />
               {isBusy ? (
                 <button
                   onClick={handleCancel}
