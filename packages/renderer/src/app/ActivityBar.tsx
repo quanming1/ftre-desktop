@@ -1,11 +1,39 @@
 import { MessageSquare, Zap, Clock, Settings } from "lucide-react";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useLayout } from "@/stores/layout";
+
+/**
+ * 打开设置面板的全局事件名。
+ * detail.section 可选: "general" | "models" | "gateway" | "agents"
+ *
+ * 任何地方都可以通过派发该事件来打开设置：
+ *   window.dispatchEvent(
+ *     new CustomEvent("ftre:open-settings", { detail: { section: "models" } }),
+ *   );
+ */
+export const OPEN_SETTINGS_EVENT = "ftre:open-settings";
+
+type SettingsSection = "general" | "models" | "gateway" | "agents";
 
 export function ActivityBar() {
   const activeLeftPanel = useLayout((s) => s.activeLeftPanel);
   const setActiveLeftPanel = useLayout((s) => s.setActiveLeftPanel);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [pendingSection, setPendingSection] =
+    useState<SettingsSection | null>(null);
+
+  // 监听全局事件：允许其他模块（如 ModelSelector）一键打开设置
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const detail = (e as CustomEvent).detail as
+        | { section?: SettingsSection }
+        | undefined;
+      if (detail?.section) setPendingSection(detail.section);
+      setSettingsOpen(true);
+    };
+    window.addEventListener(OPEN_SETTINGS_EVENT, handler);
+    return () => window.removeEventListener(OPEN_SETTINGS_EVENT, handler);
+  }, []);
 
   const items = [
     { id: "chat" as const, icon: MessageSquare, label: "对话" },
@@ -47,7 +75,15 @@ export function ActivityBar() {
       </aside>
 
       {/* Settings Dialog */}
-      {settingsOpen && <SettingsDialog onClose={() => setSettingsOpen(false)} />}
+      {settingsOpen && (
+        <SettingsDialog
+          initialSection={pendingSection}
+          onClose={() => {
+            setSettingsOpen(false);
+            setPendingSection(null);
+          }}
+        />
+      )}
     </>
   );
 }
@@ -59,8 +95,21 @@ import { GatewaySettings } from "@/features/settings/GatewaySettings";
 import { AgentDefSettings } from "@/features/settings/AgentDefSettings";
 import { X } from "lucide-react";
 
-function SettingsDialog({ onClose }: { onClose: () => void }) {
-  const [activeSection, setActiveSection] = useState("general");
+function SettingsDialog({
+  onClose,
+  initialSection,
+}: {
+  onClose: () => void;
+  initialSection?: SettingsSection | null;
+}) {
+  const [activeSection, setActiveSection] = useState<SettingsSection>(
+    initialSection ?? "general",
+  );
+
+  // 父组件在 dialog 已挂载时再次派发事件可切换 section
+  useEffect(() => {
+    if (initialSection) setActiveSection(initialSection);
+  }, [initialSection]);
 
   const navSections = [
     { group: "功能", items: [
@@ -68,7 +117,7 @@ function SettingsDialog({ onClose }: { onClose: () => void }) {
       { id: "models", label: "模型" },
       { id: "gateway", label: "网关连接" },
       { id: "agents", label: "Agent 设置" },
-    ]},
+    ] satisfies { id: SettingsSection; label: string }[] },
   ];
 
   return (
