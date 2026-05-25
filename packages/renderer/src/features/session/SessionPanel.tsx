@@ -235,6 +235,18 @@ export function SessionPanel() {
     loadAllSessions();
   }, [loadAllSessions, rootPath]);
 
+  // 5s 轮询：让其他端（cron 触发、其它客户端）写库后能在面板上看到
+  // 仅 panel 挂载期间运行，关闭侧栏后自动停。document.hidden 时跳过，避免后台 tab 浪费。
+  useEffect(() => {
+    const POLL_MS = 5000;
+    const tick = () => {
+      if (typeof document !== "undefined" && document.hidden) return;
+      loadAllSessions();
+    };
+    const id = setInterval(tick, POLL_MS);
+    return () => clearInterval(id);
+  }, [loadAllSessions]);
+
   // 构建工作区分组
   const workspaceGroups = useMemo(() => {
     if (!rootPath) return [];
