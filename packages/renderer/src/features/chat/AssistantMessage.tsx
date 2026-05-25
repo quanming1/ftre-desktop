@@ -66,41 +66,8 @@ function ReasoningBlock({ text }: { text: string }) {
   );
 }
 
-/** 多个连续 tool_call 的堆叠折叠 UI */
-function ToolCallStack({ toolCalls }: { toolCalls: ToolCall[] }) {
-  const [expanded, setExpanded] = useState(false);
-  if (toolCalls.length === 1) return <InlineToolCallCard toolCall={toolCalls[0]} />;
-  if (!expanded) {
-    return (
-      <div>
-        <InlineToolCallCard toolCall={toolCalls[0]} />
-        <div onClick={() => setExpanded(true)} className="cursor-pointer group">
-          <div className="mx-2 h-[6px] -mt-[3px] border border-t-0 border-border-subtle rounded-b-2xl bg-panel/80 group-hover:bg-hover transition-colors" />
-          <div className="mx-4 h-[5px] -mt-[2px] border border-t-0 border-border-subtle/60 rounded-b-2xl bg-panel/50 group-hover:bg-hover/50 transition-colors" />
-          <div className="text-center text-[11px] text-t-ghost mt-0.5 group-hover:text-t-dim transition-colors">
-            +{toolCalls.length - 1} 个工具调用
-          </div>
-        </div>
-      </div>
-    );
-  }
-  return (
-    <div>
-      <div className="space-y-1.5">
-        {toolCalls.map((tc) => <InlineToolCallCard key={tc.id} toolCall={tc} />)}
-      </div>
-      <div
-        onClick={() => setExpanded(false)}
-        className="cursor-pointer mt-1 text-center text-[11px] text-t-ghost hover:text-t-dim transition-colors"
-      >
-        收起
-      </div>
-    </div>
-  );
-}
-
 /**
- * 按 parts 顺序行内渲染：连续 tool_call 合并为堆叠；text 段切块（已闭合块走 memo）。
+ * 按 parts 顺序行内渲染：每个 tool_call 独立渲染；text 段切块（已闭合块走 memo）。
  * 流式且为最后一段 text 时对内容做 throttle，仅尾块随 token 重渲。
  */
 function PartsRenderer({
@@ -120,32 +87,25 @@ function PartsRenderer({
     if (parts[i].type === "text") { lastTextIdx = i; break; }
   }
 
-  const out: React.ReactNode[] = [];
-  let pending: ToolCall[] = [];
-  const flushTools = () => {
-    if (pending.length === 0) return;
-    out.push(<ToolCallStack key={`t-${out.length}`} toolCalls={pending} />);
-    pending = [];
-  };
-
-  parts.forEach((p, i) => {
-    if (p.type === "tool_call") {
-      const tc = toolCalls.find((t) => t.id === p.toolCallId);
-      if (tc) pending.push(tc);
-      return;
-    }
-    flushTools();
-    out.push(
-      <TextPart
-        key={`tx-${i}`}
-        text={p.text}
-        live={streaming && i === lastTextIdx}
-        anchor={i === lastTextIdx ? mdRef : undefined}
-      />,
-    );
-  });
-  flushTools();
-  return <>{out}</>;
+  return (
+    <>
+      {parts.map((p, i) => {
+        if (p.type === "tool_call") {
+          const tc = toolCalls.find((t) => t.id === p.toolCallId);
+          if (!tc) return null;
+          return <InlineToolCallCard key={`tc-${tc.id}`} toolCall={tc} />;
+        }
+        return (
+          <TextPart
+            key={`tx-${i}`}
+            text={p.text}
+            live={streaming && i === lastTextIdx}
+            anchor={i === lastTextIdx ? mdRef : undefined}
+          />
+        );
+      })}
+    </>
+  );
 }
 
 /**
