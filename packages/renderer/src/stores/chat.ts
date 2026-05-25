@@ -370,66 +370,74 @@ export function applyEvent(b: Bucket, ev: BusEvent): void {
 }
 
 // ─── WS Wiring ──────────────────────────────────────────────────────
+//
+// 模块级注册的 handler 在 dev hmr 重新执行模块时会被重复 push。
+// 用 guard 保证全生命周期只注册一次，避免每条 ws 事件被处理多次（典型症状：
+// 流式文本看起来"重复输出"，实际是 reducer 跑了两遍）。
+const __wsBoundFlag = "__ftreChatWsBound__";
+if (!(globalThis as any)[__wsBoundFlag]) {
+  (globalThis as any)[__wsBoundFlag] = true;
 
-wsClient.onMessage((msg: ServerMessage) => {
-  // 后端拒绝（附件违规等）：顶层 type="error"，不是 agent_event
-  if (msg.type === "error") {
-    const reason =
-      (msg.data as any)?.message ||
-      (msg.data as any)?.code ||
-      "请求被拒绝";
-    // 关掉对应 session 的 busy 状态
-    const sid = (msg.data as any)?.session_id || msg.metadata?.session_id;
-    if (typeof sid === "string" && sid) {
-      const b = bucket(sid);
+  wsClient.onMessage((msg: ServerMessage) => {
+    // 后端拒绝（附件违规等）：顶层 type="error"，不是 agent_event
+    if (msg.type === "error") {
+      const reason =
+        (msg.data as any)?.message ||
+        (msg.data as any)?.code ||
+        "请求被拒绝";
+      // 关掉对应 session 的 busy 状态
+      const sid = (msg.data as any)?.session_id || msg.metadata?.session_id;
+      if (typeof sid === "string" && sid) {
+        const b = bucket(sid);
+        b.isBusy = false;
+        mirror(sid);
+      }
+      // 异步引入避免循环依赖（notification → chat 不应该被绑死）
+      import("./notification")
+        .then(({ useNotification }) => {
+          useNotification.getState().addNotification({
+            level: "error",
+            message: reason,
+          });
+        })
+        .catch(() => void 0);
+      return;
+    }
+
+    if (msg.type !== "agent_event") return;
+    const ev = msg.data;
+    if (!ev?.type) return;
+    const sid = msg.metadata?.session_id as string | undefined;
+    if (!sid) return;
+    applyEvent(bucket(sid), { type: ev.type, data: ev.data });
+    mirror(sid);
+
+    // 实时事件结束后刷新 token 估算：
+    // - done: 一次完整 LLM 轮次结束，后端刚写入新的 usage_update，重读拿到最新 anchor
+    // - external_message: 别的 session 注入了消息，pending 部分会增长
+    // 只对当前活跃 session 刷新，避免后台 session 频繁打接口
+    if ((ev.type === "done" || ev.type === "external_message") && useChat.getState().sessionId === sid) {
+      useChat.getState().refreshTokenUsage(sid);
+    }
+  });
+
+  wsClient.onConnect(() => useChat.setState({ connected: true, wsStatus: "connected" }));
+  wsClient.onStatusChange((s) => useChat.setState({ wsStatus: s, connected: s === "connected" }));
+  wsClient.onDisconnect(() => {
+    // 断线：关掉所有 bucket 的 streaming 状态，保留消息
+    for (const [sid, b] of buckets) {
       b.isBusy = false;
+      const tail = last(b.messages);
+      if (tail?.streaming) {
+        const next = b.messages.slice();
+        next[next.length - 1] = { ...tail, streaming: false };
+        b.messages = next;
+      }
       mirror(sid);
     }
-    // 异步引入避免循环依赖（notification → chat 不应该被绑死）
-    import("./notification")
-      .then(({ useNotification }) => {
-        useNotification.getState().addNotification({
-          level: "error",
-          message: reason,
-        });
-      })
-      .catch(() => void 0);
-    return;
-  }
-
-  if (msg.type !== "agent_event") return;
-  const ev = msg.data;
-  if (!ev?.type) return;
-  const sid = msg.metadata?.session_id as string | undefined;
-  if (!sid) return;
-  applyEvent(bucket(sid), { type: ev.type, data: ev.data });
-  mirror(sid);
-
-  // 实时事件结束后刷新 token 估算：
-  // - done: 一次完整 LLM 轮次结束，后端刚写入新的 usage_update，重读拿到最新 anchor
-  // - external_message: 别的 session 注入了消息，pending 部分会增长
-  // 只对当前活跃 session 刷新，避免后台 session 频繁打接口
-  if ((ev.type === "done" || ev.type === "external_message") && useChat.getState().sessionId === sid) {
-    useChat.getState().refreshTokenUsage(sid);
-  }
-});
-
-wsClient.onConnect(() => useChat.setState({ connected: true, wsStatus: "connected" }));
-wsClient.onStatusChange((s) => useChat.setState({ wsStatus: s, connected: s === "connected" }));
-wsClient.onDisconnect(() => {
-  // 断线：关掉所有 bucket 的 streaming 状态，保留消息
-  for (const [sid, b] of buckets) {
-    b.isBusy = false;
-    const tail = last(b.messages);
-    if (tail?.streaming) {
-      const next = b.messages.slice();
-      next[next.length - 1] = { ...tail, streaming: false };
-      b.messages = next;
-    }
-    mirror(sid);
-  }
-  useChat.setState({ connected: false, wsStatus: "disconnected", isBusy: false });
-});
+    useChat.setState({ connected: false, wsStatus: "disconnected", isBusy: false });
+  });
+}
 
 // ─── Store ──────────────────────────────────────────────────────────
 
