@@ -6,13 +6,18 @@
  */
 
 import { useState, useEffect, useRef, memo, useCallback } from "react";
-import { Check, ChevronDown, Search } from "lucide-react";
+import { Check, ChevronDown, Search, Settings2, ImageIcon } from "lucide-react";
 import { fetchAppConfig, saveAppConfig } from "@/services/api";
 import { useChat } from "@/stores/chat";
+import { OPEN_SETTINGS_EVENT } from "@/app/ActivityBar";
 
 interface ModelItem {
   name: string;
   id: string;
+  /** 上下文窗口大小（token 数） */
+  context_window?: number | null;
+  /** 是否支持视觉输入（图片） */
+  vision?: boolean;
 }
 
 interface ProviderInfo {
@@ -69,14 +74,22 @@ async function readConfig(): Promise<ConfigData> {
       return hasApiKey && hasModels;
     })
     .map(([name, cfg]: [string, any]) => {
-      // models 可能是字符串数组 ["model-id"] 或对象数组 [{name, id}]
+      // models 可能是字符串数组 ["model-id"] 或对象数组 [{name, id, context_window?, vision?, ...}]
       const rawModels = cfg.models || [];
-      const models: ModelItem[] = rawModels.map((m: string | ModelItem) => {
-        if (typeof m === "string") {
-          return { name: m, id: m };
-        }
-        return m;
-      });
+      const models: ModelItem[] = rawModels.map(
+        (m: string | Record<string, any>) => {
+          if (typeof m === "string") {
+            return { name: m, id: m };
+          }
+          return {
+            name: m.name ?? m.id ?? "",
+            id: m.id ?? m.name ?? "",
+            context_window:
+              typeof m.context_window === "number" ? m.context_window : null,
+            vision: !!m.vision,
+          };
+        },
+      );
       return {
         name,
         label: PROVIDER_LABELS[name] || name,
@@ -102,6 +115,56 @@ async function writeModelToConfig(
   if (!ok) {
     console.error("[ModelSelector] Failed to write config");
   }
+}
+
+/** 把 token 数压缩成紧凑文字：128000 → "128K"，1500000 → "1.5M" */
+function formatContext(n: number): string {
+  if (n >= 1_000_000) {
+    const v = n / 1_000_000;
+    return (v >= 10 ? Math.round(v) : Math.round(v * 10) / 10) + "M";
+  }
+  if (n >= 1000) {
+    const v = n / 1000;
+    return (v >= 10 ? Math.round(v) : Math.round(v * 10) / 10) + "K";
+  }
+  return String(n);
+}
+
+/**
+ * 模型能力的迷你徽章组（出现在模型名右侧）。
+ * - 上下文窗口：纯文字（如 `128K`）
+ * - 视觉支持：极小图片图标
+ * 没有任一字段时整体不渲染。
+ */
+function ModelBadges({
+  contextWindow,
+  vision,
+}: {
+  contextWindow?: number | null;
+  vision?: boolean;
+}) {
+  const showCtx = typeof contextWindow === "number" && contextWindow > 0;
+  if (!showCtx && !vision) return null;
+  return (
+    <span className="flex items-center gap-1 shrink-0 text-t-ghost">
+      {showCtx && (
+        <span
+          title={`上下文 ${contextWindow!.toLocaleString()} tokens`}
+          className="px-1 h-[14px] inline-flex items-center text-[9.5px] font-mono leading-none rounded bg-hover/60 tracking-tight"
+        >
+          {formatContext(contextWindow!)}
+        </span>
+      )}
+      {vision && (
+        <span
+          title="支持图片输入"
+          className="w-[14px] h-[14px] inline-flex items-center justify-center rounded bg-hover/60"
+        >
+          <ImageIcon size={9} strokeWidth={2} />
+        </span>
+      )}
+    </span>
+  );
 }
 
 export const ModelSelector = memo(function ModelSelector() {
@@ -163,6 +226,13 @@ export const ModelSelector = memo(function ModelSelector() {
     await writeModelToConfig(modelId, providerName);
   };
 
+  const openModelSettings = useCallback(() => {
+    setOpen(false);
+    window.dispatchEvent(
+      new CustomEvent(OPEN_SETTINGS_EVENT, { detail: { section: "models" } }),
+    );
+  }, []);
+
   // 获取当前模型的显示名称
   const getDisplayName = () => {
     if (!currentModel) return "选择模型";
@@ -215,11 +285,17 @@ export const ModelSelector = memo(function ModelSelector() {
           </div>
 
           {providers.length === 0 ? (
-            <div className="px-4 py-6 text-center text-[13px] text-t-muted">
-              未找到已配置的模型
-              <p className="text-[11px] text-t-ghost mt-1">
-                请在设置 → 模型中配置供应商和模型
-              </p>
+            <div className="px-4 py-6 flex flex-col items-center gap-2">
+              <div className="text-center text-[13px] text-t-muted">
+                未找到已配置的模型
+              </div>
+              <button
+                onClick={openModelSettings}
+                className="mt-1 inline-flex items-center gap-1.5 px-3 h-8 rounded-md bg-accent/10 text-accent text-[12px] hover:bg-accent/15 transition-colors"
+              >
+                <Settings2 size={13} />
+                打开设置配置模型
+              </button>
             </div>
           ) : (
             <div className="max-h-[340px] overflow-y-auto py-1">
@@ -252,17 +328,21 @@ export const ModelSelector = memo(function ModelSelector() {
                             onClick={() =>
                               handleSelectModel(model.id, provider.name)
                             }
-                            className={`w-full px-3 py-1.5 text-left text-[13px] flex items-center justify-between transition-colors ${
+                            className={`w-full px-3 py-1.5 text-left text-[13px] flex items-center gap-2 transition-colors ${
                               isSelected
                                 ? "text-accent bg-accent/10"
                                 : "text-t-secondary hover:text-t-primary hover:bg-hover"
                             }`}
                           >
-                            <span className="truncate">
+                            <span className="truncate flex-1 min-w-0">
                               {model.name || model.id}
                             </span>
+                            <ModelBadges
+                              contextWindow={model.context_window}
+                              vision={model.vision}
+                            />
                             {isSelected && (
-                              <Check size={14} className="shrink-0 ml-2" />
+                              <Check size={14} className="shrink-0" />
                             )}
                           </button>
                         );
@@ -271,6 +351,20 @@ export const ModelSelector = memo(function ModelSelector() {
                   );
                 })
                 .filter(Boolean)}
+            </div>
+          )}
+
+          {/* 底部：一键打开设置管理模型列表（providers 非空时常驻显示） */}
+          {providers.length > 0 && (
+            <div className="border-t border-border-subtle">
+              <button
+                onClick={openModelSettings}
+                className="w-full flex items-center gap-2 px-3 h-9 text-[12.5px] text-t-muted hover:text-t-primary hover:bg-hover transition-colors"
+                title="打开设置 → 模型，编辑供应商与模型列表"
+              >
+                <Settings2 size={13} className="shrink-0 opacity-70" />
+                <span className="truncate">管理模型…</span>
+              </button>
             </div>
           )}
         </div>
