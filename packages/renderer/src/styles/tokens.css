@@ -12,6 +12,7 @@
 html[data-theme="dark"] {
   /* 背景 */
   --ftre-bg-base: #131416;
+  --ftre-bg-titlebar: #131416;
   --ftre-bg-surface: #1f2022;
   --ftre-bg-elevated: #252526;
   --ftre-bg-panel: #2d2d2d;
@@ -37,6 +38,10 @@ html[data-theme="dark"] {
   --ftre-accent-dim: rgba(0, 255, 136, 0.12);
   --ftre-accent-ghost: rgba(0, 255, 136, 0.06);
 
+  /* 工具卡片专用色（聊天里 InlineToolCallCard）—— 跟主壳/卡片底色解耦 */
+  --ftre-bg-tool-card: #2a2b2e;
+  --ftre-bg-tool-result: #1f2022;
+
   /* 状态 */
   --ftre-status-success: #00ff88;
   --ftre-status-warning: #d29922;
@@ -57,7 +62,8 @@ html[data-theme="dark"] {
 /* ===== Light Mode ===== */
 html[data-theme="light"] {
   /* 背景 — 参考 Manus 风格，偏白但不刺眼 */
-  --ftre-bg-base: #e6e6e3;
+  --ftre-bg-base: #efefef;
+  --ftre-bg-titlebar: #efefef;
   --ftre-bg-surface: #ffffff;
   --ftre-bg-elevated: #ebebeb;
   --ftre-bg-panel: #f0f0f1;
@@ -82,6 +88,10 @@ html[data-theme="light"] {
   --ftre-accent-hover: #047857;
   --ftre-accent-dim: rgba(5, 150, 105, 0.10);
   --ftre-accent-ghost: rgba(5, 150, 105, 0.05);
+
+  /* 工具卡片专用色（聊天里 InlineToolCallCard）—— 跟主壳/卡片底色解耦 */
+  --ftre-bg-tool-card: #f6f7f9;
+  --ftre-bg-tool-result: #f0f0f1;
 
   /* 状态 */
   --ftre-status-success: #059669;
