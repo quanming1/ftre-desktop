@@ -7,9 +7,13 @@
 import { create } from "zustand";
 import { useChat, type BusEvent } from "./chat";
 import type { SessionSummary } from "@/services/api";
-import { fetchSessions, fetchSessionMessages } from "@/services/api";
+import {
+  fetchSessionPage,
+  fetchSessionMessages,
+  deleteSessionRemote,
+} from "@/services/api";
 import { useWorkspace } from "./workspace";
-import { workspaceHash, normalizePathForCompare } from "@/utils/pathUtils";
+import { workspaceHash } from "@/utils/pathUtils";
 
 export type { SessionSummary };
 
@@ -60,16 +64,29 @@ const saveTabsToStorage = (tabs: string[]) => {
 
 // ─── State ──────────────────────────────────────────────────────────
 
+/**
+ * 会话列表分页参数。
+ * - 默认每页 50；轮询只刷首页（拿到最新创建/最新活跃的）；面板里点"展开 +10 条"
+ *   走 loadMoreSessions(10) 累加。
+ * - 总数由 fetchSessionPage 返回的 total 维护，前端据此判断"还能继续往下翻吗"。
+ */
+const FIRST_PAGE_SIZE = 50;
+
 interface SessionState {
   sessions: SessionSummary[];
   allSessions: SessionSummary[];
+  /** 后端总会话数；用于判断 hasMore */
+  sessionsTotal: number;
   openTabs: string[];
   loading: boolean;
   /** Session ID currently being loaded (HTTP fetch in progress) */
   loadingSessionId: string | null;
 
   loadSessions: (workspace?: string | null) => Promise<void>;
+  /** 拉首页并替换 allSessions（轮询、初始加载用） */
   loadAllSessions: () => Promise<void>;
+  /** 在 allSessions 末尾追加 extraCount 条（"展开"按钮用） */
+  loadMoreSessions: (extraCount: number) => Promise<void>;
   loadWorkspaceSessions: (workspace: string) => Promise<void>;
   switchSession: (sessionId: string) => Promise<void>;
   openTab: (sessionId: string) => void;
@@ -83,41 +100,78 @@ interface SessionState {
   ) => void;
 }
 
+/** 按 session_id 去重，保持出现顺序（前面的优先） */
+function dedupeById(list: SessionSummary[]): SessionSummary[] {
+  const seen = new Set<string>();
+  const out: SessionSummary[] = [];
+  for (const s of list) {
+    if (seen.has(s.session_id)) continue;
+    seen.add(s.session_id);
+    out.push(s);
+  }
+  return out;
+}
+
 export const useSession = create<SessionState>((set, get) => ({
   sessions: [],
   allSessions: [],
+  sessionsTotal: 0,
   openTabs: [],
   loading: false,
   loadingSessionId: null,
 
-  loadSessions: async (workspace) => {
-    set({ loading: true });
-    try {
-      const sessions = await fetchSessions(workspace);
-      set({ sessions, loading: false });
-    } catch {
-      set({ loading: false });
-    }
+  loadSessions: async (_workspace) => {
+    // 兼容旧调用：等价于 loadAllSessions
+    await get().loadAllSessions();
   },
 
   loadAllSessions: async () => {
     set({ loading: true });
     try {
-      const sessions = await fetchSessions();
-      set({ allSessions: sessions, sessions, loading: false });
+      const page = await fetchSessionPage({ limit: FIRST_PAGE_SIZE, offset: 0 });
+      // 轮询时已展开的额外页保留：把首页结果拼到现有 allSessions 头部并去重，
+      // 不会因为后端只返回 50 条就把已经"展开"加载的尾部数据擦掉
+      const existing = get().allSessions;
+      const merged = dedupeById([...page.sessions, ...existing]);
+      // 但如果总数变化（删除/新增），裁切到 max(merged.length, total) 中取小者
+      const trimmed =
+        page.total > 0 && merged.length > page.total
+          ? merged.slice(0, page.total)
+          : merged;
+      set({
+        allSessions: trimmed,
+        sessions: trimmed,
+        sessionsTotal: page.total,
+        loading: false,
+      });
     } catch {
       set({ loading: false });
     }
   },
 
-  loadWorkspaceSessions: async (workspace) => {
+  loadMoreSessions: async (extraCount) => {
+    const { allSessions, sessionsTotal } = get();
+    if (sessionsTotal && allSessions.length >= sessionsTotal) return;
+    const offset = allSessions.length;
+    const limit = Math.max(1, Math.floor(extraCount));
     set({ loading: true });
     try {
-      const sessions = await fetchSessions(workspace);
-      set({ sessions, loading: false });
+      const page = await fetchSessionPage({ limit, offset });
+      const merged = dedupeById([...allSessions, ...page.sessions]);
+      set({
+        allSessions: merged,
+        sessions: merged,
+        sessionsTotal: page.total,
+        loading: false,
+      });
     } catch {
       set({ loading: false });
     }
+  },
+
+  loadWorkspaceSessions: async (_workspace) => {
+    // 兼容旧调用
+    await get().loadAllSessions();
   },
 
   switchSession: async (sessionId) => {
@@ -173,24 +227,28 @@ export const useSession = create<SessionState>((set, get) => ({
 
   deleteSession: async (sessionId) => {
     get().closeTab(sessionId);
+    // 后端先删；本地状态总是同步到 UI（即便后端失败也至少把它从列表里去掉，
+    // 下一轮 5s 轮询会重新带回，让用户看到错误信号）
+    void deleteSessionRemote(sessionId);
+    const total = get().sessionsTotal;
     set({
       sessions: get().sessions.filter((s) => s.session_id !== sessionId),
       allSessions: get().allSessions.filter((s) => s.session_id !== sessionId),
+      sessionsTotal: total > 0 ? total - 1 : 0,
     });
   },
 
   newSession: (workspace) => {
-    const currentWorkspace = useWorkspace.getState().rootPath;
-    const isSameWorkspace =
-      currentWorkspace &&
-      workspace &&
-      normalizePathForCompare(workspace) === normalizePathForCompare(currentWorkspace);
-    if (workspace && !isSameWorkspace) useWorkspace.getState().setRootPath(workspace);
     const chat = useChat.getState();
     chat.newChat();
     chat.setAgentId("code_agent");
     // 不重置 model/provider —— 用户当前选择的模型是粘性偏好，
     // 跨会话保留体验更自然；首次打开时仍由 ModelSelector 从 config 读取默认值。
+    // 传入 workspace（可选）：把它写到 chat 的 pendingWorkspace，发首条消息
+    // 创建 session 时会作为 query param 落到 sessions.workspace 字段。
+    if (workspace !== undefined) {
+      chat.setPendingWorkspace(workspace || null);
+    }
     try { localStorage.removeItem(sessionStorageKey()); } catch { }
   },
 
