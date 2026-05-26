@@ -265,16 +265,42 @@ export interface ModelItem {
 }
 
 export async function updateSession(
-  _sessionId: string,
-  _data: any,
+  sessionId: string,
+  data: any,
 ): Promise<{ status: string } | null> {
-  return { status: "updated" };
+  try {
+    const res = await fetch(`http://127.0.0.1:18790/api/sessions/${encodeURIComponent(sessionId)}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(data),
+    });
+    if (!res.ok) {
+      console.error("[api] updateSession failed:", await res.text());
+      return null;
+    }
+    return res.json();
+  } catch (e) {
+    console.error("[api] updateSession error:", e);
+    return null;
+  }
 }
 
 export async function triggerCompaction(
-  _sessionId: string,
+  sessionId: string,
 ): Promise<{ status: string } | null> {
-  return { status: "ok" };
+  try {
+    const res = await fetch(`http://127.0.0.1:18790/api/sessions/${encodeURIComponent(sessionId)}/compact`, {
+      method: "POST",
+    });
+    if (!res.ok) {
+      console.error("[api] triggerCompaction failed:", await res.text());
+      return null;
+    }
+    return res.json();
+  } catch (e) {
+    console.error("[api] triggerCompaction error:", e);
+    return null;
+  }
 }
 
 // ─── App Config (~/.ftre/config.json via backend) ─────────────────
