@@ -284,7 +284,7 @@ export function Workbench() {
   };
 
   return (
-    <div className="h-screen w-screen flex flex-col bg-elevated overflow-hidden">
+    <div className="h-screen w-screen flex flex-col bg-base overflow-hidden">
       <TitleBar />
 
       {/* Main area - use CSS order to control panel arrangement without remounting */}
@@ -315,12 +315,14 @@ export function Workbench() {
         {/* Chat 模式：正常显示 Sessions Panel */}
         {activeLeftPanel === "chat" && panelVisible.sessions && (
           <div
-            className="h-full overflow-hidden"
+            className="h-full overflow-hidden py-1 pl-1.5"
             style={getPanelStyle("sessions")}
           >
-            <ErrorBoundary>
-              <SessionPanel />
-            </ErrorBoundary>
+            <div className="h-full overflow-hidden rounded-xl bg-surface">
+              <ErrorBoundary>
+                <SessionPanel />
+              </ErrorBoundary>
+            </div>
           </div>
         )}
         {activeLeftPanel === "chat" &&
@@ -391,10 +393,12 @@ export function Workbench() {
 
         {/* Chat Panel */}
         {panelVisible.chat && activeLeftPanel === "chat" && (
-          <div className="h-full overflow-hidden" style={getPanelStyle("chat")}>
-            <ErrorBoundary>
-              <ChatPanel key={rootPath} />
-            </ErrorBoundary>
+          <div className="h-full overflow-hidden py-1 pr-1.5" style={getPanelStyle("chat")}>
+            <div className="h-full overflow-hidden rounded-xl bg-surface">
+              <ErrorBoundary>
+                <ChatPanel key={rootPath} />
+              </ErrorBoundary>
+            </div>
           </div>
         )}
         {panelVisible.chat &&

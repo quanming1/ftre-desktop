@@ -43,7 +43,7 @@ export function ActivityBar() {
 
   return (
     <>
-      <aside className="w-[72px] h-full bg-elevated border-r border-border flex flex-col items-center pt-6 pb-4 justify-between shrink-0">
+      <aside className="w-[72px] h-full bg-base flex flex-col items-center pt-6 pb-4 justify-between shrink-0">
         {/* Top */}
         <div className="flex flex-col items-center gap-5">
           {items.map(({ id, icon: Icon, label }) => (
