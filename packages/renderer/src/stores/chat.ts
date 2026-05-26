@@ -27,8 +27,8 @@ export interface ToolCall {
 }
 
 export type MessagePart =
-  | { type: "text"; text: string }
-  | { type: "reasoning"; text: string }
+  | { type: "text"; text: string; streaming?: boolean }
+  | { type: "reasoning"; text: string; streaming?: boolean }
   | { type: "tool_call"; toolCallId: string };
 
 /** 用户消息附件（与后端 attachments 协议同形，base64 已转成 data URL） */
@@ -89,6 +89,42 @@ function bucket(sid: string): Bucket {
 }
 
 const last = <T>(arr: T[]): T | undefined => arr[arr.length - 1];
+
+/**
+ * 从末尾向前找最近一个仍在流式填充的 text/reasoning part 索引。找不到返回 -1。
+ *
+ * 用于 message_complete / reasoning_complete 收尾：
+ * 流式 chunk 期间会在 parts 里保留 streaming=true 的占位段，complete 事件
+ * 到达时把它替换成权威总和。tool_call / tool_call_streaming 可能在 complete
+ * 之前先把 tool part 推到末尾，因此不能只看 parts[-1]，要往前扫到 streaming 段。
+ *
+ * 严格匹配 streaming=true：已封口的段属于"上一轮已完成"或"回放路径下不存在
+ * streaming"，complete 事件不能去覆盖它们。
+ */
+function findStreamingIdx(
+  parts: MessagePart[],
+  type: "text" | "reasoning",
+): number {
+  for (let i = parts.length - 1; i >= 0; i--) {
+    const p = parts[i];
+    if (p.type === type && p.streaming) return i;
+  }
+  return -1;
+}
+
+/**
+ * 把末尾正在流式填充的 text / reasoning part 封口（streaming=false）。
+ *
+ * 现在只在兜底场景使用：done 事件 / 回放结束后。日常的 *_complete 走
+ * findStreamingIdx 自己找位置。
+ */
+function sealStreamingPart(parts: MessagePart[]): void {
+  const tail = parts[parts.length - 1];
+  if (!tail) return;
+  if ((tail.type === "text" || tail.type === "reasoning") && tail.streaming) {
+    parts[parts.length - 1] = { ...tail, streaming: false };
+  }
+}
 
 /** 当 sid === activeId 时，把 bucket 字段镜像到 store 顶层。 */
 function mirror(sid: string): void {
@@ -192,43 +228,42 @@ export function applyEvent(b: Bucket, ev: BusEvent): void {
     case "message": {
       ensure();
       const chunk = d.content || "";
+      if (!chunk) return;
       replaceTail((m) => {
         const parts = [...(m.parts || [])];
         const lastPart = parts[parts.length - 1];
-        // 看 lastPart：是 text 就追加，遇到 tool_call 边界（多轮）会自动 push 新 text part。
-        // 这跟 message_complete 的"找最后一个 text 替换"是配套设计：
-        // - message 用 lastPart 决定"开新 text part 还是继续累积"，区分轮次
-        // - message_complete 在轮次的 text 累积完成后回填权威总和（找最后一个 text 替换）
-        if (lastPart?.type === "text") parts[parts.length - 1] = { type: "text", text: lastPart.text + chunk };
-        else if (chunk) parts.push({ type: "text", text: chunk });
+        // 末尾如果是个还在填的 text part 就追加；否则开新段。
+        // 任何"非 text chunk 的事件"到达时都会调 sealStreamingPart 把这段封口，
+        // 之后再来 chunk 就不会误并到上一段。
+        if (lastPart?.type === "text" && lastPart.streaming) {
+          parts[parts.length - 1] = { type: "text", text: lastPart.text + chunk, streaming: true };
+        } else {
+          parts.push({ type: "text", text: chunk, streaming: true });
+        }
         return { ...m, parts, content: (m.content ?? "") + chunk, streaming: true };
       });
       return;
     }
 
     // ─── 流式文本最终化（ws）/ 历史回放完整文本 ───
-    // 不在此处置 streaming=false；由 done 事件统一收尾（与原协议保持一致：
-    // tool finalization 等清理仍可能在 message_complete 之后到达）。
+    // 不在此处置 message.streaming=false；由 done 事件统一收尾。
     case "message_complete": {
       ensure();
       const final = d.content || "";
       replaceTail((m) => {
         const parts = [...(m.parts || [])];
-        // 找最后一个 text part（不是简单看 parts 末尾，因为后续可能插入 tool_call）。
-        // message_complete 是当轮 LLM 文本的"权威总和"，必须替换已累积的 text，
-        // 而不是 push 新 text part —— 否则会出现重复渲染。
-        let lastTextIdx = -1;
-        for (let i = parts.length - 1; i >= 0; i--) {
-          if (parts[i].type === "text") { lastTextIdx = i; break; }
-        }
-        if (lastTextIdx >= 0) {
-          parts[lastTextIdx] = { type: "text", text: final };
+        // 找一个还在流式填充的 text part（即便末尾是 tool_call 也能找到）：
+        // - 实时路径：先 message chunk 累积出 streaming text → 中间可能插入
+        //   tool_call_streaming 推到末尾 → 此 complete 仍能锁定到流式段并封口
+        // - 回放路径：DB 没有 chunk，找不到流式段 → push 一个已封口的新段
+        const streamingIdx = findStreamingIdx(parts, "text");
+        if (streamingIdx >= 0) {
+          parts[streamingIdx] = { type: "text", text: final, streaming: false };
         } else if (final) {
-          // 这一轮没流过 message chunk（比如纯 tool_call 轮）→ 才插入新 text part
-          parts.push({ type: "text", text: final });
+          parts.push({ type: "text", text: final, streaming: false });
         }
         const content = parts
-          .filter((p): p is { type: "text"; text: string } => p.type === "text")
+          .filter((p): p is { type: "text"; text: string; streaming?: boolean } => p.type === "text")
           .map((p) => p.text)
           .join("");
         return { ...m, id: ev.id ?? m.id, parts, content };
@@ -268,12 +303,11 @@ export function applyEvent(b: Bucket, ev: BusEvent): void {
       replaceTail((m) => {
         const parts = [...(m.parts || [])];
         const lastPart = parts[parts.length - 1];
-        // 跟 message chunk 同思路：连续累积到末尾的 reasoning part；遇到边界
-        // （tool_call / text）会自动 push 新 reasoning part，区分多轮。
-        if (lastPart?.type === "reasoning") {
-          parts[parts.length - 1] = { type: "reasoning", text: lastPart.text + chunk };
+        // 跟 message chunk 同思路：末尾是流式 reasoning 就追加，否则开新段
+        if (lastPart?.type === "reasoning" && lastPart.streaming) {
+          parts[parts.length - 1] = { type: "reasoning", text: lastPart.text + chunk, streaming: true };
         } else {
-          parts.push({ type: "reasoning", text: chunk });
+          parts.push({ type: "reasoning", text: chunk, streaming: true });
         }
         return { ...m, parts, reasoning: (m.reasoning ?? "") + chunk };
       });
@@ -281,30 +315,23 @@ export function applyEvent(b: Bucket, ev: BusEvent): void {
     }
 
     // ─── 一轮思考的完整文本（对应 message_complete 的 reasoning 版） ───
-    // 时序：实时下出现在 reasoning chunks 之后、message_complete 之前；
-    //       历史回放时数据库只存 reasoning_complete，没有 chunk。
-    // 处理：找最近一个 reasoning part 替换成权威总和（不是追加）。多轮思考
-    // 通过 parts 顺序天然区分（前一轮 reasoning_complete 之后，message_complete /
-    // tool_call 已经把 lastPart 推开，下一轮 reasoning chunk 会另起一段）。
+    // 实时：reasoning chunks 后到达，原地覆盖封口
+    // 回放：DB 只有 reasoning_complete 没有 chunk，直接 push
     case "reasoning_complete": {
       ensure();
       const final = d.content || "";
       if (!final) return;
       replaceTail((m) => {
         const parts = [...(m.parts || [])];
-        let lastReasoningIdx = -1;
-        for (let i = parts.length - 1; i >= 0; i--) {
-          if (parts[i].type === "reasoning") { lastReasoningIdx = i; break; }
-        }
-        if (lastReasoningIdx >= 0) {
-          parts[lastReasoningIdx] = { type: "reasoning", text: final };
+        const streamingIdx = findStreamingIdx(parts, "reasoning");
+        if (streamingIdx >= 0) {
+          parts[streamingIdx] = { type: "reasoning", text: final, streaming: false };
         } else {
-          // 这一轮没流过 chunks（典型历史回放路径） → 直接 push
-          parts.push({ type: "reasoning", text: final });
+          parts.push({ type: "reasoning", text: final, streaming: false });
         }
         // 兼容旧字段：把所有 reasoning part 文本拼起来
         const reasoning = parts
-          .filter((p): p is { type: "reasoning"; text: string } => p.type === "reasoning")
+          .filter((p): p is { type: "reasoning"; text: string; streaming?: boolean } => p.type === "reasoning")
           .map((p) => p.text)
           .join("\n\n");
         return { ...m, parts, reasoning };
@@ -321,6 +348,9 @@ export function applyEvent(b: Bucket, ev: BusEvent): void {
       replaceTail((m) => {
         const toolCalls = [...(m.toolCalls || [])];
         const parts = [...(m.parts || [])];
+        // 不在这里 seal 当前流式 text/reasoning：稍后 *_complete 会用
+        // findStreamingIdx 自己找到那段做最终覆盖。如果先 seal 了，complete
+        // 就找不到流式段，会另起一段，造成同一段文字渲染两次。
         const i = toolCalls.findIndex((t) => t.id === id);
         if (i >= 0) toolCalls[i] = { ...toolCalls[i], name, arguments: args, status: "running" };
         else {
@@ -339,6 +369,7 @@ export function applyEvent(b: Bucket, ev: BusEvent): void {
       replaceTail((m) => {
         const toolCalls = [...(m.toolCalls || [])];
         const parts = [...(m.parts || [])];
+        // 同 tool_call：不 seal，让 *_complete 自己找流式段覆盖
         for (const c of chunks) {
           if (!c.id) continue;
           const i = toolCalls.findIndex((t) => t.id === c.id);
@@ -392,13 +423,18 @@ export function applyEvent(b: Bucket, ev: BusEvent): void {
     }
 
     case "done": {
-      replaceTail((m) => ({
-        ...m,
-        streaming: false,
-        toolCalls: m.toolCalls?.map((tc) =>
-          tc.status === "running" || tc.status === "pending" ? { ...tc, status: "ok" as const } : tc,
-        ),
-      }));
+      replaceTail((m) => {
+        const parts = [...(m.parts || [])];
+        sealStreamingPart(parts);
+        return {
+          ...m,
+          parts,
+          streaming: false,
+          toolCalls: m.toolCalls?.map((tc) =>
+            tc.status === "running" || tc.status === "pending" ? { ...tc, status: "ok" as const } : tc,
+          ),
+        };
+      });
       b.isBusy = false;
       b.retryState = null;
       return;
@@ -460,11 +496,15 @@ if (!(globalThis as any)[__wsBoundFlag]) {
       return;
     }
 
+    // 后端在首条用户消息后异步生成标题；前端有自己的会话列表轮询，
+    // 拿到新 title 是迟早的事，不需要专门的 push 通知。
+
     if (msg.type !== "agent_event") return;
     const ev = msg.data;
     if (!ev?.type) return;
     const sid = msg.metadata?.session_id as string | undefined;
     if (!sid) return;
+
     applyEvent(bucket(sid), { type: ev.type, data: ev.data });
     mirror(sid);
 
@@ -623,6 +663,15 @@ export const useChat = create<ChatState>((set, get) => ({
     };
     const sid = get().sessionId;
     if (sid) return send(sid);
+
+    // 首次发消息：fetch 创建 session 期间会有 100~500ms 网络往返，
+    // 这段时间如果什么都不做，ChatView 会因为 (!sessionId && !isBusy) 仍停留在 WelcomeView，
+    // 用户看不到自己刚发的消息，也看不到"ftre..."占位。
+    // 这里先同步把 isBusy 和 userMsg 顶到 store top-level，让 UI 立即切到对话视图。
+    // fetch 返回后 send() → bucket.push(userMsg) → mirror() 会再次写回同一份 messages，
+    // 内容一致，不会闪烁也不会重复。
+    set({ isBusy: true, messages: [...get().messages, userMsg] });
+
     fetch("http://127.0.0.1:18790/api/sessions?channel_id=ws", { method: "POST" })
       .then((r) => r.json())
       .then((data) => {
@@ -681,10 +730,13 @@ export const useChat = create<ChatState>((set, get) => ({
     b.messages = [];
     for (const ev of events) applyEvent(b, ev);
     // history 回放完毕：若尾部仍标记 streaming（无显式 done），收尾。
+    // 同步把末尾还在"流式填充"的 part 也封口，避免遗留状态影响后续判断。
     const t = last(b.messages);
     if (t?.streaming) {
+      const parts = [...(t.parts || [])];
+      sealStreamingPart(parts);
       const next = b.messages.slice();
-      next[next.length - 1] = { ...t, streaming: false };
+      next[next.length - 1] = { ...t, parts, streaming: false };
       b.messages = next;
     }
     mirror(sessionId);

@@ -136,3 +136,138 @@ describe("applyEvent — canonical streaming flow", () => {
         expect(b.messages[0].reasoning).toBe("thinking...");
     });
 });
+
+describe("applyEvent — history replay across multiple ReAct rounds", () => {
+    // 后端持久化只存 *_complete + tool_call + tool_result，没有流式 chunks。
+    // 多轮 ReAct 回放时，必须保持 tool 与 text 的相对顺序，不能把后面轮次的
+    // text/reasoning 倒灌到第一轮覆盖掉，也不能把 tool 全部堆到末尾。
+    it("two rounds: text → tool → text keeps interleaved part order", () => {
+        const b = fresh();
+        feed(b, [
+            { type: "USER_INPUT", data: { content: "hi" }, ts: 1000 },
+            // round 1
+            { type: "message_complete", data: { content: "round1" }, ts: 1100 },
+            { type: "tool_call", data: { id: "t1", name: "ls", arguments: {} }, ts: 1110 },
+            { type: "tool_result", data: { id: "t1", result: "ok1" }, ts: 1120 },
+            // round 2
+            { type: "message_complete", data: { content: "round2" }, ts: 1200 },
+            { type: "tool_call", data: { id: "t2", name: "cat", arguments: {} }, ts: 1210 },
+            { type: "tool_result", data: { id: "t2", result: "ok2" }, ts: 1220 },
+            // round 3 — final answer
+            { type: "message_complete", data: { content: "final" }, ts: 1300 },
+            { type: "done", data: { success: true }, ts: 1310 },
+        ]);
+
+        expect(b.messages).toHaveLength(2);
+        const m = b.messages[1];
+        expect(m.role).toBe("assistant");
+        const partTypes = m.parts.map((p: any) => p.type);
+        // 顺序必须是 text → tool → text → tool → text
+        expect(partTypes).toEqual(["text", "tool_call", "text", "tool_call", "text"]);
+
+        const texts = m.parts.filter((p: any) => p.type === "text").map((p: any) => p.text);
+        expect(texts).toEqual(["round1", "round2", "final"]);
+
+        // tools 顺序与 parts 一致（不能"集体跑到最后"）
+        const toolIdsInParts = m.parts
+            .filter((p: any) => p.type === "tool_call")
+            .map((p: any) => p.toolCallId);
+        expect(toolIdsInParts).toEqual(["t1", "t2"]);
+        expect(m.toolCalls.map((t: any) => t.id)).toEqual(["t1", "t2"]);
+        expect(m.toolCalls.every((t: any) => t.status === "ok")).toBe(true);
+
+        // content 拼起来是各轮 text 顺序连接
+        expect(m.content).toBe("round1round2final");
+    });
+
+    it("reasoning across rounds: complete events do not overwrite prior round", () => {
+        const b = fresh();
+        feed(b, [
+            { type: "USER_INPUT", data: { content: "hi" }, ts: 1000 },
+            // round 1
+            { type: "reasoning_complete", data: { content: "thinking-1" }, ts: 1100 },
+            { type: "message_complete", data: { content: "say-1" }, ts: 1110 },
+            { type: "tool_call", data: { id: "t1", name: "x", arguments: {} }, ts: 1120 },
+            { type: "tool_result", data: { id: "t1", result: "ok" }, ts: 1130 },
+            // round 2
+            { type: "reasoning_complete", data: { content: "thinking-2" }, ts: 1200 },
+            { type: "message_complete", data: { content: "say-2" }, ts: 1210 },
+            { type: "done", data: { success: true }, ts: 1220 },
+        ]);
+
+        const m = b.messages[1];
+        const reasonings = m.parts
+            .filter((p: any) => p.type === "reasoning")
+            .map((p: any) => p.text);
+        expect(reasonings).toEqual(["thinking-1", "thinking-2"]);
+
+        const partTypes = m.parts.map((p: any) => p.type);
+        expect(partTypes).toEqual([
+            "reasoning",
+            "text",
+            "tool_call",
+            "reasoning",
+            "text",
+        ]);
+    });
+
+    it("realtime streaming still folds chunks within a single round", () => {
+        // 实时场景：chunks 先到、complete 后到，必须落到当轮已累积的 part 上。
+        const b = fresh();
+        feed(b, [
+            { type: "message", data: { content: "He" } },
+            { type: "message", data: { content: "llo" } },
+            { type: "message_complete", data: { content: "Hello" } },
+            { type: "tool_call", data: { id: "t1", name: "ls", arguments: {} } },
+            { type: "tool_result", data: { id: "t1", result: "ok" } },
+            { type: "message", data: { content: "Wo" } },
+            { type: "message", data: { content: "rld" } },
+            { type: "message_complete", data: { content: "World" } },
+            { type: "done", data: { success: true } },
+        ]);
+
+        const m = b.messages[0];
+        const texts = m.parts
+            .filter((p: any) => p.type === "text")
+            .map((p: any) => p.text);
+        expect(texts).toEqual(["Hello", "World"]);
+        expect(m.parts.map((p: any) => p.type)).toEqual([
+            "text",
+            "tool_call",
+            "text",
+        ]);
+        expect(m.content).toBe("HelloWorld");
+    });
+
+    it("tool_call_streaming arriving before message_complete must not duplicate the text", () => {
+        // 真实路径：LLM 边吐字边 emit tool_call_streaming（args 分片）
+        // 整个一轮的事件顺序：message chunks → tool_call_streaming x N
+        // → message_complete → tool_call(确认) → tool_result
+        // 这是用户截图复现的 bug：以前 tool_call_streaming 里把流式 text 封口了，
+        // message_complete 看末尾不是 streaming text，又 push 一段，导致重复。
+        const b = fresh();
+        feed(b, [
+            { type: "message", data: { content: "Cargo " } },
+            { type: "message", data: { content: "可用了！" } },
+            { type: "tool_call_streaming", data: { tool_calls: [{ id: "t1", name: "bash", arguments_delta: '{"command":' }] } },
+            { type: "tool_call_streaming", data: { tool_calls: [{ id: "t1", arguments_delta: '"cargo build"}' }] } },
+            { type: "message_complete", data: { content: "Cargo 可用了！" } },
+            { type: "tool_call", data: { id: "t1", name: "bash", arguments: { command: "cargo build" } } },
+            { type: "tool_result", data: { id: "t1", result: "ok" } },
+            { type: "done", data: { success: true } },
+        ]);
+
+        const m = b.messages[0];
+        const texts = m.parts
+            .filter((p: any) => p.type === "text")
+            .map((p: any) => p.text);
+        // 关键断言：只能有一段 text，不能重复
+        expect(texts).toEqual(["Cargo 可用了！"]);
+        // 顺序应为 [text, tool]，不能在末尾再多一段 text
+        expect(m.parts.map((p: any) => p.type)).toEqual(["text", "tool_call"]);
+        expect(m.toolCalls).toHaveLength(1);
+        expect(m.toolCalls[0].status).toBe("ok");
+        // content 也只该出现一次
+        expect(m.content).toBe("Cargo 可用了！");
+    });
+});
