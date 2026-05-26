@@ -553,7 +553,7 @@ export function ChatInput() {
               {isBusy ? (
                 <button
                   onClick={handleCancel}
-                  className="h-9 w-9 flex items-center justify-center rounded-lg bg-danger/12 text-danger hover:bg-danger/25 transition-colors"
+                  className="h-9 w-9 flex items-center justify-center rounded-lg bg-t-primary/10 text-t-primary hover:bg-t-primary/20 transition-colors"
                 >
                   <div className="w-3 h-3 bg-current rounded-sm" />
                 </button>
