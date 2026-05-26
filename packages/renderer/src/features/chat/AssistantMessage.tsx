@@ -1,4 +1,4 @@
-import { memo, useCallback, useEffect, useRef, useState, isValidElement, Children } from "react";
+import { memo, useCallback, useRef, useState, isValidElement, Children } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import type { ChatMessage, MessagePart, ToolCall } from "@/stores/chat";
@@ -9,9 +9,7 @@ import { InlineToolCallCard } from "./InlineToolCallCard";
 import { ChevronDown, ChevronRight, Brain, Copy, Check } from "lucide-react";
 import { Tooltip, TooltipProvider } from "@ftre/ui";
 import { useNotification } from "@/stores/notification";
-
-const CURSOR_ATTR = "data-streaming-cursor";
-const VOID_TAGS = new Set(["BR", "HR", "IMG", "INPUT", "COL", "EMBED", "SOURCE", "TRACK", "WBR"]);
+import { ThinkingIndicator } from "./ThinkingIndicator";
 
 const markdownComponents = {
   // 围栏代码块（带 language-）的外层 <pre> 透传：把样式控制权交给 <CodeBlock />，
@@ -145,14 +143,6 @@ function TextPart({
   );
 }
 
-function findDeepestLastChild(el: Element): Element {
-  let node = el;
-  while (node.lastElementChild && !VOID_TAGS.has(node.lastElementChild.tagName)) {
-    node = node.lastElementChild;
-  }
-  return node;
-}
-
 export const AssistantMessage = memo(
   function AssistantMessage({
     message,
@@ -167,7 +157,6 @@ export const AssistantMessage = memo(
     const throttledContent = useThrottledValue(message.content, 150, isStreaming);
     const displayContent = isStreaming ? throttledContent : message.content;
     const mdRef = useRef<HTMLDivElement>(null);
-    const containerRef = useRef<HTMLDivElement>(null);
 
     // 复制
     const [copied, setCopied] = useState(false);
@@ -184,25 +173,15 @@ export const AssistantMessage = memo(
       }
     }, [message.parts, message.content]);
 
-    // 流式光标：在最后一个 .markdown-body 的最深叶子内 append；effect 在每次渲染后跑，
-    // React 已把 DOM 提交完成，无需额外 RAF 调度。
-    useEffect(() => {
-      const root = containerRef.current;
-      if (!root) return;
-      root.querySelectorAll(`[${CURSOR_ATTR}]`).forEach((el) => el.remove());
-      if (!isStreaming) return;
-      const all = root.querySelectorAll<HTMLDivElement>(".markdown-body");
-      const target = all.length > 0 ? all[all.length - 1] : mdRef.current;
-      if (!target) return;
-      const cursor = document.createElement("span");
-      cursor.setAttribute(CURSOR_ATTR, "");
-      cursor.className = "inline-block w-[6px] h-[14px] bg-neon ml-0.5 align-middle";
-      cursor.style.animation = "blink 1s step-end infinite";
-      findDeepestLastChild(target).appendChild(cursor);
-    }, [isStreaming, displayContent, message.parts?.length]);
+    // 流式状态下的"思考中"指示器：取代旧的末尾闪烁光标。
+    // 规则：streaming === true 且当前没有 tool 在执行（pending / running）时展示。
+    const hasRunningTool = !!message.toolCalls?.some(
+      (tc) => tc.status === "pending" || tc.status === "running",
+    );
+    const showThinking = isStreaming && !hasRunningTool;
 
     return (
-      <div className="flex justify-start" ref={containerRef}>
+      <div className="flex justify-start">
         <div className="w-full max-w-[90%]">
           {message.isError ? (
             <div className="px-3 py-2 rounded-lg text-[13px] text-t-dim italic leading-relaxed">
@@ -240,6 +219,8 @@ export const AssistantMessage = memo(
                     )}
                   </>
                 )}
+
+                {showThinking && <ThinkingIndicator className="mt-4" />}
 
                 {showActions && !isStreaming && !message.isError && (
                   <div className="mt-2 flex items-center gap-1">

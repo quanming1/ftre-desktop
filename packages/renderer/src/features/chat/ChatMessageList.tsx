@@ -12,6 +12,7 @@ import { ChevronUp } from "lucide-react";
 import type { ChatMessage } from "@/stores/chat";
 import { UserMessage } from "./UserMessage";
 import { AssistantMessage } from "./AssistantMessage";
+import { TypingDots } from "./TypingDots";
 
 // ─── Types ──────────────────────────────────────────────────────────
 
@@ -72,7 +73,10 @@ export const ChatMessageList = memo(function ChatMessageList({
     <div
       ref={containerRef}
       className={`overflow-y-auto overflow-x-hidden px-4 py-3 ${className}`}
-      style={maxHeight ? { maxHeight } : undefined}
+      style={{
+        maxHeight,
+        scrollbarGutter: "stable",
+      }}
     >
       <div className="mx-auto w-full max-w-[960px] space-y-12 break-words">
         {/* Load more */}
@@ -136,23 +140,9 @@ export const ChatMessageList = memo(function ChatMessageList({
           );
         })}
 
-        {/* Typing indicator */}
+        {/* Typing indicator —— 刚发送 → 第一个 event 之间的占位 */}
         {isBusy && !messages.some((m) => m.streaming) && (
-          <div className="flex items-center gap-2 py-2">
-            <span className="text-[12px] text-neon/60 font-mono">ftre</span>
-            <div className="flex gap-[3px]">
-              {[0, 1, 2].map((i) => (
-                <div
-                  key={i}
-                  className="w-[4px] h-[4px] bg-neon rounded-full"
-                  style={{
-                    animation: "pulse 1.2s ease-in-out infinite",
-                    animationDelay: `${i * 0.2}s`,
-                  }}
-                />
-              ))}
-            </div>
-          </div>
+          <TypingDots className="py-2" />
         )}
 
         <div ref={bottomRef} />
