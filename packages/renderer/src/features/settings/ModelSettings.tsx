@@ -6,7 +6,7 @@
  * 2. 供应商详情（API Key、API Base、模型列表）
  */
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import {
   Plus,
   Trash2,
@@ -15,6 +15,7 @@ import {
   Eye,
   EyeOff,
   Cpu,
+  ChevronDown,
 } from "lucide-react";
 import {
   Button,
@@ -31,6 +32,8 @@ import {
   AlertDialogCancel,
 } from "@ftre/ui";
 import { fetchAppConfig, saveAppConfig, type ModelItem } from "@/services/api";
+import { ModelPicker } from "../chat/ModelPicker";
+import { buildProviderInfos } from "../chat/providerInfo";
 
 // ─── Types ──────────────────────────────────────────────────────────
 
@@ -42,7 +45,13 @@ interface ProviderConfig {
 }
 
 interface AiBaseConfig {
-  agents?: { defaults?: { model?: string; provider?: string } };
+  agents?: {
+    defaults?: {
+      model?: string;
+      provider?: string;
+      title_generation?: { provider?: string; model?: string } | null;
+    };
+  };
   providers?: Record<string, ProviderConfig>;
   [key: string]: unknown;
 }
@@ -178,6 +187,112 @@ function validateProviderName(name: string): {
   }
 
   return { valid: true };
+}
+
+// ─── Title Generation Model Picker ─────────────────────────────────
+//
+// 标题生成是高频小请求（每个 session 首条消息触发一次），单独挂到便宜/快的
+// 模型上更合理；不配的话后端自动回退到主对话模型。
+//
+// 落库格式：agents.defaults.title_generation = {"provider": "...", "model": "..."}
+// 复用 ModelPicker（聊天栏切主模型用的同款下拉），保持视觉一致。
+
+function TitleGenerationPicker({
+  config,
+  onChange,
+}: {
+  config: AiBaseConfig;
+  onChange: (next: AiBaseConfig) => void;
+}) {
+  const providers = useMemo(
+    () => buildProviderInfos(config.providers),
+    [config.providers],
+  );
+  const tg = config.agents?.defaults?.title_generation || null;
+  const selected =
+    tg?.provider && tg?.model
+      ? { provider: tg.provider, modelId: tg.model }
+      : null;
+
+  // 当前选中的展示名
+  const currentLabel = (() => {
+    if (!selected) return "沿用主对话模型";
+    for (const p of providers) {
+      const m = p.models.find((mm) => mm.id === selected.modelId);
+      if (m && p.name === selected.provider) return m.name || m.id;
+    }
+    return `${selected.provider} / ${selected.modelId}`;
+  })();
+
+  const persist = async (next: AiBaseConfig) => {
+    try {
+      await writeConfig(next);
+      onChange(next);
+    } catch {
+      // 失败时不更新本地，下一次重新加载会回到上一稳态
+    }
+  };
+
+  const handleSelectModel = async (
+    providerName: string,
+    modelId: string,
+  ) => {
+    const updated: AiBaseConfig = JSON.parse(JSON.stringify(config));
+    if (!updated.agents) updated.agents = { defaults: {} };
+    if (!updated.agents.defaults) updated.agents.defaults = {};
+    updated.agents.defaults.title_generation = {
+      provider: providerName,
+      model: modelId,
+    };
+    await persist(updated);
+  };
+
+  const handleClear = async () => {
+    const updated: AiBaseConfig = JSON.parse(JSON.stringify(config));
+    if (updated.agents?.defaults?.title_generation !== undefined) {
+      delete updated.agents.defaults.title_generation;
+    }
+    await persist(updated);
+  };
+
+  return (
+    <div className="mb-6 p-4 rounded-lg border border-border bg-elevated/30">
+      <div className="mb-2">
+        <div className="text-[13px] text-t-primary font-medium">
+          标题生成模型
+        </div>
+        <div className="text-[11.5px] text-t-ghost mt-0.5">
+          首条用户消息后异步生成会话标题；不选则沿用主对话模型。
+        </div>
+      </div>
+      <ModelPicker
+        providers={providers}
+        selected={selected}
+        onSelect={handleSelectModel}
+        placement="bottom"
+        panelWidthClass="w-full min-w-[280px]"
+        extraTopOption={{
+          key: "fallback",
+          label: "沿用主对话模型",
+          selected: !selected,
+          onSelect: handleClear,
+        }}
+        renderTrigger={({ open, toggle }) => (
+          <button
+            type="button"
+            onClick={toggle}
+            className="w-full h-8 px-3 flex items-center justify-between gap-2 rounded-md bg-elevated border border-border text-[13px] text-t-primary hover:border-accent/60 transition-colors"
+          >
+            <span className="truncate text-left flex-1">{currentLabel}</span>
+            <ChevronDown
+              size={12}
+              className={`shrink-0 opacity-60 transition-transform ${open ? "rotate-180" : ""}`}
+            />
+          </button>
+        )}
+      />
+    </div>
+  );
 }
 
 // ─── Component ──────────────────────────────────────────────────────
@@ -735,7 +850,9 @@ export function ModelSettings() {
           </div>
         </div>
       ) : (
-        <div className="space-y-2">
+        <>
+          <TitleGenerationPicker config={config!} onChange={setConfig} />
+          <div className="space-y-2">
           {providerNames.map((name) => {
             const p = providers[name];
             const modelCount = p.models?.length || 0;
@@ -789,6 +906,7 @@ export function ModelSettings() {
             );
           })}
         </div>
+        </>
       )}
     </div>
   );
