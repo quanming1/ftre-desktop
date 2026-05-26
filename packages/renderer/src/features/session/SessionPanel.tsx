@@ -1,17 +1,17 @@
 /**
- * SessionPanel — 会话列表（侧边栏，工作区分组 + 拖动排序）
+ * SessionPanel — 会话列表（侧边栏，工作区分组 + 顶部模式切换 + 底部设置）
  *
  * 视觉：
- *   - 工作区作为不可折叠的标题行（📁 + basename），可拖动整组重排
+ *   - 工作区作为不可折叠的标题行（📁 + basename）
+ *   - 当前 rootPath 对应的组头有底色和加粗高亮，单击其他组头可切 rootPath
  *   - 每组默认显示 5 条；点"展开 +N 条"调 store.loadMoreSessions(10)
- *   - 活跃会话左侧 accent 圆点 + 行底胶囊高亮
+ *   - 活跃会话用浅灰底+加粗黑字
  *   - 时间右对齐，hover 时被『更多』按钮通过透明度切换覆盖（不重排）
- *   - 非 ws 通道用 (cron) 等小后缀
  *
  * 排序：
- *   - 默认按"组内最新一条 updated_at"倒序，活跃工作区自动冒顶
- *   - 用户手动拖动后，顺序记到 localStorage（按 workspaceKey）
- *   - 一旦有自定义顺序：已知组按用户顺序，新组按默认规则排在尾部
+ *   - 桶完全来自 sessions 自身的 workspace 字段
+ *   - 当前 rootPath 对应的组优先冒顶；其余按组内最新一条 updated_at 倒序
+ *   - "未设置工作区"压底
  *
  * 数据：
  *   - 后端按 updated_at 倒序分页（GET /api/sessions?limit&offset）
@@ -25,7 +25,6 @@ import {
   useRef,
 } from "react";
 import {
-  Plus,
   MoreHorizontal,
   Search,
   Loader2,
@@ -33,6 +32,10 @@ import {
   Pencil,
   Copy,
   Folder,
+  SquarePen,
+  Clock,
+  Zap,
+  Settings,
 } from "lucide-react";
 import {
   DndContext,
@@ -51,10 +54,14 @@ import {
 import { CSS } from "@dnd-kit/utilities";
 import { useSession } from "@/stores/session";
 import { useChat } from "@/stores/chat";
+import { useWorkspace } from "@/stores/workspace";
+import { useLayout } from "@/stores/layout";
 import { useNotification } from "@/stores/notification";
 import { triggerCompaction, updateSession } from "@/services/api";
 import { ContextMenu, type ContextMenuItem } from "@/components/ContextMenu";
 import { Tooltip, TooltipProvider } from "@ftre/ui";
+import { normalizePathForCompare } from "@/utils/pathUtils";
+import { OPEN_SETTINGS_EVENT } from "@/app/settings-events";
 import type { SessionSummary } from "@/services/api";
 
 // ─── 工具 ──────────────────────────────────────────────────────────
@@ -68,6 +75,8 @@ function timeAgo(ts: number): { text: string; opacity: number } {
   return { text: `${Math.floor(diff / 604800)}w`, opacity: 0.4 };
 }
 
+const NONE_KEY = "__none__";
+
 function workspaceLabel(workspace: string | undefined | null): {
   name: string;
   full: string;
@@ -80,11 +89,25 @@ function workspaceLabel(workspace: string | undefined | null): {
 
 function workspaceKey(workspace: string | undefined | null): string {
   const ws = (workspace || "").trim();
-  if (!ws) return "__none__";
-  return ws.replace(/\\/g, "/").replace(/\/+$/, "").toLowerCase();
+  if (!ws) return NONE_KEY;
+  return normalizePathForCompare(ws);
 }
 
-const NONE_KEY = "__none__";
+// 工作区彩色识别（hash 调色板，用一个小色点辨识）
+const FOLDER_PALETTE = [
+  "#6366f1", "#8b5cf6", "#ec4899", "#f59e0b",
+  "#10b981", "#06b6d4", "#3b82f6", "#f97316",
+  "#14b8a6", "#e11d48", "#a855f7", "#84cc16",
+] as const;
+
+function folderColor(key: string): string {
+  if (key === NONE_KEY) return "var(--color-t-ghost)";
+  let h = 0;
+  for (let i = 0; i < key.length; i++) {
+    h = ((h << 5) - h + key.charCodeAt(i)) | 0;
+  }
+  return FOLDER_PALETTE[Math.abs(h) % FOLDER_PALETTE.length];
+}
 
 const CHANNEL_SUFFIX: Record<string, string> = {
   cron: "cron",
@@ -98,13 +121,28 @@ function channelSuffix(channel?: string): string {
   return CHANNEL_SUFFIX[channel] || channel;
 }
 
-// ─── 拖动排序持久化 ────────────────────────────────────────────────
+// ─── 类型 ──────────────────────────────────────────────────────────
 
-const ORDER_STORAGE_KEY = "ftre-session-workspace-order";
+interface WorkspaceBucket {
+  key: string;
+  name: string;
+  full: string;
+  sessions: SessionSummary[];
+  /** 组内最新 updated_at，用于排序 */
+  latestAt: number;
+  /** 是否当前 rootPath 对应的组 */
+  isActive: boolean;
+}
+
+const PER_GROUP_DEFAULT = 5;
+const PER_GROUP_STEP = 10;
+
+// 工作区分组顺序持久化（与 recentFolders 解耦：纯前端排序偏好）
+const GROUP_ORDER_STORAGE_KEY = "ftre-session-group-order";
 
 function loadGroupOrder(): string[] {
   try {
-    const raw = localStorage.getItem(ORDER_STORAGE_KEY);
+    const raw = localStorage.getItem(GROUP_ORDER_STORAGE_KEY);
     if (!raw) return [];
     const parsed = JSON.parse(raw);
     return Array.isArray(parsed) ? parsed.filter((x) => typeof x === "string") : [];
@@ -115,25 +153,11 @@ function loadGroupOrder(): string[] {
 
 function saveGroupOrder(order: string[]): void {
   try {
-    localStorage.setItem(ORDER_STORAGE_KEY, JSON.stringify(order));
+    localStorage.setItem(GROUP_ORDER_STORAGE_KEY, JSON.stringify(order));
   } catch {
-    // ignore
+    /* ignore */
   }
 }
-
-// ─── 类型 ──────────────────────────────────────────────────────────
-
-interface WorkspaceBucket {
-  key: string;
-  name: string;
-  full: string;
-  sessions: SessionSummary[];
-  /** 组内最新 updated_at，用于默认排序 */
-  latestAt: number;
-}
-
-const PER_GROUP_DEFAULT = 5;
-const PER_GROUP_STEP = 10;
 
 // ─── 主组件 ────────────────────────────────────────────────────────
 
@@ -148,12 +172,17 @@ export function SessionPanel() {
   const loadingSessionId = useSession((s) => s.loadingSessionId);
   const currentSessionId = useChat((s) => s.sessionId);
 
+  const rootPath = useWorkspace((s) => s.rootPath);
+
+  const activeLeftPanel = useLayout((s) => s.activeLeftPanel);
+  const setActiveLeftPanel = useLayout((s) => s.setActiveLeftPanel);
+
   const [searchQuery, setSearchQuery] = useState("");
   const [searchOpen, setSearchOpen] = useState(false);
   const [hoveredSession, setHoveredSession] = useState<string | null>(null);
   /** 每个 group 已展开多少条；未列入即 PER_GROUP_DEFAULT */
   const [expandCount, setExpandCount] = useState<Record<string, number>>({});
-  /** 用户手动拖动后的 group 顺序；空数组表示走默认排序 */
+  /** 用户拖动后的工作区分组顺序；空数组表示走默认排序 */
   const [groupOrder, setGroupOrder] = useState<string[]>(() => loadGroupOrder());
   const [contextMenu, setContextMenu] = useState<{
     position: { x: number; y: number };
@@ -185,15 +214,35 @@ export function SessionPanel() {
     return allSessions.filter((s) => (s.title || "").toLowerCase().includes(q));
   }, [allSessions, searchQuery]);
 
-  // 按工作区分组
+  /**
+   * 一级分流：
+   * - ws channel：进 workspace 分组（"Ws Threads"）
+   * - 其它（cron/dmwork/cli/telegram/unknown）：平铺到 "Other Threads"
+   */
+  const { wsSessions, otherSessions } = useMemo(() => {
+    const ws: SessionSummary[] = [];
+    const others: SessionSummary[] = [];
+    for (const s of filtered) {
+      if (s.channel === "ws") ws.push(s);
+      else others.push(s);
+    }
+    others.sort((a, b) => (b.updated_at ?? 0) - (a.updated_at ?? 0));
+    return { wsSessions: ws, otherSessions: others };
+  }, [filtered]);
+
+  /**
+   * 桶顺序（仅 ws sessions 走分组）：
+   * 1. 用户拖动过 → 按 groupOrder（已知组），未在序列里的新组按默认规则追加
+   * 2. 默认规则：active workspace 冒顶 → 其余按 latestAt 倒序 → "未设置工作区"压底
+   */
   const buckets = useMemo<WorkspaceBucket[]>(() => {
     const map = new Map<string, WorkspaceBucket>();
-    for (const s of filtered) {
+    for (const s of wsSessions) {
       const key = workspaceKey(s.workspace);
       let g = map.get(key);
       if (!g) {
         const { name, full } = workspaceLabel(s.workspace);
-        g = { key, name, full, sessions: [], latestAt: 0 };
+        g = { key, name, full, sessions: [], latestAt: 0, isActive: false };
         map.set(key, g);
       }
       g.sessions.push(s);
@@ -204,16 +253,22 @@ export function SessionPanel() {
       g.sessions.sort((a, b) => (b.updated_at ?? 0) - (a.updated_at ?? 0));
     }
 
-    const all = [...map.values()];
-    if (groupOrder.length === 0) {
-      // 默认：按 latestAt 倒序，"未设置工作区"压底
-      return all.sort((a, b) => {
-        if (a.key === NONE_KEY && b.key !== NONE_KEY) return 1;
-        if (b.key === NONE_KEY && a.key !== NONE_KEY) return -1;
-        return b.latestAt - a.latestAt;
-      });
+    const activeKey = rootPath ? workspaceKey(rootPath) : null;
+    for (const g of map.values()) {
+      g.isActive = g.key === activeKey;
     }
-    // 自定义顺序：已知组按 groupOrder 排，未在序列里的新组按默认规则追加到尾部
+
+    const all = [...map.values()];
+    const defaultSort = (a: WorkspaceBucket, b: WorkspaceBucket) => {
+      if (a.isActive && !b.isActive) return -1;
+      if (b.isActive && !a.isActive) return 1;
+      if (a.key === NONE_KEY && b.key !== NONE_KEY) return 1;
+      if (b.key === NONE_KEY && a.key !== NONE_KEY) return -1;
+      return b.latestAt - a.latestAt;
+    };
+
+    if (groupOrder.length === 0) return all.sort(defaultSort);
+
     const orderIdx = new Map<string, number>();
     groupOrder.forEach((k, i) => orderIdx.set(k, i));
     const known: WorkspaceBucket[] = [];
@@ -223,22 +278,37 @@ export function SessionPanel() {
       else unknown.push(g);
     }
     known.sort((a, b) => orderIdx.get(a.key)! - orderIdx.get(b.key)!);
-    unknown.sort((a, b) => {
-      if (a.key === NONE_KEY && b.key !== NONE_KEY) return 1;
-      if (b.key === NONE_KEY && a.key !== NONE_KEY) return -1;
-      return b.latestAt - a.latestAt;
-    });
+    unknown.sort(defaultSort);
     return [...known, ...unknown];
-  }, [filtered, groupOrder]);
+  }, [wsSessions, rootPath, groupOrder]);
 
   const totalCount = filtered.length;
   const hasMore = sessionsTotal > 0 && allSessions.length < sessionsTotal;
+
+  /** Other Threads 默认折叠展示 PER_GROUP_DEFAULT 条；用同样的展开/收起按钮 */
+  const OTHER_KEY = "__other__";
+  const otherExpanded = expandCount[OTHER_KEY] ?? PER_GROUP_DEFAULT;
+  const otherVisible = otherSessions.slice(0, otherExpanded);
+  const otherHidden = otherSessions.length - otherVisible.length;
+  const otherIsExpanded = otherExpanded > PER_GROUP_DEFAULT;
 
   // ─── 操作 ────────────────────────────────────────────────────────
 
   const handleSwitchSession = useCallback(
     (sessionId: string) => switchSession(sessionId),
     [switchSession],
+  );
+
+  /**
+   * 点击工作区组头：在该工作区下新建会话，并切到 chat 模式。
+   * （不再切 rootPath；新建一条 session 会带上 workspace 字段，用户自然就在这个 bucket 里看到新会话）
+   */
+  const handleNewInWorkspace = useCallback(
+    (full: string) => {
+      if (activeLeftPanel !== "chat") setActiveLeftPanel("chat");
+      newSession(full || undefined);
+    },
+    [activeLeftPanel, setActiveLeftPanel, newSession],
   );
 
   const handleCompaction = useCallback(async (sessionId: string) => {
@@ -351,7 +421,20 @@ export function SessionPanel() {
     }
   }, [loadingMore, loadMoreSessions]);
 
-  // ─── 拖动排序 ────────────────────────────────────────────────────
+  // ─── 顶层动作 ────────────────────────────────────────────────────
+
+  /** New thread —— 在当前工作区下新建会话；若不在 chat 模式则切回 */
+  const handleNewThread = useCallback(() => {
+    if (activeLeftPanel !== "chat") setActiveLeftPanel("chat");
+    newSession(rootPath || undefined);
+  }, [activeLeftPanel, setActiveLeftPanel, newSession, rootPath]);
+
+  /** 打开全局设置（沿用全局事件，跨组件复用同一份对话框） */
+  const handleOpenSettings = useCallback(() => {
+    window.dispatchEvent(new CustomEvent(OPEN_SETTINGS_EVENT));
+  }, []);
+
+  // ─── 拖动排序（写入 localStorage 的 group 顺序）────────────────
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
@@ -376,10 +459,33 @@ export function SessionPanel() {
 
   return (
     <TooltipProvider>
-      <div className="h-full flex flex-col bg-surface text-[13px]">
-        {/* Header */}
-        <div className="shrink-0 px-3 py-3 flex items-center justify-between">
-          <span className="text-[13px] text-t-primary font-medium">会话</span>
+      <div className="h-full flex flex-col bg-base text-[14px]">
+        {/* ── 顶层动作区（New thread / Cron / Skills）── */}
+        <div className="shrink-0 px-2 pt-3 pb-1">
+          <ActionRow
+            icon={SquarePen}
+            label="New thread"
+            onClick={handleNewThread}
+          />
+          <ActionRow
+            icon={Clock}
+            label="Cron"
+            active={activeLeftPanel === "cron"}
+            onClick={() => setActiveLeftPanel("cron")}
+          />
+          <ActionRow
+            icon={Zap}
+            label="Skills"
+            active={activeLeftPanel === "skills"}
+            onClick={() => setActiveLeftPanel("skills")}
+          />
+        </div>
+
+        {/* ── Ws Threads 段头 ── */}
+        <div className="shrink-0 px-3 pb-1 flex items-center justify-between">
+          <span className="text-[12px] text-t-ghost font-medium">
+            Ws Threads
+          </span>
           <Tooltip content="搜索会话" side="bottom">
             <button
               onClick={handleSearchToggle}
@@ -402,7 +508,7 @@ export function SessionPanel() {
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               placeholder="搜索会话..."
-              className="w-full h-8 px-3 rounded bg-elevated border border-border/50 focus:border-neon/50 text-[12px] text-t-primary placeholder:text-t-ghost outline-none transition-colors"
+              className="w-full h-8 px-3 rounded bg-elevated border border-border/50 focus:border-neon/50 text-[13px] text-t-primary placeholder:text-t-ghost outline-none transition-colors"
             />
           </div>
         )}
@@ -410,41 +516,97 @@ export function SessionPanel() {
         {/* 列表 */}
         <div className="flex-1 overflow-y-auto scrollbar-thin px-2 py-2">
           {totalCount === 0 ? (
-            <div className="text-t-ghost px-2 py-12 text-center text-[12px]">
+            <div className="text-t-ghost px-2 py-12 text-center text-[13px]">
               {searchQuery ? "没有匹配的会话" : "暂无会话"}
             </div>
           ) : (
-            <DndContext
-              sensors={sensors}
-              collisionDetection={closestCenter}
-              onDragEnd={handleDragEnd}
-            >
-              <SortableContext
-                items={buckets.map((b) => b.key)}
-                strategy={verticalListSortingStrategy}
-              >
-                {buckets.map((bucket, idx) => {
-                  const expanded = expandCount[bucket.key] ?? PER_GROUP_DEFAULT;
-                  return (
-                    <WorkspaceGroup
-                      key={bucket.key}
-                      bucket={bucket}
-                      first={idx === 0}
-                      visibleCount={expanded}
-                      currentSessionId={currentSessionId}
-                      hoveredSession={hoveredSession}
-                      loadingSessionId={loadingSessionId}
-                      onSwitch={handleSwitchSession}
-                      onHover={setHoveredSession}
-                      onMenu={showSessionMenu}
-                      onExpand={() => handleExpandGroup(bucket.key, bucket.sessions.length)}
-                      onCollapse={() => handleCollapseGroup(bucket.key)}
-                      onNew={() => newSession(bucket.full || undefined)}
-                    />
-                  );
-                })}
-              </SortableContext>
-            </DndContext>
+            <>
+              {/* Ws Threads：按 workspace 分组 */}
+              {buckets.length > 0 && (
+                <DndContext
+                  sensors={sensors}
+                  collisionDetection={closestCenter}
+                  onDragEnd={handleDragEnd}
+                >
+                  <SortableContext
+                    items={buckets.map((b) => b.key)}
+                    strategy={verticalListSortingStrategy}
+                  >
+                    {buckets.map((bucket, idx) => {
+                      const expanded = expandCount[bucket.key] ?? PER_GROUP_DEFAULT;
+                      return (
+                        <WorkspaceGroup
+                          key={bucket.key}
+                          bucket={bucket}
+                          first={idx === 0}
+                          visibleCount={expanded}
+                          currentSessionId={currentSessionId}
+                          hoveredSession={hoveredSession}
+                          loadingSessionId={loadingSessionId}
+                          onSwitch={handleSwitchSession}
+                          onHover={setHoveredSession}
+                          onMenu={showSessionMenu}
+                          onExpand={() => handleExpandGroup(bucket.key, bucket.sessions.length)}
+                          onCollapse={() => handleCollapseGroup(bucket.key)}
+                          onNewInWorkspace={() => handleNewInWorkspace(bucket.full)}
+                        />
+                      );
+                    })}
+                  </SortableContext>
+                </DndContext>
+              )}
+
+              {/* Other Threads：非 ws channel，平铺 */}
+              {otherSessions.length > 0 && (
+                <div className={buckets.length > 0 ? "mt-5" : ""}>
+                  <div className="px-3 pb-1">
+                    <span className="text-[12px] text-t-ghost font-medium">
+                      Other Threads
+                    </span>
+                  </div>
+                  <div className="space-y-px pl-[18px]">
+                    {otherVisible.map((session) => (
+                      <SessionRow
+                        key={session.session_id}
+                        session={session}
+                        isActive={
+                          stripPrefix(session.session_id) ===
+                          stripPrefix(currentSessionId || "")
+                        }
+                        isHovered={hoveredSession === session.session_id}
+                        isLoading={loadingSessionId === session.session_id}
+                        onClick={() => handleSwitchSession(session.session_id)}
+                        onEnter={() => setHoveredSession(session.session_id)}
+                        onLeave={() => setHoveredSession(null)}
+                        onMenu={(e) => showSessionMenu(e, session)}
+                      />
+                    ))}
+                  </div>
+                  {(otherHidden > 0 || otherIsExpanded) && (
+                    <div className="flex items-center gap-3 mt-1 pl-[30px] py-1 text-[12px]">
+                      {otherHidden > 0 && (
+                        <button
+                          type="button"
+                          onClick={() => handleExpandGroup(OTHER_KEY, otherSessions.length)}
+                          className="text-left text-t-ghost hover:text-neon transition-colors"
+                        >
+                          展开 +{Math.min(PER_GROUP_STEP, otherHidden)} 条
+                        </button>
+                      )}
+                      {otherIsExpanded && (
+                        <button
+                          type="button"
+                          onClick={() => handleCollapseGroup(OTHER_KEY)}
+                          className="text-left text-t-ghost hover:text-neon transition-colors"
+                        >
+                          收起
+                        </button>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
+            </>
           )}
 
           {/* 全局"加载更多"：当所有组都展示完已加载会话、但后端还有未拉取时 */}
@@ -453,11 +615,11 @@ export function SessionPanel() {
               type="button"
               onClick={handleLoadMoreGlobal}
               disabled={loadingMore}
-              className="w-full mt-3 py-2 text-[11.5px] text-t-ghost hover:text-neon transition-colors disabled:opacity-50 flex items-center justify-center gap-1.5"
+              className="w-full mt-3 py-2 text-[12.5px] text-t-ghost hover:text-neon transition-colors disabled:opacity-50 flex items-center justify-center gap-1.5"
             >
               {loadingMore ? (
                 <>
-                  <Loader2 size={11} className="animate-spin" />
+                  <Loader2 size={12} className="animate-spin" />
                   加载中...
                 </>
               ) : (
@@ -465,6 +627,15 @@ export function SessionPanel() {
               )}
             </button>
           )}
+        </div>
+
+        {/* ── 底部动作区（Settings）── */}
+        <div className="shrink-0 px-2 py-2">
+          <ActionRow
+            icon={Settings}
+            label="Settings"
+            onClick={handleOpenSettings}
+          />
         </div>
 
         {/* Context menu */}
@@ -532,7 +703,7 @@ export function SessionPanel() {
   );
 }
 
-// ─── 单个工作区分组（可拖动） ─────────────────────────────────────
+// ─── 单个工作区分组（点击=新建会话，拖动=排序）──────────────────
 
 interface WorkspaceGroupProps {
   bucket: WorkspaceBucket;
@@ -546,7 +717,7 @@ interface WorkspaceGroupProps {
   onMenu: (e: React.MouseEvent, session: SessionSummary) => void;
   onExpand: () => void;
   onCollapse: () => void;
-  onNew: () => void;
+  onNewInWorkspace: () => void;
 }
 
 function WorkspaceGroup({
@@ -561,7 +732,7 @@ function WorkspaceGroup({
   onMenu,
   onExpand,
   onCollapse,
-  onNew,
+  onNewInWorkspace,
 }: WorkspaceGroupProps) {
   const {
     attributes,
@@ -581,45 +752,43 @@ function WorkspaceGroup({
   const visibleSessions = bucket.sessions.slice(0, visibleCount);
   const hiddenInGroup = bucket.sessions.length - visibleSessions.length;
   const expanded = visibleCount > PER_GROUP_DEFAULT;
+  const accent = folderColor(bucket.key);
 
   return (
     <div ref={setNodeRef} style={style} className={first ? "" : "mt-4"}>
-      {/* 工作区标题：整行就是拖动 handle，按住任何位置都能拖；
-          右侧 hover 时露出 + 按钮，新建会话会落到这个工作区下 */}
-      <div className="group flex items-center">
-        <Tooltip content={bucket.full || "未设置工作区"} side="bottom">
-          <div
-            {...attributes}
-            {...listeners}
-            className="flex items-center gap-2 px-2 py-1 flex-1 min-w-0 text-t-secondary cursor-grab active:cursor-grabbing hover:text-t-primary transition-colors select-none"
+      {/* 工作区标题：
+          - 单击 → 在此工作区新建会话
+          - 拖动（≥5px）→ 重排
+          - dnd-kit 的 PointerSensor distance=5 已经在区分单击和拖动 */}
+      <Tooltip content="点击在此工作区新建会话" side="bottom">
+        <div
+          {...attributes}
+          {...listeners}
+          onClick={onNewInWorkspace}
+          className={`flex items-center gap-2 px-2 py-1 min-w-0 transition-colors select-none rounded
+            cursor-pointer hover:bg-hover
+            ${bucket.isActive ? "text-t-primary" : "text-t-secondary hover:text-t-primary"}
+          `}
+        >
+          <Folder
+            size={15}
+            className="shrink-0"
+            strokeWidth={1.8}
+            style={{ color: accent, opacity: bucket.isActive ? 1 : 0.85 }}
+          />
+          <span
+            className={`text-[15px] truncate flex-1 ${bucket.isActive ? "font-semibold" : "font-medium"}`}
           >
-            <Folder size={14} className="opacity-80 shrink-0" strokeWidth={1.8} />
-            <span className="text-[14px] font-medium truncate flex-1">
-              {bucket.name}
-            </span>
-            <span className="text-[11px] text-t-ghost shrink-0 group-hover:hidden">
-              {bucket.sessions.length}
-            </span>
-          </div>
-        </Tooltip>
-        <Tooltip content="在此工作区新建会话" side="bottom">
-          <button
-            type="button"
-            onPointerDown={(e) => e.stopPropagation()}
-            onClick={(e) => {
-              e.stopPropagation();
-              onNew();
-            }}
-            aria-label="新建会话"
-            className="shrink-0 ml-0.5 mr-1 h-6 w-6 flex items-center justify-center rounded text-t-ghost opacity-0 group-hover:opacity-100 hover:text-neon hover:bg-hover transition-opacity"
-          >
-            <Plus size={14} />
-          </button>
-        </Tooltip>
-      </div>
+            {bucket.name}
+          </span>
+          <span className="text-[12px] text-t-ghost shrink-0">
+            {bucket.sessions.length}
+          </span>
+        </div>
+      </Tooltip>
 
-      {/* 会话列表（左缩进对齐文件夹名） */}
-      <div className="mt-0.5 space-y-px pl-3">
+      {/* 会话列表（左缩进对齐工作区名） */}
+      <div className="mt-0.5 space-y-px pl-[18px]">
         {visibleSessions.map((session) => (
           <SessionRow
             key={session.session_id}
@@ -638,17 +807,28 @@ function WorkspaceGroup({
         ))}
       </div>
 
-      {/* 展开 / 收起 */}
+      {/* 展开 / 收起：可以同时存在（已展开但还有更多） */}
       {(hiddenInGroup > 0 || expanded) && (
-        <button
-          type="button"
-          onClick={hiddenInGroup > 0 ? onExpand : onCollapse}
-          className="w-full mt-1 pl-6 py-1 text-left text-[11px] text-t-ghost hover:text-neon transition-colors"
-        >
-          {hiddenInGroup > 0
-            ? `展开 +${Math.min(PER_GROUP_STEP, hiddenInGroup)} 条`
-            : "收起"}
-        </button>
+        <div className="flex items-center gap-3 mt-1 pl-[30px] py-1 text-[12px]">
+          {hiddenInGroup > 0 && (
+            <button
+              type="button"
+              onClick={onExpand}
+              className="text-left text-t-ghost hover:text-neon transition-colors"
+            >
+              展开 +{Math.min(PER_GROUP_STEP, hiddenInGroup)} 条
+            </button>
+          )}
+          {expanded && (
+            <button
+              type="button"
+              onClick={onCollapse}
+              className="text-left text-t-ghost hover:text-neon transition-colors"
+            >
+              收起
+            </button>
+          )}
+        </div>
       )}
     </div>
   );
@@ -656,6 +836,32 @@ function WorkspaceGroup({
 
 function stripPrefix(id: string): string {
   return id.includes(":") ? id.substring(id.indexOf(":") + 1) : id;
+}
+
+// ─── 顶/底动作行 ────────────────────────────────────────────────
+
+interface ActionRowProps {
+  icon: React.ComponentType<{ size?: number; strokeWidth?: number; className?: string }>;
+  label: string;
+  active?: boolean;
+  onClick: () => void;
+}
+
+function ActionRow({ icon: Icon, label, active, onClick }: ActionRowProps) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`w-full flex items-center gap-2.5 px-3 py-1.5 rounded-full transition-colors text-left
+        ${active
+          ? "bg-active text-t-primary font-medium"
+          : "text-t-secondary hover:text-t-primary hover:bg-hover"}
+      `}
+    >
+      <Icon size={16} strokeWidth={1.7} className="shrink-0" />
+      <span className="text-[14px] truncate">{label}</span>
+    </button>
+  );
 }
 
 // ─── 单条会话行 ───────────────────────────────────────────────────
@@ -689,18 +895,18 @@ function SessionRow({
       onClick={onClick}
       onMouseEnter={onEnter}
       onMouseLeave={onLeave}
-      className={`flex items-center gap-2 h-9 px-3 rounded-full cursor-pointer select-none transition-colors ${isActive
-        ? "bg-neon/10 hover:bg-neon/15"
+      className={`flex items-center gap-2 h-10 px-3 rounded-full cursor-pointer select-none transition-colors ${isActive
+        ? "bg-active hover:bg-active"
         : "hover:bg-hover"
         }`}
     >
       <span
-        className={`flex-1 truncate text-[12.5px] ${isActive ? "text-neon" : "text-t-secondary"
+        className={`flex-1 truncate text-[13.5px] ${isActive ? "text-t-primary font-medium" : "text-t-secondary"
           }`}
       >
         {session.title || "新会话"}
         {suffix && (
-          <span className="ml-1.5 text-[10.5px] text-t-ghost font-mono">
+          <span className="ml-1.5 text-[11.5px] text-t-ghost font-mono">
             ({suffix})
           </span>
         )}
@@ -710,12 +916,12 @@ function SessionRow({
       <div className="relative shrink-0 w-7 h-5 flex items-center justify-end">
         {isLoading && (
           <Loader2
-            size={11}
+            size={12}
             className="absolute right-0 text-t-ghost animate-spin"
           />
         )}
         <span
-          className="absolute right-0 text-[11px] tabular-nums transition-opacity"
+          className="absolute right-0 text-[12px] tabular-nums transition-opacity"
           style={{
             opacity: isHovered || isLoading ? 0 : time.opacity,
             color: "var(--color-t-dim)",
@@ -730,7 +936,7 @@ function SessionRow({
           className={`absolute right-0 p-1 rounded text-t-dim hover:text-t-primary hover:bg-hover transition-opacity ${isHovered ? "opacity-100" : "opacity-0 pointer-events-none"
             }`}
         >
-          <MoreHorizontal size={14} />
+          <MoreHorizontal size={15} />
         </button>
       </div>
     </div>
