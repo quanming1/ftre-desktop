@@ -574,6 +574,10 @@ interface ChatState {
    *  由 ModelSelector 在选择模型 / 加载默认值时同步进来；用于 TokenRing 计算用量比例。
    *  null 表示尚未选择或模型未配置 context_window。 */
   contextWindow: number | null;
+  /** 还没有 sessionId 时（欢迎页 / 新对话）用户预设的工作区。
+   *  发出第一条消息创建 session 时会作为 query param 一起传给后端，
+   *  落到 sessions.workspace 字段；此后 sessionId 就成了真值，pending 不再使用。 */
+  pendingWorkspace: string | null;
 
   sendMessage: (
     content: string,
@@ -600,6 +604,8 @@ interface ChatState {
   setAgentId: (id: string) => void;
   /** 同步当前模型的上下文窗口大小（由 ModelSelector 写入） */
   setContextWindow: (n: number | null) => void;
+  /** 设置欢迎页/新对话的待用工作区。会在创建 session 时透传给后端。 */
+  setPendingWorkspace: (path: string | null) => void;
   /** 主动刷新当前 session 的 token 估算（异步，失败静默） */
   refreshTokenUsage: (sessionId?: string) => Promise<void>;
 }
@@ -618,6 +624,7 @@ export const useChat = create<ChatState>((set, get) => ({
   contextTokens: 0,
   tokenUsage: null,
   contextWindow: null,
+  pendingWorkspace: null,
 
   sendMessage: (content, attachments) => {
     const trimmed = content.trim();
@@ -672,10 +679,18 @@ export const useChat = create<ChatState>((set, get) => ({
     // 内容一致，不会闪烁也不会重复。
     set({ isBusy: true, messages: [...get().messages, userMsg] });
 
-    fetch("http://127.0.0.1:18790/api/sessions?channel_id=ws", { method: "POST" })
+    fetch(
+      `http://127.0.0.1:18790/api/sessions?channel_id=ws${get().pendingWorkspace
+        ? `&workspace=${encodeURIComponent(get().pendingWorkspace!)}`
+        : ""
+      }`,
+      { method: "POST" },
+    )
       .then((r) => r.json())
       .then((data) => {
-        set({ sessionId: data.session_id });
+        // 创建成功后清掉 pending —— sessions 表 workspace 已经落库，
+        // 后续从 useSession 列表读，不再依赖前端 pending 状态
+        set({ sessionId: data.session_id, pendingWorkspace: null });
         wsClient.attach(data.session_id);
         send(data.session_id);
       })
@@ -691,7 +706,7 @@ export const useChat = create<ChatState>((set, get) => ({
     mirror(sid);
   },
 
-  newChat: () => set({ sessionId: null, messages: [], isBusy: false, error: null, retryState: null, contextTokens: 0, tokenUsage: null }),
+  newChat: () => set({ sessionId: null, messages: [], isBusy: false, error: null, retryState: null, contextTokens: 0, tokenUsage: null, pendingWorkspace: null }),
 
   switchTo: (sessionId, initialMessages) => {
     const b = bucket(sessionId);
@@ -746,6 +761,7 @@ export const useChat = create<ChatState>((set, get) => ({
   setProvider: (provider) => set({ provider }),
   setAgentId: (id) => set({ agentId: id }),
   setContextWindow: (n) => set({ contextWindow: n }),
+  setPendingWorkspace: (path) => set({ pendingWorkspace: path }),
 
   refreshTokenUsage: async (sessionId) => {
     const sid = sessionId ?? get().sessionId;

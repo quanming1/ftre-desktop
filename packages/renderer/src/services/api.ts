@@ -87,45 +87,78 @@ function registerSessionKey(sessionId: string, key: string): void {
   sessionKeyCache.set(sessionId, key);
 }
 
+export interface SessionPage {
+  sessions: SessionSummary[];
+  total: number;
+  limit: number;
+  offset: number;
+}
+
+function mapSessionRow(s: any): SessionSummary {
+  const sessionId = s.id || s.key || s.session_id;
+  if (s.key) registerSessionKey(sessionId, s.key);
+  const rawChannel: string =
+    (typeof s.channel_id === "string" && s.channel_id) ||
+    (typeof s.channel === "string" && s.channel) ||
+    "";
+  const channel: SessionChannel = (
+    SESSION_CHANNELS as readonly string[]
+  ).includes(rawChannel)
+    ? (rawChannel as SessionChannel)
+    : rawChannel
+      ? (rawChannel as SessionChannel)
+      : "unknown";
+  return {
+    session_id: sessionId,
+    key: s.key,
+    workspace: s.workspace,
+    agent_id: s.agent_id,
+    title: s.title,
+    created_at: s.created_at,
+    updated_at: s.updated_at,
+    meta: s.meta,
+    source: s.source,
+    channel,
+  };
+}
+
+/**
+ * 取一页会话。后端按 updated_at 倒序、支持 limit/offset。
+ * 失败时返回空 page（避免 UI 崩）。
+ */
+export async function fetchSessionPage(
+  opts: { limit?: number; offset?: number; channelId?: string | null } = {},
+): Promise<SessionPage> {
+  const params = new URLSearchParams();
+  if (opts.limit != null) params.set("limit", String(opts.limit));
+  if (opts.offset != null) params.set("offset", String(opts.offset));
+  if (opts.channelId) params.set("channel_id", opts.channelId);
+  const qs = params.toString();
+  try {
+    const res = await fetch(
+      `http://127.0.0.1:18790/api/sessions${qs ? `?${qs}` : ""}`,
+    );
+    if (!res.ok) return { sessions: [], total: 0, limit: opts.limit ?? 50, offset: opts.offset ?? 0 };
+    const data = await res.json();
+    return {
+      sessions: (data.sessions || []).map(mapSessionRow),
+      total: typeof data.total === "number" ? data.total : (data.sessions || []).length,
+      limit: typeof data.limit === "number" ? data.limit : (opts.limit ?? 50),
+      offset: typeof data.offset === "number" ? data.offset : (opts.offset ?? 0),
+    };
+  } catch {
+    return { sessions: [], total: 0, limit: opts.limit ?? 50, offset: opts.offset ?? 0 };
+  }
+}
+
+/**
+ * @deprecated 用 fetchSessionPage。保留兼容旧调用：返回首页（最多 200 条）的 sessions 数组。
+ */
 export async function fetchSessions(
   _workspace?: string | null,
 ): Promise<SessionSummary[]> {
-  try {
-    const res = await fetch(`http://127.0.0.1:18790/api/sessions`);
-    if (!res.ok) return [];
-    const data = await res.json();
-    const sessions = data.sessions || [];
-    return sessions.map((s: any) => {
-      const sessionId = s.id || s.key || s.session_id;
-      if (s.key) {
-        registerSessionKey(sessionId, s.key);
-      }
-      // 后端字段名是 channel_id，老格式可能用 channel
-      const rawChannel: string =
-        (typeof s.channel_id === "string" && s.channel_id) ||
-        (typeof s.channel === "string" && s.channel) ||
-        "";
-      const channel: SessionChannel = (
-        SESSION_CHANNELS as readonly string[]
-      ).includes(rawChannel)
-        ? (rawChannel as SessionChannel)
-        : (rawChannel ? (rawChannel as SessionChannel) : "unknown");
-      return {
-        session_id: sessionId,
-        key: s.key,
-        workspace: s.workspace,
-        agent_id: s.agent_id,
-        title: s.title,
-        created_at: s.created_at,
-        updated_at: s.updated_at,
-        meta: s.meta,
-        source: s.source,
-        channel,
-      };
-    });
-  } catch {
-    return [];
-  }
+  const page = await fetchSessionPage({ limit: 200 });
+  return page.sessions;
 }
 
 /**
@@ -266,7 +299,7 @@ export interface ModelItem {
 
 export async function updateSession(
   sessionId: string,
-  data: any,
+  data: { title?: string; workspace?: string },
 ): Promise<{ status: string } | null> {
   try {
     const res = await fetch(`http://127.0.0.1:18790/api/sessions/${encodeURIComponent(sessionId)}`, {
@@ -282,6 +315,21 @@ export async function updateSession(
   } catch (e) {
     console.error("[api] updateSession error:", e);
     return null;
+  }
+}
+
+export async function deleteSessionRemote(
+  sessionId: string,
+): Promise<boolean> {
+  try {
+    const res = await fetch(
+      `http://127.0.0.1:18790/api/sessions/${encodeURIComponent(sessionId)}`,
+      { method: "DELETE" },
+    );
+    return res.ok;
+  } catch (e) {
+    console.error("[api] deleteSessionRemote error:", e);
+    return false;
   }
 }
 
