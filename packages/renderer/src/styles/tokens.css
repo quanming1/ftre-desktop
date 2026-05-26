@@ -11,8 +11,8 @@
 /* ===== Dark Mode (默认 / 基线) ===== */
 html[data-theme="dark"] {
   /* 背景 */
-  --ftre-bg-base: #1a1b1d;
-  --ftre-bg-surface: #1a1b1d;
+  --ftre-bg-base: #131416;
+  --ftre-bg-surface: #1f2022;
   --ftre-bg-elevated: #252526;
   --ftre-bg-panel: #2d2d2d;
   --ftre-bg-menu: #252526;
@@ -57,8 +57,8 @@ html[data-theme="dark"] {
 /* ===== Light Mode ===== */
 html[data-theme="light"] {
   /* 背景 — 参考 Manus 风格，偏白但不刺眼 */
-  --ftre-bg-base: #ffffff;
-  --ftre-bg-surface: #f8f8f7;
+  --ftre-bg-base: #e6e6e3;
+  --ftre-bg-surface: #ffffff;
   --ftre-bg-elevated: #ebebeb;
   --ftre-bg-panel: #f0f0f1;
   --ftre-bg-menu: #ffffff;

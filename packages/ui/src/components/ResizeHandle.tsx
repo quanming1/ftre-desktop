@@ -64,14 +64,14 @@ export function ResizeHandle({
         className,
       )}
     >
-      {/* Divider line */}
+      {/* Divider line — 默认透明，hover/drag 才显示 */}
       <div
         className={cn(
-          "transition-colors duration-100",
-          isH ? "h-full w-[4px]" : "w-full h-[4px]",
+          "transition-colors duration-150",
+          isH ? "h-full w-[2px]" : "w-full h-[2px]",
           showHighlight
-            ? "bg-[#555]"
-            : "bg-[var(--ftre-border,#3c3c3c)]",
+            ? "bg-[var(--ftre-border-default,#3c3c3c)]"
+            : "bg-transparent",
         )}
       />
     </div>
