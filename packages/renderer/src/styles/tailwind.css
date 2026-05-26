@@ -12,11 +12,14 @@
 @theme {
     /* 背景层级 */
     --color-base: var(--ftre-bg-base);
+    --color-titlebar: var(--ftre-bg-titlebar);
     --color-surface: var(--ftre-bg-surface);
     --color-elevated: var(--ftre-bg-elevated);
     --color-panel: var(--ftre-bg-panel);
     --color-hover: var(--ftre-bg-hover);
     --color-active: var(--ftre-bg-active);
+    --color-tool-card: var(--ftre-bg-tool-card);
+    --color-tool-result: var(--ftre-bg-tool-result);
     --color-border: var(--ftre-border-default);
     --color-border-subtle: var(--ftre-border-subtle);
 

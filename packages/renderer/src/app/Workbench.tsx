@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { ErrorBoundary } from "@ftre/ui";
 import { TitleBar } from "./TitleBar";
-import { ActivityBar } from "./ActivityBar";
+import { SettingsDialog } from "./SettingsDialog";
 import { Sidebar } from "@/features/explorer/Sidebar";
 import { EditorArea } from "@/features/editor/EditorArea";
 import { pathParent } from "@/utils/pathUtils";
@@ -289,45 +289,25 @@ export function Workbench() {
 
       {/* Main area - use CSS order to control panel arrangement without remounting */}
       <div className="flex-1 flex overflow-hidden" ref={containerRef}>
-        <ActivityBar />
-
         {/* Content area with rounded top-left corner */}
-        <div className="flex-1 flex overflow-hidden rounded-tl-2xl bg-base">
+        <div className="flex-1 flex overflow-hidden bg-base">
 
-        {/* Skills 模式：独占整个右侧区域 */}
-        {activeLeftPanel === "skills" && (
-          <div className="flex-1 h-full overflow-hidden">
-            <ErrorBoundary>
-              <SkillsPanel />
-            </ErrorBoundary>
-          </div>
-        )}
-
-        {/* Cron 模式：独占整个右侧区域 */}
-        {activeLeftPanel === "cron" && (
-          <div className="flex-1 h-full overflow-hidden">
-            <ErrorBoundary>
-              <ScheduledTaskPanel />
-            </ErrorBoundary>
-          </div>
-        )}
-
-        {/* Chat 模式：正常显示 Sessions Panel */}
-        {activeLeftPanel === "chat" && panelVisible.sessions && (
+        {/* Sessions Panel — 在所有模式下保持挂载（顶部内化了模式切换） */}
+        {panelVisible.sessions && (
           <div
             className="h-full overflow-hidden py-1 pl-1.5"
             style={getPanelStyle("sessions")}
           >
-            <div className="h-full overflow-hidden rounded-xl bg-surface">
+            <div className="h-full overflow-hidden rounded-xl bg-base">
               <ErrorBoundary>
                 <SessionPanel />
               </ErrorBoundary>
             </div>
           </div>
         )}
-        {activeLeftPanel === "chat" &&
-          panelVisible.sessions &&
-          isResizeHandleVisible("sessions") && (
+        {panelVisible.sessions &&
+          isResizeHandleVisible("sessions") &&
+          activeLeftPanel === "chat" && (
             <div
               className="h-full shrink-0"
               style={{ order: getResizeHandleOrder("sessions") }}
@@ -338,6 +318,28 @@ export function Workbench() {
               />
             </div>
           )}
+
+        {/* Skills 模式：占满 SessionPanel 右侧的所有空间 */}
+        {activeLeftPanel === "skills" && (
+          <div className="flex-1 h-full overflow-hidden py-1 pr-1.5">
+            <div className="h-full overflow-hidden rounded-xl bg-surface">
+              <ErrorBoundary>
+                <SkillsPanel />
+              </ErrorBoundary>
+            </div>
+          </div>
+        )}
+
+        {/* Cron 模式：占满 SessionPanel 右侧的所有空间 */}
+        {activeLeftPanel === "cron" && (
+          <div className="flex-1 h-full overflow-hidden py-1 pr-1.5">
+            <div className="h-full overflow-hidden rounded-xl bg-surface">
+              <ErrorBoundary>
+                <ScheduledTaskPanel />
+              </ErrorBoundary>
+            </div>
+          </div>
+        )}
 
         {/* Sidebar Panel - 只在 chat 模式显示 */}
         {activeLeftPanel === "chat" && panelVisible.sidebar && (
@@ -422,6 +424,9 @@ export function Workbench() {
 
       {/* 任务监控弹窗 — 始终挂载，CSS 控制显隐 */}
       <TaskDropdown />
+
+      {/* 全局设置对话框 — 监听 ftre:open-settings 事件，由 SessionPanel 底部按钮触发 */}
+      <SettingsDialog />
 
       <FilePalette
         open={filePaletteOpen}

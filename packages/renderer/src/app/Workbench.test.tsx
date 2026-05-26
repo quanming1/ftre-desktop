@@ -4,7 +4,7 @@ import { useLayout } from "@/stores/layout";
 
 // Mock heavy child components to keep the test focused on Workbench mount behavior
 vi.mock("./TitleBar", () => ({ TitleBar: () => <div data-testid="title-bar" /> }));
-vi.mock("./ActivityBar", () => ({ ActivityBar: () => <div data-testid="activity-bar" /> }));
+vi.mock("./SettingsDialog", () => ({ SettingsDialog: () => <div data-testid="settings-dialog" /> }));
 vi.mock("@/features/session/SessionPanel", () => ({ SessionPanel: () => <div data-testid="session-panel" /> }));
 vi.mock("@/features/settings/SettingsPanel", () => ({ SettingsPanel: () => <div data-testid="settings-panel" /> }));
 vi.mock("@/features/explorer/Sidebar", () => ({ Sidebar: () => <div data-testid="sidebar" /> }));

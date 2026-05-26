@@ -1,8 +1,7 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from "react";
-import { Minus, Square, X, Copy, Terminal, GitBranch, ChevronRight, MessageSquare, ClipboardList } from "lucide-react";
+import { Minus, Square, X, Copy, Terminal, GitBranch, ChevronRight, ClipboardList } from "lucide-react";
 import { PixelLogo } from "@/components/PixelLogo";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
-import { LayoutSwitcher } from "@/components/LayoutSwitcher";
 import { Tooltip, TooltipProvider } from "@ftre/ui";
 import { useEditor } from "@/stores/editor";
 import { useWorkspace } from "@/stores/workspace";
@@ -25,8 +24,6 @@ export function TitleBar() {
   const toggleTerminal = useLayout((s) => s.toggleTerminalDropdown);
   const taskPanelOpen = useLayout((s) => s.taskPanelOpen);
   const toggleTaskPanel = useLayout((s) => s.toggleTaskPanel);
-  const layoutMode = useLayout((s) => s.layoutMode);
-  const setLayoutMode = useLayout((s) => s.setLayoutMode);
   const gitInfo = useGitService((s) => s.getInfo());
 
   const projectName = rootPath ? rootPath.split("/").pop() || rootPath.split("\\").pop() : "Ftre";
@@ -60,7 +57,7 @@ export function TitleBar() {
   };
 
   return (
-    <div className="h-[var(--titlebar-height)] bg-base flex items-center shrink-0 relative z-50" style={drag}>
+    <div className="h-[var(--titlebar-height)] bg-titlebar flex items-center shrink-0 relative z-50" style={drag}>
 
       {/* ── 左侧: Logo 菜单 + Git 指示器 ── */}
       <div className="flex items-center shrink-0 h-full" style={noDrag}>
@@ -144,16 +141,8 @@ export function TitleBar() {
         )}
       </div>
 
-      {/* ── 右侧: 布局切换 + 悬浮窗 + 窗口控制 ── */}
+      {/* ── 右侧: 悬浮窗 + 窗口控制 ── */}
       <div className="flex items-center shrink-0 h-full gap-2" style={noDrag}>
-        {/* 布局切换器（内联） */}
-        <LayoutSwitcher
-          layoutMode={layoutMode}
-          onLayoutModeChange={setLayoutMode}
-        />
-
-        <div className="w-[1px] h-[14px] bg-border" />
-
         {/* 悬浮窗按钮组 */}
         <TooltipProvider>
           <Tooltip content="任务监控" side="bottom">

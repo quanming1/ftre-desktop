@@ -11,7 +11,7 @@ import { useState, useEffect, memo, useCallback } from "react";
 import { ChevronDown } from "lucide-react";
 import { fetchAppConfig, saveAppConfig } from "@/services/api";
 import { useChat } from "@/stores/chat";
-import { OPEN_SETTINGS_EVENT } from "@/app/ActivityBar";
+import { OPEN_SETTINGS_EVENT } from "@/app/settings-events";
 import { ModelPicker, type ProviderInfo } from "./ModelPicker";
 import { buildProviderInfos } from "./providerInfo";
 

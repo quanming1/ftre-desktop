@@ -7,10 +7,13 @@ vi.mock("@/stores/session", () => ({
   useSession: (selector: (s: any) => any) =>
     selector({
       allSessions: [],
+      sessionsTotal: 0,
       loadAllSessions: vi.fn(),
+      loadMoreSessions: vi.fn(),
       switchSession: vi.fn(),
       deleteSession: vi.fn(),
       newSession: vi.fn(),
+      loadingSessionId: null,
     }),
 }));
 
@@ -22,11 +25,25 @@ vi.mock("@/stores/workspace", () => ({
   useWorkspace: (selector: (s: any) => any) =>
     selector({
       rootPath: "/test/project",
-      recentFolders: ["/test/project", "/other/project"],
       setRootPath: vi.fn(),
-      removeRecentFolder: vi.fn(),
-      reorderFolders: vi.fn(),
     }),
+}));
+
+vi.mock("@/stores/layout", () => ({
+  useLayout: (selector: (s: any) => any) =>
+    selector({
+      activeLeftPanel: "chat",
+      setActiveLeftPanel: vi.fn(),
+    }),
+}));
+
+vi.mock("@/stores/notification", () => ({
+  useNotification: { getState: () => ({ addNotification: vi.fn() }) },
+}));
+
+vi.mock("@/services/api", () => ({
+  triggerCompaction: vi.fn(),
+  updateSession: vi.fn(),
 }));
 
 describe("SessionPanel", () => {
@@ -34,22 +51,21 @@ describe("SessionPanel", () => {
     vi.clearAllMocks();
   });
 
-  it("renders without crashing", () => {
+  it("renders the top action zone (New thread / Automations / Skills)", () => {
     render(<SessionPanel />);
-    expect(screen.getByText("Open Workspace")).toBeInTheDocument();
+    expect(screen.getByText("New thread")).toBeInTheDocument();
+    expect(screen.getByText("Automations")).toBeInTheDocument();
+    expect(screen.getByText("Skills")).toBeInTheDocument();
   });
 
-  it("displays workspace folders", () => {
+  it("renders the Threads section header and bottom Settings action", () => {
     render(<SessionPanel />);
-    // Both workspaces show "project" as folder name
-    const projects = screen.getAllByText("project");
-    expect(projects.length).toBe(2);
+    expect(screen.getByText("Ws Threads")).toBeInTheDocument();
+    expect(screen.getByText("Settings")).toBeInTheDocument();
   });
 
-  it("shows session counts for workspaces", () => {
+  it("shows empty placeholder when no sessions exist", () => {
     render(<SessionPanel />);
-    // Both workspaces should show (0) since there are no sessions
-    const counts = screen.getAllByText(/\(0\)/);
-    expect(counts.length).toBe(2);
+    expect(screen.getByText("暂无会话")).toBeInTheDocument();
   });
 });
