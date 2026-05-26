@@ -93,7 +93,7 @@ export const InlineToolCallCard = memo(
     const isOpen = expanded || (isError && !expanded);
 
     return (
-      <div className="w-full border border-border-subtle overflow-hidden bg-panel rounded-[20px]">
+      <div className="w-full border border-border-subtle overflow-hidden bg-tool-card rounded-[20px]">
         {/* 标题栏 */}
         <button
           onClick={toggleExpand}
@@ -163,7 +163,7 @@ export const InlineToolCallCard = memo(
                       : <Copy size={13} className="text-t-dim" />
                     }
                   </button>
-                  <pre className={`p-3 rounded-lg bg-base text-[var(--text-md)] font-mono leading-relaxed overflow-x-auto ${
+                  <pre className={`p-3 rounded-lg bg-tool-result text-[var(--text-md)] font-mono leading-relaxed overflow-x-auto ${
                     isError ? "text-red-500" : "text-t-secondary"
                   } ${toolCall.result!.length > 500 ? "max-h-[240px] overflow-y-auto" : ""}`}>
                     {toolCall.result}
