@@ -136,3 +136,6 @@ export {
 
 // Error Boundary
 export { ErrorBoundary, type ErrorBoundaryProps } from "./ErrorBoundary";
+
+// Image Viewer
+export { ImageViewer, type ImageViewerProps } from "./ImageViewer";

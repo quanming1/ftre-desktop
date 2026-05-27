@@ -1,4 +1,4 @@
-import { BrowserWindow } from 'electron';
+import { BrowserWindow, shell } from 'electron';
 import * as path from 'path';
 import { isDev } from './app-state';
 
@@ -23,6 +23,12 @@ export function createWindow(): BrowserWindow {
 
   // 去掉默认菜单栏
   mainWindow.setMenuBarVisibility(false);
+
+  // 阻止 window.open / target="_blank" 在 Electron 内打开新窗口，改为默认浏览器打开
+  mainWindow.webContents.setWindowOpenHandler(({ url }) => {
+    shell.openExternal(url);
+    return { action: "deny" };
+  });
 
   // 开发模式加载 Vite dev server，生产模式加载打包后的文件
   if (isDev) {

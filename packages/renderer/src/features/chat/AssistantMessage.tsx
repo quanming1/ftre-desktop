@@ -28,6 +28,32 @@ const markdownComponents = {
     if (m) return <CodeBlock language={m[1]} code={String(children).replace(/\n$/, "")} />;
     return <code className={className} {...props}>{children}</code>;
   },
+  a({ href, children, ...props }: React.ComponentPropsWithoutRef<"a">) {
+    const handleClick = (e: React.MouseEvent) => {
+      e.preventDefault();
+      if (e.ctrlKey || e.metaKey) {
+        if (href) {
+          const api = (window as any).desktop;
+          if (api?.openExternal) {
+            api.openExternal(href);
+          } else {
+            window.open(href, "_blank");
+          }
+        }
+      }
+      // 普通点击不做任何事，只有 Ctrl/Cmd + 点击才打开
+    };
+    return (
+      <a
+        href={href}
+        onClick={handleClick}
+        title="Ctrl + 点击在浏览器打开"
+        {...props}
+      >
+        {children}
+      </a>
+    );
+  },
 };
 
 /** 单个 markdown 块：content 字符串相等即跳过 reconcile */
