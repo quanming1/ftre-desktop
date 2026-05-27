@@ -9,7 +9,7 @@
  * 点击展开看详情（命令输出 / 文件内容），默认折叠成一行。
  * 视觉上跟正文段落平级，不用边框/圆角/背景色包裹。
  */
-import { memo, useState, useCallback } from "react";
+import { memo, useState, useCallback, useEffect, useRef } from "react";
 import type { ToolCall } from "@/stores/chat";
 import {
   ChevronRight,
@@ -199,6 +199,62 @@ function SummaryLine({ summary, className = "" }: { summary: string; className?:
   );
 }
 
+// ─── think 块（独立渲染） ────────────────────────────────────────────
+
+function ThinkBlock({
+  thought,
+  isPending,
+  isRunning,
+  expanded,
+  onToggle,
+}: {
+  thought: string;
+  isPending: boolean;
+  isRunning: boolean;
+  expanded: boolean;
+  onToggle: () => void;
+}) {
+  const contentRef = useRef<HTMLDivElement | null>(null);
+  const [overflows, setOverflows] = useState(false);
+
+  // 测量内容高度判断是否需要"显示更多"按钮
+  useEffect(() => {
+    const el = contentRef.current;
+    if (!el) return;
+    setOverflows(el.scrollHeight > 120 + 4);
+  }, [thought]);
+
+  return (
+    <div className="flex gap-2 py-1">
+      <Brain size={14} className="text-t-ghost shrink-0 mt-0.5" strokeWidth={1.5} />
+      <div className="flex-1 min-w-0">
+        <div
+          className={`relative ${expanded ? "max-h-[480px] overflow-y-auto" : "max-h-[120px] overflow-hidden"}`}
+        >
+          <div
+            ref={contentRef}
+            className="text-[13px] text-t-dim italic leading-relaxed whitespace-pre-wrap break-words"
+          >
+            {thought || (isPending ? "..." : "")}
+            {isRunning && (
+              <span className="inline-block w-1.5 h-3 ml-1 align-middle bg-t-ghost/60 animate-pulse" />
+            )}
+          </div>
+        </div>
+        {overflows && (
+          <button
+            type="button"
+            onClick={onToggle}
+            className="mt-1 text-[11px] text-t-ghost hover:text-neon transition-colors"
+          >
+            {expanded ? "收起" : "显示更多"}
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // ─── 主组件 ─────────────────────────────────────────────────────────
 
 export const InlineToolCallCard = memo(
@@ -218,21 +274,17 @@ export const InlineToolCallCard = memo(
     const hasResult = !!toolCall.result;
     const isThink = toolCall.name === "think";
 
-    // think 工具：直接展示 thought 内容，不需要折叠
+    // think 工具：直接展示 thought 内容；点击切换展开/折叠
     if (isThink) {
       const thought = (args.thought as string) ?? toolCall.result ?? "";
       return (
-        <div className="flex gap-2 py-1">
-          <Brain size={14} className="text-t-ghost shrink-0 mt-0.5" strokeWidth={1.5} />
-          <div className="relative max-h-[120px] overflow-hidden">
-            <div className="text-[13px] text-t-dim italic leading-relaxed whitespace-pre-wrap break-words">
-              {thought || (isPending ? "..." : "")}
-              {isRunning && <span className="inline-block w-1.5 h-3 ml-1 align-middle bg-t-ghost/60 animate-pulse" />}
-            </div>
-            {/* 底部白色蒙版渐隐 */}
-            <div className="pointer-events-none absolute inset-x-0 bottom-0 h-6 bg-gradient-to-t from-surface to-transparent" />
-          </div>
-        </div>
+        <ThinkBlock
+          thought={thought}
+          isPending={isPending}
+          isRunning={isRunning}
+          expanded={expanded}
+          onToggle={() => setExpanded((p) => !p)}
+        />
       );
     }
 
