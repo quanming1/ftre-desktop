@@ -448,7 +448,7 @@ export const UserMessage = memo(
     ];
 
     return (
-      <div>
+      <div id={`msg-${message.id}`} data-msg-id={message.id} data-msg-role="user">
         <TooltipProvider>
           <div
             className="flex items-start justify-end gap-1.5 group"
