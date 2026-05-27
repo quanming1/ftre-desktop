@@ -1,54 +1,142 @@
 ﻿/**
- * InlineToolCallCard — 工具调用卡片（嵌入 assistant 消息中）
+ * InlineToolCallCard — Codex-style inline tool event
+ *
+ * 不是卡片，是消息流里的一行 timeline 事件：
+ *   "Ran git status for 2s"
+ *   "Read src/main.py (30 lines)"
+ *   "Wrote output.txt"
+ *
+ * 点击展开看详情（命令输出 / 文件内容），默认折叠成一行。
+ * 视觉上跟正文段落平级，不用边框/圆角/背景色包裹。
  */
 import { memo, useState, useCallback } from "react";
 import type { ToolCall } from "@/stores/chat";
 import {
-  ChevronDown,
   ChevronRight,
+  ChevronDown,
   Terminal,
   FileText,
+  FilePenLine,
+  Folder,
+  Brain,
+  Clock,
+  MessagesSquare,
+  Send,
   Search,
-  Edit3,
+  Loader2,
   Check,
   X,
   Copy,
-  Loader2,
 } from "lucide-react";
 
-// ─── 工具图标映射 ───────────────────────────────────────────────────
+// ─── 工具图标 ───────────────────────────────────────────────────────
 
-const TOOL_ICONS: Record<string, React.ComponentType<{ size?: number; className?: string }>> = {
-  bash: Terminal, exec: Terminal,
+type IconType = React.ComponentType<{ size?: number; className?: string; strokeWidth?: number }>;
+
+const TOOL_ICONS: Record<string, IconType> = {
+  think: Brain, bash: Terminal, exec: Terminal, shell: Terminal,
   read: FileText, read_file: FileText, list_dir: FileText,
-  write: Edit3, write_file: Edit3, edit: Edit3, edit_file: Edit3,
-  glob: Search, grep: Search, search: Search, web_search: Search, web_fetch: Search,
+  write: FileText, write_file: FileText,
+  edit: FilePenLine, edit_file: FilePenLine,
+  set_workspace: Folder, cron: Clock, task: MessagesSquare,
+  send_message: Send, glob: Search, grep: Search,
+  search: Search, web_search: Search, web_fetch: Search,
 };
 
-function getToolIcon(name: string | undefined) {
+function getIcon(name: string | undefined): IconType {
   if (!name) return Terminal;
   if (TOOL_ICONS[name]) return TOOL_ICONS[name];
+  const lower = name.toLowerCase();
   for (const [key, Icon] of Object.entries(TOOL_ICONS)) {
-    if (name.toLowerCase().includes(key)) return Icon;
+    if (lower.includes(key)) return Icon;
   }
   return Terminal;
 }
 
-// ─── 状态指示器 ─────────────────────────────────────────────────────
+// ─── 摘要生成（一行描述） ───────────────────────────────────────────
 
-function StatusIndicator({ status }: { status: ToolCall["status"] }) {
-  switch (status) {
-    case "pending":
-      return <span className="w-2 h-2 rounded-full bg-neon/50 animate-pulse" />;
-    case "running":
-      return <Loader2 size={14} className="text-neon animate-spin" />;
-    case "ok":
-      return <Check size={14} className="text-green-600" />;
-    case "error":
-      return <X size={14} className="text-red-500" />;
-    default:
-      return <Check size={14} className="text-green-600" />;
+function buildSummary(name: string | undefined, args: Record<string, unknown>, status: ToolCall["status"]): string {
+  const n = name ?? "unknown";
+
+  switch (n) {
+    case "think":
+      return "思考中...";
+    case "bash":
+    case "exec":
+    case "shell": {
+      const cmd = (args.command as string) ?? "";
+      const oneLine = cmd.replace(/\s+/g, " ").trim();
+      const display = oneLine.length > 80 ? oneLine.slice(0, 80) + "…" : oneLine;
+      return display ? `${display}` : "执行命令";
+    }
+    case "read":
+    case "read_file": {
+      const path = (args.path as string) ?? "";
+      const file = basename(path);
+      const start = args.start_line as number | undefined;
+      const end = args.end_line as number | undefined;
+      const range = start || end ? ` L${start || 1}-${end || "end"}` : "";
+      return file ? `${file}${range}` : "读取文件";
+    }
+    case "write":
+    case "write_file": {
+      const path = (args.path as string) ?? "";
+      const file = basename(path);
+      const content = args.content as string | undefined;
+      const lines = content ? content.split("\n").length : 0;
+      const suffix = lines > 0 ? ` (${lines} lines)` : "";
+      return file ? `${file}${suffix}` : "写入文件";
+    }
+    case "edit":
+    case "edit_file": {
+      const path = (args.path as string) ?? "";
+      const file = basename(path);
+      return file ? `${file}` : "编辑文件";
+    }
+    case "set_workspace": {
+      const path = (args.path as string) ?? "";
+      const parts = path.replace(/\\/g, "/").split("/").filter(Boolean);
+      const tail = parts.slice(-2).join("/");
+      return tail ? `→ ${tail}` : "切换工作区";
+    }
+    case "cron": {
+      const action = (args.action as string) ?? "";
+      const title = (args.title as string) ?? "";
+      return title ? `${action} "${title}"` : action || "cron";
+    }
+    case "task": {
+      const prompt = (args.prompt as string) ?? "";
+      const short = prompt.split("\n")[0]?.slice(0, 60) ?? "";
+      return short ? `${short}${prompt.length > 60 ? "…" : ""}` : "派发子任务";
+    }
+    case "send_message": {
+      const ch = (args.channel_id as string) ?? "";
+      return ch ? `→ ${ch}` : "发送消息";
+    }
+    default: {
+      // 未知工具：显示工具名
+      return n;
+    }
   }
+}
+
+function basename(path: string): string {
+  const parts = path.replace(/\\/g, "/").split("/").filter(Boolean);
+  return parts[parts.length - 1] ?? path;
+}
+
+// ─── 参数解析 ───────────────────────────────────────────────────────
+
+function parseArgs(raw: ToolCall["arguments"]): Record<string, unknown> {
+  if (typeof raw === "object" && raw !== null) return raw as Record<string, unknown>;
+  if (typeof raw === "string") {
+    if (!raw.trim() || raw === "{}") return {};
+    try {
+      const parsed = JSON.parse(raw);
+      if (parsed && typeof parsed === "object") return parsed as Record<string, unknown>;
+    } catch { /* streaming partial JSON */ }
+  }
+  return {};
 }
 
 // ─── 主组件 ─────────────────────────────────────────────────────────
@@ -58,29 +146,40 @@ export const InlineToolCallCard = memo(
     const [expanded, setExpanded] = useState(false);
     const [copied, setCopied] = useState(false);
 
-    const Icon = getToolIcon(toolCall.name);
     const status = toolCall.status || "ok";
-    const isError = status === "error";
     const isPending = status === "pending";
     const isRunning = status === "running";
+    const isError = status === "error";
     const isComplete = status === "ok" || status === "error";
 
-    // 解析参数
-    let parsedArgs: Record<string, unknown> = {};
-    if (typeof toolCall.arguments === "string") {
-      try { parsedArgs = JSON.parse(toolCall.arguments); } catch {
-        if (toolCall.arguments && toolCall.arguments !== "{}") {
-          parsedArgs = { _raw: toolCall.arguments };
-        }
-      }
-    } else if (typeof toolCall.arguments === "object") {
-      parsedArgs = toolCall.arguments as Record<string, unknown>;
+    const args = parseArgs(toolCall.arguments);
+    const Icon = getIcon(toolCall.name);
+    const summary = buildSummary(toolCall.name, args, status);
+    const hasResult = !!toolCall.result;
+    const isThink = toolCall.name === "think";
+
+    // think 工具：直接展示 thought 内容，不需要折叠
+    if (isThink) {
+      const thought = (args.thought as string) ?? toolCall.result ?? "";
+      return (
+        <div className="flex gap-2 py-1">
+          <Brain size={14} className="text-t-ghost shrink-0 mt-0.5" strokeWidth={1.5} />
+          <div className="relative max-h-[120px] overflow-hidden">
+            <div className="text-[13px] text-t-dim italic leading-relaxed whitespace-pre-wrap break-words">
+              {thought || (isPending ? "..." : "")}
+              {isRunning && <span className="inline-block w-1.5 h-3 ml-1 align-middle bg-t-ghost/60 animate-pulse" />}
+            </div>
+            {/* 底部白色蒙版渐隐 */}
+            <div className="pointer-events-none absolute inset-x-0 bottom-0 h-6 bg-gradient-to-t from-surface to-transparent" />
+          </div>
+        </div>
+      );
     }
 
-    const hasArgs = Object.keys(parsedArgs).length > 0;
-    const hasResult = !!toolCall.result;
+    const toggleExpand = useCallback(() => {
+      if (hasResult || isError) setExpanded((p) => !p);
+    }, [hasResult, isError]);
 
-    const toggleExpand = useCallback(() => setExpanded((p) => !p), []);
     const handleCopy = useCallback(() => {
       if (!toolCall.result) return;
       navigator.clipboard.writeText(toolCall.result).then(() => {
@@ -89,90 +188,57 @@ export const InlineToolCallCard = memo(
       });
     }, [toolCall.result]);
 
-    // 错误时自动展开
-    const isOpen = expanded || (isError && !expanded);
-
     return (
-      <div className="w-full border border-border-subtle overflow-hidden bg-tool-card rounded-[20px]">
-        {/* 标题栏 */}
+      <div className="py-0.5">
+        {/* 摘要行 */}
         <button
           onClick={toggleExpand}
-          className="w-full flex items-center gap-2 px-3 py-1.5 text-left hover:bg-hover transition-colors"
+          disabled={!hasResult && !isError}
+          className="flex items-center gap-2 text-left w-full group py-1 disabled:cursor-default"
         >
-          <span className="text-t-dim">
-            {isOpen ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
+          {/* 展开箭头（有结果时才显示） */}
+          {hasResult || isError ? (
+            <span className="text-t-ghost shrink-0 w-3.5">
+              {expanded ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
+            </span>
+          ) : (
+            <span className="w-3.5 shrink-0" />
+          )}
+
+          {/* 图标 */}
+          <Icon size={14} className="text-t-ghost shrink-0" strokeWidth={1.5} />
+
+          {/* 摘要文字 */}
+          <span className="text-[13px] font-mono text-t-dim group-hover:text-t-secondary transition-colors truncate flex-1">
+            {summary}
           </span>
-          <Icon size={13} className="text-t-muted shrink-0" />
-          <span className="text-[var(--text-sm)] font-mono text-t-primary flex-1 truncate">
-            {toolCall.name ?? "unknown"}
-          </span>
-          {isPending && <span className="text-[var(--text-xs)] text-t-ghost">准备中</span>}
-          {isRunning && <span className="text-[var(--text-xs)] text-neon/80">执行中</span>}
-          <StatusIndicator status={status} />
+
+          {/* 状态 */}
+          {isPending && <Loader2 size={12} className="text-t-ghost animate-spin shrink-0" />}
+          {isRunning && <Loader2 size={12} className="text-neon animate-spin shrink-0" />}
+          {status === "ok" && <Check size={12} className="text-green-600 shrink-0" />}
+          {isError && <X size={12} className="text-red-500 shrink-0" />}
         </button>
 
-        {/* 展开内容 */}
-        <div className={`grid transition-[grid-template-rows] duration-200 ${isOpen ? "grid-rows-[1fr]" : "grid-rows-[0fr]"}`}>
-          <div className="overflow-hidden">
-            <div className="px-4 pb-4 pt-2 border-t border-border-subtle">
-
-              {/* 等待参数 */}
-              {isPending && !hasArgs && (
-                <div className="flex items-center gap-2 text-[var(--text-md)] text-t-dim font-mono">
-                  <Loader2 size={12} className="animate-spin" />
-                  <span>等待参数...</span>
-                </div>
-              )}
-
-              {/* 参数列表 */}
-              {hasArgs && (
-                <div className="space-y-1.5">
-                  {Object.entries(parsedArgs).map(([key, value]) => (
-                    <div key={key} className="flex gap-2 text-[var(--text-md)] font-mono leading-relaxed">
-                      <span className="text-t-dim shrink-0 select-none">
-                        {key === "_raw" ? "args" : key}:
-                      </span>
-                      <span className="text-t-primary break-all">
-                        {typeof value === "string"
-                          ? value.length > 200 ? value.slice(0, 200) + "…" : value
-                          : JSON.stringify(value)}
-                      </span>
-                    </div>
-                  ))}
-                </div>
-              )}
-
-              {/* 执行中 */}
-              {isRunning && (
-                <div className="mt-3 flex items-center gap-2 text-[var(--text-md)] text-t-dim">
-                  <Loader2 size={13} className="animate-spin text-neon" />
-                  <span>执行中...</span>
-                </div>
-              )}
-
-              {/* 结果 */}
-              {isComplete && hasResult && (
-                <div className="mt-3 relative group">
-                  <button
-                    onClick={handleCopy}
-                    className="absolute top-2 right-2 p-1.5 rounded opacity-0 group-hover:opacity-100 transition-opacity bg-elevated hover:bg-hover"
-                    title="复制结果"
-                  >
-                    {copied
-                      ? <Check size={13} className="text-green-600" />
-                      : <Copy size={13} className="text-t-dim" />
-                    }
-                  </button>
-                  <pre className={`p-3 rounded-lg bg-tool-result text-[var(--text-md)] font-mono leading-relaxed overflow-x-auto ${
-                    isError ? "text-red-500" : "text-t-secondary"
-                  } ${toolCall.result!.length > 500 ? "max-h-[240px] overflow-y-auto" : ""}`}>
-                    {toolCall.result}
-                  </pre>
-                </div>
-              )}
-            </div>
+        {/* 展开详情 */}
+        {expanded && toolCall.result && (
+          <div className="ml-[22px] mt-1 mb-2 relative group/result">
+            <button
+              onClick={handleCopy}
+              className="absolute top-2 right-2 p-1 rounded opacity-0 group-hover/result:opacity-100 transition-opacity bg-elevated hover:bg-hover z-10"
+              title="复制"
+            >
+              {copied
+                ? <Check size={11} className="text-green-600" />
+                : <Copy size={11} className="text-t-dim" />}
+            </button>
+            <ExpandedDetail
+              toolCall={toolCall}
+              args={args}
+              isError={isError}
+            />
           </div>
-        </div>
+        )}
       </div>
     );
   },
@@ -182,3 +248,331 @@ export const InlineToolCallCard = memo(
     prev.toolCall.arguments === next.toolCall.arguments &&
     prev.toolCall.result === next.toolCall.result,
 );
+
+// ─── 展开详情：按工具类型分发 ──────────────────────────────────────
+
+interface DetailProps {
+  toolCall: ToolCall;
+  args: Record<string, unknown>;
+  isError: boolean;
+}
+
+function ExpandedDetail({ toolCall, args, isError }: DetailProps) {
+  const name = toolCall.name;
+  const result = toolCall.result ?? "";
+
+  if (name === "bash" || name === "exec" || name === "shell") {
+    return <BashDetail result={result} isError={isError} />;
+  }
+  if (name === "edit" || name === "edit_file") {
+    return <EditDetail args={args} result={result} isError={isError} />;
+  }
+  if (name === "cron" && (args.action as string) === "list") {
+    return <CronListDetail result={result} isError={isError} />;
+  }
+  if (name === "task") {
+    return <TaskDetail result={result} isError={isError} />;
+  }
+  return <RawPre result={result} isError={isError} />;
+}
+
+/** 通用：原始文本 + 左竖线 + 引用色 */
+function RawPre({ result, isError }: { result: string; isError: boolean }) {
+  return (
+    <pre
+      className={`py-2 pl-3 border-l-2 border-border-subtle text-[12px] font-mono leading-relaxed overflow-x-auto ${
+        isError ? "text-red-500" : "text-t-dim"
+      } ${result.length > 500 ? "max-h-[240px] overflow-y-auto" : ""}`}
+    >
+      {result}
+    </pre>
+  );
+}
+
+// ─── bash detail ────────────────────────────────────────────────────
+
+interface ParsedBash {
+  cwd?: string;
+  stdout?: string;
+  stderr?: string;
+  exitCode?: number;
+  raw?: string;
+}
+
+/** 解析 bash 工具的输出协议：[cwd] / [stderr] / [exit_code] */
+function parseBashResult(text: string): ParsedBash {
+  if (!text.startsWith("[cwd]")) return { raw: text };
+  const lines = text.split("\n");
+  const out: ParsedBash = {};
+  let i = 0;
+
+  if (lines[i]?.startsWith("[cwd]")) {
+    out.cwd = lines[i].slice(5).trim();
+    i++;
+  }
+  const stdoutLines: string[] = [];
+  while (
+    i < lines.length &&
+    !lines[i].startsWith("[stderr]") &&
+    !lines[i].startsWith("[exit_code]")
+  ) {
+    stdoutLines.push(lines[i]);
+    i++;
+  }
+  if (stdoutLines.length) out.stdout = stdoutLines.join("\n").replace(/\n+$/, "");
+
+  if (lines[i]?.startsWith("[stderr]")) {
+    i++;
+    const stderrLines: string[] = [];
+    while (i < lines.length && !lines[i].startsWith("[exit_code]")) {
+      stderrLines.push(lines[i]);
+      i++;
+    }
+    out.stderr = stderrLines.join("\n").replace(/\n+$/, "");
+  }
+  if (lines[i]?.startsWith("[exit_code]")) {
+    const m = lines[i].match(/\[exit_code\]\s*(-?\d+)/);
+    if (m) out.exitCode = Number(m[1]);
+  }
+  return out;
+}
+
+function BashDetail({ result, isError }: { result: string; isError: boolean }) {
+  const p = parseBashResult(result);
+  if (p.raw !== undefined) return <RawPre result={p.raw} isError={isError} />;
+
+  return (
+    <div className="pl-3 border-l-2 border-border-subtle space-y-2">
+      {p.cwd && (
+        <div className="text-[11px] font-mono text-t-ghost">
+          cwd: <span className="text-t-dim">{p.cwd}</span>
+        </div>
+      )}
+      {p.stdout && (
+        <pre className="text-[12px] font-mono leading-relaxed text-t-dim whitespace-pre-wrap break-words overflow-x-auto max-h-[240px] overflow-y-auto">
+          {p.stdout}
+        </pre>
+      )}
+      {p.stderr && (
+        <div className="space-y-0.5">
+          <div className="text-[10.5px] font-mono uppercase tracking-wide text-amber-600">
+            stderr
+          </div>
+          <pre className="text-[12px] font-mono leading-relaxed text-amber-700 dark:text-amber-400 whitespace-pre-wrap break-words overflow-x-auto max-h-[200px] overflow-y-auto">
+            {p.stderr}
+          </pre>
+        </div>
+      )}
+      {p.exitCode !== undefined && p.exitCode !== 0 && (
+        <div className="text-[11.5px] font-mono text-red-500">
+          exit code: {p.exitCode}
+        </div>
+      )}
+      {!p.stdout && !p.stderr && p.exitCode === 0 && (
+        <div className="text-[11.5px] italic text-t-ghost">
+          (没有输出，进程正常退出)
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── edit detail ────────────────────────────────────────────────────
+
+function EditDetail({
+  args,
+  result,
+  isError,
+}: {
+  args: Record<string, unknown>;
+  result: string;
+  isError: boolean;
+}) {
+  const oldStr = args.old_str as string | undefined;
+  const newStr = args.new_str as string | undefined;
+  const hasDiff = oldStr !== undefined || newStr !== undefined;
+
+  if (!hasDiff) return <RawPre result={result} isError={isError} />;
+
+  return (
+    <div className="pl-3 border-l-2 border-border-subtle space-y-2">
+      {oldStr && <DiffSide kind="old" text={oldStr} />}
+      {newStr && <DiffSide kind="new" text={newStr} />}
+      {result && (
+        <div
+          className={`text-[11.5px] font-mono ${
+            isError ? "text-red-500" : "text-t-ghost"
+          }`}
+        >
+          {result}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function DiffSide({ kind, text }: { kind: "old" | "new"; text: string }) {
+  const isOld = kind === "old";
+  const sign = isOld ? "-" : "+";
+  const colorClass = isOld
+    ? "bg-red-500/[0.06] text-red-700 dark:text-red-300"
+    : "bg-emerald-500/[0.06] text-emerald-700 dark:text-emerald-300";
+
+  return (
+    <div className={`flex gap-2 px-2 py-1.5 rounded ${colorClass} font-mono text-[12px] leading-relaxed max-h-[200px] overflow-y-auto`}>
+      <span className="shrink-0 opacity-60 select-none">{sign}</span>
+      <pre className="flex-1 whitespace-pre-wrap break-words m-0">{text}</pre>
+    </div>
+  );
+}
+
+// ─── cron list detail ──────────────────────────────────────────────
+
+interface CronJobRow {
+  id: string;
+  enabled: boolean;
+  cron: string;
+  title: string;
+  prompt: string;
+  lastRun: string;
+  runCount: number;
+}
+
+/**
+ * 解析 cron 工具 list action 的 result。后端格式：
+ *   - <id> | [启用]/[已禁用] | <cron expr> | <title>
+ *     prompt: <prompt>...
+ *     上次运行: <ts> | 累计运行: <n> 次
+ */
+function parseCronList(text: string): CronJobRow[] {
+  const lines = text.split("\n");
+  const jobs: CronJobRow[] = [];
+  let cur: Partial<CronJobRow> | null = null;
+
+  for (const raw of lines) {
+    const line = raw.trimEnd();
+    if (line.startsWith("- ")) {
+      if (cur && cur.id) jobs.push(cur as CronJobRow);
+      const parts = line.slice(2).split(" | ");
+      cur = {
+        id: parts[0] || "",
+        enabled: !(parts[1] || "").includes("已禁用"),
+        cron: parts[2] || "",
+        title: parts[3] || "",
+        prompt: "",
+        lastRun: "",
+        runCount: 0,
+      };
+    } else if (cur && /^\s*prompt:/.test(line)) {
+      cur.prompt = line.replace(/^\s*prompt:\s*/, "").trim();
+    } else if (cur && /上次运行:/.test(line)) {
+      const m = line.match(/上次运行:\s*(.+?)\s*\|\s*累计运行:\s*(\d+)/);
+      if (m) {
+        cur.lastRun = m[1].trim();
+        cur.runCount = Number(m[2]);
+      }
+    }
+  }
+  if (cur && cur.id) jobs.push(cur as CronJobRow);
+  return jobs;
+}
+
+function CronListDetail({ result, isError }: { result: string; isError: boolean }) {
+  if (isError) return <RawPre result={result} isError />;
+  if (result.trim() === "当前没有定时任务") {
+    return (
+      <div className="pl-3 border-l-2 border-border-subtle text-[12px] italic text-t-ghost">
+        当前没有定时任务
+      </div>
+    );
+  }
+  const jobs = parseCronList(result);
+  if (jobs.length === 0) return <RawPre result={result} isError={false} />;
+
+  return (
+    <div className="pl-3 border-l-2 border-border-subtle space-y-2">
+      {jobs.map((job) => (
+        <div
+          key={job.id}
+          className="flex items-start gap-2.5 py-1 text-[12px] font-mono"
+        >
+          <span
+            className={`mt-1.5 w-1.5 h-1.5 rounded-full shrink-0 ${
+              job.enabled ? "bg-emerald-500" : "bg-t-ghost"
+            }`}
+          />
+          <div className="flex-1 min-w-0">
+            <div className="flex items-baseline gap-2 flex-wrap">
+              <span className="text-t-secondary truncate">{job.title}</span>
+              <span className="text-t-ghost text-[11px]">{job.cron}</span>
+              {!job.enabled && (
+                <span className="text-[10.5px] uppercase tracking-wide text-t-ghost">
+                  disabled
+                </span>
+              )}
+            </div>
+            {job.prompt && (
+              <div className="text-t-dim text-[11.5px] mt-0.5 truncate">
+                {job.prompt}
+              </div>
+            )}
+            <div className="text-t-ghost text-[11px] mt-0.5">
+              {job.lastRun} · {job.runCount} 次
+            </div>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ─── task detail ────────────────────────────────────────────────────
+
+/**
+ * task 工具的返回格式：[session=<sid>, status=<...>]\n<content>
+ */
+function parseTaskResult(text: string): { sid?: string; status?: string; body: string } {
+  const m = text.match(/^\[session=([^,\]]+),\s*status=([^\]]+)\](?:\n([\s\S]*))?$/);
+  if (!m) return { body: text };
+  return { sid: m[1].trim(), status: m[2].trim(), body: (m[3] ?? "").trim() };
+}
+
+function TaskDetail({ result, isError }: { result: string; isError: boolean }) {
+  const { sid, status, body } = parseTaskResult(result);
+
+  return (
+    <div className="pl-3 border-l-2 border-border-subtle space-y-2">
+      {(sid || status) && (
+        <div className="flex items-center gap-2 text-[11px] font-mono">
+          {status && (
+            <span
+              className={`px-1.5 py-0.5 rounded uppercase tracking-wide text-[10px] ${
+                status === "completed"
+                  ? "bg-emerald-500/[0.08] text-emerald-700 dark:text-emerald-400"
+                  : status.includes("timeout")
+                    ? "bg-amber-500/[0.08] text-amber-700 dark:text-amber-400"
+                    : "bg-t-ghost/10 text-t-ghost"
+              }`}
+            >
+              {status}
+            </span>
+          )}
+          {sid && (
+            <span className="text-t-ghost">
+              session=<span className="text-t-dim">{sid}</span>
+            </span>
+          )}
+        </div>
+      )}
+      {body && (
+        <pre
+          className={`text-[12px] font-mono leading-relaxed whitespace-pre-wrap break-words overflow-x-auto max-h-[240px] overflow-y-auto ${
+            isError ? "text-red-500" : "text-t-dim"
+          }`}
+        >
+          {body}
+        </pre>
+      )}
+    </div>
+  );
+}

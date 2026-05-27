@@ -51,10 +51,10 @@ describe("SessionPanel", () => {
     vi.clearAllMocks();
   });
 
-  it("renders the top action zone (New thread / Automations / Skills)", () => {
+  it("renders the top action zone (New thread / Cron / Skills)", () => {
     render(<SessionPanel />);
     expect(screen.getByText("New thread")).toBeInTheDocument();
-    expect(screen.getByText("Automations")).toBeInTheDocument();
+    expect(screen.getByText("Cron")).toBeInTheDocument();
     expect(screen.getByText("Skills")).toBeInTheDocument();
   });
 
