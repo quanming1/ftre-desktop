@@ -6,11 +6,12 @@
  * - Tries zustand store first (useChat)
  * - Falls back to streamManager directly if store is empty/unavailable
  */
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import { useChat } from "@/stores/chat";
 import { useSession } from "@/stores/session";
 import { wsClient } from "@/services/websocket-client";
-import { ChatMessageList } from "./ChatMessageList";
+import { ChatMessageList, type ChatMessageListHandle } from "./ChatMessageList";
+import { ChatOutline } from "./ChatOutline";
 import { ChatInput } from "./ChatInput";
 import { WelcomeView } from "./WelcomeView";
 import { WsLogPanel, type LogEntry } from "./WsLogPanel";
@@ -45,6 +46,31 @@ export function ChatView() {
     return found?.channel || "ws";
   }, [sessionId, allSessions]);
   const canSend = currentSessionChannel === "ws";
+
+  // 把 ChatMessageList 内部滚动容器的 DOM 引用拉出来给 ChatOutline 用
+  const messagesContainerRef = useRef<HTMLDivElement | null>(null);
+  // 触发 ChatOutline 重渲（用 state 而非 ref，保证 outline mount 后能拿到 container）
+  const [containerEl, setContainerEl] = useState<HTMLDivElement | null>(null);
+  const handleContainerReady = useMemo(
+    () => (el: HTMLDivElement | null) => {
+      messagesContainerRef.current = el;
+      setContainerEl(el);
+    },
+    [],
+  );
+
+  // ChatMessageList 暴露的分页控制句柄；outline 跳早期消息时用 ensureVisible 强制加载
+  const listHandleRef = useRef<ChatMessageListHandle | null>(null);
+  const handleListHandleReady = useMemo(
+    () => (h: ChatMessageListHandle | null) => {
+      listHandleRef.current = h;
+    },
+    [],
+  );
+  const ensureVisible = useMemo(
+    () => (n: number) => listHandleRef.current?.ensureVisible(n),
+    [],
+  );
 
   // Log interceptor (only in storybook)
   useEffect(() => {
@@ -88,7 +114,23 @@ export function ChatView() {
         <WelcomeView />
       ) : (
         <>
-          <ChatMessageList messages={messages} isBusy={isBusy} className="flex-1" />
+          <div className="flex-1 relative min-h-0">
+            <ChatMessageList
+              messages={messages}
+              isBusy={isBusy}
+              className="absolute inset-0"
+              onContainerReady={handleContainerReady}
+              onHandleReady={handleListHandleReady}
+            />
+            {messages.length > 0 && containerEl && (
+              <ChatOutline
+                messages={messages}
+                scrollContainerRef={messagesContainerRef}
+                ensureVisible={ensureVisible}
+                className="absolute right-0 top-0 bottom-0"
+              />
+            )}
+          </div>
           {canSend ? (
             <ChatInput />
           ) : (
