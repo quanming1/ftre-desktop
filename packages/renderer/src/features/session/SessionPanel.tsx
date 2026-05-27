@@ -957,7 +957,7 @@ function SessionRow({
     >
       {/* 置顶标记 */}
       {isPinned && (
-        <Pin size={11} className="text-t-ghost shrink-0 -ml-0.5" strokeWidth={2} />
+        <Pin size={11} className="text-t-ghost shrink-0 mt-[1px]" strokeWidth={2} />
       )}
       <span
         className={`flex-1 truncate text-[13.5px] ${isActive ? "text-t-primary font-medium" : "text-t-secondary"
