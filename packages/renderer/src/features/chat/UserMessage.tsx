@@ -30,7 +30,7 @@ import { previewRollback, executeRollback } from "@/services/api";
 import { fetchSessionMessages, fetchArchiveDetail } from "@/services/api";
 import { RollbackConfirmDialog } from "./RollbackConfirmDialog";
 import { ContextMenu, type ContextMenuItem } from "@/components/ContextMenu";
-import { Tooltip, TooltipProvider } from "@ftre/ui";
+import { Tooltip, TooltipProvider, ImageViewer } from "@ftre/ui";
 
 /**
  * 渲染归档引用 chip
@@ -154,36 +154,61 @@ function getMessageText(message: ChatMessage): string {
 
 /**
  * 渲染附件区（仅图片）
- * 显示在气泡顶部，hover 缩略图无操作；点击放大暂未实现
+ * 和输入框的附件栏样式一致：小缩略图 + 文件名，放在消息下方。
+ * 点击弹出全屏预览，Ctrl/Cmd + 点击在浏览器打开原图。
  */
 function AttachmentStrip({
   attachments,
 }: {
   attachments: NonNullable<WsChatMessage["attachments"]>;
 }) {
-  if (attachments.length === 0) return null;
+  const [previewSrc, setPreviewSrc] = useState<string | null>(null);
+
+  const images = attachments.filter((a) => a.type === "image");
+  if (images.length === 0) return null;
+
   return (
-    <div className="flex flex-wrap gap-2 mb-2">
-      {attachments.map((att, i) => {
-        if (att.type !== "image") return null;
-        return (
-          <a
+    <>
+      <div className="flex flex-wrap gap-2 mt-1 justify-end">
+        {images.map((att, i) => (
+          <div
             key={i}
-            href={att.url}
-            target="_blank"
-            rel="noreferrer"
-            title={att.name || "image"}
-            className="inline-block rounded-md overflow-hidden border border-border-subtle bg-surface hover:border-neon/40 transition-colors max-w-[200px] max-h-[200px]"
+            onClick={(e) => {
+              if (e.ctrlKey || e.metaKey) {
+                e.preventDefault();
+                const api = (window as any).desktop;
+                if (api?.openExternal) {
+                  api.openExternal(att.url);
+                } else {
+                  window.open(att.url, "_blank");
+                }
+                return;
+              }
+              setPreviewSrc(att.url);
+            }}
+            title={att.name || "image — 点击预览"}
+            className="group inline-flex items-center gap-2 pl-1 pr-2.5 py-1 rounded-md border border-border-subtle bg-panel text-t-primary text-[12px] max-w-[220px] cursor-pointer hover:border-neon/40 transition-colors"
           >
+            {/* 缩略图 */}
             <img
               src={att.url}
               alt={att.name || "image"}
-              className="block w-auto h-auto max-w-[200px] max-h-[200px] object-contain"
+              className="block w-7 h-7 rounded object-cover bg-elevated shrink-0"
+              draggable={false}
             />
-          </a>
-        );
-      })}
-    </div>
+            {/* 文件名 */}
+            <span className="truncate text-t-secondary">{att.name || "image"}</span>
+          </div>
+        ))}
+      </div>
+      {previewSrc && (
+        <ImageViewer
+          src={previewSrc}
+          alt={images.find((a) => a.url === previewSrc)?.name}
+          onClose={() => setPreviewSrc(null)}
+        />
+      )}
+    </>
   );
 }
 
@@ -423,7 +448,7 @@ export const UserMessage = memo(
     ];
 
     return (
-      <>
+      <div>
         <TooltipProvider>
           <div
             className="flex items-start justify-end gap-1.5 group"
@@ -466,64 +491,66 @@ export const UserMessage = memo(
             </div>
 
             {/* 消息内容 */}
-            <div className="max-w-[85%]">
-              <div className="relative">
-                <div
-                  ref={(node) => {
-                    messageRef.current = node;
-                    bubbleRef.current = node;
-                  }}
-                  onContextMenu={handleContextMenu}
-                  style={{
-                    borderRadius: bubbleRadius,
-                    maxHeight:
-                      isOverflowing && collapsed ? COLLAPSE_HEIGHT_PX : undefined,
-                    overflow: isOverflowing && collapsed ? "hidden" : undefined,
-                  }}
-                  className="text-[var(--text-lg)] leading-relaxed text-t-primary bg-panel px-4 py-3 whitespace-pre-wrap break-words font-sans cursor-default"
-                >
-                  {message.attachments && message.attachments.length > 0 && (
-                    <AttachmentStrip attachments={message.attachments} />
-                  )}
-                  {hasParts ? (
-                    <PartsContent parts={message.parts!} />
-                  ) : (
-                    message.content
-                  )}
-                </div>
-
-                {/* 折叠时底部渐隐遮罩 */}
-                {isOverflowing && collapsed && (
-                  <div
-                    className="pointer-events-none absolute left-0 right-0 bottom-0 h-12 bg-gradient-to-t from-panel to-transparent"
-                    style={{
-                      borderBottomLeftRadius: bubbleRadius,
-                      borderBottomRightRadius: bubbleRadius,
-                    }}
-                  />
-                )}
-
-                {/* 展开/收起按钮 */}
-                {isOverflowing && (
-                  <Tooltip
-                    content={collapsed ? "展开文字" : "收起"}
-                    side="top"
-                  >
-                    <button
-                      onClick={() => setCollapsed((v) => !v)}
-                      className="absolute right-3 bottom-3 w-7 h-7 flex items-center justify-center rounded-full bg-elevated/95 text-t-secondary hover:text-t-primary hover:bg-hover border border-border-subtle shadow-sm transition-colors"
-                    >
-                      {collapsed ? (
-                        <ChevronDown size={16} />
-                      ) : (
-                        <ChevronUp size={16} />
-                      )}
-                    </button>
-                  </Tooltip>
+            <div className="relative max-w-[85%] w-fit">
+              <div
+                ref={(node) => {
+                  messageRef.current = node;
+                  bubbleRef.current = node;
+                }}
+                onContextMenu={handleContextMenu}
+                style={{
+                  borderRadius: bubbleRadius,
+                  maxHeight:
+                    isOverflowing && collapsed ? COLLAPSE_HEIGHT_PX : undefined,
+                  overflow: isOverflowing && collapsed ? "hidden" : undefined,
+                }}
+                className="text-[var(--text-lg)] leading-relaxed text-t-primary bg-panel px-4 py-3 whitespace-pre-wrap break-words font-sans cursor-default"
+              >
+                {hasParts ? (
+                  <PartsContent parts={message.parts!} />
+                ) : (
+                  message.content
                 )}
               </div>
+
+              {/* 折叠时底部渐隐遮罩 */}
+              {isOverflowing && collapsed && (
+                <div
+                  className="pointer-events-none absolute left-0 right-0 bottom-0 h-12 bg-gradient-to-t from-panel to-transparent"
+                  style={{
+                    borderBottomLeftRadius: bubbleRadius,
+                    borderBottomRightRadius: bubbleRadius,
+                  }}
+                />
+              )}
+
+              {/* 展开/收起按钮 */}
+              {isOverflowing && (
+                <Tooltip
+                  content={collapsed ? "展开文字" : "收起"}
+                  side="top"
+                >
+                  <button
+                    onClick={() => setCollapsed((v) => !v)}
+                    className="absolute right-3 bottom-3 w-7 h-7 flex items-center justify-center rounded-full bg-elevated/95 text-t-secondary hover:text-t-primary hover:bg-hover border border-border-subtle shadow-sm transition-colors"
+                  >
+                    {collapsed ? (
+                      <ChevronDown size={16} />
+                    ) : (
+                      <ChevronUp size={16} />
+                    )}
+                  </button>
+                </Tooltip>
+              )}
             </div>
           </div>
+
+          {/* 附件区 - 独立一行，右对齐 */}
+          {message.attachments && message.attachments.length > 0 && (
+            <div className="flex justify-end">
+              <AttachmentStrip attachments={message.attachments} />
+            </div>
+          )}
         </TooltipProvider>
 
         {/* 右键菜单 */}
@@ -535,7 +562,7 @@ export const UserMessage = memo(
           />
         )}
 
-      </>
+      </div>
     );
   },
   (prev, next) => {
