@@ -1,4 +1,4 @@
-import { memo, useCallback, useRef, useState, isValidElement, Children } from "react";
+import { memo, useCallback, useEffect, useRef, useState, isValidElement, Children } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import type { ChatMessage, MessagePart, ToolCall } from "@/stores/chat";
@@ -6,7 +6,7 @@ import { CodeBlock, StreamingContext } from "./CodeBlock";
 import { useThrottledValue } from "@/hooks/useThrottledValue";
 import { splitBlocks } from "./streamingMarkdown";
 import { InlineToolCallCard } from "./InlineToolCallCard";
-import { ChevronDown, ChevronRight, Brain, Copy, Check } from "lucide-react";
+import { ChevronRight, Brain, Copy, Check } from "lucide-react";
 import { Tooltip, TooltipProvider } from "@ftre/ui";
 import { useNotification } from "@/stores/notification";
 import { ThinkingIndicator } from "./ThinkingIndicator";
@@ -69,23 +69,75 @@ const MarkdownBlock = memo(
 );
 
 /** Collapsible reasoning */
-function ReasoningBlock({ text }: { text: string }) {
+function ReasoningBlock({ text, isActive }: { text: string; isActive: boolean }) {
   const [expanded, setExpanded] = useState(false);
+  const [userToggled, setUserToggled] = useState(false);
+  const contentRef = useRef<HTMLDivElement>(null);
+  const prevActive = useRef(isActive);
+  const prevTextLen = useRef(text.length);
+
+  // 推理开始 → 自动展开（除非用户手动收起过）
+  useEffect(() => {
+    if (isActive && !userToggled) {
+      setExpanded(true);
+    }
+  }, [isActive, userToggled]);
+
+  // 推理结束 → 自动折叠，重置手动标记
+  useEffect(() => {
+    if (prevActive.current && !isActive) {
+      setExpanded(false);
+      setUserToggled(false);
+    }
+    prevActive.current = isActive;
+  }, [isActive]);
+
+  // 内容增长 → 自动滚到底部
+  useEffect(() => {
+    if (isActive && expanded && contentRef.current && text.length > prevTextLen.current) {
+      contentRef.current.scrollTop = contentRef.current.scrollHeight;
+    }
+    prevTextLen.current = text.length;
+  }, [text.length, isActive, expanded]);
+
+  // 展开时（包括手动重新展开）→ 滚到底部，避免漏掉折叠期间新增的内容
+  useEffect(() => {
+    if (expanded && isActive && contentRef.current) {
+      contentRef.current.scrollTop = contentRef.current.scrollHeight;
+    }
+  }, [expanded, isActive]);
+
+  const handleToggle = useCallback(() => {
+    setExpanded((p) => !p);
+    setUserToggled(true);
+  }, []);
+
   return (
     <div className="mb-2">
       <button
-        onClick={() => setExpanded((p) => !p)}
+        onClick={handleToggle}
         className="flex items-center gap-1.5 text-[12px] text-t-dim hover:text-t-secondary transition-colors"
       >
         <Brain size={13} className="text-t-ghost" />
         <span>思考过程</span>
-        {expanded ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
+        <ChevronRight
+          size={12}
+          className={`transition-transform duration-200 ${expanded ? "rotate-90" : ""}`}
+        />
       </button>
-      {expanded && (
-        <div className="mt-1.5 pl-5 border-l-2 border-border-subtle text-[12px] text-t-dim leading-relaxed whitespace-pre-wrap max-h-[300px] overflow-y-auto">
-          {text}
+      <div
+        className="grid transition-[grid-template-rows] duration-200 ease-out"
+        style={{ gridTemplateRows: expanded ? "1fr" : "0fr" }}
+      >
+        <div className="overflow-hidden">
+          <div
+            ref={contentRef}
+            className="mt-1.5 pl-5 border-l-2 border-border-subtle text-[12px] text-t-dim leading-relaxed whitespace-pre-wrap max-h-[300px] overflow-y-auto"
+          >
+            {text}
+          </div>
         </div>
-      )}
+      </div>
     </div>
   );
 }
@@ -120,7 +172,9 @@ function PartsRenderer({
           return <InlineToolCallCard key={`tc-${tc.id}`} toolCall={tc} />;
         }
         if (p.type === "reasoning") {
-          return <ReasoningBlock key={`r-${i}`} text={p.text} />;
+          // reasoning part 自带 streaming 标记：reasoning_complete 事件会将其置为 false
+          const isReasoningLive = streaming && p.streaming !== false;
+          return <ReasoningBlock key={`r-${i}`} text={p.text} isActive={isReasoningLive} />;
         }
         return (
           <TextPart
@@ -228,7 +282,12 @@ export const AssistantMessage = memo(
                 ) : (
                   <>
                     {/* fallback：parts 为空但有 reasoning（如老历史只有 m.reasoning 字段） */}
-                    {message.reasoning && <ReasoningBlock text={message.reasoning} />}
+                    {message.reasoning && (
+                      <ReasoningBlock
+                        text={message.reasoning}
+                        isActive={isStreaming && !(message.content?.length) && !(message.toolCalls?.length)}
+                      />
+                    )}
                     {message.toolCalls && message.toolCalls.length > 0 && (
                       <div className="mb-2 space-y-2">
                         {message.toolCalls.map((tc, i) => (
