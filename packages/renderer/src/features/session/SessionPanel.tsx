@@ -36,6 +36,7 @@ import {
   Clock,
   Zap,
   Settings,
+  Pin,
 } from "lucide-react";
 import {
   DndContext,
@@ -139,6 +140,7 @@ const PER_GROUP_STEP = 10;
 
 // 工作区分组顺序持久化（与 recentFolders 解耦：纯前端排序偏好）
 const GROUP_ORDER_STORAGE_KEY = "ftre-session-group-order";
+const PINNED_SESSIONS_KEY = "ftre-pinned-sessions";
 
 function loadGroupOrder(): string[] {
   try {
@@ -154,6 +156,25 @@ function loadGroupOrder(): string[] {
 function saveGroupOrder(order: string[]): void {
   try {
     localStorage.setItem(GROUP_ORDER_STORAGE_KEY, JSON.stringify(order));
+  } catch {
+    /* ignore */
+  }
+}
+
+function loadPinnedSessions(): Set<string> {
+  try {
+    const raw = localStorage.getItem(PINNED_SESSIONS_KEY);
+    if (!raw) return new Set();
+    const parsed = JSON.parse(raw);
+    return new Set(Array.isArray(parsed) ? parsed.filter((x) => typeof x === "string") : []);
+  } catch {
+    return new Set();
+  }
+}
+
+function savePinnedSessions(pinned: Set<string>): void {
+  try {
+    localStorage.setItem(PINNED_SESSIONS_KEY, JSON.stringify([...pinned]));
   } catch {
     /* ignore */
   }
@@ -191,6 +212,8 @@ export function SessionPanel() {
   const [renamingSession, setRenamingSession] = useState<SessionSummary | null>(null);
   const [renameValue, setRenameValue] = useState("");
   const [loadingMore, setLoadingMore] = useState(false);
+  /** 置顶会话 ID 集合（纯前端，localStorage 持久化） */
+  const [pinnedSessions, setPinnedSessions] = useState<Set<string>>(() => loadPinnedSessions());
 
   const searchInputRef = useRef<HTMLInputElement>(null);
 
@@ -226,9 +249,14 @@ export function SessionPanel() {
       if (s.channel === "ws") ws.push(s);
       else others.push(s);
     }
-    others.sort((a, b) => (b.updated_at ?? 0) - (a.updated_at ?? 0));
+    others.sort((a, b) => {
+      const aPinned = pinnedSessions.has(a.session_id) ? 1 : 0;
+      const bPinned = pinnedSessions.has(b.session_id) ? 1 : 0;
+      if (aPinned !== bPinned) return bPinned - aPinned;
+      return (b.updated_at ?? 0) - (a.updated_at ?? 0);
+    });
     return { wsSessions: ws, otherSessions: others };
-  }, [filtered]);
+  }, [filtered, pinnedSessions]);
 
   /**
    * 桶顺序（仅 ws sessions 走分组）：
@@ -250,7 +278,12 @@ export function SessionPanel() {
       if (ts > g.latestAt) g.latestAt = ts;
     }
     for (const g of map.values()) {
-      g.sessions.sort((a, b) => (b.updated_at ?? 0) - (a.updated_at ?? 0));
+      g.sessions.sort((a, b) => {
+        const aPinned = pinnedSessions.has(a.session_id) ? 1 : 0;
+        const bPinned = pinnedSessions.has(b.session_id) ? 1 : 0;
+        if (aPinned !== bPinned) return bPinned - aPinned; // pinned first
+        return (b.updated_at ?? 0) - (a.updated_at ?? 0);
+      });
     }
 
     const activeKey = rootPath ? workspaceKey(rootPath) : null;
@@ -280,7 +313,7 @@ export function SessionPanel() {
     known.sort((a, b) => orderIdx.get(a.key)! - orderIdx.get(b.key)!);
     unknown.sort(defaultSort);
     return [...known, ...unknown];
-  }, [wsSessions, rootPath, groupOrder]);
+  }, [wsSessions, rootPath, groupOrder, pinnedSessions]);
 
   const totalCount = filtered.length;
   const hasMore = sessionsTotal > 0 && allSessions.length < sessionsTotal;
@@ -319,6 +352,16 @@ export function SessionPanel() {
     });
   }, []);
 
+  const handleTogglePin = useCallback((sessionId: string) => {
+    setPinnedSessions((prev) => {
+      const next = new Set(prev);
+      if (next.has(sessionId)) next.delete(sessionId);
+      else next.add(sessionId);
+      savePinnedSessions(next);
+      return next;
+    });
+  }, []);
+
   const handleRenameSession = useCallback(
     async (sessionId: string, newTitle: string) => {
       if (!newTitle.trim()) return;
@@ -338,9 +381,16 @@ export function SessionPanel() {
     (e: React.MouseEvent, session: SessionSummary) => {
       e.stopPropagation();
       e.preventDefault();
+      const isPinned = pinnedSessions.has(session.session_id);
       setContextMenu({
         position: { x: e.clientX, y: e.clientY },
         items: [
+          {
+            id: "pin-session",
+            label: isPinned ? "取消置顶" : "置顶",
+            icon: Pin,
+            action: () => handleTogglePin(session.session_id),
+          },
           {
             id: "copy-session-id",
             label: "复制 Session ID",
@@ -371,7 +421,7 @@ export function SessionPanel() {
         ],
       });
     },
-    [deleteSession, handleCompaction],
+    [deleteSession, handleCompaction, handleTogglePin, pinnedSessions],
   );
 
   const handleSearchToggle = useCallback(() => {
@@ -543,6 +593,7 @@ export function SessionPanel() {
                           currentSessionId={currentSessionId}
                           hoveredSession={hoveredSession}
                           loadingSessionId={loadingSessionId}
+                          pinnedSessions={pinnedSessions}
                           onSwitch={handleSwitchSession}
                           onHover={setHoveredSession}
                           onMenu={showSessionMenu}
@@ -575,6 +626,7 @@ export function SessionPanel() {
                         }
                         isHovered={hoveredSession === session.session_id}
                         isLoading={loadingSessionId === session.session_id}
+                        isPinned={pinnedSessions.has(session.session_id)}
                         onClick={() => handleSwitchSession(session.session_id)}
                         onEnter={() => setHoveredSession(session.session_id)}
                         onLeave={() => setHoveredSession(null)}
@@ -712,6 +764,7 @@ interface WorkspaceGroupProps {
   currentSessionId: string | null;
   hoveredSession: string | null;
   loadingSessionId: string | null;
+  pinnedSessions: Set<string>;
   onSwitch: (sessionId: string) => void;
   onHover: (sessionId: string | null) => void;
   onMenu: (e: React.MouseEvent, session: SessionSummary) => void;
@@ -727,6 +780,7 @@ function WorkspaceGroup({
   currentSessionId,
   hoveredSession,
   loadingSessionId,
+  pinnedSessions,
   onSwitch,
   onHover,
   onMenu,
@@ -760,7 +814,6 @@ function WorkspaceGroup({
           - 单击 → 在此工作区新建会话
           - 拖动（≥5px）→ 重排
           - dnd-kit 的 PointerSensor distance=5 已经在区分单击和拖动 */}
-      <Tooltip content="点击在此工作区新建会话" side="bottom">
         <div
           {...attributes}
           {...listeners}
@@ -785,7 +838,6 @@ function WorkspaceGroup({
             {bucket.sessions.length}
           </span>
         </div>
-      </Tooltip>
 
       {/* 会话列表（左缩进对齐工作区名） */}
       <div className="mt-0.5 space-y-px pl-[18px]">
@@ -799,6 +851,7 @@ function WorkspaceGroup({
             }
             isHovered={hoveredSession === session.session_id}
             isLoading={loadingSessionId === session.session_id}
+            isPinned={pinnedSessions.has(session.session_id)}
             onClick={() => onSwitch(session.session_id)}
             onEnter={() => onHover(session.session_id)}
             onLeave={() => onHover(null)}
@@ -871,6 +924,7 @@ interface SessionRowProps {
   isActive: boolean;
   isHovered: boolean;
   isLoading: boolean;
+  isPinned: boolean;
   onClick: () => void;
   onEnter: () => void;
   onLeave: () => void;
@@ -882,6 +936,7 @@ function SessionRow({
   isActive,
   isHovered,
   isLoading,
+  isPinned,
   onClick,
   onEnter,
   onLeave,
@@ -900,6 +955,10 @@ function SessionRow({
         : "hover:bg-hover"
         }`}
     >
+      {/* 置顶标记 */}
+      {isPinned && (
+        <Pin size={11} className="text-t-ghost shrink-0 -ml-0.5" strokeWidth={2} />
+      )}
       <span
         className={`flex-1 truncate text-[13.5px] ${isActive ? "text-t-primary font-medium" : "text-t-secondary"
           }`}
