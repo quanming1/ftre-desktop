@@ -27,6 +27,9 @@ import {
   Check,
   X,
   Copy,
+  FilePlus2,
+  FileSearch,
+  FolderTree,
 } from "lucide-react";
 
 // ─── 工具图标 ───────────────────────────────────────────────────────
@@ -35,8 +38,8 @@ type IconType = React.ComponentType<{ size?: number; className?: string; strokeW
 
 const TOOL_ICONS: Record<string, IconType> = {
   think: Brain, bash: Terminal, exec: Terminal, shell: Terminal,
-  read: FileText, read_file: FileText, list_dir: FileText,
-  write: FileText, write_file: FileText,
+  read: FileSearch, read_file: FileSearch, list_dir: FolderTree,
+  write: FilePlus2, write_file: FilePlus2,
   edit: FilePenLine, edit_file: FilePenLine,
   set_workspace: Folder, cron: Clock, task: MessagesSquare,
   send_message: Send, glob: Search, grep: Search,
@@ -55,19 +58,33 @@ function getIcon(name: string | undefined): IconType {
 
 // ─── 摘要生成（一行描述） ───────────────────────────────────────────
 
-function buildSummary(name: string | undefined, args: Record<string, unknown>, status: ToolCall["status"]): string {
+/**
+ * 用 "Verb target" 的句式描述这次工具调用，方便用户一眼看出"做了什么"。
+ * Verb 用英文动词（参考 Codex 风格），target 是关键参数：
+ *   Ran <command>          / 执行命令
+ *   Read <file> [Lx-y]     / 读文件
+ *   Wrote <file> (N lines) / 写文件
+ *   Edited <file>          / 编辑文件
+ *   Listed <dir>           / 列目录
+ *   cd <dir>               / 切换工作区（动作语义就是 cd）
+ *   Cron <action> "<title>"
+ *   Task: <prompt head>
+ *   Sent → <channel>
+ */
+function buildSummary(name: string | undefined, args: Record<string, unknown>, _status: ToolCall["status"]): string {
   const n = name ?? "unknown";
 
   switch (n) {
     case "think":
-      return "思考中...";
+      // think 走单独 inline 块，不会用到这条摘要
+      return "Thinking...";
     case "bash":
     case "exec":
     case "shell": {
       const cmd = (args.command as string) ?? "";
       const oneLine = cmd.replace(/\s+/g, " ").trim();
-      const display = oneLine.length > 80 ? oneLine.slice(0, 80) + "…" : oneLine;
-      return display ? `${display}` : "执行命令";
+      const display = oneLine.length > 70 ? oneLine.slice(0, 70) + "…" : oneLine;
+      return display ? `Ran ${display}` : "Running...";
     }
     case "read":
     case "read_file": {
@@ -76,7 +93,11 @@ function buildSummary(name: string | undefined, args: Record<string, unknown>, s
       const start = args.start_line as number | undefined;
       const end = args.end_line as number | undefined;
       const range = start || end ? ` L${start || 1}-${end || "end"}` : "";
-      return file ? `${file}${range}` : "读取文件";
+      return file ? `Read ${file}${range}` : "Reading...";
+    }
+    case "list_dir": {
+      const path = (args.path as string) ?? "";
+      return path ? `Listed ${basename(path) || path}` : "Listing...";
     }
     case "write":
     case "write_file": {
@@ -85,38 +106,54 @@ function buildSummary(name: string | undefined, args: Record<string, unknown>, s
       const content = args.content as string | undefined;
       const lines = content ? content.split("\n").length : 0;
       const suffix = lines > 0 ? ` (${lines} lines)` : "";
-      return file ? `${file}${suffix}` : "写入文件";
+      return file ? `Wrote ${file}${suffix}` : "Writing...";
     }
     case "edit":
     case "edit_file": {
       const path = (args.path as string) ?? "";
       const file = basename(path);
-      return file ? `${file}` : "编辑文件";
+      return file ? `Edited ${file}` : "Editing...";
     }
     case "set_workspace": {
       const path = (args.path as string) ?? "";
       const parts = path.replace(/\\/g, "/").split("/").filter(Boolean);
       const tail = parts.slice(-2).join("/");
-      return tail ? `→ ${tail}` : "切换工作区";
+      return tail ? `cd ${tail}` : "切换工作区";
     }
     case "cron": {
       const action = (args.action as string) ?? "";
       const title = (args.title as string) ?? "";
-      return title ? `${action} "${title}"` : action || "cron";
+      const jobId = (args.job_id as string) ?? "";
+      switch (action) {
+        case "create":
+          return title ? `Cron · created "${title}"` : "Cron · create";
+        case "list":
+          return "Cron · list";
+        case "delete":
+          return jobId ? `Cron · deleted ${jobId}` : "Cron · delete";
+        case "update":
+          return jobId ? `Cron · updated ${jobId}` : "Cron · update";
+        default:
+          return action ? `Cron · ${action}` : "Cron";
+      }
     }
     case "task": {
       const prompt = (args.prompt as string) ?? "";
-      const short = prompt.split("\n")[0]?.slice(0, 60) ?? "";
-      return short ? `${short}${prompt.length > 60 ? "…" : ""}` : "派发子任务";
+      const sid = (args.session_id as string) ?? "";
+      const short = prompt.split("\n")[0]?.slice(0, 50) ?? "";
+      const head = short ? `Task · ${short}${prompt.length > 50 ? "…" : ""}` : "Task · 派发";
+      return sid ? `${head} (resume)` : head;
     }
     case "send_message": {
       const ch = (args.channel_id as string) ?? "";
-      return ch ? `→ ${ch}` : "发送消息";
+      const sid = (args.session_id as string) ?? "";
+      if (ch && sid) return `Sent → ${ch}:${sid.slice(0, 8)}`;
+      if (ch) return `Sent → ${ch}`;
+      return "Sending...";
     }
-    default: {
-      // 未知工具：显示工具名
+    default:
+      // 未知/插件工具：原样显示工具名
       return n;
-    }
   }
 }
 
@@ -137,6 +174,29 @@ function parseArgs(raw: ToolCall["arguments"]): Record<string, unknown> {
     } catch { /* streaming partial JSON */ }
   }
   return {};
+}
+
+// ─── 摘要行渲染：动词加粗一档（只对第一个 token 加权重） ──────────
+
+const VERB_PATTERN = /^(Ran|Read|Wrote|Edited|Listed|Sent|Cron|Task|cd)\b/;
+
+function SummaryLine({ summary, className = "" }: { summary: string; className?: string }) {
+  const m = summary.match(VERB_PATTERN);
+  if (!m) {
+    return (
+      <span className={`text-[13px] font-mono text-t-dim group-hover:text-t-secondary transition-colors truncate ${className}`}>
+        {summary}
+      </span>
+    );
+  }
+  const verb = m[0];
+  const rest = summary.slice(verb.length);
+  return (
+    <span className={`text-[13px] font-mono truncate ${className}`}>
+      <span className="text-t-secondary font-medium">{verb}</span>
+      <span className="text-t-dim group-hover:text-t-secondary transition-colors">{rest}</span>
+    </span>
+  );
 }
 
 // ─── 主组件 ─────────────────────────────────────────────────────────
@@ -208,10 +268,8 @@ export const InlineToolCallCard = memo(
           {/* 图标 */}
           <Icon size={14} className="text-t-ghost shrink-0" strokeWidth={1.5} />
 
-          {/* 摘要文字 */}
-          <span className="text-[13px] font-mono text-t-dim group-hover:text-t-secondary transition-colors truncate flex-1">
-            {summary}
-          </span>
+          {/* 摘要文字：Verb (target) 句式，verb 加粗一点便于扫读 */}
+          <SummaryLine summary={summary} className="flex-1" />
 
           {/* 状态 */}
           {isPending && <Loader2 size={12} className="text-t-ghost animate-spin shrink-0" />}
