@@ -13,7 +13,6 @@ import { memo, useState, useCallback, useEffect, useRef } from "react";
 import type { ToolCall } from "@/stores/chat";
 import {
   ChevronRight,
-  ChevronDown,
   Terminal,
   FileText,
   FilePenLine,
@@ -245,7 +244,7 @@ function ThinkBlock({
       <Brain size={14} className="text-t-ghost shrink-0 mt-0.5" strokeWidth={1.5} />
       <div className="flex-1 min-w-0">
         <div
-          className={`relative ${expanded ? "max-h-[480px] overflow-y-auto" : "max-h-[120px] overflow-hidden"}`}
+          className={`relative ${expanded ? "max-h-[480px] overflow-y-auto" : "max-h-[120px] overflow-hidden"} transition-all duration-200 ease-out`}
         >
           <div
             ref={contentRef}
@@ -327,7 +326,7 @@ export const InlineToolCallCard = memo(
           {/* 展开箭头（有结果时才显示） */}
           {hasResult || isError ? (
             <span className="text-t-ghost shrink-0 w-3.5">
-              {expanded ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
+              <ChevronRight size={13} className={`transition-transform duration-200 ${expanded ? "rotate-90" : ""}`} />
             </span>
           ) : (
             <span className="w-3.5 shrink-0" />
@@ -347,24 +346,31 @@ export const InlineToolCallCard = memo(
         </button>
 
         {/* 展开详情 */}
-        {expanded && toolCall.result && (
-          <div className="ml-[22px] mt-1 mb-2 relative group/result">
-            <button
-              onClick={handleCopy}
-              className="absolute top-2 right-2 p-1 rounded opacity-0 group-hover/result:opacity-100 transition-opacity bg-elevated hover:bg-hover z-10"
-              title="复制"
-            >
-              {copied
-                ? <Check size={11} className="text-green-600" />
-                : <Copy size={11} className="text-t-dim" />}
-            </button>
-            <ExpandedDetail
-              toolCall={toolCall}
-              args={args}
-              isError={isError}
-            />
+        <div
+          className="grid transition-[grid-template-rows] duration-200 ease-out"
+          style={{ gridTemplateRows: expanded && toolCall.result ? "1fr" : "0fr" }}
+        >
+          <div className="overflow-hidden">
+            {toolCall.result && (
+              <div className="ml-[22px] mt-1 mb-2 relative group/result">
+                <button
+                  onClick={handleCopy}
+                  className="absolute top-2 right-2 p-1 rounded opacity-0 group-hover/result:opacity-100 transition-opacity bg-elevated hover:bg-hover z-10"
+                  title="复制"
+                >
+                  {copied
+                    ? <Check size={11} className="text-green-600" />
+                    : <Copy size={11} className="text-t-dim" />}
+                </button>
+                <ExpandedDetail
+                  toolCall={toolCall}
+                  args={args}
+                  isError={isError}
+                />
+              </div>
+            )}
           </div>
-        )}
+        </div>
       </div>
     );
   },
