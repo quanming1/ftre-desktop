@@ -10,6 +10,7 @@
 import { memo, useRef, useEffect, useState, useCallback } from "react";
 import { ChevronUp } from "lucide-react";
 import type { ChatMessage } from "@/stores/chat";
+import { useAutoScrollToBottom } from "@/hooks/auto-scroll";
 import { UserMessage } from "./UserMessage";
 import { AssistantMessage } from "./AssistantMessage";
 import { TypingDots } from "./TypingDots";
@@ -39,26 +40,70 @@ export const ChatMessageList = memo(function ChatMessageList({
   maxHeight,
   className = "",
 }: ChatMessageListProps) {
-  const bottomRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
 
-  // Reset visible count when switching sessions (message list changes entirely)
+  // ─── Auto-scroll hook ───────────────────────────────────────────
+  // deps: 最后一条消息 id 变化 → 切 session 时重置锁
+  const lastMsgId = messages[messages.length - 1]?.id;
+  const { ref: autoScrollRef, scrollToBottom, resetLock } = useAutoScrollToBottom(
+    lastMsgId ? [lastMsgId] : undefined,
+    { autoScrollLockDefault: true },
+  );
+  const mergedRef = useCallback(
+    (el: HTMLDivElement | null) => {
+      containerRef.current = el;
+      autoScrollRef(el);
+    },
+    [autoScrollRef],
+  );
+
+  // 新一轮流开始 → 强制重新跟随
+  const prevBusy = useRef(false);
+  useEffect(() => {
+    if (isBusy && !prevBusy.current) resetLock();
+    prevBusy.current = isBusy;
+  }, [isBusy, resetLock]);
+
+  // ─── 尾部消息指纹 —— 覆盖流式期间所有增量来源 ─────────────────
+  // 流式期间 messages.length 不变，但最后一条的 content/parts/toolCalls 在涨。
+  // 指纹变化 → scrollToBottom，锁由 hook 内部管理。
+  const lastMsg = messages[messages.length - 1];
+  const tailFingerprint =
+    !lastMsg
+      ? ""
+      : `${lastMsg.id}:${(lastMsg.content ?? "").length}:${(lastMsg.reasoning ?? "").length}:${
+          lastMsg.parts
+            ?.map((p) =>
+              p.type === "tool_call"
+                ? `t${p.toolCallId}`
+                : `${p.type[0]}${p.text.length}`,
+            )
+            .join("|") ?? ""
+        }:${
+          lastMsg.toolCalls
+            ?.map(
+              (t) =>
+                `${t.id}${t.status}${t.arguments?.length ?? 0}${(t.result ?? "").length}`,
+            )
+            .join("|") ?? ""
+        }`;
+
+  useEffect(() => {
+    if (!autoScroll) return;
+    scrollToBottom();
+  }, [tailFingerprint, autoScroll, scrollToBottom]);
+
+  // ─── 加载更多 ──────────────────────────────────────────────────
+
+  // Reset visible count when switching sessions
   const prevLenRef = useRef(messages.length);
   useEffect(() => {
-    // If messages shrunk (session switch) or went to 0, reset
     if (messages.length < prevLenRef.current || messages.length === 0) {
       setVisibleCount(PAGE_SIZE);
     }
     prevLenRef.current = messages.length;
   }, [messages.length]);
-
-  // Auto-scroll on new messages
-  useEffect(() => {
-    if (autoScroll && bottomRef.current) {
-      bottomRef.current.scrollIntoView({ behavior: "instant" });
-    }
-  }, [messages.length, autoScroll]);
 
   const totalCount = messages.length;
   const startIndex = Math.max(0, totalCount - visibleCount);
@@ -66,12 +111,18 @@ export const ChatMessageList = memo(function ChatMessageList({
   const hasMore = startIndex > 0;
 
   const loadMore = useCallback(() => {
+    const el = containerRef.current;
+    const prev = el?.scrollHeight ?? 0;
     setVisibleCount((prev) => Math.min(prev + PAGE_SIZE, totalCount));
+    requestAnimationFrame(() => {
+      if (!el) return;
+      el.scrollTop += el.scrollHeight - prev;
+    });
   }, [totalCount]);
 
   return (
     <div
-      ref={containerRef}
+      ref={mergedRef}
       className={`overflow-y-auto overflow-x-hidden px-4 py-3 ${className}`}
       style={{
         maxHeight,
@@ -99,18 +150,12 @@ export const ChatMessageList = memo(function ChatMessageList({
         )}
 
         {visibleMessages.map((msg, i) => {
-          // 判断 assistant 消息是否为"本轮最后一条"：
-          // - 是 assistant 角色
-          // - 不在流式中
-          // - 后面紧跟的不是 assistant（下一条是 user / system / 没有下一条）
           const next = visibleMessages[i + 1];
           const isLastOfTurn =
             msg.role === "assistant" &&
             !msg.streaming &&
             (!next || next.role !== "assistant");
 
-          // 计算"本轮新增 token"：当前 assistant 的 total_tokens
-          // 减去最近一条更早的有 usage 的 assistant 的 total_tokens
           let turnUsage: ChatMessage["usage"] | undefined;
           if (msg.role === "assistant" && msg.usage) {
             let prevTotal = 0;
@@ -140,12 +185,10 @@ export const ChatMessageList = memo(function ChatMessageList({
           );
         })}
 
-        {/* Typing indicator —— 刚发送 → 第一个 event 之间的占位 */}
+        {/* Typing indicator */}
         {isBusy && !messages.some((m) => m.streaming) && (
           <TypingDots className="py-2" />
         )}
-
-        <div ref={bottomRef} />
       </div>
     </div>
   );
