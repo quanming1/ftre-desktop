@@ -8,9 +8,11 @@
  * - Embedded panels (preview, debug)
  */
 import { memo, useRef, useEffect, useState, useCallback } from "react";
-import { ChevronUp } from "lucide-react";
+import { ChevronUp, Loader2 } from "lucide-react";
 import type { ChatMessage } from "@/stores/chat";
 import { useAutoScrollToBottom } from "@/hooks/auto-scroll";
+import { useChat } from "@/stores/chat";
+import { useSession } from "@/stores/session";
 import { UserMessage } from "./UserMessage";
 import { AssistantMessage } from "./AssistantMessage";
 import { TypingDots } from "./TypingDots";
@@ -132,17 +134,53 @@ export const ChatMessageList = memo(function ChatMessageList({
   const totalCount = messages.length;
   const startIndex = Math.max(0, totalCount - visibleCount);
   const visibleMessages = messages.slice(startIndex);
-  const hasMore = startIndex > 0;
+  // 本地 hidden（前端已加载但被 visibleCount 截掉的）
+  const localHidden = startIndex;
+  // 后端是否还有更早的页可拉
+  const sessionId = useChat((s) => s.sessionId);
+  const hasMoreHistory = useChat((s) =>
+    sessionId ? s.hasMoreHistory(sessionId) : false,
+  );
+  const loadEarlier = useSession((s) => s.loadEarlierMessages);
 
-  const loadMore = useCallback(() => {
+  const hasMore = localHidden > 0 || hasMoreHistory;
+
+  // 后端拉历史时的 loading 标记（避免重复点）
+  const [loadingHistory, setLoadingHistory] = useState(false);
+
+  const loadMore = useCallback(async () => {
     const el = containerRef.current;
-    const prev = el?.scrollHeight ?? 0;
-    setVisibleCount((prev) => Math.min(prev + PAGE_SIZE, totalCount));
-    requestAnimationFrame(() => {
-      if (!el) return;
-      el.scrollTop += el.scrollHeight - prev;
-    });
-  }, [totalCount]);
+    const prevHeight = el?.scrollHeight ?? 0;
+
+    // 优先扩 visibleCount，覆盖前端已加载但被截掉的部分
+    if (localHidden > 0) {
+      setVisibleCount((prev) => Math.min(prev + PAGE_SIZE, totalCount));
+      requestAnimationFrame(() => {
+        if (!el) return;
+        el.scrollTop += el.scrollHeight - prevHeight;
+      });
+      return;
+    }
+
+    // visibleCount 已撑满当前 messages —— 去后端拉更早一页
+    if (!hasMoreHistory || !sessionId || loadingHistory) return;
+    setLoadingHistory(true);
+    try {
+      const got = await loadEarlier(sessionId);
+      if (got) {
+        // prepend 后 messages.length 涨了，把 visibleCount 也跟涨：
+        // 老规则下"加载完一页只显示 PAGE_SIZE"会让用户感觉点了没用，
+        // 把 visibleCount 跟着扩到能至少展示新拉到的那一档。
+        setVisibleCount((prev) => prev + PAGE_SIZE);
+        requestAnimationFrame(() => {
+          if (!el) return;
+          el.scrollTop += el.scrollHeight - prevHeight;
+        });
+      }
+    } finally {
+      setLoadingHistory(false);
+    }
+  }, [localHidden, totalCount, hasMoreHistory, sessionId, loadingHistory, loadEarlier]);
 
   return (
     <div
@@ -159,10 +197,25 @@ export const ChatMessageList = memo(function ChatMessageList({
           <div className="text-center py-2">
             <button
               onClick={loadMore}
-              className="inline-flex items-center gap-1.5 text-[12px] text-t-ghost hover:text-t-muted transition-colors"
+              disabled={loadingHistory}
+              className="inline-flex items-center gap-1.5 text-[12px] text-t-ghost hover:text-t-muted transition-colors disabled:opacity-50"
             >
-              <ChevronUp size={14} />
-              加载更早的消息（还有 {startIndex} 条）
+              {loadingHistory ? (
+                <>
+                  <Loader2 size={14} className="animate-spin" />
+                  加载中...
+                </>
+              ) : localHidden > 0 ? (
+                <>
+                  <ChevronUp size={14} />
+                  加载更早的消息（还有 {localHidden} 条）
+                </>
+              ) : (
+                <>
+                  <ChevronUp size={14} />
+                  从服务器加载更早的消息
+                </>
+              )}
             </button>
           </div>
         )}

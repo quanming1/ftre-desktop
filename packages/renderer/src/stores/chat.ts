@@ -75,13 +75,27 @@ export interface RetryState {
 
 interface Bucket {
   messages: ChatMessage[];
+  /** 原始事件流（按 timestamp ASC）。reducer 的输入源，用于增量加载更早消息时的可重入回放。 */
+  events: BusEvent[];
+  /** 已知最早事件的 timestamp（events[0].ts）；用于"加载更早"分页时作为 before_ts。null = 还没拉过 / 没消息 */
+  earliestTs: number | null;
+  /** 历史是否还有更早的页可以拉（基于后端 has_more） */
+  hasMoreHistory: boolean;
   isBusy: boolean;
   error: string | null;
   retryState: RetryState | null;
 }
 
 const buckets = new Map<string, Bucket>();
-const emptyBucket = (): Bucket => ({ messages: [], isBusy: false, error: null, retryState: null });
+const emptyBucket = (): Bucket => ({
+  messages: [],
+  events: [],
+  earliestTs: null,
+  hasMoreHistory: false,
+  isBusy: false,
+  error: null,
+  retryState: null,
+});
 function bucket(sid: string): Bucket {
   let b = buckets.get(sid);
   if (!b) buckets.set(sid, (b = emptyBucket()));
@@ -505,7 +519,11 @@ if (!(globalThis as any)[__wsBoundFlag]) {
     const sid = msg.metadata?.session_id as string | undefined;
     if (!sid) return;
 
-    applyEvent(bucket(sid), { type: ev.type, data: ev.data });
+    const b = bucket(sid);
+    const busEvent: BusEvent = { type: ev.type, data: ev.data };
+    // 入桶事件缓存：分页 / refresh 重放时要回到这条事件流
+    b.events.push(busEvent);
+    applyEvent(b, busEvent);
     mirror(sid);
 
     // 实时事件结束后刷新 token 估算：
@@ -599,6 +617,23 @@ interface ChatState {
   hasSessionCache: (sessionId: string) => boolean;
   /** 把一组 BusEvent 喂给指定 session（history loader 用） */
   loadSessionEvents: (sessionId: string, events: BusEvent[], mode: "hydrate" | "refresh") => void;
+  /**
+   * 把一段更早的 BusEvent prepend 到 session 的事件流，重新走一遍 reducer 重建 messages。
+   * 用于"加载更早消息"分页：events 是分页拉到的更早一段（按 timestamp ASC 排好）。
+   *
+   * mode 与 loadSessionEvents 一致：
+   *   - hydrate：仅当桶非空且与现有 events 不重叠时插入（首次拉早期分页）
+   *   - refresh：流式中跳过；非流式时合并去重再重放
+   */
+  prependSessionEvents: (
+    sessionId: string,
+    events: BusEvent[],
+    hasMoreHistory: boolean,
+  ) => void;
+  /** 取该 session 已知最早事件的 timestamp（用作"加载更早"的 before_ts） */
+  getEarliestEventTs: (sessionId: string) => number | null;
+  /** 该 session 的历史是否还有更早的页可拉 */
+  hasMoreHistory: (sessionId: string) => boolean;
   setModel: (model: string | null) => void;
   setProvider: (provider: string | null) => void;
   setAgentId: (id: string) => void;
@@ -743,6 +778,11 @@ export const useChat = create<ChatState>((set, get) => ({
     if (mode === "refresh" && (b.isBusy || tail?.streaming)) return;
     if (mode === "hydrate" && b.messages.length > 0) return;
     b.messages = [];
+    b.events = [...events];
+    b.earliestTs = events.length > 0 ? events[0].ts ?? null : null;
+    // hasMoreHistory 由调用方在分页响应中告知；这里先不动（loadSessionEvents 只
+    // 接收一段 events，不知道更早还有没有）。session.ts 在分页路径里直接调
+    // prependSessionEvents 来表达"还有更早"。
     for (const ev of events) applyEvent(b, ev);
     // history 回放完毕：若尾部仍标记 streaming（无显式 done），收尾。
     // 同步把末尾还在"流式填充"的 part 也封口，避免遗留状态影响后续判断。
@@ -756,6 +796,55 @@ export const useChat = create<ChatState>((set, get) => ({
     }
     mirror(sessionId);
   },
+
+  prependSessionEvents: (sessionId, earlierEvents, hasMoreHistory) => {
+    if (earlierEvents.length === 0) {
+      // 没有更早的，但要更新 hasMoreHistory 状态
+      const b = bucket(sessionId);
+      b.hasMoreHistory = hasMoreHistory;
+      return;
+    }
+    const b = bucket(sessionId);
+    const tail = last(b.messages);
+    // 流式中跳过，避免重排打断（与 loadSessionEvents 'refresh' 同语义）
+    if (b.isBusy || tail?.streaming) return;
+
+    // 按 message id 去重合并（earlier 在前；旧 events 在后）
+    const seen = new Set<string>();
+    const merged: BusEvent[] = [];
+    for (const ev of earlierEvents) {
+      if (ev.id && seen.has(ev.id)) continue;
+      if (ev.id) seen.add(ev.id);
+      merged.push(ev);
+    }
+    for (const ev of b.events) {
+      if (ev.id && seen.has(ev.id)) continue;
+      if (ev.id) seen.add(ev.id);
+      merged.push(ev);
+    }
+    // 按 timestamp 升序兜底排序（一般 earlier 已经升序、merged 后仍升序，但保险）
+    merged.sort((a, b2) => (a.ts ?? 0) - (b2.ts ?? 0));
+
+    b.events = merged;
+    b.earliestTs = merged[0]?.ts ?? null;
+    b.hasMoreHistory = hasMoreHistory;
+    b.messages = [];
+    for (const ev of merged) applyEvent(b, ev);
+
+    const t = last(b.messages);
+    if (t?.streaming) {
+      const parts = [...(t.parts || [])];
+      sealStreamingPart(parts);
+      const next = b.messages.slice();
+      next[next.length - 1] = { ...t, parts, streaming: false };
+      b.messages = next;
+    }
+    mirror(sessionId);
+  },
+
+  getEarliestEventTs: (sessionId) => bucket(sessionId).earliestTs,
+
+  hasMoreHistory: (sessionId) => bucket(sessionId).hasMoreHistory,
 
   setModel: (model) => set({ model }),
   setProvider: (provider) => set({ provider }),
