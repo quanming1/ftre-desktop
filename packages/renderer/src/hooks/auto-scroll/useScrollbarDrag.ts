@@ -18,13 +18,11 @@ export function useScrollbarDrag<T extends HTMLElement>(
   const isDraggingScrollbar = useRef(false);
   const lastScrollTop = useRef(0);
 
-  // 用 ref 存回调，事件处理器始终读取最新引用，useEffect 不再依赖回调变化
-  const callbacksRef = useRef(options);
-  callbacksRef.current = options;
-
   useEffect(() => {
     const container = containerRef.current;
     if (!container) return;
+
+    const { onDragStart, onDragging, onDragEnd } = options;
 
     const handleMouseDown = (e: MouseEvent) => {
       const rect = container.getBoundingClientRect();
@@ -32,7 +30,7 @@ export function useScrollbarDrag<T extends HTMLElement>(
 
       if (clickX >= rect.width - SCROLLBAR_WIDTH) {
         isDraggingScrollbar.current = true;
-        callbacksRef.current.onDragStart?.();
+        onDragStart?.();
       }
     };
 
@@ -42,14 +40,14 @@ export function useScrollbarDrag<T extends HTMLElement>(
         const direction: ScrollDirection =
           currentScrollTop > lastScrollTop.current ? 'down' : 'up';
         lastScrollTop.current = currentScrollTop;
-        callbacksRef.current.onDragging?.(direction);
+        onDragging?.(direction);
       }
     };
 
     const handleMouseUp = () => {
       if (isDraggingScrollbar.current) {
         isDraggingScrollbar.current = false;
-        callbacksRef.current.onDragEnd?.();
+        onDragEnd?.();
       }
     };
 
@@ -62,7 +60,7 @@ export function useScrollbarDrag<T extends HTMLElement>(
       container.removeEventListener('scroll', handleScroll);
       document.removeEventListener('mouseup', handleMouseUp);
     };
-  }, []);
+  }, [options.onDragStart, options.onDragging, options.onDragEnd]);
 
   return containerRef;
 }
