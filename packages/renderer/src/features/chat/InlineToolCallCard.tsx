@@ -70,21 +70,32 @@ function getIcon(name: string | undefined): IconType {
  *   Cron <action> "<title>"
  *   Task: <prompt head>
  *   Sent → <channel>
+ *
+ * status 决定动词时态：
+ *   - pending/running → "...ing"
+ *   - ok/error        → 过去式（哪怕错误也是"已经尝试过"，不能再回到 ing）
  */
-function buildSummary(name: string | undefined, args: Record<string, unknown>, _status: ToolCall["status"]): string {
+function buildSummary(
+  name: string | undefined,
+  args: Record<string, unknown>,
+  status: ToolCall["status"],
+): string {
   const n = name ?? "unknown";
+  // 完成态（含失败）一律给过去式 fallback，避免错误时摘要还停在 "...ing"
+  const isDone = status === "ok" || status === "error";
 
   switch (n) {
     case "think":
       // think 走单独 inline 块，不会用到这条摘要
-      return "Thinking...";
+      return isDone ? "Thought" : "Thinking...";
     case "bash":
     case "exec":
     case "shell": {
       const cmd = (args.command as string) ?? "";
       const oneLine = cmd.replace(/\s+/g, " ").trim();
       const display = oneLine.length > 70 ? oneLine.slice(0, 70) + "…" : oneLine;
-      return display ? `Ran ${display}` : "Running...";
+      if (display) return `Ran ${display}`;
+      return isDone ? "Ran command" : "Running...";
     }
     case "read":
     case "read_file": {
@@ -93,11 +104,13 @@ function buildSummary(name: string | undefined, args: Record<string, unknown>, _
       const start = args.start_line as number | undefined;
       const end = args.end_line as number | undefined;
       const range = start || end ? ` L${start || 1}-${end || "end"}` : "";
-      return file ? `Read ${file}${range}` : "Reading...";
+      if (file) return `Read ${file}${range}`;
+      return isDone ? "Read" : "Reading...";
     }
     case "list_dir": {
       const path = (args.path as string) ?? "";
-      return path ? `Listed ${basename(path) || path}` : "Listing...";
+      if (path) return `Listed ${basename(path) || path}`;
+      return isDone ? "Listed" : "Listing...";
     }
     case "write":
     case "write_file": {
@@ -106,19 +119,22 @@ function buildSummary(name: string | undefined, args: Record<string, unknown>, _
       const content = args.content as string | undefined;
       const lines = content ? content.split("\n").length : 0;
       const suffix = lines > 0 ? ` (${lines} lines)` : "";
-      return file ? `Wrote ${file}${suffix}` : "Writing...";
+      if (file) return `Wrote ${file}${suffix}`;
+      return isDone ? "Wrote" : "Writing...";
     }
     case "edit":
     case "edit_file": {
       const path = (args.path as string) ?? "";
       const file = basename(path);
-      return file ? `Edited ${file}` : "Editing...";
+      if (file) return `Edited ${file}`;
+      return isDone ? "Edited" : "Editing...";
     }
     case "set_workspace": {
       const path = (args.path as string) ?? "";
       const parts = path.replace(/\\/g, "/").split("/").filter(Boolean);
       const tail = parts.slice(-2).join("/");
-      return tail ? `cd ${tail}` : "切换工作区";
+      if (tail) return `cd ${tail}`;
+      return isDone ? "set_workspace" : "切换工作区";
     }
     case "cron": {
       const action = (args.action as string) ?? "";
@@ -149,7 +165,7 @@ function buildSummary(name: string | undefined, args: Record<string, unknown>, _
       const sid = (args.session_id as string) ?? "";
       if (ch && sid) return `Sent → ${ch}:${sid.slice(0, 8)}`;
       if (ch) return `Sent → ${ch}`;
-      return "Sending...";
+      return isDone ? "Sent" : "Sending...";
     }
     default:
       // 未知/插件工具：原样显示工具名
