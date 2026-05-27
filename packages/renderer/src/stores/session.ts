@@ -10,6 +10,7 @@ import type { SessionSummary } from "@/services/api";
 import {
   fetchSessionPage,
   fetchSessionMessages,
+  fetchSessionMessagesPage,
   deleteSessionRemote,
 } from "@/services/api";
 import { useWorkspace } from "./workspace";
@@ -72,6 +73,15 @@ const saveTabsToStorage = (tabs: string[]) => {
  */
 const FIRST_PAGE_SIZE = 50;
 
+/**
+ * 单个 session 内的消息分页大小。
+ * - ChatMessageList 默认渲染 PAGE_SIZE=10 条 ChatMessage（约 5 轮对话）
+ * - 1 轮 react 平均产生 5-15 个 events（USER_INPUT + 多个 tool_call/tool_result + message_complete）
+ * - 200 events 足够覆盖 ~20 轮对话，远超首屏可见范围；用户多翻几屏也基本不用第二次请求
+ */
+const FIRST_PAGE_EVENTS = 200;
+const NEXT_PAGE_EVENTS = 200;
+
 interface SessionState {
   sessions: SessionSummary[];
   allSessions: SessionSummary[];
@@ -89,6 +99,8 @@ interface SessionState {
   loadMoreSessions: (extraCount: number) => Promise<void>;
   loadWorkspaceSessions: (workspace: string) => Promise<void>;
   switchSession: (sessionId: string) => Promise<void>;
+  /** 加载更早一页消息（基于当前桶最早事件的 timestamp 作 before_ts）。返回是否真的拉到内容。 */
+  loadEarlierMessages: (sessionId: string) => Promise<boolean>;
   openTab: (sessionId: string) => void;
   closeTab: (sessionId: string) => void;
   deleteSession: (sessionId: string) => Promise<void>;
@@ -190,19 +202,45 @@ export const useSession = create<SessionState>((set, get) => ({
     const isFirstLoad = !useChat.getState().hasSessionCache(sessionId);
     set({ loadingSessionId: sessionId });
 
-    fetchSessionMessages(sessionId)
-      .then((records) => {
-        if (!records) return;
+    // 分页拉首屏（末尾 N 条事件）。流式期间 chat store 自己会用 mode 兜底跳过。
+    fetchSessionMessagesPage(sessionId, { limit: FIRST_PAGE_EVENTS })
+      .then((page) => {
+        if (!page) return;
         useChat.getState().loadSessionEvents(
           sessionId,
-          historyToEvents(records),
+          historyToEvents(page.messages),
           isFirstLoad ? "hydrate" : "refresh",
         );
+        // hasMoreHistory 标记：后续"加载更早"按钮会用
+        useChat.getState().prependSessionEvents(sessionId, [], page.hasMore);
       })
       .catch((err) => console.error("[Session] switchSession fetch error:", err))
       .finally(() => {
         if (get().loadingSessionId === sessionId) set({ loadingSessionId: null });
       });
+  },
+
+  loadEarlierMessages: async (sessionId) => {
+    const chat = useChat.getState();
+    if (!chat.hasMoreHistory(sessionId)) return false;
+    const earliestTs = chat.getEarliestEventTs(sessionId);
+    if (earliestTs == null) return false;
+
+    try {
+      const page = await fetchSessionMessagesPage(sessionId, {
+        limit: NEXT_PAGE_EVENTS,
+        beforeTs: earliestTs,
+      });
+      chat.prependSessionEvents(
+        sessionId,
+        historyToEvents(page.messages),
+        page.hasMore,
+      );
+      return page.messages.length > 0;
+    } catch (err) {
+      console.error("[Session] loadEarlierMessages error:", err);
+      return false;
+    }
   },
 
   openTab: (sessionId) => {

@@ -206,7 +206,9 @@ export interface SessionMessage {
 
 /**
  * Fetch messages for a session from REST API.
- * 新后端返回格式: { messages: [{id, session_id, type, data, timestamp}] }
+ * 新后端返回格式: { messages: [{id, session_id, type, data, timestamp}], has_more, total }
+ *
+ * 不传 opts → 一次性拿全（向后兼容；用于历史回放等需要全量上下文的场景）。
  */
 export async function fetchSessionMessages(
   sessionId: string,
@@ -227,6 +229,54 @@ export async function fetchSessionMessages(
   } catch (e) {
     console.error("[API] fetchSessionMessages error:", e);
     return [];
+  }
+}
+
+/** 分页拉消息的响应 */
+export interface SessionMessagesPage {
+  messages: SessionMessage[];
+  /** 本页起点之前是否还有更早的消息 */
+  hasMore: boolean;
+  /** session 当前消息总数（不分页时给的全量） */
+  total: number;
+}
+
+/**
+ * 分页拉 session messages。
+ *
+ * 典型用法：
+ *   - 首屏：fetchSessionMessagesPage(sid, { limit: 200 }) → 末尾 200 条
+ *   - 加载更早：fetchSessionMessagesPage(sid, { limit: 200, beforeTs: earliest })
+ *   - 流式期间漏掉的增量：fetchSessionMessagesPage(sid, { afterTs: lastSeen })
+ */
+export async function fetchSessionMessagesPage(
+  sessionId: string,
+  opts: {
+    limit?: number;
+    beforeTs?: number;
+    afterTs?: number;
+  } = {},
+): Promise<SessionMessagesPage> {
+  const params = new URLSearchParams();
+  if (opts.limit !== undefined) params.set("limit", String(opts.limit));
+  if (opts.beforeTs !== undefined) params.set("before_ts", String(opts.beforeTs));
+  if (opts.afterTs !== undefined) params.set("after_ts", String(opts.afterTs));
+  const qs = params.toString();
+  const url =
+    `http://127.0.0.1:18790/api/sessions/${encodeURIComponent(sessionId)}/messages` +
+    (qs ? `?${qs}` : "");
+  try {
+    const res = await fetch(url);
+    if (!res.ok) return { messages: [], hasMore: false, total: 0 };
+    const data = await res.json();
+    return {
+      messages: data.messages || [],
+      hasMore: !!data.has_more,
+      total: typeof data.total === "number" ? data.total : 0,
+    };
+  } catch (e) {
+    console.error("[API] fetchSessionMessagesPage error:", e);
+    return { messages: [], hasMore: false, total: 0 };
   }
 }
 
