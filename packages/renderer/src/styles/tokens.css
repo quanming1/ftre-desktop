@@ -62,8 +62,8 @@ html[data-theme="dark"] {
 /* ===== Light Mode ===== */
 html[data-theme="light"] {
   /* 背景 — 参考 Manus 风格，偏白但不刺眼 */
-  --ftre-bg-base: #efefef;
-  --ftre-bg-titlebar: #efefef;
+  --ftre-bg-base: #f0f0f1;
+  --ftre-bg-titlebar: #f0f0f1;
   --ftre-bg-surface: #ffffff;
   --ftre-bg-elevated: #ebebeb;
   --ftre-bg-panel: #f0f0f1;
