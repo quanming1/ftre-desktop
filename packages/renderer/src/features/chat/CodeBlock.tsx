@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, memo, useCallback, createContext, useContext } from "react";
+import { useState, useMemo, memo, useCallback, createContext, useContext } from "react";
 import { Copy, Check, Download } from "lucide-react";
 import hljs from "highlight.js/lib/common";
 
@@ -106,39 +106,19 @@ function inferExt(lang: string): string {
 export const CodeBlock = memo(
   function CodeBlock({ language, code }: CodeBlockProps) {
     const [copied, setCopied] = useState(false);
-    const codeRef = useRef<HTMLElement>(null);
-    const containerRef = useRef<HTMLDivElement>(null);
-    const highlightedRef = useRef(false);
     const isStreaming = useContext(StreamingContext);
 
-    // streaming 时不高亮：避免代码持续增长导致 hljs 反复全量高亮
-    useEffect(() => {
-      if (isStreaming) {
-        const codeEl = codeRef.current;
-        if (codeEl) codeEl.removeAttribute("data-highlighted");
-        highlightedRef.current = false;
-        return;
+    // 预计算高亮 HTML：非 streaming 时一次性算好，避免 highlightElement 后替换 DOM 导致高度抖动。
+    // streaming 期间返回 null，走纯文本渲染（代码持续增长，反复高亮无意义）。
+    const highlightedHtml = useMemo(() => {
+      if (isStreaming || !code) return null;
+      try {
+        const lang = language || "text";
+        const result = hljs.highlight(code, { language: lang, ignoreIllegals: true });
+        return result.value;
+      } catch {
+        return null;
       }
-
-      highlightedRef.current = false;
-      const container = containerRef.current;
-      const codeEl = codeRef.current;
-      if (!container || !codeEl) return;
-
-      const observer = new IntersectionObserver(
-        (entries) => {
-          if (entries[0]?.isIntersecting && !highlightedRef.current) {
-            highlightedRef.current = true;
-            codeEl.removeAttribute("data-highlighted");
-            codeEl.textContent = code;
-            hljs.highlightElement(codeEl);
-            observer.disconnect();
-          }
-        },
-        { rootMargin: "200px" },
-      );
-      observer.observe(container);
-      return () => observer.disconnect();
     }, [code, language, isStreaming]);
 
     const handleCopy = useCallback(async () => {
@@ -167,10 +147,7 @@ export const CodeBlock = memo(
     const langLabel = displayName(language);
 
     return (
-      <div
-        ref={containerRef}
-        className="codeblock-card my-2 w-full overflow-hidden rounded-xl"
-      >
+      <div className="codeblock-card my-2 w-full overflow-hidden rounded-xl">
         {/* Header */}
         <div className="codeblock-header flex items-center justify-between h-12 pl-5 pr-3">
           <span
@@ -198,16 +175,25 @@ export const CodeBlock = memo(
           </div>
         </div>
 
-        {/* Code body — padding 由 .codeblock-card pre 全局规则控制 */}
-        <pre className="overflow-x-auto">
-          <code
-            ref={codeRef}
-            className={`language-${langSlug} text-[13px] leading-[1.7] font-mono`}
-            data-testid="code-content"
-          >
-            {code}
-          </code>
-        </pre>
+        {/* Code body */}
+        {highlightedHtml ? (
+          <pre className="overflow-x-auto">
+            <code
+              className={`language-${langSlug} text-[13px] leading-[1.7] font-mono`}
+              dangerouslySetInnerHTML={{ __html: highlightedHtml }}
+              data-testid="code-content"
+            />
+          </pre>
+        ) : (
+          <pre className="overflow-x-auto">
+            <code
+              className={`language-${langSlug} text-[13px] leading-[1.7] font-mono`}
+              data-testid="code-content"
+            >
+              {code}
+            </code>
+          </pre>
+        )}
       </div>
     );
   },

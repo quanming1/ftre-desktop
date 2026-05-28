@@ -328,8 +328,11 @@ export function SessionPanel() {
   // ─── 操作 ────────────────────────────────────────────────────────
 
   const handleSwitchSession = useCallback(
-    (sessionId: string) => switchSession(sessionId),
-    [switchSession],
+    (sessionId: string) => {
+      if (activeLeftPanel !== "chat") setActiveLeftPanel("chat");
+      switchSession(sessionId);
+    },
+    [activeLeftPanel, setActiveLeftPanel, switchSession],
   );
 
   /**

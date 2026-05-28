@@ -17,10 +17,16 @@ const markdownComponents = {
   // 无语言标识的 fenced 代码仍走默认 <pre>，保留块级语义。
   pre: (props: React.ComponentPropsWithoutRef<"pre">) => {
     const onlyChild = Children.toArray(props.children).find(isValidElement) as
-      | React.ReactElement<{ className?: string }>
+      | React.ReactElement<{ className?: string; children?: React.ReactNode }>
       | undefined;
     const cls = onlyChild?.props?.className || "";
+    // 有语言标识的 fenced 代码块 → 交给 code 组件渲染 CodeBlock
     if (/(^|\s)language-/.test(cls)) return <>{props.children}</>;
+    // 无语言标识的 fenced 代码块 → 直接在此渲染 CodeBlock
+    if (onlyChild && Children.count(props.children) === 1) {
+      const code = String(onlyChild.props.children ?? "").replace(/\n$/, "");
+      return <CodeBlock language="" code={code} />;
+    }
     return <pre {...props} />;
   },
   code({ className, children, ...props }: React.ComponentPropsWithoutRef<"code"> & { className?: string }) {
