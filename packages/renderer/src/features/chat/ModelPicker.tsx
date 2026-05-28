@@ -20,12 +20,70 @@ import {
   useEffect,
   useRef,
   useCallback,
+  useMemo,
   type ReactNode,
 } from "react";
-import { Check, Search, Settings2 } from "lucide-react";
+import { Check, Search, Settings2, Star } from "lucide-react";
+import { motion, AnimatePresence } from "framer-motion";
 import { ModelBadges } from "./ModelBadges";
 import type { ModelItem } from "@/services/api";
 
+// ─────────────────────────────────────────────────────────────
+// 常用模型存储
+// ─────────────────────────────────────────────────────────────
+const FREQUENT_MODELS_KEY = "ftre:frequent-models";
+const MAX_FREQUENT_MODELS = 3;
+
+interface FrequentModelRecord {
+  provider: string;
+  modelId: string;
+  count: number;
+  lastUsed: number;
+}
+
+function getFrequentModels(): FrequentModelRecord[] {
+  try {
+    const raw = localStorage.getItem(FREQUENT_MODELS_KEY);
+    if (!raw) return [];
+    return JSON.parse(raw) as FrequentModelRecord[];
+  } catch {
+    return [];
+  }
+}
+
+function recordModelUsage(provider: string, modelId: string): void {
+  const records = getFrequentModels();
+  const key = `${provider}:${modelId}`;
+  const existing = records.find(
+    (r) => `${r.provider}:${r.modelId}` === key,
+  );
+
+  if (existing) {
+    existing.count += 1;
+    existing.lastUsed = Date.now();
+  } else {
+    records.push({
+      provider,
+      modelId,
+      count: 1,
+      lastUsed: Date.now(),
+    });
+  }
+
+  // 按使用次数排序，保留前 10 条
+  records.sort((a, b) => b.count - a.count);
+  const trimmed = records.slice(0, 10);
+
+  try {
+    localStorage.setItem(FREQUENT_MODELS_KEY, JSON.stringify(trimmed));
+  } catch {
+    // ignore
+  }
+}
+
+// ─────────────────────────────────────────────────────────────
+// Types
+// ─────────────────────────────────────────────────────────────
 export interface ProviderInfo {
   name: string;
   label: string;
@@ -62,6 +120,19 @@ export interface ModelPickerProps {
   panelWidthClass?: string;
 }
 
+// ─────────────────────────────────────────────────────────────
+// Styles
+// ─────────────────────────────────────────────────────────────
+const itemBaseClass =
+  "w-full px-3 py-2 text-left text-[13px] flex items-center gap-2 rounded-full transition-all duration-150";
+const itemNormalClass =
+  "text-[var(--ftre-text-secondary,#b0b0b0)] hover:text-[var(--ftre-text-primary,#e8e8e8)] hover:bg-[rgba(226,226,227,0.15)] active:bg-[#e2e2e3] active:text-[#1a1a1a]";
+const itemSelectedClass =
+  "text-[#1a1a1a] bg-[#e2e2e3]";
+
+// ─────────────────────────────────────────────────────────────
+// Component
+// ─────────────────────────────────────────────────────────────
 export function ModelPicker({
   providers,
   selected,
@@ -70,23 +141,71 @@ export function ModelPicker({
   extraTopOption,
   onOpenSettings,
   placement = "top",
-  panelWidthClass = "w-[280px]",
+  panelWidthClass = "w-[320px]",
 }: ModelPickerProps) {
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState("");
   const panelRef = useRef<HTMLDivElement>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
+  const listRef = useRef<HTMLDivElement>(null);
 
   const toggle = useCallback(() => setOpen((v) => !v), []);
   const close = useCallback(() => setOpen(false), []);
+
+  // 计算常用模型
+  const frequentModels = useMemo(() => {
+    if (providers.length === 0) return [];
+    const records = getFrequentModels();
+    const result: { provider: ProviderInfo; model: ModelItem }[] = [];
+
+    for (const record of records.slice(0, MAX_FREQUENT_MODELS)) {
+      const p = providers.find((pr) => pr.name === record.provider);
+      if (!p) continue;
+      const m = p.models.find((mm) => mm.id === record.modelId);
+      if (!m) continue;
+      result.push({ provider: p, model: m });
+    }
+    return result;
+  }, [providers]);
+
+  // 计算初始滚动位置（在渲染前计算，避免闪烁）
+  const initialScrollTop = useMemo(() => {
+    if (!selected || providers.length === 0) return 0;
+    
+    // 估算每个项的高度
+    const itemHeight = 40; // py-2 + text = ~40px
+    const groupHeaderHeight = 32; // pt-3 pb-1.5 + text
+    const frequentSectionHeight = frequentModels.length > 0 
+      ? (frequentModels.length * itemHeight + groupHeaderHeight + 16) 
+      : 0;
+    
+    let offset = frequentSectionHeight;
+    
+    for (const provider of providers) {
+      offset += groupHeaderHeight;
+      for (const model of provider.models) {
+        if (model.id === selected.modelId && provider.name === selected.provider) {
+          // 返回让选中项居中的滚动位置
+          return Math.max(0, offset - 120);
+        }
+        offset += itemHeight;
+      }
+    }
+    return 0;
+  }, [selected, providers, frequentModels]);
 
   useEffect(() => {
     if (open) {
       setSearch("");
       // 等 DOM 出来再聚焦
       setTimeout(() => searchInputRef.current?.focus(), 50);
+      
+      // 立即设置滚动位置（无动画）
+      if (listRef.current && initialScrollTop > 0) {
+        listRef.current.scrollTop = initialScrollTop;
+      }
     }
-  }, [open]);
+  }, [open, initialScrollTop]);
 
   // 点击外部关闭
   useEffect(() => {
@@ -102,6 +221,7 @@ export function ModelPicker({
 
   const handleSelect = async (providerName: string, modelId: string) => {
     close();
+    recordModelUsage(providerName, modelId);
     await onSelect(providerName, modelId);
   };
 
@@ -112,109 +232,111 @@ export function ModelPicker({
   };
 
   const placementClass =
-    placement === "top"
-      ? "bottom-full mb-1"
-      : "top-full mt-1";
+    placement === "top" ? "bottom-full mb-1" : "top-full mt-1";
+
+  // 动画方向
+  const motionY = placement === "top" ? 8 : -8;
 
   return (
     <div className="relative" ref={panelRef}>
       {renderTrigger({ open, toggle })}
 
-      {open && (
-        <div
-          className={`absolute ${placementClass} left-0 ${panelWidthClass} bg-elevated border border-border-subtle rounded-xl overflow-hidden flex flex-col shadow-2xl z-[100]`}
-          style={{ animation: "fadeIn 0.1s ease-out" }}
-        >
-          {/* 搜索框 */}
-          <div className="p-2 border-b border-border">
-            <div className="relative">
-              <Search
-                size={14}
-                className="absolute left-2.5 top-1/2 -translate-y-1/2 text-t-ghost"
-              />
-              <input
-                ref={searchInputRef}
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                placeholder="搜索模型..."
-                className="w-full h-8 pl-8 pr-3 text-[13px] bg-base border border-border rounded-md text-t-primary placeholder:text-t-ghost outline-none focus:border-accent transition-colors"
-              />
-            </div>
-          </div>
-
-          {providers.length === 0 ? (
-            <div className="px-4 py-6 flex flex-col items-center gap-2">
-              <div className="text-center text-[13px] text-t-muted">
-                未找到已配置的模型
+      <AnimatePresence>
+        {open && (
+          <motion.div
+            initial={{ opacity: 0, scale: 0.95, y: motionY }}
+            animate={{ opacity: 1, scale: 1, y: 0 }}
+            exit={{ opacity: 0, scale: 0.95, y: motionY }}
+            transition={{ duration: 0.15, ease: [0.16, 1, 0.3, 1] }}
+            className={`absolute ${placementClass} left-0 ${panelWidthClass} bg-[var(--ftre-elevated,#2d2d2d)] border border-[var(--ftre-border,#3c3c3c)]/50 rounded-xl overflow-hidden flex flex-col shadow-xl backdrop-blur-xl z-[100]`}
+          >
+            {/* 搜索框 */}
+            <div className="p-2">
+              <div className="relative">
+                <Search
+                  size={14}
+                  className="absolute left-2.5 top-1/2 -translate-y-1/2 text-[var(--ftre-text-ghost,#666)]"
+                />
+                <input
+                  ref={searchInputRef}
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  placeholder="搜索模型..."
+                  className="w-full h-8 pl-8 pr-3 text-[13px] bg-[var(--ftre-base,#1a1a1a)] border border-[var(--ftre-border,#3c3c3c)] rounded-lg text-[var(--ftre-text-primary,#e8e8e8)] placeholder:text-[var(--ftre-text-ghost,#666)] outline-none focus:border-[var(--ftre-accent,#00ff88)] transition-colors"
+                />
               </div>
-              {onOpenSettings && (
-                <button
-                  onClick={() => {
-                    close();
-                    onOpenSettings();
-                  }}
-                  className="mt-1 inline-flex items-center gap-1.5 px-3 h-8 rounded-md bg-accent/10 text-accent text-[12px] hover:bg-accent/15 transition-colors"
-                >
-                  <Settings2 size={13} />
-                  打开设置配置模型
-                </button>
-              )}
             </div>
-          ) : (
-            <div className="max-h-[340px] overflow-y-auto py-1">
-              {/* 顶部特殊项（如"沿用主对话模型"），不参与搜索过滤 */}
-              {extraTopOption && (
-                <button
-                  onClick={() => void handleExtraSelect()}
-                  className={`w-full px-3 py-1.5 text-left text-[13px] flex items-center gap-2 transition-colors ${
-                    extraTopOption.selected
-                      ? "text-accent bg-accent/10"
-                      : "text-t-secondary hover:text-t-primary hover:bg-hover"
-                  }`}
-                >
-                  <span className="truncate flex-1 min-w-0">
-                    {extraTopOption.label}
-                  </span>
-                  {extraTopOption.selected && (
-                    <Check size={14} className="shrink-0" />
-                  )}
-                </button>
-              )}
 
-              {providers
-                .map((provider) => {
-                  const filteredModels = provider.models.filter((model) => {
-                    if (!search.trim()) return true;
-                    const q = search.toLowerCase();
-                    return (
-                      model.name.toLowerCase().includes(q) ||
-                      model.id.toLowerCase().includes(q)
-                    );
-                  });
-                  if (filteredModels.length === 0) return null;
-                  return (
-                    <div key={provider.name}>
-                      <div className="px-3 pt-3 pb-1 text-[11px] text-t-ghost uppercase tracking-wider font-medium">
-                        {provider.label}
-                      </div>
-                      {filteredModels.map((model) => {
-                        const isSelected =
-                          model.id === selected?.modelId &&
-                          provider.name === selected?.provider;
-                        return (
+            {providers.length === 0 ? (
+              <div className="px-4 py-6 flex flex-col items-center gap-2">
+                <div className="text-center text-[13px] text-[var(--ftre-text-muted,#999)]">
+                  未找到已配置的模型
+                </div>
+                {onOpenSettings && (
+                  <button
+                    onClick={() => {
+                      close();
+                      onOpenSettings();
+                    }}
+                    className="mt-1 inline-flex items-center justify-center gap-1.5 px-4 py-2 rounded-lg bg-[var(--ftre-accent,#00ff88)] text-[#1a1a1a] text-[13px] font-medium hover:shadow-lg hover:shadow-[var(--ftre-accent,#00ff88)]/25 transition-all"
+                  >
+                    <Settings2 size={14} />
+                    打开设置配置模型
+                  </button>
+                )}
+              </div>
+            ) : (
+              <div ref={listRef} className="max-h-[420px] overflow-y-auto py-1">
+                {/* 顶部特殊项（如"沿用主对话模型"），不参与搜索过滤 */}
+                {extraTopOption && (
+                  <div className="px-1.5 mb-1">
+                    <button
+                      onClick={() => void handleExtraSelect()}
+                      className={`${itemBaseClass} ${
+                        extraTopOption.selected
+                          ? itemSelectedClass
+                          : itemNormalClass
+                      }`}
+                    >
+                      <span className="truncate flex-1 min-w-0">
+                        {extraTopOption.label}
+                      </span>
+                      {extraTopOption.selected && (
+                        <Check size={14} className="shrink-0" />
+                      )}
+                    </button>
+                  </div>
+                )}
+
+                {/* 常用模型 */}
+                {!search.trim() && frequentModels.length > 0 && (
+                  <div className="mb-1">
+                    <div className="px-4 pt-2 pb-1.5 text-[11px] text-[var(--ftre-text-ghost,#666)] uppercase tracking-wider font-medium flex items-center gap-1.5">
+                      <Star size={10} className="fill-current" />
+                      常用
+                    </div>
+                    {frequentModels.map(({ provider, model }) => {
+                      const isSelected =
+                        model.id === selected?.modelId &&
+                        provider.name === selected?.provider;
+                      return (
+                        <div
+                          key={`freq-${provider.name}-${model.id}`}
+                          className="px-1.5"
+                        >
                           <button
-                            key={`${provider.name}-${model.id}`}
                             onClick={() =>
                               void handleSelect(provider.name, model.id)
                             }
-                            className={`w-full px-3 py-1.5 text-left text-[13px] flex items-center gap-2 transition-colors ${
-                              isSelected
-                                ? "text-accent bg-accent/10"
-                                : "text-t-secondary hover:text-t-primary hover:bg-hover"
+                            className={`${itemBaseClass} ${
+                              isSelected ? itemSelectedClass : itemNormalClass
                             }`}
                           >
                             <span className="truncate flex-1 min-w-0">
                               {model.name || model.id}
+                            </span>
+                            <span className="text-[11px] text-[var(--ftre-text-ghost,#666)] shrink-0">
+                              {provider.label}
                             </span>
                             <ModelBadges
                               contextWindow={model.context_window}
@@ -224,32 +346,90 @@ export function ModelPicker({
                               <Check size={14} className="shrink-0" />
                             )}
                           </button>
-                        );
-                      })}
-                    </div>
-                  );
-                })
-                .filter(Boolean)}
-            </div>
-          )}
+                        </div>
+                      );
+                    })}
+                    <div className="mx-3 mt-1.5 mb-1 border-t border-[var(--ftre-border,#3c3c3c)]/60" />
+                  </div>
+                )}
 
-          {onOpenSettings && providers.length > 0 && (
-            <div className="border-t border-border-subtle">
-              <button
-                onClick={() => {
-                  close();
-                  onOpenSettings();
-                }}
-                className="w-full flex items-center gap-2 px-3 h-9 text-[12.5px] text-t-muted hover:text-t-primary hover:bg-hover transition-colors"
-                title="打开设置 → 模型，编辑供应商与模型列表"
-              >
-                <Settings2 size={13} className="shrink-0 opacity-70" />
-                <span className="truncate">管理模型…</span>
-              </button>
-            </div>
-          )}
-        </div>
-      )}
+                {/* 所有模型分组 */}
+                {providers
+                  .map((provider) => {
+                    const filteredModels = provider.models.filter((model) => {
+                      if (!search.trim()) return true;
+                      const q = search.toLowerCase();
+                      return (
+                        model.name.toLowerCase().includes(q) ||
+                        model.id.toLowerCase().includes(q)
+                      );
+                    });
+                    if (filteredModels.length === 0) return null;
+                    return (
+                      <div key={provider.name}>
+                        <div className="px-4 pt-3 pb-1.5 text-[11px] text-[var(--ftre-text-ghost,#666)] uppercase tracking-wider font-medium">
+                          {provider.label}
+                        </div>
+                        {filteredModels.map((model) => {
+                          const isSelected =
+                            model.id === selected?.modelId &&
+                            provider.name === selected?.provider;
+                          return (
+                            <div
+                              key={`${provider.name}-${model.id}`}
+                              className="px-1.5"
+                              data-model-key={`${provider.name}:${model.id}`}
+                            >
+                              <button
+                                onClick={() =>
+                                  void handleSelect(provider.name, model.id)
+                                }
+                                className={`${itemBaseClass} ${
+                                  isSelected
+                                    ? itemSelectedClass
+                                    : itemNormalClass
+                                }`}
+                              >
+                                <span className="truncate flex-1 min-w-0">
+                                  {model.name || model.id}
+                                </span>
+                                <ModelBadges
+                                  contextWindow={model.context_window}
+                                  vision={model.vision}
+                                />
+                                {isSelected && (
+                                  <Check size={14} className="shrink-0" />
+                                )}
+                              </button>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    );
+                  })
+                  .filter(Boolean)}
+              </div>
+            )}
+
+            {onOpenSettings && providers.length > 0 && (
+              <div className="border-t border-[var(--ftre-border,#3c3c3c)]/60 p-1.5">
+                <button
+                  onClick={() => {
+                    close();
+                    onOpenSettings();
+                  }}
+                  className={`${itemBaseClass} text-[12.5px]`}
+                  style={{ color: "var(--ftre-text-muted, #999)" }}
+                  title="打开设置 → 模型，编辑供应商与模型列表"
+                >
+                  <Settings2 size={14} className="shrink-0 opacity-70" />
+                  <span className="truncate">管理模型…</span>
+                </button>
+              </div>
+            )}
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }
