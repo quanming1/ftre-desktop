@@ -537,9 +537,27 @@ export function applyEvent(b: Bucket, ev: BusEvent): void {
 // 模块级注册的 handler 在 dev hmr 重新执行模块时会被重复 push。
 // 用 guard 保证全生命周期只注册一次，避免每条 ws 事件被处理多次（典型症状：
 // 流式文本看起来"重复输出"，实际是 reducer 跑了两遍）。
+//
+// 后台节流：Windows 下切到后台时 Chromium 会节流 timer，
+// 但 WebSocket 消息不受影响持续涌入 → mirror() 攒积大量 React setState。
+// 用 Page Visibility API：后台时只入桶不 mirror，回前台一把刷新。
 const __wsBoundFlag = "__ftreChatWsBound__";
 if (!(globalThis as any)[__wsBoundFlag]) {
   (globalThis as any)[__wsBoundFlag] = true;
+
+  let pageHidden = typeof document !== "undefined" ? document.hidden : false;
+
+  if (typeof document !== "undefined") {
+    document.addEventListener("visibilitychange", () => {
+      const wasHidden = pageHidden;
+      pageHidden = document.hidden;
+      // 从后台切回前台：把当前活跃 session 的最新状态一次性 mirror
+      if (wasHidden && !pageHidden) {
+        const sid = useChat.getState().sessionId;
+        if (sid) mirror(sid);
+      }
+    });
+  }
 
   wsClient.onMessage((msg: ServerMessage) => {
     // 后端拒绝（附件违规等）：顶层 type="error"，不是 agent_event
@@ -581,7 +599,8 @@ if (!(globalThis as any)[__wsBoundFlag]) {
     // 入桶事件缓存：分页 / refresh 重放时要回到这条事件流
     b.events.push(busEvent);
     applyEvent(b, busEvent);
-    mirror(sid);
+    // 后台时跳过 mirror()，避免攒积 React setState；回前台时 visibilitychange 会一次性刷新
+    if (!pageHidden) mirror(sid);
 
     // 实时事件结束后刷新 token 估算：
     // - done: 一次完整 LLM 轮次结束，后端刚写入新的 usage_update，重读拿到最新 anchor

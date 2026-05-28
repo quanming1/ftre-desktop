@@ -247,6 +247,8 @@ export const UserMessage = memo(
     const COLLAPSE_HEIGHT_PX = 320; // 超过此高度则启用折叠
     const [isOverflowing, setIsOverflowing] = useState(false);
     const [collapsed, setCollapsed] = useState(true);
+    // 内容实际高度，用于展开动画的目标值
+    const [contentHeight, setContentHeight] = useState(0);
 
     // 监测气泡真实高度：动态调整圆角 + 判断是否需要折叠
     useLayoutEffect(() => {
@@ -257,6 +259,7 @@ export const UserMessage = memo(
         // 圆角 = clamp(12, h/2, 20)
         setBubbleRadius(Math.max(12, Math.min(h / 2, 20)));
         setIsOverflowing(h > COLLAPSE_HEIGHT_PX + 8);
+        if (h > COLLAPSE_HEIGHT_PX + 8) setContentHeight(h);
       };
       apply();
       const ro = new ResizeObserver(apply);
@@ -501,10 +504,14 @@ export const UserMessage = memo(
                 style={{
                   borderRadius: bubbleRadius,
                   maxHeight:
-                    isOverflowing && collapsed ? COLLAPSE_HEIGHT_PX : undefined,
-                  overflow: isOverflowing && collapsed ? "hidden" : undefined,
+                    !isOverflowing
+                      ? undefined
+                      : collapsed
+                        ? COLLAPSE_HEIGHT_PX
+                        : contentHeight,
+                  overflow: isOverflowing ? "hidden" : undefined,
                 }}
-                className="text-[var(--text-lg)] leading-relaxed text-t-primary bg-panel px-4 py-3 whitespace-pre-wrap break-words font-sans cursor-default"
+                className="text-[var(--text-lg)] leading-relaxed text-t-primary bg-panel px-4 py-3 whitespace-pre-wrap break-words font-sans cursor-default transition-[max-height] duration-300 ease-out"
               >
                 {hasParts ? (
                   <PartsContent parts={message.parts!} />
@@ -513,10 +520,12 @@ export const UserMessage = memo(
                 )}
               </div>
 
-              {/* 折叠时底部渐隐遮罩 */}
-              {isOverflowing && collapsed && (
+              {/* 折叠时底部渐隐遮罩（展开时渐隐） */}
+              {isOverflowing && (
                 <div
-                  className="pointer-events-none absolute left-0 right-0 bottom-0 h-12 bg-gradient-to-t from-panel to-transparent"
+                  className={`pointer-events-none absolute left-0 right-0 bottom-0 h-12 bg-gradient-to-t from-panel to-transparent transition-opacity duration-300 ease-out ${
+                    collapsed ? "opacity-100" : "opacity-0"
+                  }`}
                   style={{
                     borderBottomLeftRadius: bubbleRadius,
                     borderBottomRightRadius: bubbleRadius,
