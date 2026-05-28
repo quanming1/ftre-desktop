@@ -319,7 +319,7 @@ export const AssistantMessage = memo(
                       <Tooltip content={copied ? "已复制" : "复制"} side="top">
                         <button
                           onClick={handleCopy}
-                          className="flex items-center justify-center w-8 h-8 text-t-ghost hover:text-t-secondary rounded-md hover:bg-hover transition-colors"
+                          className="flex items-center justify-center w-8 h-8 text-t-ghost hover:text-t-secondary rounded-full hover:bg-hover transition-colors"
                         >
                           {copied ? <Check size={15} className="text-green-500" /> : <Copy size={15} />}
                         </button>

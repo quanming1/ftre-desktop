@@ -464,7 +464,7 @@ export const UserMessage = memo(
               <Tooltip content="复制" side="top">
                 <button
                   onClick={handleCopy}
-                  className={`flex items-center justify-center w-9 h-9 text-t-ghost hover:text-t-secondary rounded-md hover:bg-hover transition-all ${
+                  className={`flex items-center justify-center w-9 h-9 text-t-ghost hover:text-t-secondary rounded-full hover:bg-hover transition-all ${
                     isHovered ? "opacity-100" : "opacity-0 pointer-events-none"
                   }`}
                 >
@@ -481,7 +481,7 @@ export const UserMessage = memo(
                 <Tooltip content="Fork 会话" side="top">
                   <button
                     onClick={handleFork}
-                    className={`flex items-center justify-center w-7 h-7 text-t-ghost hover:text-t-secondary rounded-md hover:bg-hover transition-all ${
+                    className={`flex items-center justify-center w-7 h-7 text-t-ghost hover:text-t-secondary rounded-full hover:bg-hover transition-all ${
                       isHovered
                         ? "opacity-100"
                         : "opacity-0 pointer-events-none"
