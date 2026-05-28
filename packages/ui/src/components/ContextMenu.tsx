@@ -18,6 +18,8 @@ export interface ContextMenuItem {
   icon?: LucideIcon;
   separator?: boolean;
   disabled?: boolean;
+  /** 'primary' 绿色高亮按钮, 'danger' 红色危险操作, 'default' 普通样式 */
+  variant?: "default" | "primary" | "danger";
   action: () => void;
 }
 
@@ -135,12 +137,13 @@ export function ContextMenu({
       ref={menuRef}
       role="menu"
       tabIndex={-1}
-      initial={{ opacity: 0, scale: 0.95, y: -5 }}
+      initial={{ opacity: 0, scale: 0.92, y: -8 }}
       animate={{ opacity: 1, scale: 1, y: 0 }}
-      transition={{ duration: 0.12, ease: "easeOut" }}
+      transition={{ duration: 0.15, ease: [0.16, 1, 0.3, 1] }}
       className={cn(
-        "fixed z-[9999] min-w-[140px] rounded-md border p-1.5 shadow-2xl outline-none",
-        "bg-[var(--ftre-elevated,#2d2d2d)] border-[var(--ftre-border,#3c3c3c)]",
+        "fixed z-[9999] min-w-[160px] rounded-xl py-2 shadow-xl outline-none",
+        "bg-[var(--ftre-elevated,#2d2d2d)] border border-[var(--ftre-border,#3c3c3c)]/50",
+        "backdrop-blur-xl",
         className,
       )}
       style={{ left: adjustedPosition.x, top: adjustedPosition.y }}
@@ -151,42 +154,106 @@ export function ContextMenu({
             <div
               key={item.id}
               role="separator"
-              className="my-1 border-t border-[var(--ftre-border,#3c3c3c)]"
+              className="my-1.5 mx-3 border-t border-[var(--ftre-border,#3c3c3c)]/60"
             />
           );
         }
 
         const isFocused = index === focusedIndex;
         const Icon = item.icon;
+        const variant = item.variant ?? "default";
 
+        // Primary 样式 (微信绿色高亮按钮)
+        if (variant === "primary") {
+          return (
+            <div key={item.id} className="px-2 py-1">
+              <button
+                role="menuitem"
+                disabled={item.disabled}
+                onClick={() => handleItemClick(item)}
+                onMouseEnter={() => {
+                  if (!item.disabled) setFocusedIndex(index);
+                }}
+                className={cn(
+                  "w-full flex items-center justify-center gap-2 px-4 py-2 text-[13px] font-medium rounded-lg transition-all duration-150",
+                  item.disabled
+                    ? "bg-[var(--ftre-accent,#00ff88)]/30 text-white/50 cursor-not-allowed"
+                    : isFocused
+                      ? "bg-[var(--ftre-accent,#00ff88)] text-[#1a1a1a] shadow-lg shadow-[var(--ftre-accent,#00ff88)]/25 scale-[1.02]"
+                      : "bg-[var(--ftre-accent,#00ff88)] text-[#1a1a1a] hover:shadow-lg hover:shadow-[var(--ftre-accent,#00ff88)]/25",
+                )}
+              >
+                {Icon && <Icon size={16} strokeWidth={2.5} />}
+                <span>{item.label}</span>
+              </button>
+            </div>
+          );
+        }
+
+        // Danger 样式 (红色删除按钮)
+        if (variant === "danger") {
+          return (
+            <div key={item.id} className="px-1.5">
+              <button
+                role="menuitem"
+                disabled={item.disabled}
+                onClick={() => handleItemClick(item)}
+                onMouseEnter={() => {
+                  if (!item.disabled) setFocusedIndex(index);
+                }}
+                className={cn(
+                  "w-full flex items-center gap-3 px-3 py-2 text-left text-[13px] rounded-lg transition-colors duration-150",
+                  item.disabled
+                    ? "text-red-400/40 cursor-not-allowed"
+                    : isFocused
+                      ? "bg-red-500/15 text-red-400"
+                      : "text-red-400/80 hover:bg-red-500/10 hover:text-red-400",
+                )}
+              >
+                <span className="w-5 h-5 flex items-center justify-center shrink-0">
+                  {Icon && <Icon size={16} />}
+                </span>
+                <span className="flex-1">{item.label}</span>
+                {item.shortcut && (
+                  <span className="text-[11px] text-red-400/50 font-mono ml-3 shrink-0">
+                    {item.shortcut}
+                  </span>
+                )}
+              </button>
+            </div>
+          );
+        }
+
+        // Default 样式
         return (
-          <button
-            key={item.id}
-            role="menuitem"
-            disabled={item.disabled}
-            onClick={() => handleItemClick(item)}
-            onMouseEnter={() => {
-              if (!item.disabled) setFocusedIndex(index);
-            }}
-            className={cn(
-              "w-full flex items-center gap-2 px-2.5 py-1.5 text-left text-[13px] rounded transition-colors duration-150",
-              item.disabled
-                ? "text-[var(--ftre-text-faint,#7a8088)] cursor-not-allowed opacity-50"
-                : isFocused
-                  ? "bg-[var(--ftre-accent-dim,rgba(0,255,136,0.12))] text-[var(--ftre-text-primary,#e8e8e8)]"
-                  : "text-[var(--ftre-text-secondary,#cccccc)] hover:bg-[var(--ftre-accent-ghost,rgba(0,255,136,0.06))]",
-            )}
-          >
-            <span className="w-4.5 h-4.5 flex items-center justify-center shrink-0">
-              {Icon && <Icon size={15} />}
-            </span>
-            <span className="flex-1 truncate">{item.label}</span>
-            {item.shortcut && (
-              <span className="text-[12px] text-[var(--ftre-text-ghost,#888e98)] font-mono ml-4 shrink-0">
-                {item.shortcut}
+          <div key={item.id} className="px-1.5">
+            <button
+              role="menuitem"
+              disabled={item.disabled}
+              onClick={() => handleItemClick(item)}
+              onMouseEnter={() => {
+                if (!item.disabled) setFocusedIndex(index);
+              }}
+              className={cn(
+                "w-full flex items-center gap-3 px-3 py-2 text-left text-[13px] rounded-lg transition-colors duration-150",
+                item.disabled
+                  ? "text-[var(--ftre-text-faint,#7a8088)] cursor-not-allowed opacity-40"
+                  : isFocused
+                    ? "bg-[var(--ftre-accent,#00ff88)]/10 text-[var(--ftre-text-primary,#e8e8e8)]"
+                    : "text-[var(--ftre-text-secondary,#b0b0b0)] hover:bg-[var(--ftre-accent,#00ff88)]/5 hover:text-[var(--ftre-text-primary,#e8e8e8)]",
+              )}
+            >
+              <span className="w-5 h-5 flex items-center justify-center shrink-0 opacity-70">
+                {Icon && <Icon size={16} />}
               </span>
-            )}
-          </button>
+              <span className="flex-1">{item.label}</span>
+              {item.shortcut && (
+                <span className="text-[11px] text-[var(--ftre-text-ghost,#666)] font-mono ml-3 shrink-0">
+                  {item.shortcut}
+                </span>
+              )}
+            </button>
+          </div>
         );
       })}
     </motion.div>,
