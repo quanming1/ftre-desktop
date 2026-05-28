@@ -290,7 +290,7 @@ function Pagination() {
           <button
             key={p}
             onClick={() => setPage(p)}
-            className={`w-5 h-5 flex items-center justify-center rounded text-[11px] transition-colors ${
+            className={`w-5 h-5 flex items-center justify-center rounded-full text-[11px] transition-colors ${
               p === page ? 'bg-active text-t-primary' : 'text-t-dim hover:text-t-muted'
             }`}
           >
@@ -337,7 +337,7 @@ export function TaskPanel() {
         <PillFilter options={STATUS_FILTERS} value={filters.status} onChange={(v) => setFilter({ status: v })} />
         <PillFilter options={TYPE_FILTERS} value={filters.type} onChange={(v) => setFilter({ type: v })} />
 
-        <button onClick={() => loadTasks(true)} className="p-1 rounded hover:bg-hover transition-colors" title="Refresh">
+        <button onClick={() => loadTasks(true)} className="p-1 rounded-full hover:bg-hover transition-colors" title="Refresh">
           <RefreshCw size={12} className={`text-t-ghost hover:text-t-secondary ${loading ? 'animate-spin' : ''}`} />
         </button>
 

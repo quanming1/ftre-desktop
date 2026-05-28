@@ -542,7 +542,7 @@ export function SessionPanel() {
           <Tooltip content="搜索会话" side="bottom">
             <button
               onClick={handleSearchToggle}
-              className={`flex items-center justify-center h-7 w-7 rounded transition-colors ${searchOpen
+              className={`flex items-center justify-center h-7 w-7 rounded-full transition-colors ${searchOpen
                 ? "text-neon bg-neon/10"
                 : "text-t-ghost hover:text-t-primary hover:bg-hover"
                 }`}
@@ -995,7 +995,7 @@ function SessionRow({
         <button
           onClick={onMenu}
           aria-label="更多"
-          className={`absolute right-0 p-1 rounded text-t-dim hover:text-t-primary hover:bg-hover transition-opacity ${isHovered ? "opacity-100" : "opacity-0 pointer-events-none"
+          className={`absolute right-0 p-1 rounded-full text-t-dim hover:text-t-primary hover:bg-hover transition-opacity ${isHovered ? "opacity-100" : "opacity-0 pointer-events-none"
             }`}
         >
           <MoreHorizontal size={15} />

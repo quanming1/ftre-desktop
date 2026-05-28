@@ -106,7 +106,7 @@ function WorkspaceEditor({
           onClick={handlePick}
           title="选择文件夹"
           aria-label="选择文件夹"
-          className="h-8 w-8 flex items-center justify-center rounded-md text-t-secondary hover:text-t-primary hover:bg-hover transition-colors"
+          className="h-8 w-8 flex items-center justify-center rounded-full text-t-secondary hover:text-t-primary hover:bg-hover transition-colors"
         >
           <FolderOpen size={14} />
         </button>
@@ -278,7 +278,7 @@ export function WorkspaceBadge() {
               onClick={handleReveal}
               title="在资源管理器中打开"
               aria-label="在资源管理器中打开"
-              className="ml-0.5 mr-1 h-5 w-5 flex items-center justify-center rounded text-t-ghost opacity-0 group-hover:opacity-100 hover:text-t-primary hover:bg-elevated transition-all"
+              className="ml-0.5 mr-1 h-5 w-5 flex items-center justify-center rounded-full text-t-ghost opacity-0 group-hover:opacity-100 hover:text-t-primary hover:bg-elevated transition-all"
             >
               <ExternalLink size={11} />
             </button>

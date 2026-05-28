@@ -126,7 +126,7 @@ function SettingsDialogBody({
           <div className="flex items-center justify-end px-4 py-2 border-b border-border">
             <button
               onClick={onClose}
-              className="p-1 rounded hover:bg-hover text-t-ghost hover:text-t-primary transition-colors"
+              className="p-1 rounded-full hover:bg-hover text-t-ghost hover:text-t-primary transition-colors"
             >
               <X size={16} />
             </button>

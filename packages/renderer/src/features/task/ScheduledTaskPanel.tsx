@@ -176,7 +176,7 @@ function JobCard({
           <button
             onClick={onToggleDisabled}
             title={isDisabled ? "启用" : "禁用"}
-            className={`w-7 h-7 rounded flex items-center justify-center transition-colors ${
+            className={`w-7 h-7 rounded-full flex items-center justify-center transition-colors ${
               isDisabled
                 ? "text-t-ghost hover:text-neon hover:bg-hover"
                 : "text-t-ghost hover:text-amber-400 hover:bg-hover"
@@ -187,14 +187,14 @@ function JobCard({
           <button
             onClick={onEdit}
             title="编辑"
-            className="w-7 h-7 rounded flex items-center justify-center text-t-ghost hover:text-t-primary hover:bg-hover transition-colors"
+            className="w-7 h-7 rounded-full flex items-center justify-center text-t-ghost hover:text-t-primary hover:bg-hover transition-colors"
           >
             <Pencil size={13} />
           </button>
           <button
             onClick={onDelete}
             title="删除"
-            className="w-7 h-7 rounded flex items-center justify-center text-t-ghost hover:text-red-400 hover:bg-hover transition-colors"
+            className="w-7 h-7 rounded-full flex items-center justify-center text-t-ghost hover:text-red-400 hover:bg-hover transition-colors"
           >
             <Trash2 size={13} />
           </button>
@@ -319,7 +319,7 @@ function JobForm({ initial, onCancel, onSubmit }: JobFormProps) {
         </h3>
         <button
           onClick={onCancel}
-          className="w-6 h-6 rounded flex items-center justify-center text-t-ghost hover:text-t-primary hover:bg-hover transition-colors"
+          className="w-6 h-6 rounded-full flex items-center justify-center text-t-ghost hover:text-t-primary hover:bg-hover transition-colors"
         >
           <X size={14} />
         </button>
