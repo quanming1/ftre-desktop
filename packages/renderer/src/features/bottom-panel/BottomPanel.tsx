@@ -79,7 +79,7 @@ export function BottomPanel() {
               <button
                 onClick={handleToggleMaximize}
                 aria-label={isMaximized ? "还原面板" : "最大化面板"}
-                className="p-1.5 text-t-ghost hover:text-t-muted rounded-md transition-colors duration-150 hover:bg-white/[0.06]"
+                className="p-1.5 text-t-ghost hover:text-t-muted rounded-full transition-colors duration-150 hover:bg-white/[0.06]"
               >
                 {isMaximized ? <Minimize2 size={15} strokeWidth={1.5} /> : <Maximize2 size={15} strokeWidth={1.5} />}
               </button>
@@ -88,7 +88,7 @@ export function BottomPanel() {
               <button
                 onClick={toggleBottomPanel}
                 aria-label="关闭面板"
-                className="p-1.5 text-t-ghost hover:text-t-muted rounded-md transition-colors duration-150 hover:bg-white/[0.06]"
+                className="p-1.5 text-t-ghost hover:text-t-muted rounded-full transition-colors duration-150 hover:bg-white/[0.06]"
               >
                 <X size={15} strokeWidth={1.5} />
               </button>

@@ -219,7 +219,7 @@ function IconButton({ label, onClick, active, children, ...rest }: IconButtonPro
       onClick={onClick}
       className={`
         codeblock-icon-btn
-        inline-flex items-center justify-center w-9 h-9 rounded-md
+        inline-flex items-center justify-center w-9 h-9 rounded-full
         transition-colors
         ${active ? "is-active" : ""}
       `}

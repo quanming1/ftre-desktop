@@ -127,7 +127,7 @@ function AttachmentBar({
               type="button"
               onClick={() => onRemove(att.id)}
               title="移除"
-              className="ml-1 inline-flex items-center justify-center w-5 h-5 rounded text-t-muted hover:text-t-primary hover:bg-active transition-colors"
+              className="ml-1 inline-flex items-center justify-center w-5 h-5 rounded-full text-t-muted hover:text-t-primary hover:bg-active transition-colors"
             >
               <X size={12} />
             </button>
@@ -538,7 +538,7 @@ export function ChatInput() {
                 type="button"
                 onClick={handlePickImages}
                 title="附加图片（也可粘贴 / 拖拽）"
-                className="h-8 w-8 flex items-center justify-center rounded-md text-t-secondary hover:text-t-primary hover:bg-hover transition-colors"
+                className="h-8 w-8 flex items-center justify-center rounded-full text-t-secondary hover:text-t-primary hover:bg-hover transition-colors"
               >
                 <Paperclip size={15} />
               </button>
@@ -553,14 +553,14 @@ export function ChatInput() {
               {isBusy ? (
                 <button
                   onClick={handleCancel}
-                  className="h-9 w-9 flex items-center justify-center rounded-lg bg-t-primary/10 text-t-primary hover:bg-t-primary/20 transition-colors"
+                  className="h-9 w-9 flex items-center justify-center rounded-full bg-t-primary/10 text-t-primary hover:bg-t-primary/20 transition-colors"
                 >
                   <div className="w-3 h-3 bg-current rounded-sm" />
                 </button>
               ) : (
                 <button
                   onClick={handleSend}
-                  className={`h-9 w-9 flex items-center justify-center rounded-lg transition-all ${
+                  className={`h-9 w-9 flex items-center justify-center rounded-full transition-all ${
                     canSend
                       ? "bg-neon text-base hover:bg-neon/80 shadow-[0_0_8px_rgba(var(--neon-rgb,56,189,248),0.22)]"
                       : "bg-surface text-t-ghost"

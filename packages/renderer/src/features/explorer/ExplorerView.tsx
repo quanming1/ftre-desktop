@@ -893,7 +893,7 @@ export function ExplorerView() {
             <Tooltip content="文件" side="bottom">
               <button
                 onClick={() => setViewMode("files")}
-                className={`flex items-center justify-center w-10 h-10 rounded-lg transition-colors ${
+                className={`flex items-center justify-center w-10 h-10 rounded-full transition-colors ${
                   viewMode === "files"
                     ? "bg-white/[0.06] text-t-primary"
                     : "text-t-dim hover:text-t-muted hover:bg-white/[0.04]"
@@ -906,7 +906,7 @@ export function ExplorerView() {
             <Tooltip content="Git 变更" side="bottom">
               <button
                 onClick={() => setViewMode("git")}
-                className={`relative flex items-center justify-center w-10 h-10 rounded-lg transition-colors ${
+                className={`relative flex items-center justify-center w-10 h-10 rounded-full transition-colors ${
                   viewMode === "git"
                     ? "bg-white/[0.06] text-t-primary"
                     : "text-t-dim hover:text-t-muted hover:bg-white/[0.04]"
@@ -924,7 +924,7 @@ export function ExplorerView() {
             <Tooltip content="归档" side="bottom">
               <button
                 onClick={() => setViewMode("archives")}
-                className={`flex items-center justify-center w-10 h-10 rounded-lg transition-colors ${
+                className={`flex items-center justify-center w-10 h-10 rounded-full transition-colors ${
                   viewMode === "archives"
                     ? "bg-white/[0.06] text-t-primary"
                     : "text-t-dim hover:text-t-muted hover:bg-white/[0.04]"
@@ -943,7 +943,7 @@ export function ExplorerView() {
             <Tooltip content="新建文件" side="bottom">
               <button
                 onClick={handleNewFile}
-                className="flex items-center justify-center w-10 h-10 rounded-lg text-t-dim hover:text-t-muted hover:bg-white/[0.04] transition-colors"
+                className="flex items-center justify-center w-10 h-10 rounded-full text-t-dim hover:text-t-muted hover:bg-white/[0.04] transition-colors"
               >
                 <FilePlus size={19} strokeWidth={1.5} />
               </button>
@@ -951,7 +951,7 @@ export function ExplorerView() {
             <Tooltip content="新建文件夹" side="bottom">
               <button
                 onClick={handleNewFolder}
-                className="flex items-center justify-center w-10 h-10 rounded-lg text-t-dim hover:text-t-muted hover:bg-white/[0.04] transition-colors"
+                className="flex items-center justify-center w-10 h-10 rounded-full text-t-dim hover:text-t-muted hover:bg-white/[0.04] transition-colors"
               >
                 <FolderPlus size={19} strokeWidth={1.5} />
               </button>
@@ -964,7 +964,7 @@ export function ExplorerView() {
                     handleLocateFile();
                   }
                 }}
-                className={`flex items-center justify-center w-10 h-10 rounded-lg transition-colors ${
+                className={`flex items-center justify-center w-10 h-10 rounded-full transition-colors ${
                   hasActiveFile
                     ? "text-t-dim hover:text-t-muted hover:bg-white/[0.04]"
                     : "text-t-dim opacity-40"
