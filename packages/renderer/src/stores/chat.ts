@@ -164,6 +164,8 @@ export interface BusEvent {
   ts?: number;
   /** 历史回放时可指定消息 id（保留原 id），ws 走 nextId */
   id?: string;
+  /** ws 实时下行帧的 metadata（含 frame_id 等用于占位去重的字段） */
+  metadata?: Record<string, any>;
 }
 
 export function applyEvent(b: Bucket, ev: BusEvent): void {
@@ -229,6 +231,61 @@ export function applyEvent(b: Bucket, ev: BusEvent): void {
         ...b.messages,
         {
           id: ev.id ?? nextId("user"),
+          role: "user",
+          content: c,
+          timestamp: ts,
+          ...(localAttachments.length > 0 ? { attachments: localAttachments } : {}),
+        },
+      ];
+      return;
+    }
+
+    // ─── 实时 echo：AgentLoop 把 inbound user_input 也下行一份 ───
+    // 用途：跨 session 唤起（send_message 触发的远端 user_input）时，目标 session
+    // 前端没有本地占位，需要这条 echo 才能渲染出用户气泡。
+    // 自己发的 user_input 也会被 echo 回来，靠帧 id 与本地占位匹配做去重：
+    //   - sendMessage 时本地 push 的 userMsg.id = 上行帧 id
+    //   - AgentLoop echo 把 inbound.metadata.frame_id 透传回来
+    //   - 这里检查 b.messages 是否已经有同 id 消息，有就跳过
+    //
+    // 同时这是"一轮 agent 开始"的统一信号源 —— 进入 busy 让 loading 气泡就位。
+    // 覆盖所有触发源：本地 sendMessage、跨 session 唤起、cron、多端同步。
+    case "user_input": {
+      const frameId = (ev.metadata?.frame_id as string | undefined) ?? "";
+      const alreadyHasLocal = !!frameId && b.messages.some((m) => m.id === frameId);
+
+      // 一轮开始：进入 busy，清空上一轮残留的错误/重试状态
+      b.isBusy = true;
+      b.error = null;
+      b.retryState = null;
+
+      // 自己发的：本地乐观占位已经在了，echo 仅用于推进 busy 状态，气泡跳过 push
+      if (alreadyHasLocal) return;
+
+      const c = typeof d.content === "string" ? d.content : "";
+      const rawAtts: any[] = Array.isArray(d.attachments) ? d.attachments : [];
+      const localAttachments: MessageAttachment[] = [];
+      for (const a of rawAtts) {
+        if (
+          a &&
+          a.type === "image" &&
+          typeof a.mime_type === "string" &&
+          typeof a.data === "string"
+        ) {
+          localAttachments.push({
+            type: "image",
+            url: `data:${a.mime_type};base64,${a.data}`,
+            mime: a.mime_type,
+            name: typeof a.name === "string" ? a.name : undefined,
+            bytes: Math.floor(a.data.length * 0.75),
+          });
+        }
+      }
+      if (!c && localAttachments.length === 0) return;
+      b.messages = [
+        ...b.messages,
+        {
+          id: frameId || nextId("user"),
           role: "user",
           content: c,
           timestamp: ts,
@@ -520,7 +577,7 @@ if (!(globalThis as any)[__wsBoundFlag]) {
     if (!sid) return;
 
     const b = bucket(sid);
-    const busEvent: BusEvent = { type: ev.type, data: ev.data };
+    const busEvent: BusEvent = { type: ev.type, data: ev.data, metadata: msg.metadata };
     // 入桶事件缓存：分页 / refresh 重放时要回到这条事件流
     b.events.push(busEvent);
     applyEvent(b, busEvent);
@@ -677,8 +734,13 @@ export const useChat = create<ChatState>((set, get) => ({
       }))
       : undefined;
 
+    // 帧 id 同时用作本地占位 userMsg.id：
+    // 后端 AgentLoop 会把 inbound user_input 作为 echo 下行（带回 metadata.frame_id），
+    // 前端 case "user_input" 看到 messages 里已有同 id 就跳过，达到去重。
+    const frameId = crypto.randomUUID().slice(0, 16);
+
     const userMsg: ChatMessage = {
-      id: nextId("user"),
+      id: frameId,
       role: "user",
       content,
       timestamp: Date.now(),
@@ -701,6 +763,7 @@ export const useChat = create<ChatState>((set, get) => ({
           session_id: sid,
         },
         attachments,
+        frameId,
       );
     };
     const sid = get().sessionId;

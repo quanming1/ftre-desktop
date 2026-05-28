@@ -164,7 +164,7 @@ class WebSocketClient {
     this.ws.send(JSON.stringify(data));
   }
 
-  /** 发送聊天消息 */
+  /** 发送聊天消息。返回所用的帧 id（前端可用作本地占位 userMsg.id 与 echo 去重）。 */
   sendChat(
     content: string,
     metadata?: Record<string, unknown>,
@@ -174,7 +174,8 @@ class WebSocketClient {
       data: string;
       name?: string;
     }>,
-  ): void {
+    frameId?: string,
+  ): string {
     const data: Record<string, unknown> = {
       content,
       session_id: metadata?.session_id || "",
@@ -182,12 +183,14 @@ class WebSocketClient {
     if (attachments && attachments.length > 0) {
       data.attachments = attachments;
     }
+    const id = frameId || crypto.randomUUID().slice(0, 16);
     this.send({
-      id: crypto.randomUUID().slice(0, 16),
+      id,
       type: "user_input",
       data,
       metadata: metadata || {},
     });
+    return id;
   }
 
   /** 取消当前执行 */

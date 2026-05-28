@@ -532,12 +532,12 @@ export const UserMessage = memo(
                 >
                   <button
                     onClick={() => setCollapsed((v) => !v)}
-                    className="absolute right-3 bottom-3 w-7 h-7 flex items-center justify-center rounded-full bg-elevated/95 text-t-secondary hover:text-t-primary hover:bg-hover border border-border-subtle shadow-sm transition-colors"
+                    className="absolute right-3 bottom-3 w-9 h-9 flex items-center justify-center rounded-full bg-white text-t-secondary hover:text-t-primary hover:bg-gray-100 shadow-md transition-colors"
                   >
                     {collapsed ? (
-                      <ChevronDown size={16} />
+                      <ChevronDown size={22} className="relative top-px" />
                     ) : (
-                      <ChevronUp size={16} />
+                      <ChevronUp size={22} className="relative top-px" />
                     )}
                   </button>
                 </Tooltip>

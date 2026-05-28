@@ -19,11 +19,6 @@ import { TypingDots } from "./TypingDots";
 
 // ─── Types ──────────────────────────────────────────────────────────
 
-export interface ChatMessageListHandle {
-  /** 把 visibleCount 拉到至少 n（确保前 totalCount-n 之前的消息也渲染出来） */
-  ensureVisible: (count: number) => void;
-}
-
 export interface ChatMessageListProps {
   messages: ChatMessage[];
   /** Whether the agent is currently processing (shows typing indicator) */
@@ -34,10 +29,6 @@ export interface ChatMessageListProps {
   maxHeight?: string;
   /** Class name for the outer container */
   className?: string;
-  /** 暴露内部滚动容器 DOM；让外部组件（如 ChatOutline）能读 scroll 状态 / 跳转 */
-  onContainerReady?: (el: HTMLDivElement | null) => void;
-  /** 暴露分页控制句柄；ChatOutline 跳转到早期消息前会用 ensureVisible 强制加载 */
-  onHandleReady?: (handle: ChatMessageListHandle | null) => void;
 }
 
 // ─── Component ──────────────────────────────────────────────────────
@@ -50,23 +41,9 @@ export const ChatMessageList = memo(function ChatMessageList({
   autoScroll = true,
   maxHeight,
   className = "",
-  onContainerReady,
-  onHandleReady,
 }: ChatMessageListProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
-
-  // 暴露 ensureVisible 给 ChatOutline：跳早期消息前先强制加载
-  useEffect(() => {
-    if (!onHandleReady) return;
-    const handle: ChatMessageListHandle = {
-      ensureVisible: (n: number) => {
-        setVisibleCount((cur) => Math.max(cur, n));
-      },
-    };
-    onHandleReady(handle);
-    return () => onHandleReady(null);
-  }, [onHandleReady]);
 
   // ─── Auto-scroll hook ───────────────────────────────────────────
   // deps: 最后一条消息 id 变化 → 切 session 时重置锁
@@ -79,9 +56,8 @@ export const ChatMessageList = memo(function ChatMessageList({
     (el: HTMLDivElement | null) => {
       containerRef.current = el;
       autoScrollRef(el);
-      onContainerReady?.(el);
     },
-    [autoScrollRef, onContainerReady],
+    [autoScrollRef],
   );
 
   // 新一轮流开始 → 强制重新跟随
@@ -185,7 +161,8 @@ export const ChatMessageList = memo(function ChatMessageList({
   return (
     <div
       ref={mergedRef}
-      className={`overflow-y-auto overflow-x-hidden px-4 py-3 ${className}`}
+      data-chat-scroll-container=""
+      className={`overflow-y-auto overflow-x-hidden px-4 pt-3 pb-20 ${className}`}
       style={{
         maxHeight,
         scrollbarGutter: "stable",

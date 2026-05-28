@@ -1,24 +1,28 @@
 /**
- * ChatOutline — 会话右侧"轮次目录"
+ * ChatOutline — 会话目录浮层（hover ChatHeader 上的目录按钮触发）
  *
  * 列出当前会话所有 user 消息，点击 instant 跳转到对应锚点。
  * 锚点：UserMessage 渲染时挂的 id="msg-<message.id>"。
  *
+ * 滚动容器通过 [data-chat-scroll-container] querySelector 拿，避免在 ChatHeader →
+ * ChatView → ChatMessageList 这条链上做 ref 透传。
+ *
  * 性能：
- * - scroll listener 通过 ref 模式只装一次（不会随 userMessages 引用变化反复重装）
- * - compute() 用 100ms 节流而不是 rAF 每帧 —— 流式期间每秒触发几十次没意义
- * - summarize 结果按 message.id 缓存，避免每个 chunk 都重算 N 条 user 消息
+ * - summarize 结果按 message.id 缓存
+ * - 不订阅滚动事件、不算 active 项；触发显示后是个静态目录（用户点完就收起）
  */
 import { memo, useEffect, useMemo, useRef, useState } from "react";
+import { useChat } from "@/stores/chat";
+import { useSession } from "@/stores/session";
 import type { ChatMessage } from "@/stores/chat";
 
 interface ChatOutlineProps {
-  messages: ChatMessage[];
-  /** 消息列表的滚动容器；用来响应 scroll + 实施跳转 */
-  scrollContainerRef: React.RefObject<HTMLElement | null>;
-  /** 跳转早期消息前先扩容 visibleCount，保证锚点已渲染 */
-  ensureVisible?: (count: number) => void;
-  className?: string;
+  /** 浮层是否显示 */
+  open: boolean;
+  /** 点击外部 / 选中条目后关闭 */
+  onClose: () => void;
+  /** 触发按钮 DOM ref（用于点击外部判定时排除自己） */
+  triggerRef?: React.RefObject<HTMLElement | null>;
 }
 
 /** 把 user 消息平铺成一行简短文字，给目录显示用 */
@@ -26,7 +30,7 @@ function summarize(message: ChatMessage): string {
   if (message.parts && message.parts.length > 0) {
     const text = message.parts
       .map((p: any) => {
-        if (p.type === "text") return p.data ?? "";
+        if (p.type === "text") return p.data ?? p.text ?? "";
         if (p.type === "code_ref") return `[${p.data?.name ?? "code"}]`;
         if (p.type === "archive_ref") return `[归档]`;
         if (p.type === "skill_ref") return `[Skill]`;
@@ -40,27 +44,24 @@ function summarize(message: ChatMessage): string {
   return (message.content ?? "").trim();
 }
 
-interface OutlineItem {
-  id: string;
-  text: string;
-  /** 该 user 消息在完整 messages 数组里的下标 */
-  index: number;
-}
-
 export const ChatOutline = memo(function ChatOutline({
-  messages,
-  scrollContainerRef,
-  ensureVisible,
-  className = "",
+  open,
+  onClose,
+  triggerRef,
 }: ChatOutlineProps) {
-  // 预计算 outline 渲染数据：只在 messages 引用变化时重算
-  const items: OutlineItem[] = useMemo(() => {
-    const out: OutlineItem[] = [];
-    const cache = summarizeCacheRef.current;
+  const messages = useChat((s) => s.messages);
+  const sessionId = useChat((s) => s.sessionId);
+  const hasMoreHistory = useChat((s) =>
+    sessionId ? s.hasMoreHistory(sessionId) : false,
+  );
+  const loadEarlier = useSession((s) => s.loadEarlierMessages);
+
+  const items = useMemo(() => {
+    const out: { id: string; text: string; index: number }[] = [];
+    const cache = summarizeCache;
     for (let i = 0; i < messages.length; i++) {
       const m = messages[i];
       if (m.role !== "user") continue;
-      // 同 id 的消息 user 输入定型后内容不再变，缓存 summarize 结果
       let text = cache.get(m.id);
       if (text == null) {
         text = summarize(m);
@@ -69,63 +70,70 @@ export const ChatOutline = memo(function ChatOutline({
       out.push({ id: m.id, text, index: i });
     }
     return out;
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [messages]);
 
+  const popoverRef = useRef<HTMLDivElement>(null);
   const [activeId, setActiveId] = useState<string | null>(null);
-  const itemRefs = useRef<Map<string, HTMLButtonElement>>(new Map());
 
-  // ─── scroll listener：通过 ref 读 items，只装一次 ────────────────
-  const itemsRef = useRef(items);
-  itemsRef.current = items;
-
+  // 浮窗打开瞬间快照一次：找滚动容器视口顶部最近的 user 消息作为 active
   useEffect(() => {
-    const container = scrollContainerRef.current;
-    if (!container) return;
-
-    let pendingTimer: ReturnType<typeof setTimeout> | null = null;
-    const compute = () => {
-      pendingTimer = null;
-      const currentItems = itemsRef.current;
-      if (currentItems.length === 0) return;
-      const containerTop = container.getBoundingClientRect().top;
-      let bestId: string | null = null;
-      let bestDistance = -Infinity;
-      for (const it of currentItems) {
-        const el = document.getElementById(`msg-${it.id}`);
-        if (!el) continue;
-        const distance = el.getBoundingClientRect().top - containerTop;
-        // 锚点已上滚到视口顶以上或刚好在顶部 → 候选
-        if (distance <= 16 && distance > bestDistance) {
-          bestDistance = distance;
-          bestId = it.id;
-        }
+    if (!open) return;
+    const container = document.querySelector<HTMLElement>(
+      "[data-chat-scroll-container]",
+    );
+    if (!container || items.length === 0) {
+      setActiveId(null);
+      return;
+    }
+    const containerTop = container.getBoundingClientRect().top;
+    let bestId: string | null = null;
+    let bestDistance = -Infinity;
+    for (const it of items) {
+      const el = document.getElementById(`msg-${it.id}`);
+      if (!el) continue;
+      const distance = el.getBoundingClientRect().top - containerTop;
+      // 锚点在视口顶部以上或刚好顶部 → 候选；选最靠近 0 的
+      if (distance <= 16 && distance > bestDistance) {
+        bestDistance = distance;
+        bestId = it.id;
       }
-      setActiveId((prev) => bestId ?? currentItems[0]?.id ?? prev);
-    };
+    }
+    setActiveId(bestId ?? items[items.length - 1].id);
+  }, [open, items]);
 
-    compute();
-    const onScroll = () => {
-      // 100ms 节流：流式期间每秒触发几十次 scroll，没必要每次都跑 layout 查询
-      if (pendingTimer != null) return;
-      pendingTimer = setTimeout(compute, 100);
-    };
-    container.addEventListener("scroll", onScroll, { passive: true });
-    return () => {
-      container.removeEventListener("scroll", onScroll);
-      if (pendingTimer != null) clearTimeout(pendingTimer);
-    };
-  }, [scrollContainerRef]);
-
-  // active 变化时把 outline 里那条滚到可见
+  // active 项打开时自动滚到目录可见位置
   useEffect(() => {
-    if (!activeId) return;
-    const el = itemRefs.current.get(activeId);
-    if (!el) return;
-    el.scrollIntoView({ block: "nearest", behavior: "instant" });
-  }, [activeId]);
+    if (!open || !activeId) return;
+    const el = popoverRef.current?.querySelector<HTMLElement>(
+      `[data-outline-item="${activeId}"]`,
+    );
+    el?.scrollIntoView({ block: "nearest", behavior: "instant" });
+  }, [open, activeId]);
 
-  const handleClick = (item: OutlineItem) => {
+  // 点击浮层外（且不是触发按钮自身）→ 关闭
+  useEffect(() => {
+    if (!open) return;
+    const onDown = (e: MouseEvent) => {
+      const t = e.target as Node;
+      if (popoverRef.current?.contains(t)) return;
+      if (triggerRef?.current?.contains(t)) return;
+      onClose();
+    };
+    document.addEventListener("mousedown", onDown);
+    return () => document.removeEventListener("mousedown", onDown);
+  }, [open, onClose, triggerRef]);
+
+  // ESC 关闭
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [open, onClose]);
+
+  const handleClick = async (item: { id: string; index: number }) => {
     const tryScroll = () => {
       const el = document.getElementById(`msg-${item.id}`);
       if (!el) return false;
@@ -133,25 +141,43 @@ export const ChatOutline = memo(function ChatOutline({
       return true;
     };
 
-    if (tryScroll()) return;
+    if (tryScroll()) {
+      onClose();
+      return;
+    }
 
-    // 锚点不在 DOM —— 该消息还在分页未渲染区。先让 ChatMessageList 扩容到
-    // "末尾保留这条以及它之后的全部"，下一帧再滚。
-    if (!ensureVisible) return;
-    const needed = messages.length - item.index;
-    ensureVisible(needed);
-    requestAnimationFrame(() => {
-      requestAnimationFrame(tryScroll);
-    });
+    // 锚点不在 DOM —— 该消息还在分页未渲染区。
+    // 先反复 loadEarlier 直到桶里包含这条目标，再滚。
+    if (!sessionId) return;
+    let guard = 8; // 防失控（每页 200 events，扩到 1600 已经过头了）
+    while (guard-- > 0) {
+      const got = await loadEarlier(sessionId);
+      if (!got) break;
+      if (tryScroll()) {
+        onClose();
+        return;
+      }
+    }
+    // 还是定位不到，至少把目录关掉避免假死
+    onClose();
   };
 
-  if (items.length === 0) return null;
+  if (!open) return null;
+  if (items.length === 0) {
+    return (
+      <div
+        ref={popoverRef}
+        className="absolute right-2 top-full mt-1 z-30 w-[260px] py-3 px-3 bg-surface rounded-lg shadow-[0_8px_24px_rgba(0,0,0,0.12)] text-[12px] text-t-ghost"
+      >
+        当前会话还没有消息。
+      </div>
+    );
+  }
 
   return (
-    <aside
-      className={`shrink-0 w-[180px] overflow-y-auto overflow-x-hidden py-2 px-2 scrollbar-thin ${className}`}
-      style={{ maxHeight: "25vh" }}
-      aria-label="会话目录"
+    <div
+      ref={popoverRef}
+      className="absolute right-2 top-full mt-1 z-30 w-[260px] max-h-[60vh] overflow-y-auto bg-surface rounded-lg shadow-[0_8px_24px_rgba(0,0,0,0.12)] py-1.5 px-1.5 scrollbar-thin"
     >
       <ol className="space-y-px">
         {items.map((it) => {
@@ -159,27 +185,29 @@ export const ChatOutline = memo(function ChatOutline({
           return (
             <li key={it.id}>
               <button
-                ref={(el) => {
-                  if (el) itemRefs.current.set(it.id, el);
-                  else itemRefs.current.delete(it.id);
-                }}
+                data-outline-item={it.id}
                 onClick={() => handleClick(it)}
                 title={it.text}
-                className={`w-full flex items-center px-2 h-6 rounded text-left text-[12px] truncate transition-colors
-                  ${isActive
-                    ? "text-t-primary font-medium"
-                    : "text-t-ghost hover:text-t-primary"
-                  }`}
+                className={`w-full flex items-center px-2 h-7 rounded text-left text-[12px] truncate transition-colors ${
+                  isActive
+                    ? "bg-active text-t-primary font-medium"
+                    : "text-t-secondary hover:text-t-primary hover:bg-hover"
+                }`}
               >
                 <span className="truncate">{it.text || "(空消息)"}</span>
               </button>
             </li>
           );
         })}
+        {hasMoreHistory && (
+          <li className="px-2 py-1 text-[11px] text-t-ghost italic">
+            还有更早的消息，点击具体条目时会自动加载。
+          </li>
+        )}
       </ol>
-    </aside>
+    </div>
   );
 });
 
 /** 模块级 summarize 缓存（按 message id 复用） */
-const summarizeCacheRef = { current: new Map<string, string>() };
+const summarizeCache = new Map<string, string>();
