@@ -184,9 +184,9 @@ function savePinnedSessions(pinned: Set<string>): void {
 
 export function SessionPanel() {
   const allSessions = useSession((s) => s.allSessions);
-  const sessionsTotal = useSession((s) => s.sessionsTotal);
+  const workspacePaging = useSession((s) => s.workspacePaging);
   const loadAllSessions = useSession((s) => s.loadAllSessions);
-  const loadMoreSessions = useSession((s) => s.loadMoreSessions);
+  const loadMoreWorkspaceSessions = useSession((s) => s.loadMoreWorkspaceSessions);
   const switchSession = useSession((s) => s.switchSession);
   const deleteSession = useSession((s) => s.deleteSession);
   const newSession = useSession((s) => s.newSession);
@@ -316,7 +316,6 @@ export function SessionPanel() {
   }, [wsSessions, rootPath, groupOrder, pinnedSessions]);
 
   const totalCount = filtered.length;
-  const hasMore = sessionsTotal > 0 && allSessions.length < sessionsTotal;
 
   /** Other Threads 默认折叠展示 PER_GROUP_DEFAULT 条；用同样的展开/收起按钮 */
   const OTHER_KEY = "__other__";
@@ -435,26 +434,27 @@ export function SessionPanel() {
     });
   }, []);
 
-  const handleExpandGroup = useCallback(async (key: string, groupTotal: number) => {
+  const handleExpandGroup = useCallback(async (key: string, groupFull: string, groupTotal: number) => {
     // 当前展开数；未记录则视作默认 5
     const current = expandCount[key] ?? PER_GROUP_DEFAULT;
-    const next = Math.min(current + PER_GROUP_STEP, groupTotal);
+    const next = current + PER_GROUP_STEP;
     setExpandCount((prev) => ({ ...prev, [key]: next }));
 
-    // 如果加载量已经接近后端总数还满足不了，触发后端拉更多
-    if (
-      sessionsTotal > 0 &&
-      allSessions.length < sessionsTotal &&
-      groupTotal < next
-    ) {
+    // Other Threads 组（非 ws）没有后端按 workspace 分页，纯前端展开即可
+    if (key === OTHER_KEY) return;
+
+    // 如果展开数超过了已加载的会话数，且后端该工作区还有更多，按工作区拉下一页
+    const paging = workspacePaging[groupFull || ""];
+    const hasMoreInBackend = paging ? paging.loaded < paging.total : false;
+    if (next > groupTotal && hasMoreInBackend) {
       setLoadingMore(true);
       try {
-        await loadMoreSessions(PER_GROUP_STEP);
+        await loadMoreWorkspaceSessions(groupFull || "", PER_GROUP_STEP);
       } finally {
         setLoadingMore(false);
       }
     }
-  }, [expandCount, sessionsTotal, allSessions.length, loadMoreSessions]);
+  }, [expandCount, workspacePaging, loadMoreWorkspaceSessions]);
 
   const handleCollapseGroup = useCallback((key: string) => {
     setExpandCount((prev) => {
@@ -463,16 +463,6 @@ export function SessionPanel() {
       return next;
     });
   }, []);
-
-  const handleLoadMoreGlobal = useCallback(async () => {
-    if (loadingMore) return;
-    setLoadingMore(true);
-    try {
-      await loadMoreSessions(PER_GROUP_STEP);
-    } finally {
-      setLoadingMore(false);
-    }
-  }, [loadingMore, loadMoreSessions]);
 
   // ─── 顶层动作 ────────────────────────────────────────────────────
 
@@ -587,12 +577,19 @@ export function SessionPanel() {
                   >
                     {buckets.map((bucket, idx) => {
                       const expanded = expandCount[bucket.key] ?? PER_GROUP_DEFAULT;
+                      const paging = workspacePaging[bucket.full || ""];
+                      const backendTotal = paging?.total ?? bucket.sessions.length;
+                      const hasMoreInBackend = paging
+                        ? paging.loaded < paging.total
+                        : false;
                       return (
                         <WorkspaceGroup
                           key={bucket.key}
                           bucket={bucket}
                           first={idx === 0}
                           visibleCount={expanded}
+                          hasMoreInBackend={hasMoreInBackend}
+                          backendTotal={backendTotal}
                           currentSessionId={currentSessionId}
                           hoveredSession={hoveredSession}
                           loadingSessionId={loadingSessionId}
@@ -600,7 +597,7 @@ export function SessionPanel() {
                           onSwitch={handleSwitchSession}
                           onHover={setHoveredSession}
                           onMenu={showSessionMenu}
-                          onExpand={() => handleExpandGroup(bucket.key, bucket.sessions.length)}
+                          onExpand={() => handleExpandGroup(bucket.key, bucket.full, bucket.sessions.length)}
                           onCollapse={() => handleCollapseGroup(bucket.key)}
                           onNewInWorkspace={() => handleNewInWorkspace(bucket.full)}
                         />
@@ -642,7 +639,7 @@ export function SessionPanel() {
                       {otherHidden > 0 && (
                         <button
                           type="button"
-                          onClick={() => handleExpandGroup(OTHER_KEY, otherSessions.length)}
+                          onClick={() => handleExpandGroup(OTHER_KEY, "", otherSessions.length)}
                           className="text-left text-t-ghost hover:text-neon transition-colors"
                         >
                           展开 +{Math.min(PER_GROUP_STEP, otherHidden)} 条
@@ -664,24 +661,7 @@ export function SessionPanel() {
             </>
           )}
 
-          {/* 全局"加载更多"：当所有组都展示完已加载会话、但后端还有未拉取时 */}
-          {hasMore && !searchQuery && (
-            <button
-              type="button"
-              onClick={handleLoadMoreGlobal}
-              disabled={loadingMore}
-              className="w-full mt-3 py-2 text-[12.5px] text-t-ghost hover:text-neon transition-colors disabled:opacity-50 flex items-center justify-center gap-1.5"
-            >
-              {loadingMore ? (
-                <>
-                  <Loader2 size={12} className="animate-spin" />
-                  加载中...
-                </>
-              ) : (
-                <>从服务器拉更多（剩 {sessionsTotal - allSessions.length}）</>
-              )}
-            </button>
-          )}
+          {/* 工作区分组已各自分页（每组"展开 +N"按需拉取），不再需要全局加载更多 */}
         </div>
 
         {/* ── 底部动作区（Settings）── */}
@@ -764,6 +744,10 @@ interface WorkspaceGroupProps {
   bucket: WorkspaceBucket;
   first: boolean;
   visibleCount: number;
+  /** 后端该工作区是否还有未加载的会话（决定"展开"按钮是否显示） */
+  hasMoreInBackend: boolean;
+  /** 后端该工作区的总会话数（用于"展开 +N"的计数显示） */
+  backendTotal: number;
   currentSessionId: string | null;
   hoveredSession: string | null;
   loadingSessionId: string | null;
@@ -780,6 +764,8 @@ function WorkspaceGroup({
   bucket,
   first,
   visibleCount,
+  hasMoreInBackend,
+  backendTotal,
   currentSessionId,
   hoveredSession,
   loadingSessionId,
@@ -810,6 +796,8 @@ function WorkspaceGroup({
   const hiddenInGroup = bucket.sessions.length - visibleSessions.length;
   const expanded = visibleCount > PER_GROUP_DEFAULT;
   const accent = folderColor(bucket.key);
+  // 还能展开：内存里有隐藏的，或后端还有没拉下来的
+  const canExpand = hiddenInGroup > 0 || hasMoreInBackend;
 
   return (
     <div ref={setNodeRef} style={style} className={first ? "" : "mt-4"}>
@@ -838,7 +826,7 @@ function WorkspaceGroup({
             {bucket.name}
           </span>
           <span className="text-[12px] text-t-ghost shrink-0">
-            {bucket.sessions.length}
+            {backendTotal || bucket.sessions.length}
           </span>
         </div>
 
@@ -864,15 +852,15 @@ function WorkspaceGroup({
       </div>
 
       {/* 展开 / 收起：可以同时存在（已展开但还有更多） */}
-      {(hiddenInGroup > 0 || expanded) && (
+      {(canExpand || expanded) && (
         <div className="flex items-center gap-3 mt-1 pl-[30px] py-1 text-[12px]">
-          {hiddenInGroup > 0 && (
+          {canExpand && (
             <button
               type="button"
               onClick={onExpand}
               className="text-left text-t-ghost hover:text-neon transition-colors"
             >
-              展开 +{Math.min(PER_GROUP_STEP, hiddenInGroup)} 条
+              展开 +{PER_GROUP_STEP} 条
             </button>
           )}
           {expanded && (
