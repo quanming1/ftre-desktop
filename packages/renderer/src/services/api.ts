@@ -94,6 +94,40 @@ export interface SessionPage {
   offset: number;
 }
 
+/** 工作区摘要（侧边栏按工作区分组用） */
+export interface WorkspaceSummary {
+  workspace: string;
+  session_count: number;
+  latest_at: number;
+}
+
+/**
+ * 枚举所有工作区（默认只看 ws channel），按各自最新活跃时间倒序。
+ * 用于侧边栏先拿到完整的工作区清单，再各自分页拉 session，
+ * 避免全局分页漏掉很久没活跃的工作区。
+ */
+export async function fetchWorkspaces(
+  channelId: string | null = "ws",
+): Promise<WorkspaceSummary[]> {
+  const params = new URLSearchParams();
+  if (channelId != null) params.set("channel_id", channelId);
+  const qs = params.toString();
+  try {
+    const res = await fetch(
+      `http://127.0.0.1:18790/api/workspaces${qs ? `?${qs}` : ""}`,
+    );
+    if (!res.ok) return [];
+    const data = await res.json();
+    return (data.workspaces || []).map((w: any) => ({
+      workspace: typeof w.workspace === "string" ? w.workspace : "",
+      session_count: typeof w.session_count === "number" ? w.session_count : 0,
+      latest_at: typeof w.latest_at === "number" ? w.latest_at : 0,
+    }));
+  } catch {
+    return [];
+  }
+}
+
 function mapSessionRow(s: any): SessionSummary {
   const sessionId = s.id || s.key || s.session_id;
   if (s.key) registerSessionKey(sessionId, s.key);
@@ -127,12 +161,19 @@ function mapSessionRow(s: any): SessionSummary {
  * 失败时返回空 page（避免 UI 崩）。
  */
 export async function fetchSessionPage(
-  opts: { limit?: number; offset?: number; channelId?: string | null } = {},
+  opts: {
+    limit?: number;
+    offset?: number;
+    channelId?: string | null;
+    workspace?: string | null;
+  } = {},
 ): Promise<SessionPage> {
   const params = new URLSearchParams();
   if (opts.limit != null) params.set("limit", String(opts.limit));
   if (opts.offset != null) params.set("offset", String(opts.offset));
   if (opts.channelId) params.set("channel_id", opts.channelId);
+  // workspace 传 null/undefined → 不过滤；传 "" → 过滤"未设置工作区"
+  if (opts.workspace != null) params.set("workspace", opts.workspace);
   const qs = params.toString();
   try {
     const res = await fetch(
