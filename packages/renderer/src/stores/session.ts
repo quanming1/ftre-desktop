@@ -9,6 +9,7 @@ import { useChat, type BusEvent } from "./chat";
 import type { SessionSummary } from "@/services/api";
 import {
   fetchSessionPage,
+  fetchWorkspaces,
   fetchSessionMessages,
   fetchSessionMessagesPage,
   deleteSessionRemote,
@@ -82,21 +83,36 @@ const FIRST_PAGE_SIZE = 50;
 const FIRST_PAGE_EVENTS = 200;
 const NEXT_PAGE_EVENTS = 200;
 
+/** 每个工作区首屏拉取的 session 数 */
+const WORKSPACE_PAGE_SIZE = 20;
+
+/** 工作区分页状态 */
+interface WorkspacePaging {
+  /** 该工作区后端总会话数 */
+  total: number;
+  /** 已加载条数（= offset，用于继续翻页） */
+  loaded: number;
+}
+
 interface SessionState {
   sessions: SessionSummary[];
   allSessions: SessionSummary[];
   /** 后端总会话数；用于判断 hasMore */
   sessionsTotal: number;
+  /** 每个工作区的分页状态：workspace 路径（""=未设置）→ { total, loaded } */
+  workspacePaging: Record<string, WorkspacePaging>;
   openTabs: string[];
   loading: boolean;
   /** Session ID currently being loaded (HTTP fetch in progress) */
   loadingSessionId: string | null;
 
   loadSessions: (workspace?: string | null) => Promise<void>;
-  /** 拉首页并替换 allSessions（轮询、初始加载用） */
+  /** 枚举工作区 + 为每个工作区拉首页 session（轮询、初始加载用） */
   loadAllSessions: () => Promise<void>;
-  /** 在 allSessions 末尾追加 extraCount 条（"展开"按钮用） */
+  /** 在 allSessions 末尾追加 extraCount 条（兼容旧调用，等价于全局补拉） */
   loadMoreSessions: (extraCount: number) => Promise<void>;
+  /** 为指定工作区多拉一页 session（"展开"按钮用） */
+  loadMoreWorkspaceSessions: (workspace: string, extraCount: number) => Promise<void>;
   loadWorkspaceSessions: (workspace: string) => Promise<void>;
   switchSession: (sessionId: string) => Promise<void>;
   /** 加载更早一页消息（基于当前桶最早事件的 timestamp 作 before_ts）。返回是否真的拉到内容。 */
@@ -128,6 +144,7 @@ export const useSession = create<SessionState>((set, get) => ({
   sessions: [],
   allSessions: [],
   sessionsTotal: 0,
+  workspacePaging: {},
   openTabs: [],
   loading: false,
   loadingSessionId: null,
@@ -140,20 +157,59 @@ export const useSession = create<SessionState>((set, get) => ({
   loadAllSessions: async () => {
     set({ loading: true });
     try {
-      const page = await fetchSessionPage({ limit: FIRST_PAGE_SIZE, offset: 0 });
-      // 轮询时已展开的额外页保留：把首页结果拼到现有 allSessions 头部并去重，
-      // 不会因为后端只返回 50 条就把已经"展开"加载的尾部数据擦掉
+      // 1) 枚举所有 ws 工作区（按各自最新活跃倒序）
+      const workspaces = await fetchWorkspaces("ws");
+
+      // 2) 为每个工作区并发拉首页 session（每页 WORKSPACE_PAGE_SIZE 条）
+      //    这样很久没活跃的工作区也能出现，不会被全局分页漏掉
+      const pages = await Promise.all(
+        workspaces.map((w) =>
+          fetchSessionPage({
+            workspace: w.workspace,
+            channelId: "ws",
+            limit: WORKSPACE_PAGE_SIZE,
+            offset: 0,
+          }).then((page) => ({ workspace: w.workspace, page })),
+        ),
+      );
+
+      // 3) 同时拉一页非 ws 的 session（cron / cli / telegram 等，平铺在 Other Threads）
+      const otherPage = await fetchSessionPage({ limit: FIRST_PAGE_SIZE, offset: 0 });
+      const otherSessions = otherPage.sessions.filter((s) => s.channel !== "ws");
+
+      // 4) 合并：保留已加载的更多页（loadMoreWorkspaceSessions 拉过的尾部数据不丢）
       const existing = get().allSessions;
-      const merged = dedupeById([...page.sessions, ...existing]);
-      // 但如果总数变化（删除/新增），裁切到 max(merged.length, total) 中取小者
-      const trimmed =
-        page.total > 0 && merged.length > page.total
-          ? merged.slice(0, page.total)
-          : merged;
+      const existingByWs = new Map<string, SessionSummary[]>();
+      for (const s of existing) {
+        if (s.channel !== "ws") continue;
+        const ws = s.workspace || "";
+        if (!existingByWs.has(ws)) existingByWs.set(ws, []);
+        existingByWs.get(ws)!.push(s);
+      }
+
+      const wsPaging: Record<string, WorkspacePaging> = {};
+      const merged: SessionSummary[] = [];
+      for (const { workspace, page } of pages) {
+        // 首页结果 + 已加载的更多页，去重
+        const prev = existingByWs.get(workspace) || [];
+        const combined = dedupeById([...page.sessions, ...prev]);
+        // loaded 取 max(首页条数, 已加载条数)，但不超过 total
+        const loaded = Math.min(
+          Math.max(page.sessions.length, prev.length),
+          page.total,
+        );
+        wsPaging[workspace] = { total: page.total, loaded };
+        merged.push(...combined.slice(0, Math.max(combined.length, loaded)));
+      }
+      merged.push(...otherSessions);
+
+      const deduped = dedupeById(merged);
+      const total = deduped.length;
       set({
-        allSessions: trimmed,
-        sessions: trimmed,
-        sessionsTotal: page.total,
+        allSessions: deduped,
+        sessions: deduped,
+        sessionsTotal: total,
+        workspacePaging: wsPaging,
         loading: false,
       });
     } catch {
@@ -161,19 +217,35 @@ export const useSession = create<SessionState>((set, get) => ({
     }
   },
 
-  loadMoreSessions: async (extraCount) => {
-    const { allSessions, sessionsTotal } = get();
-    if (sessionsTotal && allSessions.length >= sessionsTotal) return;
-    const offset = allSessions.length;
+  loadMoreSessions: async (_extraCount) => {
+    // 旧的全局"加载更多"已被按工作区分页取代；保留兼容，整体刷新一遍
+    await get().loadAllSessions();
+  },
+
+  loadMoreWorkspaceSessions: async (workspace, extraCount) => {
+    const ws = workspace || "";
+    const paging = get().workspacePaging[ws];
+    if (paging && paging.loaded >= paging.total) return;
+    const offset = paging ? paging.loaded : 0;
     const limit = Math.max(1, Math.floor(extraCount));
     set({ loading: true });
     try {
-      const page = await fetchSessionPage({ limit, offset });
-      const merged = dedupeById([...allSessions, ...page.sessions]);
+      const page = await fetchSessionPage({
+        workspace: ws,
+        channelId: "ws",
+        limit,
+        offset,
+      });
+      const merged = dedupeById([...get().allSessions, ...page.sessions]);
+      const newLoaded = Math.min(offset + page.sessions.length, page.total);
       set({
         allSessions: merged,
         sessions: merged,
-        sessionsTotal: page.total,
+        sessionsTotal: merged.length,
+        workspacePaging: {
+          ...get().workspacePaging,
+          [ws]: { total: page.total, loaded: newLoaded },
+        },
         loading: false,
       });
     } catch {
@@ -181,9 +253,8 @@ export const useSession = create<SessionState>((set, get) => ({
     }
   },
 
-  loadWorkspaceSessions: async (_workspace) => {
-    // 兼容旧调用
-    await get().loadAllSessions();
+  loadWorkspaceSessions: async (workspace) => {
+    await get().loadMoreWorkspaceSessions(workspace, WORKSPACE_PAGE_SIZE);
   },
 
   switchSession: async (sessionId) => {
@@ -268,11 +339,25 @@ export const useSession = create<SessionState>((set, get) => ({
     // 后端先删；本地状态总是同步到 UI（即便后端失败也至少把它从列表里去掉，
     // 下一轮 5s 轮询会重新带回，让用户看到错误信号）
     void deleteSessionRemote(sessionId);
+    const removed = get().allSessions.find((s) => s.session_id === sessionId);
     const total = get().sessionsTotal;
+    // 同步该会话所属工作区的分页计数
+    const paging = { ...get().workspacePaging };
+    if (removed && removed.channel === "ws") {
+      const ws = removed.workspace || "";
+      const p = paging[ws];
+      if (p) {
+        paging[ws] = {
+          total: Math.max(0, p.total - 1),
+          loaded: Math.max(0, p.loaded - 1),
+        };
+      }
+    }
     set({
       sessions: get().sessions.filter((s) => s.session_id !== sessionId),
       allSessions: get().allSessions.filter((s) => s.session_id !== sessionId),
       sessionsTotal: total > 0 ? total - 1 : 0,
+      workspacePaging: paging,
     });
   },
 
