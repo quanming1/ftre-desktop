@@ -57,6 +57,13 @@ export interface ChatMessage {
   external?: boolean;
   /** 外部消息来源标识（channel::session） */
   externalFrom?: string;
+  /** 上下文压缩状态消息：标记 + 状态 + 元信息 */
+  compact?: {
+    status: "running" | "done" | "failed";
+    tokensBefore?: number;
+    summaryPreview?: string;
+    reason?: string;
+  };
   usage?: {
     prompt_tokens?: number;
     completion_tokens?: number;
@@ -527,6 +534,89 @@ export function applyEvent(b: Bucket, ev: BusEvent): void {
 
     case "retry": {
       b.retryState = { attempt: d.attempt, maxAttempts: d.max_attempts, message: d.message };
+      return;
+    }
+
+    // ─── 上下文压缩事件 ───
+    case "context_compact_start": {
+      b.messages = [
+        ...b.messages,
+        {
+          id: ev.id ?? nextId("compact"),
+          role: "system" as Role,
+          content: null,
+          timestamp: ts,
+          compact: {
+            status: "running",
+            tokensBefore: typeof d.tokens === "number" ? d.tokens : undefined,
+          },
+        },
+      ];
+      return;
+    }
+
+    case "context_compact_done": {
+      // 找最后一条 running 的压缩消息，标记为 done
+      for (let i = b.messages.length - 1; i >= 0; i--) {
+        const m = b.messages[i];
+        if (m.compact?.status === "running") {
+          b.messages = [
+            ...b.messages.slice(0, i),
+            {
+              ...m,
+              compact: {
+                status: "done",
+                tokensBefore: typeof d.tokens_before === "number" ? d.tokens_before : m.compact.tokensBefore,
+                summaryPreview: typeof d.summary === "string" ? d.summary : undefined,
+              },
+            },
+            ...b.messages.slice(i + 1),
+          ];
+          break;
+        }
+      }
+      return;
+    }
+
+    case "context_compact_failed": {
+      for (let i = b.messages.length - 1; i >= 0; i--) {
+        const m = b.messages[i];
+        if (m.compact?.status === "running") {
+          b.messages = [
+            ...b.messages.slice(0, i),
+            {
+              ...m,
+              compact: {
+                status: "failed",
+                reason: typeof d.reason === "string" ? d.reason : "未知原因",
+              },
+            },
+            ...b.messages.slice(i + 1),
+          ];
+          break;
+        }
+      }
+      return;
+    }
+
+    // ─── 历史回放：context_compact 事件 ───
+    case "context_compact": {
+      // 历史回放时遇到压缩事件：仅插入一条分隔气泡，
+      // 之前的历史消息保留可见（前端只做"提示这里压缩过了"，不做实际折叠）
+      const summary = typeof d.summary === "string" ? d.summary : "";
+      b.messages = [
+        ...b.messages,
+        {
+          id: ev.id ?? nextId("compact"),
+          role: "system" as Role,
+          content: null,
+          timestamp: ts,
+          compact: {
+            status: "done",
+            summaryPreview: summary,
+          },
+        },
+      ];
       return;
     }
   }
