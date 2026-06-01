@@ -8,7 +8,9 @@
  * - Embedded panels (preview, debug)
  */
 import { memo, useRef, useEffect, useState, useCallback } from "react";
-import { ChevronUp, Loader2 } from "lucide-react";
+import { ChevronUp, Loader2, Archive, AlertCircle, ChevronRight } from "lucide-react";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import type { ChatMessage } from "@/stores/chat";
 import { useAutoScrollToBottom } from "@/hooks/auto-scroll";
 import { useChat } from "@/stores/chat";
@@ -239,10 +241,12 @@ export const ChatMessageList = memo(function ChatMessageList({
           );
         })}
 
-        {/* Typing indicator */}
-        {isBusy && !messages.some((m) => m.streaming) && (
-          <TypingDots className="py-2" />
-        )}
+        {/* Typing indicator — 压缩进行中时不显示（compact 气泡已有自己的 loading 提示） */}
+        {isBusy &&
+          !messages.some((m) => m.streaming) &&
+          !messages.some((m) => m.compact?.status === "running") && (
+            <TypingDots className="py-2" />
+          )}
       </div>
     </div>
   );
@@ -272,6 +276,11 @@ const MessageItem = memo(function MessageItem({
     );
   }
   if (message.role === "system") {
+    // 上下文压缩状态消息
+    if (message.compact) {
+      return <CompactBubble compact={message.compact} />;
+    }
+    // 其他系统消息（错误等）
     return (
       <div className="text-[13px] text-danger p-3 bg-danger/8 rounded-lg font-mono">
         {message.content}
@@ -280,3 +289,70 @@ const MessageItem = memo(function MessageItem({
   }
   return null;
 });
+
+// ─── Context Compact Bubble ─────────────────────────────────────────
+
+const CompactBubble = memo(function CompactBubble({
+  compact,
+}: {
+  compact: NonNullable<ChatMessage["compact"]>;
+}) {
+  const { status, tokensBefore, summaryPreview, reason } = compact;
+  const [open, setOpen] = useState(false);
+
+  if (status === "running") {
+    return (
+      <div className="flex items-center justify-center py-2">
+        <span className="inline-flex items-center gap-1.5 text-[11px] text-t-ghost">
+          <Loader2 size={12} className="animate-spin" />
+          压缩上下文中…
+        </span>
+      </div>
+    );
+  }
+
+  if (status === "failed") {
+    return (
+      <div className="flex items-center justify-center py-2">
+        <span className="inline-flex items-center gap-1.5 text-[11px] text-warning/80">
+          <AlertCircle size={12} />
+          上下文压缩失败{reason ? `：${reason}` : ""}
+        </span>
+      </div>
+    );
+  }
+
+  // status === "done"：一条克制的分隔线 + 可展开摘要
+  return (
+    <div className="py-1.5">
+      <button
+        onClick={() => summaryPreview && setOpen((v) => !v)}
+        className={`group flex items-center gap-2 w-full ${summaryPreview ? "cursor-pointer" : "cursor-default"}`}
+      >
+        <span className="flex-1 h-px bg-border/60" />
+        <span className="inline-flex items-center gap-1 text-[10.5px] text-t-faint group-hover:text-t-ghost transition-colors whitespace-nowrap">
+          <Archive size={11} />
+          历史已压缩
+          {typeof tokensBefore === "number" ? ` · ${formatTokens(tokensBefore)} tokens` : ""}
+          {summaryPreview ? (
+            <ChevronRight
+              size={11}
+              className={`transition-transform ${open ? "rotate-90" : ""}`}
+            />
+          ) : null}
+        </span>
+        <span className="flex-1 h-px bg-border/60" />
+      </button>
+      {open && summaryPreview ? (
+        <div className="markdown-body mt-2 mx-auto max-w-[680px] text-[12px] opacity-80">
+          <ReactMarkdown remarkPlugins={[remarkGfm]}>{summaryPreview}</ReactMarkdown>
+        </div>
+      ) : null}
+    </div>
+  );
+});
+
+function formatTokens(n: number): string {
+  if (n >= 1000) return `${(n / 1000).toFixed(1)}k`;
+  return String(n);
+}
