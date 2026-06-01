@@ -10,7 +10,7 @@ export function createWindow(): BrowserWindow {
     height: 860,
     minWidth: 800,
     minHeight: 600,
-    title: 'AI IDE',
+    title: 'ftre',
     backgroundColor: '#1e1e1e',
     frame: false,
     titleBarStyle: 'hidden',
