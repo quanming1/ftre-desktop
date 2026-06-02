@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from "react";
-import { Minus, Square, X, Copy, Terminal, GitBranch, ChevronRight, ClipboardList } from "lucide-react";
+import { Minus, Square, X, Copy, Terminal, GitBranch, ChevronRight } from "lucide-react";
 import { PixelLogo } from "@/components/PixelLogo";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { Tooltip, TooltipProvider } from "@ftre/ui";
@@ -22,8 +22,6 @@ export function TitleBar() {
   const rootPath = useWorkspace((s) => s.rootPath);
   const terminalOpen = useLayout((s) => s.terminalDropdownOpen);
   const toggleTerminal = useLayout((s) => s.toggleTerminalDropdown);
-  const taskPanelOpen = useLayout((s) => s.taskPanelOpen);
-  const toggleTaskPanel = useLayout((s) => s.toggleTaskPanel);
   const gitInfo = useGitService((s) => s.getInfo());
 
   const projectName = rootPath ? rootPath.split("/").pop() || rootPath.split("\\").pop() : "Ftre";
@@ -145,17 +143,6 @@ export function TitleBar() {
       <div className="flex items-center shrink-0 h-full gap-2" style={noDrag}>
         {/* 悬浮窗按钮组 */}
         <TooltipProvider>
-          <Tooltip content="任务监控" side="bottom">
-            <button
-              onClick={toggleTaskPanel}
-              className={`h-full px-3 flex items-center gap-1.5 text-[12px] font-mono transition-colors ${
-                taskPanelOpen ? "text-t-primary bg-hover" : "text-t-dim hover:bg-hover hover:text-t-muted"
-              }`}
-            >
-              <ClipboardList size={14} strokeWidth={1.5} />
-            </button>
-          </Tooltip>
-
           <Tooltip content="终端 (Ctrl+`)" side="bottom">
             <button
               onClick={toggleTerminal}

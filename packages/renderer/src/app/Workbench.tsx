@@ -10,7 +10,6 @@ import { SessionPanel } from "@/features/session/SessionPanel";
 import { SkillsPanel } from "@/features/skills/SkillsPanel";
 import { ScheduledTaskPanel } from "@/features/task/ScheduledTaskPanel";
 import { TerminalDropdown } from "@/features/terminal/TerminalDropdown";
-import { TaskDropdown } from "@/features/task/TaskDropdown";
 import { FilePalette } from "@/components/FilePalette";
 import { CommandPalette } from "@/components/CommandPalette";
 import { GlobalSearchPalette } from "@/features/global-search/GlobalSearchPalette";
@@ -428,9 +427,6 @@ export function Workbench() {
 
       {/* 终端下拉弹窗 — 始终挂载，CSS 控制显隐 */}
       <TerminalDropdown />
-
-      {/* 任务监控弹窗 — 始终挂载，CSS 控制显隐 */}
-      <TaskDropdown />
 
       {/* 全局设置对话框 — 监听 ftre:open-settings 事件，由 SessionPanel 底部按钮触发 */}
       <SettingsDialog />
