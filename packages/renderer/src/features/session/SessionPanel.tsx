@@ -858,7 +858,7 @@ function WorkspaceGroup({
         >
           <ChevronRight
             size={14}
-            className={`shrink-0 transition-transform duration-150 ${collapsed ? "" : "rotate-90"}`}
+            className={`shrink-0 self-center transition-transform duration-150 ${collapsed ? "" : "rotate-90"}`}
             strokeWidth={2}
           />
           <Folder
