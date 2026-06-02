@@ -10,8 +10,8 @@
  * 在底部按钮上一键打开）。
  */
 import { useState, useEffect, useCallback } from "react";
-import { motion } from "framer-motion";
 import { X, Sun, Moon, Monitor } from "lucide-react";
+import { Modal } from "@/components/Modal";
 import { ModelSettings } from "@/features/settings/ModelSettings";
 import { GatewaySettings } from "@/features/settings/GatewaySettings";
 import { AgentDefSettings } from "@/features/settings/AgentDefSettings";
@@ -96,20 +96,8 @@ function SettingsDialogBody({
   ];
 
   return (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center">
-      <motion.div
-        initial={{ opacity: 0 }}
-        animate={{ opacity: 1 }}
-        transition={{ duration: 0.15 }}
-        className="absolute inset-0 bg-black/50"
-        onClick={onClose}
-      />
-      <motion.div
-        initial={{ opacity: 0, scale: 0.95, y: 12 }}
-        animate={{ opacity: 1, scale: 1, y: 0 }}
-        transition={{ duration: 0.2, ease: [0.16, 1, 0.3, 1] }}
-        className="relative w-[900px] h-[640px] bg-surface border border-border rounded-xl shadow-2xl overflow-hidden flex"
-      >
+    <Modal open onClose={onClose} className="w-[900px]" width={900}>
+      <div className="flex h-[640px] -m-6">
         {/* Left Nav */}
         <nav className="w-[200px] border-r border-border flex flex-col py-5 shrink-0 overflow-y-auto">
           {navSections.map((section) => (
@@ -135,14 +123,6 @@ function SettingsDialogBody({
 
         {/* Right Content */}
         <div className="flex-1 flex flex-col overflow-hidden">
-          <div className="flex items-center justify-end px-4 py-2 border-b border-border">
-            <button
-              onClick={onClose}
-              className="w-8 h-8 rounded-full flex items-center justify-center hover:bg-hover text-t-ghost hover:text-t-primary transition-colors"
-            >
-              <X size={16} />
-            </button>
-          </div>
           <div className="flex-1 overflow-y-auto p-6">
             {activeSection === "models" && <ModelSettings />}
             {activeSection === "gateway" && <GatewaySettings />}
@@ -150,8 +130,8 @@ function SettingsDialogBody({
             {activeSection === "general" && <GeneralSettings />}
           </div>
         </div>
-      </motion.div>
-    </div>
+      </div>
+    </Modal>
   );
 }
 
