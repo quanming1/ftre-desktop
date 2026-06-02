@@ -10,6 +10,7 @@
  * 在底部按钮上一键打开）。
  */
 import { useState, useEffect, useCallback } from "react";
+import { motion } from "framer-motion";
 import { X, Sun, Moon, Monitor } from "lucide-react";
 import { ModelSettings } from "@/features/settings/ModelSettings";
 import { GatewaySettings } from "@/features/settings/GatewaySettings";
@@ -96,8 +97,19 @@ function SettingsDialogBody({
 
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center">
-      <div className="absolute inset-0 bg-black/60" onClick={onClose} />
-      <div className="relative w-[900px] h-[640px] bg-surface border border-border rounded-xl shadow-2xl overflow-hidden flex">
+      <motion.div
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        transition={{ duration: 0.15 }}
+        className="absolute inset-0 bg-black/50"
+        onClick={onClose}
+      />
+      <motion.div
+        initial={{ opacity: 0, scale: 0.95, y: 12 }}
+        animate={{ opacity: 1, scale: 1, y: 0 }}
+        transition={{ duration: 0.2, ease: [0.16, 1, 0.3, 1] }}
+        className="relative w-[900px] h-[640px] bg-surface border border-border rounded-xl shadow-2xl overflow-hidden flex"
+      >
         {/* Left Nav */}
         <nav className="w-[200px] border-r border-border flex flex-col py-5 shrink-0 overflow-y-auto">
           {navSections.map((section) => (
@@ -126,7 +138,7 @@ function SettingsDialogBody({
           <div className="flex items-center justify-end px-4 py-2 border-b border-border">
             <button
               onClick={onClose}
-              className="p-1 rounded-full hover:bg-hover text-t-ghost hover:text-t-primary transition-colors"
+              className="w-8 h-8 rounded-full flex items-center justify-center hover:bg-hover text-t-ghost hover:text-t-primary transition-colors"
             >
               <X size={16} />
             </button>
@@ -138,7 +150,7 @@ function SettingsDialogBody({
             {activeSection === "general" && <GeneralSettings />}
           </div>
         </div>
-      </div>
+      </motion.div>
     </div>
   );
 }
