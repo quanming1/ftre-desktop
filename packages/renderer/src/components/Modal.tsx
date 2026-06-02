@@ -61,9 +61,9 @@ export function Modal({
             style={{ width, maxWidth: "calc(100vw - 32px)", maxHeight: "calc(100vh - 48px)" }}
           >
             {/* 顶部栏：关闭按钮（有 title 时同时显示标题） */}
-            <div className="shrink-0 flex items-center justify-between px-6 py-4 border-b border-border/60">
+            <div className="shrink-0 flex items-center justify-between px-6 py-5 border-b border-border/60">
               {title ? (
-                <h2 className="text-[16px] font-semibold text-t-primary">
+                <h2 className="text-[18px] font-semibold text-t-primary">
                   {title}
                 </h2>
               ) : (
@@ -71,9 +71,9 @@ export function Modal({
               )}
               <button
                 onClick={onClose}
-                className="w-8 h-8 rounded-full flex items-center justify-center text-t-ghost hover:text-t-primary hover:bg-hover transition-colors"
+                className="w-10 h-10 rounded-full flex items-center justify-center text-t-ghost hover:text-t-primary hover:bg-hover transition-colors"
               >
-                <X size={16} />
+                <X size={18} />
               </button>
             </div>
 
