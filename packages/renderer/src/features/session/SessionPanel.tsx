@@ -27,7 +27,6 @@ import {
 import {
   MoreHorizontal,
   Loader2,
-  Archive,
   Pencil,
   Copy,
   Folder,
@@ -61,7 +60,7 @@ import { useChat } from "@/stores/chat";
 import { useWorkspace } from "@/stores/workspace";
 import { useLayout } from "@/stores/layout";
 import { useNotification } from "@/stores/notification";
-import { triggerCompaction, updateSession } from "@/services/api";
+import { updateSession } from "@/services/api";
 import { ContextMenu, type ContextMenuItem } from "@/components/ContextMenu";
 import { Tooltip, TooltipProvider } from "@ftre/ui";
 import { normalizePathForCompare } from "@/utils/pathUtils";
@@ -361,14 +360,6 @@ export function SessionPanel() {
     [activeLeftPanel, setActiveLeftPanel, newSession],
   );
 
-  const handleCompaction = useCallback(async (sessionId: string) => {
-    const result = await triggerCompaction(sessionId);
-    useNotification.getState().addNotification({
-      level: result ? "info" : "error",
-      message: result ? "归档任务已触发" : "归档任务触发失败",
-    });
-  }, []);
-
   const handleTogglePin = useCallback((sessionId: string) => {
     setPinnedSessions((prev) => {
       const next = new Set(prev);
@@ -433,12 +424,6 @@ export function SessionPanel() {
               setRenamingSession(session);
             },
           },
-          {
-            id: "compact-session",
-            label: "归档会话",
-            icon: Archive,
-            action: () => handleCompaction(session.session_id),
-          },
           { id: "sep", label: "", separator: true, action: () => { } },
           {
             id: "delete-session",
@@ -448,7 +433,7 @@ export function SessionPanel() {
         ],
       });
     },
-    [deleteSession, handleCompaction, handleTogglePin, pinnedSessions],
+    [deleteSession, handleTogglePin, pinnedSessions],
   );
 
   /** 工作区 header 右键菜单 */
