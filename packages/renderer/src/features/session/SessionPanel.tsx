@@ -447,6 +447,26 @@ export function SessionPanel() {
     [deleteSession, handleCompaction, handleTogglePin, pinnedSessions],
   );
 
+  /** 工作区 header 右键菜单 */
+  const showWorkspaceHeaderMenu = useCallback(
+    (e: React.MouseEvent, workspacePath: string) => {
+      e.stopPropagation();
+      e.preventDefault();
+      setContextMenu({
+        position: { x: e.clientX, y: e.clientY },
+        items: [
+          {
+            id: "new-session-in-workspace",
+            label: "新建会话",
+            icon: SquarePen,
+            action: () => handleNewInWorkspace(workspacePath),
+          },
+        ],
+      });
+    },
+    [handleNewInWorkspace],
+  );
+
   const handleExpandGroup = useCallback(async (key: string, groupFull: string, groupTotal: number) => {
     // 当前展开数；未记录则视作默认 5
     const current = expandCount[key] ?? PER_GROUP_DEFAULT;
@@ -624,18 +644,32 @@ export function SessionPanel() {
                           onCollapse={() => handleCollapseGroup(bucket.key)}
                           onNewInWorkspace={() => handleNewInWorkspace(bucket.full)}
                           onToggleCollapse={() => handleToggleCollapse(bucket.key)}
+                          onHeaderContextMenu={(e) => showWorkspaceHeaderMenu(e, bucket.full)}
                         />
                       );
                     })}
                   </SortableContext>
-                  {hiddenCount > 0 && (
-                    <button
-                      type="button"
-                      onClick={() => setShowAllGroups(true)}
-                      className="w-full mt-2 pl-[30px] py-1 text-left text-[12px] text-t-ghost hover:text-neon transition-colors"
-                    >
-                      展开更多工作区 (+{hiddenCount})
-                    </button>
+                  {(hiddenCount > 0 || showAllGroups) && (
+                    <div className="flex items-center gap-3 mt-2 pl-[30px] py-1 text-[12px]">
+                      {hiddenCount > 0 && (
+                        <button
+                          type="button"
+                          onClick={() => setShowAllGroups(true)}
+                          className="text-left text-t-ghost hover:text-neon transition-colors"
+                        >
+                          展开更多工作区 (+{hiddenCount})
+                        </button>
+                      )}
+                      {showAllGroups && buckets.length > MAX_GROUPS && (
+                        <button
+                          type="button"
+                          onClick={() => setShowAllGroups(false)}
+                          className="text-left text-t-ghost hover:text-neon transition-colors"
+                        >
+                          收起
+                        </button>
+                      )}
+                    </div>
                   )}
                 </DndContext>
                 );
@@ -794,6 +828,8 @@ interface WorkspaceGroupProps {
   onCollapse: () => void;
   onNewInWorkspace: () => void;
   onToggleCollapse: () => void;
+  /** 工作区 header 右键菜单 */
+  onHeaderContextMenu: (e: React.MouseEvent) => void;
 }
 
 function WorkspaceGroup({
@@ -813,6 +849,7 @@ function WorkspaceGroup({
   onCollapse,
   onNewInWorkspace,
   onToggleCollapse,
+  onHeaderContextMenu,
 }: WorkspaceGroupProps) {
   const {
     attributes,
@@ -841,12 +878,14 @@ function WorkspaceGroup({
       {/* 工作区标题：
           - 单击 → 折叠/展开会话列表
           - "+" 按钮 → 在此工作区新建会话
+          - 右键 → 工作区操作菜单
           - 拖动（≥5px）→ 重排
           - dnd-kit 的 PointerSensor distance=5 已经在区分单击和拖动 */}
         <div
           {...attributes}
           {...listeners}
           onClick={onToggleCollapse}
+          onContextMenu={onHeaderContextMenu}
           className={`group flex items-center gap-2 px-2 py-1 min-w-0 transition-colors select-none rounded
             cursor-pointer hover:bg-hover
             ${bucket.isActive ? "text-t-primary" : "text-t-secondary hover:text-t-primary"}
@@ -868,7 +907,7 @@ function WorkspaceGroup({
           >
             {bucket.name}
           </span>
-          <span className="text-[12px] text-t-ghost shrink-0">
+          <span className="text-[12px] text-t-ghost shrink-0 group-hover:hidden">
             {backendTotal || bucket.sessions.length}
           </span>
           <button
@@ -877,7 +916,7 @@ function WorkspaceGroup({
               e.stopPropagation();
               onNewInWorkspace();
             }}
-            className="shrink-0 w-6 h-6 flex items-center justify-center rounded-full opacity-0 group-hover:opacity-100 hover:bg-active text-t-ghost hover:text-t-primary transition-all"
+            className="hidden group-hover:flex shrink-0 w-6 h-6 items-center justify-center rounded-full hover:bg-active text-t-ghost hover:text-t-primary transition-colors"
             title="在此工作区新建会话"
           >
             <Plus size={15} strokeWidth={2} />
@@ -995,6 +1034,7 @@ function SessionRow({
   return (
     <div
       onClick={onClick}
+      onContextMenu={onMenu}
       onMouseEnter={onEnter}
       onMouseLeave={onLeave}
       className={`flex items-center gap-2 h-10 px-3 rounded-full cursor-pointer select-none transition-colors ${isActive

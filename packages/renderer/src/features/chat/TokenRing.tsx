@@ -31,7 +31,7 @@ function formatTokens(n: number): string {
 }
 
 const BUTTON_CLASS =
-  "flex items-center text-[13px] h-9 px-2 rounded-md font-mono cursor-default transition-colors duration-150 hover:bg-hover";
+  "flex items-center text-[13px] h-8 px-3 rounded-full font-mono cursor-default transition-colors duration-150 hover:bg-[#e7e7e8]";
 
 export function TokenRing() {
   const usage = useChat((s) => s.tokenUsage);
