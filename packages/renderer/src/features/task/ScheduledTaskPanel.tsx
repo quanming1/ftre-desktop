@@ -581,7 +581,7 @@ export function ScheduledTaskPanel() {
       </div>
 
       {/* List */}
-      <div className="flex-1 overflow-y-auto px-4 py-3 space-y-2">
+      <div className="flex-1 overflow-y-auto px-4 py-3">
         {/* 新建 form 在最上方 */}
         {editing === "new" && (
           <JobForm
@@ -622,6 +622,7 @@ export function ScheduledTaskPanel() {
         )}
 
         {/* 任务列表 */}
+        <div className="grid grid-cols-2 gap-2">
         {sortedJobs.map((job) =>
           editing && typeof editing !== "string" && editing.id === job.id ? (
             <JobForm
@@ -640,6 +641,7 @@ export function ScheduledTaskPanel() {
             />
           ),
         )}
+        </div>
       </div>
     </div>
   );
