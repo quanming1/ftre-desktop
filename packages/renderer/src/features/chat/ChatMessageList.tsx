@@ -197,10 +197,9 @@ export const ChatMessageList = memo(function ChatMessageList({
       ref={mergedRef}
       data-chat-scroll-container=""
       onContextMenu={handleContextMenu}
-      className={`overflow-y-auto overflow-x-hidden px-4 pt-3 pb-20 ${className}`}
+      className={`overflow-y-auto overflow-x-hidden px-6 pt-3 pb-20 ${className}`}
       style={{
         maxHeight,
-        scrollbarGutter: "stable",
       }}
     >
       <div className="mx-auto w-full max-w-[960px] space-y-12 break-words">
