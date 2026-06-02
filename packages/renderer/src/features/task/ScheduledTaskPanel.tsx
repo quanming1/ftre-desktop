@@ -128,7 +128,7 @@ function JobCard({
         <div className="flex-1 min-w-0">
           <h3
             className={`text-[14px] font-medium truncate ${
-              isDisabled ? "text-t-muted line-through" : "text-t-primary"
+              isDisabled ? "text-t-muted" : "text-t-primary"
             }`}
           >
             {job.title}
