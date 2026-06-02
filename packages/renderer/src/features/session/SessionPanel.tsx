@@ -26,7 +26,6 @@ import {
 } from "react";
 import {
   MoreHorizontal,
-  Search,
   Loader2,
   Archive,
   Pencil,
@@ -220,8 +219,6 @@ export function SessionPanel() {
   const activeLeftPanel = useLayout((s) => s.activeLeftPanel);
   const setActiveLeftPanel = useLayout((s) => s.setActiveLeftPanel);
 
-  const [searchQuery, setSearchQuery] = useState("");
-  const [searchOpen, setSearchOpen] = useState(false);
   const [hoveredSession, setHoveredSession] = useState<string | null>(null);
   /** 每个 group 已展开多少条；未列入即 PER_GROUP_DEFAULT */
   const [expandCount, setExpandCount] = useState<Record<string, number>>({});
@@ -238,8 +235,8 @@ export function SessionPanel() {
   const [pinnedSessions, setPinnedSessions] = useState<Set<string>>(() => loadPinnedSessions());
   /** 折叠的工作区 key 集合（纯前端，localStorage 持久化） */
   const [collapsedWorkspaces, setCollapsedWorkspaces] = useState<Set<string>>(() => loadCollapsedWorkspaces());
-
-  const searchInputRef = useRef<HTMLInputElement>(null);
+  /** 是否展示全部工作区（默认最多 5 个） */
+  const [showAllGroups, setShowAllGroups] = useState(false);
 
   // 初次加载 + 5s 轮询
   useEffect(() => {
@@ -254,13 +251,6 @@ export function SessionPanel() {
     return () => clearInterval(id);
   }, [loadAllSessions]);
 
-  // 搜索过滤
-  const filtered = useMemo(() => {
-    const q = searchQuery.trim().toLowerCase();
-    if (!q) return allSessions;
-    return allSessions.filter((s) => (s.title || "").toLowerCase().includes(q));
-  }, [allSessions, searchQuery]);
-
   /**
    * 一级分流：
    * - ws channel：进 workspace 分组（"Ws Threads"）
@@ -270,7 +260,7 @@ export function SessionPanel() {
     const pinned: SessionSummary[] = [];
     const ws: SessionSummary[] = [];
     const others: SessionSummary[] = [];
-    for (const s of filtered) {
+    for (const s of allSessions) {
       if (pinnedSessions.has(s.session_id)) {
         pinned.push(s);
       } else if (s.channel === "ws") {
@@ -282,7 +272,7 @@ export function SessionPanel() {
     pinned.sort((a, b) => (b.updated_at ?? 0) - (a.updated_at ?? 0));
     others.sort((a, b) => (b.updated_at ?? 0) - (a.updated_at ?? 0));
     return { pinnedList: pinned, wsSessions: ws, otherSessions: others };
-  }, [filtered, pinnedSessions]);
+  }, [allSessions, pinnedSessions]);
 
   /**
    * 桶顺序（仅 ws sessions 走分组）：
@@ -336,7 +326,7 @@ export function SessionPanel() {
     return [...known, ...unknown];
   }, [wsSessions, rootPath, groupOrder]);
 
-  const totalCount = filtered.length;
+  const totalCount = allSessions.length;
 
   /** Other Threads 默认折叠展示 PER_GROUP_DEFAULT 条；用同样的展开/收起按钮 */
   const OTHER_KEY = "__other__";
@@ -457,14 +447,6 @@ export function SessionPanel() {
     [deleteSession, handleCompaction, handleTogglePin, pinnedSessions],
   );
 
-  const handleSearchToggle = useCallback(() => {
-    setSearchOpen((prev) => {
-      if (!prev) setTimeout(() => searchInputRef.current?.focus(), 0);
-      else setSearchQuery("");
-      return !prev;
-    });
-  }, []);
-
   const handleExpandGroup = useCallback(async (key: string, groupFull: string, groupTotal: number) => {
     // 当前展开数；未记录则视作默认 5
     const current = expandCount[key] ?? PER_GROUP_DEFAULT;
@@ -556,42 +538,17 @@ export function SessionPanel() {
         </div>
 
         {/* ── Ws Threads 段头 ── */}
-        <div className="shrink-0 px-3 pb-1 flex items-center justify-between">
+        <div className="shrink-0 px-3 pb-1">
           <span className="text-[12px] text-t-ghost font-medium">
             Ws Threads
           </span>
-          <Tooltip content="搜索会话" side="bottom">
-            <button
-              onClick={handleSearchToggle}
-              className={`flex items-center justify-center h-7 w-7 rounded-full transition-colors ${searchOpen
-                ? "text-neon bg-neon/10"
-                : "text-t-ghost hover:text-t-primary hover:bg-hover"
-                }`}
-            >
-              <Search size={14} />
-            </button>
-          </Tooltip>
         </div>
-
-        {/* 搜索框 */}
-        {searchOpen && (
-          <div className="shrink-0 px-3 pb-2">
-            <input
-              ref={searchInputRef}
-              type="text"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="搜索会话..."
-              className="w-full h-8 px-3 rounded bg-elevated border border-border/50 focus:border-neon/50 text-[13px] text-t-primary placeholder:text-t-ghost outline-none transition-colors"
-            />
-          </div>
-        )}
 
         {/* 列表 */}
         <div className="flex-1 overflow-y-auto scrollbar-thin px-2 py-2">
           {totalCount === 0 ? (
             <div className="text-t-ghost px-2 py-12 text-center text-[13px]">
-              {searchQuery ? "没有匹配的会话" : "暂无会话"}
+              暂无会话
             </div>
           ) : (
             <>
@@ -627,17 +584,21 @@ export function SessionPanel() {
               )}
 
               {/* Ws Threads：按 workspace 分组 */}
-              {buckets.length > 0 && (
+              {buckets.length > 0 && (() => {
+                const MAX_GROUPS = 5;
+                const visibleBuckets = showAllGroups ? buckets : buckets.slice(0, MAX_GROUPS);
+                const hiddenCount = buckets.length - visibleBuckets.length;
+                return (
                 <DndContext
                   sensors={sensors}
                   collisionDetection={closestCenter}
                   onDragEnd={handleDragEnd}
                 >
                   <SortableContext
-                    items={buckets.map((b) => b.key)}
+                    items={visibleBuckets.map((b) => b.key)}
                     strategy={verticalListSortingStrategy}
                   >
-                    {buckets.map((bucket, idx) => {
+                    {visibleBuckets.map((bucket, idx) => {
                       const expanded = expandCount[bucket.key] ?? PER_GROUP_DEFAULT;
                       const paging = workspacePaging[bucket.full || ""];
                       const backendTotal = paging?.total ?? bucket.sessions.length;
@@ -667,8 +628,18 @@ export function SessionPanel() {
                       );
                     })}
                   </SortableContext>
+                  {hiddenCount > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => setShowAllGroups(true)}
+                      className="w-full mt-2 pl-[30px] py-1 text-left text-[12px] text-t-ghost hover:text-neon transition-colors"
+                    >
+                      展开更多工作区 (+{hiddenCount})
+                    </button>
+                  )}
                 </DndContext>
-              )}
+                );
+              })()}
 
               {/* Other Threads：非 ws channel，平铺 */}
               {otherSessions.length > 0 && (
