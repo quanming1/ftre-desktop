@@ -37,6 +37,8 @@ import {
   Zap,
   Settings,
   Pin,
+  ChevronRight,
+  Plus,
 } from "lucide-react";
 import {
   DndContext,
@@ -141,6 +143,26 @@ const PER_GROUP_STEP = 10;
 // 工作区分组顺序持久化（与 recentFolders 解耦：纯前端排序偏好）
 const GROUP_ORDER_STORAGE_KEY = "ftre-session-group-order";
 const PINNED_SESSIONS_KEY = "ftre-pinned-sessions";
+const COLLAPSED_WORKSPACES_KEY = "ftre-collapsed-workspaces";
+
+function loadCollapsedWorkspaces(): Set<string> {
+  try {
+    const raw = localStorage.getItem(COLLAPSED_WORKSPACES_KEY);
+    if (!raw) return new Set();
+    const parsed = JSON.parse(raw);
+    return new Set(Array.isArray(parsed) ? parsed.filter((x) => typeof x === "string") : []);
+  } catch {
+    return new Set();
+  }
+}
+
+function saveCollapsedWorkspaces(collapsed: Set<string>): void {
+  try {
+    localStorage.setItem(COLLAPSED_WORKSPACES_KEY, JSON.stringify([...collapsed]));
+  } catch {
+    /* ignore */
+  }
+}
 
 function loadGroupOrder(): string[] {
   try {
@@ -214,6 +236,8 @@ export function SessionPanel() {
   const [loadingMore, setLoadingMore] = useState(false);
   /** 置顶会话 ID 集合（纯前端，localStorage 持久化） */
   const [pinnedSessions, setPinnedSessions] = useState<Set<string>>(() => loadPinnedSessions());
+  /** 折叠的工作区 key 集合（纯前端，localStorage 持久化） */
+  const [collapsedWorkspaces, setCollapsedWorkspaces] = useState<Set<string>>(() => loadCollapsedWorkspaces());
 
   const searchInputRef = useRef<HTMLInputElement>(null);
 
@@ -360,6 +384,16 @@ export function SessionPanel() {
       if (next.has(sessionId)) next.delete(sessionId);
       else next.add(sessionId);
       savePinnedSessions(next);
+      return next;
+    });
+  }, []);
+
+  const handleToggleCollapse = useCallback((workspaceKey: string) => {
+    setCollapsedWorkspaces((prev) => {
+      const next = new Set(prev);
+      if (next.has(workspaceKey)) next.delete(workspaceKey);
+      else next.add(workspaceKey);
+      saveCollapsedWorkspaces(next);
       return next;
     });
   }, []);
@@ -594,12 +628,14 @@ export function SessionPanel() {
                           hoveredSession={hoveredSession}
                           loadingSessionId={loadingSessionId}
                           pinnedSessions={pinnedSessions}
+                          collapsed={collapsedWorkspaces.has(bucket.key)}
                           onSwitch={handleSwitchSession}
                           onHover={setHoveredSession}
                           onMenu={showSessionMenu}
                           onExpand={() => handleExpandGroup(bucket.key, bucket.full, bucket.sessions.length)}
                           onCollapse={() => handleCollapseGroup(bucket.key)}
                           onNewInWorkspace={() => handleNewInWorkspace(bucket.full)}
+                          onToggleCollapse={() => handleToggleCollapse(bucket.key)}
                         />
                       );
                     })}
@@ -738,7 +774,7 @@ export function SessionPanel() {
   );
 }
 
-// ─── 单个工作区分组（点击=新建会话，拖动=排序）──────────────────
+// ─── 单个工作区分组（点击=折叠/展开，拖动=排序）──────────────────
 
 interface WorkspaceGroupProps {
   bucket: WorkspaceBucket;
@@ -752,12 +788,15 @@ interface WorkspaceGroupProps {
   hoveredSession: string | null;
   loadingSessionId: string | null;
   pinnedSessions: Set<string>;
+  /** 是否折叠（会话列表隐藏） */
+  collapsed: boolean;
   onSwitch: (sessionId: string) => void;
   onHover: (sessionId: string | null) => void;
   onMenu: (e: React.MouseEvent, session: SessionSummary) => void;
   onExpand: () => void;
   onCollapse: () => void;
   onNewInWorkspace: () => void;
+  onToggleCollapse: () => void;
 }
 
 function WorkspaceGroup({
@@ -770,12 +809,14 @@ function WorkspaceGroup({
   hoveredSession,
   loadingSessionId,
   pinnedSessions,
+  collapsed,
   onSwitch,
   onHover,
   onMenu,
   onExpand,
   onCollapse,
   onNewInWorkspace,
+  onToggleCollapse,
 }: WorkspaceGroupProps) {
   const {
     attributes,
@@ -802,18 +843,24 @@ function WorkspaceGroup({
   return (
     <div ref={setNodeRef} style={style} className={first ? "" : "mt-4"}>
       {/* 工作区标题：
-          - 单击 → 在此工作区新建会话
+          - 单击 → 折叠/展开会话列表
+          - "+" 按钮 → 在此工作区新建会话
           - 拖动（≥5px）→ 重排
           - dnd-kit 的 PointerSensor distance=5 已经在区分单击和拖动 */}
         <div
           {...attributes}
           {...listeners}
-          onClick={onNewInWorkspace}
-          className={`flex items-center gap-2 px-2 py-1 min-w-0 transition-colors select-none rounded
+          onClick={onToggleCollapse}
+          className={`group flex items-center gap-2 px-2 py-1 min-w-0 transition-colors select-none rounded
             cursor-pointer hover:bg-hover
             ${bucket.isActive ? "text-t-primary" : "text-t-secondary hover:text-t-primary"}
           `}
         >
+          <ChevronRight
+            size={14}
+            className={`shrink-0 transition-transform duration-150 ${collapsed ? "" : "rotate-90"}`}
+            strokeWidth={2}
+          />
           <Folder
             size={15}
             className="shrink-0"
@@ -828,31 +875,44 @@ function WorkspaceGroup({
           <span className="text-[12px] text-t-ghost shrink-0">
             {backendTotal || bucket.sessions.length}
           </span>
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              onNewInWorkspace();
+            }}
+            className="shrink-0 w-5 h-5 flex items-center justify-center rounded-full opacity-0 group-hover:opacity-100 hover:bg-active text-t-ghost hover:text-t-primary transition-all"
+            title="在此工作区新建会话"
+          >
+            <Plus size={13} strokeWidth={2} />
+          </button>
         </div>
 
       {/* 会话列表（左缩进对齐工作区名） */}
-      <div className="mt-0.5 space-y-px pl-[18px]">
-        {visibleSessions.map((session) => (
-          <SessionRow
-            key={session.session_id}
-            session={session}
-            isActive={
-              stripPrefix(session.session_id) ===
-              stripPrefix(currentSessionId || "")
-            }
-            isHovered={hoveredSession === session.session_id}
-            isLoading={loadingSessionId === session.session_id}
-            isPinned={pinnedSessions.has(session.session_id)}
-            onClick={() => onSwitch(session.session_id)}
-            onEnter={() => onHover(session.session_id)}
-            onLeave={() => onHover(null)}
-            onMenu={(e) => onMenu(e, session)}
-          />
-        ))}
-      </div>
+      {!collapsed && (
+        <div className="mt-0.5 space-y-px pl-[18px]">
+          {visibleSessions.map((session) => (
+            <SessionRow
+              key={session.session_id}
+              session={session}
+              isActive={
+                stripPrefix(session.session_id) ===
+                stripPrefix(currentSessionId || "")
+              }
+              isHovered={hoveredSession === session.session_id}
+              isLoading={loadingSessionId === session.session_id}
+              isPinned={pinnedSessions.has(session.session_id)}
+              onClick={() => onSwitch(session.session_id)}
+              onEnter={() => onHover(session.session_id)}
+              onLeave={() => onHover(null)}
+              onMenu={(e) => onMenu(e, session)}
+            />
+          ))}
+        </div>
+      )}
 
       {/* 展开 / 收起：可以同时存在（已展开但还有更多） */}
-      {(canExpand || expanded) && (
+      {!collapsed && (canExpand || expanded) && (
         <div className="flex items-center gap-3 mt-1 pl-[30px] py-1 text-[12px]">
           {canExpand && (
             <button
