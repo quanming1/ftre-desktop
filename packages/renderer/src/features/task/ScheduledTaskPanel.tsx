@@ -10,11 +10,11 @@
  *   - 编辑/创建：行内表单 sheet（cron / title / prompt + 启用开关）
  */
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { motion, AnimatePresence } from "framer-motion";
 import {
   RefreshCw,
   Calendar,
   Loader2,
-  ChevronDown,
   Plus,
   Pencil,
   Trash2,
@@ -36,19 +36,6 @@ import { useNotification } from "@/stores/notification";
 
 // ─── Helpers ────────────────────────────────────────────────────────
 
-function fmtTime(ts: number | undefined | null): string {
-  if (!ts) return "—";
-  const ms = ts < 1e12 ? ts * 1000 : ts; // 兼容秒/毫秒
-  const d = new Date(ms);
-  const p = (n: number) => String(n).padStart(2, "0");
-  const today = new Date();
-  const sameDay =
-    d.getFullYear() === today.getFullYear() &&
-    d.getMonth() === today.getMonth() &&
-    d.getDate() === today.getDate();
-  if (sameDay) return `今天 ${p(d.getHours())}:${p(d.getMinutes())}`;
-  return `${p(d.getMonth() + 1)}/${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
-}
 
 function fmtRelative(ts: number | undefined | null): string {
   if (!ts) return "—";
@@ -85,7 +72,6 @@ function JobCard({
   onDelete: () => void;
   onToggleDisabled: () => void;
 }) {
-  const [expanded, setExpanded] = useState(false);
   const history = job.run_history || [];
   const lastRun = history.length > 0 ? history[history.length - 1] : undefined;
   const isDisabled = !!job.disabled;
@@ -101,7 +87,7 @@ function JobCard({
       {/* Row 1: 标题 + 操作按钮 */}
       <div className="flex items-start gap-3">
         <button
-          onClick={() => setExpanded((v) => !v)}
+          onClick={onEdit}
           className="flex-1 min-w-0 flex items-start gap-3 text-left"
         >
           {/* Icon */}
@@ -163,12 +149,6 @@ function JobCard({
             </div>
           </div>
 
-          <ChevronDown
-            size={14}
-            className={`shrink-0 mt-2 text-t-ghost transition-transform duration-150 ${
-              expanded ? "rotate-180" : ""
-            }`}
-          />
         </button>
 
         {/* 操作按钮 */}
@@ -201,52 +181,6 @@ function JobCard({
         </div>
       </div>
 
-      {/* 展开详情 */}
-      {expanded && (
-        <div className="mt-3 ml-9 space-y-3">
-          {/* Prompt 全文 */}
-          {job.prompt && (
-            <div className="px-3 py-2.5 rounded-md bg-elevated border border-border/50">
-              <p className="text-[12px] text-t-secondary leading-relaxed whitespace-pre-wrap break-words">
-                {job.prompt}
-              </p>
-            </div>
-          )}
-
-          {/* Meta 网格 */}
-          <div className="grid grid-cols-2 gap-x-6 gap-y-2">
-            <MetaField label="任务 ID" value={job.id} mono />
-            <MetaField label="创建时间" value={fmtTime(job.created_at)} />
-            <MetaField label="上次运行" value={fmtTime(lastRun)} />
-            <MetaField label="累计运行" value={`${history.length} 次`} />
-          </div>
-
-          {/* 最近 8 次运行 */}
-          {history.length > 0 && (
-            <div>
-              <div className="text-[10px] uppercase tracking-wider text-t-ghost mb-1.5">
-                最近运行
-              </div>
-              <div className="space-y-1">
-                {history.slice(-8).reverse().map((ts, i) => (
-                  <div
-                    key={i}
-                    className="flex items-center gap-3 px-3 py-1.5 rounded-md bg-hover text-[11px] font-mono"
-                  >
-                    <span className="text-t-dim">{fmtTime(ts)}</span>
-                    <span className="text-t-ghost">{fmtRelative(ts)}</span>
-                  </div>
-                ))}
-              </div>
-              {history.length > 8 && (
-                <p className="text-[10px] text-t-ghost mt-1.5">
-                  还有 {history.length - 8} 条历史记录
-                </p>
-              )}
-            </div>
-          )}
-        </div>
-      )}
     </div>
   );
 }
@@ -312,16 +246,16 @@ function JobForm({ initial, onCancel, onSubmit }: JobFormProps) {
   };
 
   return (
-    <div className="px-5 py-4 rounded-xl border border-neon/30 bg-elevated/50 space-y-3">
+    <div className="space-y-3">
       <div className="flex items-center justify-between">
         <h3 className="text-[14px] text-t-primary font-medium">
           {initial ? "编辑定时任务" : "新建定时任务"}
         </h3>
         <button
           onClick={onCancel}
-          className="w-6 h-6 rounded-full flex items-center justify-center text-t-ghost hover:text-t-primary hover:bg-hover transition-colors"
+          className="w-8 h-8 rounded-full flex items-center justify-center text-t-ghost hover:text-t-primary hover:bg-hover transition-colors"
         >
-          <X size={14} />
+          <X size={16} />
         </button>
       </div>
 
@@ -430,6 +364,34 @@ function Field({
       {children}
       {hint && <p className="text-[10px] text-t-ghost leading-relaxed">{hint}</p>}
     </div>
+  );
+}
+
+function JobFormDialog({
+  initial,
+  onCancel,
+  onSubmit,
+}: JobFormProps) {
+  return (
+    <AnimatePresence>
+      <motion.div
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        exit={{ opacity: 0 }}
+        transition={{ duration: 0.15 }}
+        className="fixed inset-0 z-[200] flex items-center justify-center bg-black/50"
+      >
+        <motion.div
+          initial={{ opacity: 0, scale: 0.92, y: 16 }}
+          animate={{ opacity: 1, scale: 1, y: 0 }}
+          exit={{ opacity: 0, scale: 0.92, y: 16 }}
+          transition={{ duration: 0.2, ease: [0.16, 1, 0.3, 1] }}
+          className="w-[640px] max-w-[calc(100vw-32px)] max-h-[calc(100vh-48px)] overflow-y-auto rounded-2xl border border-border bg-elevated shadow-2xl p-6"
+        >
+          <JobForm initial={initial} onCancel={onCancel} onSubmit={onSubmit} />
+        </motion.div>
+      </motion.div>
+    </AnimatePresence>
   );
 }
 
@@ -582,12 +544,18 @@ export function ScheduledTaskPanel() {
 
       {/* List */}
       <div className="flex-1 overflow-y-auto px-4 py-3">
-        {/* 新建 form 在最上方 */}
         {editing === "new" && (
-          <JobForm
+          <JobFormDialog
             initial={null}
             onCancel={() => setEditing(null)}
             onSubmit={handleCreate}
+          />
+        )}
+        {editing && typeof editing !== "string" && (
+          <JobFormDialog
+            initial={editing}
+            onCancel={() => setEditing(null)}
+            onSubmit={(input) => handleUpdate(editing.id, input)}
           />
         )}
 
@@ -612,7 +580,7 @@ export function ScheduledTaskPanel() {
         )}
 
         {/* 状态：empty */}
-        {!loading && !error && jobs.length === 0 && editing !== "new" && (
+        {!loading && !error && jobs.length === 0 && (
           <div className="text-center px-4 py-16">
             <p className="text-[14px] text-t-dim">暂无定时任务</p>
             <p className="text-[12px] text-t-ghost mt-1">
@@ -623,15 +591,7 @@ export function ScheduledTaskPanel() {
 
         {/* 任务列表 */}
         <div className="grid grid-cols-2 gap-2">
-        {sortedJobs.map((job) =>
-          editing && typeof editing !== "string" && editing.id === job.id ? (
-            <JobForm
-              key={job.id}
-              initial={editing}
-              onCancel={() => setEditing(null)}
-              onSubmit={(input) => handleUpdate(job.id, input)}
-            />
-          ) : (
+          {sortedJobs.map((job) => (
             <JobCard
               key={job.id}
               job={job}
@@ -639,8 +599,7 @@ export function ScheduledTaskPanel() {
               onDelete={() => handleDelete(job)}
               onToggleDisabled={() => handleToggleDisabled(job)}
             />
-          ),
-        )}
+          ))}
         </div>
       </div>
     </div>
