@@ -579,7 +579,16 @@ export function SessionPanel() {
       ) : (
       <div className="h-full flex flex-col bg-base text-[14px]">
         {/* ── 顶层动作区（New thread / Cron / Skills）── */}
-        <div className="shrink-0 px-2 pt-3 pb-1">
+        <div
+          className="shrink-0 px-2 pt-3 pb-1 relative overflow-hidden"
+          style={{
+            background: `
+              radial-gradient(ellipse 120% 80% at 10% 20%, rgba(56,189,248,0.06) 0%, transparent 50%),
+              radial-gradient(ellipse 100% 60% at 90% 70%, rgba(0,255,136,0.05) 0%, transparent 45%),
+              radial-gradient(ellipse 80% 100% at 60% 0%, rgba(168,85,247,0.04) 0%, transparent 55%)
+            `,
+          }}
+        >
           <div className="flex items-center gap-1">
             <button
               type="button"
