@@ -466,6 +466,9 @@ export function ScheduledTaskPanel() {
     [jobs],
   );
 
+  const enabledJobs = useMemo(() => sortedJobs.filter((j) => !j.disabled), [sortedJobs]);
+  const disabledJobs = useMemo(() => sortedJobs.filter((j) => !!j.disabled), [sortedJobs]);
+
   const enabledCount = jobs.filter((j) => !j.disabled).length;
   const disabledCount = jobs.length - enabledCount;
 
@@ -553,17 +556,43 @@ export function ScheduledTaskPanel() {
         )}
 
         {/* 任务列表 */}
-        <div className="grid grid-cols-2 gap-2">
-          {sortedJobs.map((job) => (
-            <JobCard
-              key={job.id}
-              job={job}
-              onEdit={() => setEditing(job)}
-              onDelete={() => handleDelete(job)}
-              onToggleDisabled={() => handleToggleDisabled(job)}
-            />
-          ))}
-        </div>
+        {enabledJobs.length > 0 && (
+          <div className="mb-4">
+            <div className="px-1 pb-1.5">
+              <span className="text-[12px] text-t-ghost font-medium">运行中</span>
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              {enabledJobs.map((job) => (
+                <JobCard
+                  key={job.id}
+                  job={job}
+                  onEdit={() => setEditing(job)}
+                  onDelete={() => handleDelete(job)}
+                  onToggleDisabled={() => handleToggleDisabled(job)}
+                />
+              ))}
+            </div>
+          </div>
+        )}
+
+        {disabledJobs.length > 0 && (
+          <div>
+            <div className="px-1 pb-1.5">
+              <span className="text-[12px] text-t-ghost font-medium">已禁用</span>
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              {disabledJobs.map((job) => (
+                <JobCard
+                  key={job.id}
+                  job={job}
+                  onEdit={() => setEditing(job)}
+                  onDelete={() => handleDelete(job)}
+                  onToggleDisabled={() => handleToggleDisabled(job)}
+                />
+              ))}
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );
