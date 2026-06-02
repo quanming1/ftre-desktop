@@ -615,7 +615,7 @@ export function SessionPanel() {
                         }
                         isHovered={hoveredSession === session.session_id}
                         isLoading={loadingSessionId === session.session_id}
-                        isPinned={true}
+                        isPinned={false}
                         onClick={() => handleSwitchSession(session.session_id)}
                         onEnter={() => setHoveredSession(session.session_id)}
                         onLeave={() => setHoveredSession(null)}
