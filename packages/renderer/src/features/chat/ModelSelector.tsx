@@ -139,7 +139,7 @@ export const ModelSelector = memo(function ModelSelector() {
             if (!open) void loadConfig();
             toggle();
           }}
-          className="flex items-center gap-1.5 text-[13px] h-9 px-3 rounded-md font-mono transition-colors duration-150 text-t-muted hover:text-t-primary hover:bg-hover"
+          className="flex items-center gap-1.5 text-[13px] h-8 px-3 rounded-full font-mono transition-colors duration-150 text-t-secondary hover:text-t-primary hover:bg-[#e7e7e8]"
         >
           <span className="truncate max-w-[200px]">{getDisplayName()}</span>
           <ChevronDown size={12} className="shrink-0 opacity-60" />

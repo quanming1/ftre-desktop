@@ -251,14 +251,14 @@ export function WorkspaceBadge() {
     <div ref={containerRef} className="relative">
       <Tooltip content={tooltip} side="top">
         <div
-          className={`group relative flex items-center h-8 rounded-md transition-colors ${
-            editing ? "bg-hover" : "hover:bg-hover"
+          className={`group relative flex items-center h-8 rounded-full transition-colors ${
+            editing ? "bg-[#e7e7e8]" : "hover:bg-[#e7e7e8]"
           }`}
         >
           <button
             type="button"
             onClick={() => setEditing((p) => !p)}
-            className={`flex items-center gap-1 h-8 px-2 text-[12px] font-mono transition-colors ${
+            className={`flex items-center gap-1 h-8 px-3 text-[13px] font-mono transition-colors ${
               hasWorkspace
                 ? "text-t-secondary hover:text-t-primary"
                 : "text-t-ghost hover:text-t-secondary"

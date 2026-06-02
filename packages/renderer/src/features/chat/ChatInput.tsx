@@ -533,12 +533,12 @@ export function ChatInput() {
           {/* 工具栏 */}
           <div className="flex items-center justify-between px-4 py-3">
             {/* 左侧：附件 + 当前工作区（只读） */}
-            <div className="flex items-center gap-1">
+            <div className="flex items-center gap-1.5">
               <button
                 type="button"
                 onClick={handlePickImages}
                 title="附加图片（也可粘贴 / 拖拽）"
-                className="h-8 w-8 flex items-center justify-center rounded-full text-t-secondary hover:text-t-primary hover:bg-hover transition-colors"
+                className="h-8 w-8 flex items-center justify-center rounded-full text-t-secondary hover:text-t-primary hover:bg-[#e7e7e8] transition-colors"
               >
                 <Paperclip size={15} />
               </button>
@@ -546,27 +546,27 @@ export function ChatInput() {
             </div>
 
             {/* 右侧：模型选择 + 上下文用量 + 发送 */}
-            <div className="flex items-center gap-1">
+            <div className="flex items-center gap-1.5">
               <ModelSelector />
-              <div className="w-px h-3.5 bg-border-subtle mx-0.5" />
+              <div className="w-px h-3.5 bg-border-subtle mx-1" />
               <TokenRing />
               {isBusy ? (
                 <button
                   onClick={handleCancel}
-                  className="h-9 w-9 flex items-center justify-center rounded-full bg-t-primary/10 text-t-primary hover:bg-t-primary/20 transition-colors"
+                  className="h-8 w-8 flex items-center justify-center rounded-full bg-t-primary/10 text-t-primary hover:bg-t-primary/20 transition-colors"
                 >
                   <div className="w-3 h-3 bg-current rounded-sm" />
                 </button>
               ) : (
                 <button
                   onClick={handleSend}
-                  className={`h-9 w-9 flex items-center justify-center rounded-full transition-all ${
+                  className={`h-8 w-8 flex items-center justify-center rounded-full transition-all ${
                     canSend
                       ? "bg-neon text-base hover:bg-neon/80 shadow-[0_0_8px_rgba(var(--neon-rgb,56,189,248),0.22)]"
                       : "bg-surface text-t-ghost"
                   }`}
                 >
-                  <ArrowUp size={16} />
+                  <ArrowUp size={15} />
                 </button>
               )}
             </div>
