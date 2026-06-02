@@ -8,7 +8,7 @@
  * - Embedded panels (preview, debug)
  */
 import { memo, useRef, useEffect, useState, useCallback } from "react";
-import { ChevronUp, Loader2, Archive, AlertCircle, ChevronRight } from "lucide-react";
+import { ChevronUp, Loader2, Archive, AlertCircle, ChevronRight, Copy } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import type { ChatMessage } from "@/stores/chat";
@@ -18,6 +18,7 @@ import { useSession } from "@/stores/session";
 import { UserMessage } from "./UserMessage";
 import { AssistantMessage } from "./AssistantMessage";
 import { TypingDots } from "./TypingDots";
+import { ContextMenu, type ContextMenuItem } from "@/components/ContextMenu";
 
 // ─── Types ──────────────────────────────────────────────────────────
 
@@ -46,6 +47,37 @@ export const ChatMessageList = memo(function ChatMessageList({
 }: ChatMessageListProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
+
+  // ─── 右键菜单（选中文本后复制）────────────────────────────────────
+  const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null);
+  const [selectedText, setSelectedText] = useState("");
+
+  const handleContextMenu = useCallback((e: React.MouseEvent) => {
+    const selection = window.getSelection();
+    const text = selection?.toString().trim() || "";
+    if (text) {
+      e.preventDefault();
+      setSelectedText(text);
+      setContextMenu({ x: e.clientX, y: e.clientY });
+    }
+    // 没有选中文本时，让浏览器默认右键菜单显示
+  }, []);
+
+  const handleCopySelection = useCallback(async () => {
+    if (selectedText) {
+      await navigator.clipboard.writeText(selectedText);
+    }
+    setContextMenu(null);
+  }, [selectedText]);
+
+  const contextMenuItems: ContextMenuItem[] = [
+    {
+      id: "copy",
+      label: "复制",
+      icon: Copy,
+      action: handleCopySelection,
+    },
+  ];
 
   // ─── Auto-scroll hook ───────────────────────────────────────────
   // deps: 最后一条消息 id 变化 → 切 session 时重置锁
@@ -164,6 +196,7 @@ export const ChatMessageList = memo(function ChatMessageList({
     <div
       ref={mergedRef}
       data-chat-scroll-container=""
+      onContextMenu={handleContextMenu}
       className={`overflow-y-auto overflow-x-hidden px-4 pt-3 pb-20 ${className}`}
       style={{
         maxHeight,
@@ -248,6 +281,15 @@ export const ChatMessageList = memo(function ChatMessageList({
             <TypingDots className="py-2" />
           )}
       </div>
+
+      {/* 选中文本右键菜单 */}
+      {contextMenu && (
+        <ContextMenu
+          items={contextMenuItems}
+          position={contextMenu}
+          onClose={() => setContextMenu(null)}
+        />
+      )}
     </div>
   );
 });
