@@ -124,9 +124,9 @@ export interface ModelPickerProps {
 // Styles
 // ─────────────────────────────────────────────────────────────
 const itemBaseClass =
-  "w-full px-3 py-2 text-left text-[13px] flex items-center gap-2 rounded-full transition-all duration-150";
+  "w-full px-3 py-2 text-left text-[13px] flex items-center gap-2 rounded-lg transition-all duration-150";
 const itemNormalClass =
-  "text-[var(--ftre-text-secondary,#b0b0b0)] hover:text-[var(--ftre-text-primary,#e8e8e8)] hover:bg-[rgba(226,226,227,0.15)] active:bg-[#e2e2e3] active:text-[#1a1a1a]";
+  "text-t-secondary hover:text-t-primary hover:bg-hover active:bg-active active:text-t-primary";
 const itemSelectedClass =
   "text-[#1a1a1a] bg-[#e2e2e3]";
 
@@ -418,8 +418,7 @@ export function ModelPicker({
                     close();
                     onOpenSettings();
                   }}
-                  className={`${itemBaseClass} text-[12.5px]`}
-                  style={{ color: "var(--ftre-text-muted, #999)" }}
+                  className={`${itemBaseClass} ${itemNormalClass} text-[12.5px]`}
                   title="打开设置 → 模型，编辑供应商与模型列表"
                 >
                   <Settings2 size={14} className="shrink-0 opacity-70" />
