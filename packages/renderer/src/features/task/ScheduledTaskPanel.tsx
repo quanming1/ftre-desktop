@@ -13,7 +13,6 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   RefreshCw,
-  Calendar,
   Loader2,
   Plus,
   Pencil,
@@ -36,18 +35,6 @@ import { useNotification } from "@/stores/notification";
 
 // ─── Helpers ────────────────────────────────────────────────────────
 
-
-function fmtRelative(ts: number | undefined | null): string {
-  if (!ts) return "—";
-  const seconds = ts < 1e12 ? ts : ts / 1000;
-  const diff = Date.now() / 1000 - seconds;
-  if (diff < 0) return "刚刚";
-  if (diff < 60) return `${Math.floor(diff)}秒前`;
-  if (diff < 3600) return `${Math.floor(diff / 60)}分钟前`;
-  if (diff < 86400) return `${Math.floor(diff / 3600)}小时前`;
-  return `${Math.floor(diff / 86400)}天前`;
-}
-
 /** 5 段 cron 简单合法性自检（前端立即反馈，正式校验由后端 croniter 做）*/
 function quickValidateCron(expr: string): string | null {
   const trimmed = expr.trim();
@@ -57,6 +44,52 @@ function quickValidateCron(expr: string): string | null {
     return "cron 表达式必须是 5 段（分 时 日 月 周）";
   }
   return null;
+}
+
+/** 把 cron 翻译成简短中文描述 */
+function translateCron(expr: string): string {
+  const segs = expr.trim().split(/\s+/);
+  if (segs.length !== 5) return expr;
+  const [min, hour, day, month, week] = segs;
+
+  // 每天固定时间
+  if (day === "*" && month === "*" && week === "*") {
+    if (min.startsWith("*/") && hour === "*") {
+      return `每${min.slice(2)}分钟`;
+    }
+    if (hour.startsWith("*/") && min === "0") {
+      return `每${hour.slice(2)}小时`;
+    }
+    if (hour !== "*" && min !== "*") {
+      return `每天 ${hour.padStart(2,"0")}:${min.padStart(2,"0")}`;
+    }
+    if (hour !== "*") {
+      return `每天 ${hour.padStart(2,"0")}:00`;
+    }
+    if (min !== "*") {
+      return `每小时第${min}分`;
+    }
+  }
+
+  // 每周
+  if (day === "*" && month === "*" && week !== "*") {
+    const weekNames = ["日","一","二","三","四","五","六"];
+    const w = weekNames[parseInt(week) % 7] || week;
+    if (hour !== "*" && min !== "*") {
+      return `每周${w} ${hour.padStart(2,"0")}:${min.padStart(2,"0")}`;
+    }
+    return `每周${w}`;
+  }
+
+  // 每月
+  if (day !== "*" && month === "*" && week === "*") {
+    if (hour !== "*" && min !== "*") {
+      return `每月${day}日 ${hour.padStart(2,"0")}:${min.padStart(2,"0")}`;
+    }
+    return `每月${day}日`;
+  }
+
+  return expr;
 }
 
 // ─── Job Card ───────────────────────────────────────────────────────
@@ -72,89 +105,43 @@ function JobCard({
   onDelete: () => void;
   onToggleDisabled: () => void;
 }) {
-  const history = job.run_history || [];
-  const lastRun = history.length > 0 ? history[history.length - 1] : undefined;
   const isDisabled = !!job.disabled;
+  const cronLabel = translateCron(job.cron);
 
   return (
     <div
-      className={`px-5 py-4 rounded-xl border transition-colors ${
+      onClick={onEdit}
+      className={`group relative px-4 py-3 rounded-xl border transition-colors cursor-pointer ${
         isDisabled
-          ? "border-border/30 bg-elevated/20 opacity-70 hover:opacity-100"
-          : "border-border/30 hover:bg-surface"
+          ? "border-border/20 bg-elevated/20 opacity-60 hover:opacity-80"
+          : "border-border/30 hover:bg-surface hover:border-border/60"
       }`}
     >
-      {/* Row 1: 标题 + 操作按钮 */}
-      <div className="flex items-start gap-3">
-        <button
-          onClick={onEdit}
-          className="flex-1 min-w-0 flex items-start gap-3 text-left"
-        >
-          {/* Icon */}
-          <div
-            className={`mt-1 shrink-0 w-7 h-7 rounded-full flex items-center justify-center ${
-              isDisabled ? "bg-hover" : "bg-neon/10"
+      <div className="flex items-center gap-3 min-w-0">
+        {/* 状态圆点 */}
+        <div
+          className={`shrink-0 w-2 h-2 rounded-full ${
+            isDisabled ? "bg-t-ghost" : "bg-neon"
+          }`}
+        />
+
+        <div className="flex-1 min-w-0">
+          <h3
+            className={`text-[14px] font-medium truncate ${
+              isDisabled ? "text-t-muted line-through" : "text-t-primary"
             }`}
           >
-            <Calendar
-              size={14}
-              className={isDisabled ? "text-t-ghost" : "text-neon/70"}
-            />
-          </div>
+            {job.title}
+          </h3>
+          <p className="text-[11px] text-t-dim font-mono mt-0.5 truncate">
+            {cronLabel}
+          </p>
+        </div>
 
-          <div className="flex-1 min-w-0">
-            {/* Title */}
-            <div className="flex items-center gap-2 min-w-0">
-              <h3
-                className={`text-[15px] font-medium leading-tight truncate ${
-                  isDisabled ? "text-t-muted line-through decoration-t-ghost/40" : "text-t-primary"
-                }`}
-              >
-                {job.title}
-              </h3>
-              {isDisabled && (
-                <span className="shrink-0 inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-hover text-t-muted border border-border-subtle">
-                  <PowerOff size={9} />
-                  已禁用
-                </span>
-              )}
-            </div>
-
-            {/* Prompt 预览 */}
-            {job.prompt && (
-              <p className="text-[12px] text-t-dim mt-1 leading-relaxed line-clamp-1">
-                {job.prompt}
-              </p>
-            )}
-
-            {/* Meta row */}
-            <div className="flex items-center gap-2 mt-2 flex-wrap">
-              <span className="inline-flex items-center gap-1 text-[11px] font-mono text-t-secondary bg-hover px-1.5 py-0.5 rounded">
-                {job.cron}
-              </span>
-
-              {lastRun && (
-                <>
-                  <span className="text-t-ghost text-[11px]">·</span>
-                  <span className="text-[11px] text-t-dim">
-                    上次 {fmtRelative(lastRun)}
-                  </span>
-                </>
-              )}
-
-              <span className="text-t-ghost text-[11px]">·</span>
-              <span className="text-[11px] text-t-dim">
-                累计 {history.length} 次
-              </span>
-            </div>
-          </div>
-
-        </button>
-
-        {/* 操作按钮 */}
-        <div className="flex items-center gap-1 shrink-0 mt-1">
+        {/* 操作按钮 — hover 时出现 */}
+        <div className="flex items-center gap-0.5 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
           <button
-            onClick={onToggleDisabled}
+            onClick={(e) => { e.stopPropagation(); onToggleDisabled(); }}
             title={isDisabled ? "启用" : "禁用"}
             className={`w-7 h-7 rounded-full flex items-center justify-center transition-colors ${
               isDisabled
@@ -165,44 +152,20 @@ function JobCard({
             {isDisabled ? <Power size={13} /> : <PowerOff size={13} />}
           </button>
           <button
-            onClick={onEdit}
+            onClick={(e) => { e.stopPropagation(); onEdit(); }}
             title="编辑"
             className="w-7 h-7 rounded-full flex items-center justify-center text-t-ghost hover:text-t-primary hover:bg-hover transition-colors"
           >
             <Pencil size={13} />
           </button>
           <button
-            onClick={onDelete}
+            onClick={(e) => { e.stopPropagation(); onDelete(); }}
             title="删除"
             className="w-7 h-7 rounded-full flex items-center justify-center text-t-ghost hover:text-red-400 hover:bg-hover transition-colors"
           >
             <Trash2 size={13} />
           </button>
         </div>
-      </div>
-
-    </div>
-  );
-}
-
-function MetaField({
-  label,
-  value,
-  mono,
-}: {
-  label: string;
-  value: string;
-  mono?: boolean;
-}) {
-  return (
-    <div>
-      <div className="text-[10px] text-t-ghost uppercase tracking-wider">
-        {label}
-      </div>
-      <div
-        className={`text-[12px] mt-0.5 text-t-muted ${mono ? "font-mono" : ""}`}
-      >
-        {value}
       </div>
     </div>
   );
