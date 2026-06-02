@@ -61,13 +61,13 @@ html[data-theme="dark"] {
 
 /* ===== Light Mode ===== */
 html[data-theme="light"] {
-  /* 背景 — 毛玻璃半透明风格，透出桌面颜色 */
-  --ftre-bg-base: rgba(240, 240, 241, 0.75);
-  --ftre-bg-titlebar: rgba(240, 240, 241, 0.65);
-  --ftre-bg-surface: rgba(255, 255, 255, 0.85);
-  --ftre-bg-elevated: rgba(235, 235, 235, 0.8);
-  --ftre-bg-panel: rgba(240, 240, 241, 0.75);
-  --ftre-bg-menu: rgba(255, 255, 255, 0.92);
+  /* 背景 — 参考 Manus 风格，偏白但不刺眼 */
+  --ftre-bg-base: #f0f0f1;
+  --ftre-bg-titlebar: #f0f0f1;
+  --ftre-bg-surface: #ffffff;
+  --ftre-bg-elevated: #ebebeb;
+  --ftre-bg-panel: #f0f0f1;
+  --ftre-bg-menu: #ffffff;
   --ftre-bg-hover: rgba(0, 0, 0, 0.04);
   --ftre-bg-active: rgba(0, 0, 0, 0.06);
 

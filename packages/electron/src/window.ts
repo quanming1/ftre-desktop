@@ -11,19 +11,9 @@ export function createWindow(): BrowserWindow {
     minWidth: 800,
     minHeight: 600,
     title: 'ftre',
-    backgroundColor: '#00000000', // 透明背景
-    transparent: true,
+    backgroundColor: '#1e1e1e',
     frame: false,
     titleBarStyle: 'hidden',
-    // Windows 11 毛玻璃效果
-    ...(process.platform === 'win32' && {
-      backgroundMaterial: 'mica' as const,
-    }),
-    // macOS 毛玻璃效果
-    ...(process.platform === 'darwin' && {
-      vibrancy: 'sidebar' as const,
-      visualEffectState: 'followWindow' as const,
-    }),
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
