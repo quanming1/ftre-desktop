@@ -266,20 +266,22 @@ export function SessionPanel() {
    * - ws channel：进 workspace 分组（"Ws Threads"）
    * - 其它（cron/dmwork/cli/telegram/unknown）：平铺到 "Other Threads"
    */
-  const { wsSessions, otherSessions } = useMemo(() => {
+  const { pinnedList, wsSessions, otherSessions } = useMemo(() => {
+    const pinned: SessionSummary[] = [];
     const ws: SessionSummary[] = [];
     const others: SessionSummary[] = [];
     for (const s of filtered) {
-      if (s.channel === "ws") ws.push(s);
-      else others.push(s);
+      if (pinnedSessions.has(s.session_id)) {
+        pinned.push(s);
+      } else if (s.channel === "ws") {
+        ws.push(s);
+      } else {
+        others.push(s);
+      }
     }
-    others.sort((a, b) => {
-      const aPinned = pinnedSessions.has(a.session_id) ? 1 : 0;
-      const bPinned = pinnedSessions.has(b.session_id) ? 1 : 0;
-      if (aPinned !== bPinned) return bPinned - aPinned;
-      return (b.updated_at ?? 0) - (a.updated_at ?? 0);
-    });
-    return { wsSessions: ws, otherSessions: others };
+    pinned.sort((a, b) => (b.updated_at ?? 0) - (a.updated_at ?? 0));
+    others.sort((a, b) => (b.updated_at ?? 0) - (a.updated_at ?? 0));
+    return { pinnedList: pinned, wsSessions: ws, otherSessions: others };
   }, [filtered, pinnedSessions]);
 
   /**
@@ -302,12 +304,7 @@ export function SessionPanel() {
       if (ts > g.latestAt) g.latestAt = ts;
     }
     for (const g of map.values()) {
-      g.sessions.sort((a, b) => {
-        const aPinned = pinnedSessions.has(a.session_id) ? 1 : 0;
-        const bPinned = pinnedSessions.has(b.session_id) ? 1 : 0;
-        if (aPinned !== bPinned) return bPinned - aPinned; // pinned first
-        return (b.updated_at ?? 0) - (a.updated_at ?? 0);
-      });
+      g.sessions.sort((a, b) => (b.updated_at ?? 0) - (a.updated_at ?? 0));
     }
 
     const activeKey = rootPath ? workspaceKey(rootPath) : null;
@@ -337,7 +334,7 @@ export function SessionPanel() {
     known.sort((a, b) => orderIdx.get(a.key)! - orderIdx.get(b.key)!);
     unknown.sort(defaultSort);
     return [...known, ...unknown];
-  }, [wsSessions, rootPath, groupOrder, pinnedSessions]);
+  }, [wsSessions, rootPath, groupOrder]);
 
   const totalCount = filtered.length;
 
@@ -598,6 +595,37 @@ export function SessionPanel() {
             </div>
           ) : (
             <>
+              {/* Pin Threads：所有置顶会话，与 Ws Threads 平级 */}
+              {pinnedList.length > 0 && (
+                <div className="mb-4">
+                  <div className="px-3 pb-1">
+                    <span className="text-[12px] text-t-ghost font-medium flex items-center gap-1.5">
+                      <Pin size={12} />
+                      Pin Threads
+                    </span>
+                  </div>
+                  <div className="space-y-px pl-[18px]">
+                    {pinnedList.map((session) => (
+                      <SessionRow
+                        key={session.session_id}
+                        session={session}
+                        isActive={
+                          stripPrefix(session.session_id) ===
+                          stripPrefix(currentSessionId || "")
+                        }
+                        isHovered={hoveredSession === session.session_id}
+                        isLoading={loadingSessionId === session.session_id}
+                        isPinned={true}
+                        onClick={() => handleSwitchSession(session.session_id)}
+                        onEnter={() => setHoveredSession(session.session_id)}
+                        onLeave={() => setHoveredSession(null)}
+                        onMenu={(e) => showSessionMenu(e, session)}
+                      />
+                    ))}
+                  </div>
+                </div>
+              )}
+
               {/* Ws Threads：按 workspace 分组 */}
               {buckets.length > 0 && (
                 <DndContext
@@ -627,7 +655,6 @@ export function SessionPanel() {
                           currentSessionId={currentSessionId}
                           hoveredSession={hoveredSession}
                           loadingSessionId={loadingSessionId}
-                          pinnedSessions={pinnedSessions}
                           collapsed={collapsedWorkspaces.has(bucket.key)}
                           onSwitch={handleSwitchSession}
                           onHover={setHoveredSession}
@@ -662,7 +689,7 @@ export function SessionPanel() {
                         }
                         isHovered={hoveredSession === session.session_id}
                         isLoading={loadingSessionId === session.session_id}
-                        isPinned={pinnedSessions.has(session.session_id)}
+                        isPinned={false}
                         onClick={() => handleSwitchSession(session.session_id)}
                         onEnter={() => setHoveredSession(session.session_id)}
                         onLeave={() => setHoveredSession(null)}
@@ -787,7 +814,6 @@ interface WorkspaceGroupProps {
   currentSessionId: string | null;
   hoveredSession: string | null;
   loadingSessionId: string | null;
-  pinnedSessions: Set<string>;
   /** 是否折叠（会话列表隐藏） */
   collapsed: boolean;
   onSwitch: (sessionId: string) => void;
@@ -808,7 +834,6 @@ function WorkspaceGroup({
   currentSessionId,
   hoveredSession,
   loadingSessionId,
-  pinnedSessions,
   collapsed,
   onSwitch,
   onHover,
@@ -881,10 +906,10 @@ function WorkspaceGroup({
               e.stopPropagation();
               onNewInWorkspace();
             }}
-            className="shrink-0 w-5 h-5 flex items-center justify-center rounded-full opacity-0 group-hover:opacity-100 hover:bg-active text-t-ghost hover:text-t-primary transition-all"
+            className="shrink-0 w-6 h-6 flex items-center justify-center rounded-full opacity-0 group-hover:opacity-100 hover:bg-active text-t-ghost hover:text-t-primary transition-all"
             title="在此工作区新建会话"
           >
-            <Plus size={13} strokeWidth={2} />
+            <Plus size={15} strokeWidth={2} />
           </button>
         </div>
 
@@ -901,7 +926,7 @@ function WorkspaceGroup({
               }
               isHovered={hoveredSession === session.session_id}
               isLoading={loadingSessionId === session.session_id}
-              isPinned={pinnedSessions.has(session.session_id)}
+              isPinned={false}
               onClick={() => onSwitch(session.session_id)}
               onEnter={() => onHover(session.session_id)}
               onLeave={() => onHover(null)}
