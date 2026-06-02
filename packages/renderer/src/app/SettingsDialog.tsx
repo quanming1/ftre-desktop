@@ -96,7 +96,7 @@ function SettingsDialogBody({
   ];
 
   return (
-    <Modal open onClose={onClose} className="w-[900px]" width={900}>
+    <Modal open onClose={onClose} title="设置" className="w-[900px]" width={900}>
       <div className="flex h-[640px] -m-6">
         {/* Left Nav */}
         <nav className="w-[200px] border-r border-border flex flex-col py-5 shrink-0 overflow-y-auto">
