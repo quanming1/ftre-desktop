@@ -25,6 +25,12 @@
     -webkit-font-smoothing: antialiased;
   }
 
+  /* Light 模式下整体毛玻璃效果 */
+  html[data-theme="light"] body {
+    backdrop-filter: blur(20px) saturate(180%);
+    -webkit-backdrop-filter: blur(20px) saturate(180%);
+  }
+
   ::selection {
     background: var(--ftre-selection-bg);
     color: var(--ftre-selection-fg);
