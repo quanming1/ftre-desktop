@@ -293,7 +293,7 @@ function JobForm({ initial, onCancel, onSubmit }: JobFormProps) {
           value={prompt}
           onChange={(e) => setPrompt(e.target.value)}
           placeholder="例：写一首诗，要求选一个国家作为灵感，注明国家名"
-          rows={4}
+          rows={6}
           className="w-full bg-surface border border-border-subtle rounded-md px-3 py-2 text-[13px] text-t-primary placeholder:text-t-ghost focus:outline-none focus:border-neon/50 resize-none"
         />
       </Field>
@@ -386,7 +386,7 @@ function JobFormDialog({
           animate={{ opacity: 1, scale: 1, y: 0 }}
           exit={{ opacity: 0, scale: 0.92, y: 16 }}
           transition={{ duration: 0.2, ease: [0.16, 1, 0.3, 1] }}
-          className="w-[640px] max-w-[calc(100vw-32px)] max-h-[calc(100vh-48px)] overflow-y-auto rounded-2xl border border-border bg-elevated shadow-2xl p-6"
+          className="w-[640px] max-w-[calc(100vw-32px)] max-h-[calc(100vh-48px)] min-h-[420px] overflow-y-auto rounded-2xl border border-border bg-elevated shadow-2xl p-6"
         >
           <JobForm initial={initial} onCancel={onCancel} onSubmit={onSubmit} />
         </motion.div>
