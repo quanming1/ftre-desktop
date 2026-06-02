@@ -136,7 +136,7 @@ interface WorkspaceBucket {
   isActive: boolean;
 }
 
-const PER_GROUP_DEFAULT = 5;
+const PER_GROUP_DEFAULT = 2;
 const PER_GROUP_STEP = 10;
 
 // 工作区分组顺序持久化（与 recentFolders 解耦：纯前端排序偏好）
