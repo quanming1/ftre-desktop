@@ -27,6 +27,7 @@ interface PersistedLayoutData {
     activeSidebarView: SidebarView | null;
     sidebarWidth: number;
     sessionsWidth: number;      // sessions panel width
+    sessionsCollapsed: boolean; // whether sessions panel is collapsed to icon rail
     centerRatio: number;        // percentage (0-100) of center panel width
     bottomPanelHeight: number;
     sidebarVisible: boolean;
@@ -49,6 +50,7 @@ export interface LayoutState extends PersistedLayoutData {
     toggleSidebar: () => void;
     setSidebarWidth: (w: number) => void;
     setSessionsWidth: (w: number) => void;
+    toggleSessionsCollapsed: () => void;
     setCenterRatio: (ratio: number) => void;
     setBottomPanelHeight: (h: number) => void;
     toggleBottomPanel: () => void;
@@ -102,6 +104,7 @@ const defaults: PersistedLayoutData = {
     activeSidebarView: 'explorer',
     sidebarWidth: 220,
     sessionsWidth: 240,
+    sessionsCollapsed: false,
     centerRatio: CENTER_RATIO_DEFAULT,
     bottomPanelHeight: 200,
     sidebarVisible: true,
@@ -121,6 +124,7 @@ function getPersistedData(state: LayoutState): PersistedLayoutData {
         activeSidebarView: state.activeSidebarView,
         sidebarWidth: state.sidebarWidth,
         sessionsWidth: state.sessionsWidth,
+        sessionsCollapsed: state.sessionsCollapsed,
         centerRatio: state.centerRatio,
         bottomPanelHeight: state.bottomPanelHeight,
         sidebarVisible: state.sidebarVisible,
@@ -223,6 +227,11 @@ export const useLayout = create<LayoutState>((set, get) => ({
 
     setSessionsWidth: (w) => {
         set({ sessionsWidth: Math.max(SIDEBAR_WIDTH_MIN, Math.min(SIDEBAR_WIDTH_MAX, w)) });
+        get().persist();
+    },
+
+    toggleSessionsCollapsed: () => {
+        set({ sessionsCollapsed: !get().sessionsCollapsed });
         get().persist();
     },
 
