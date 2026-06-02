@@ -246,9 +246,9 @@ function JobForm({ initial, onCancel, onSubmit }: JobFormProps) {
   };
 
   return (
-    <div className="space-y-3">
+    <div className="space-y-4">
       <div className="flex items-center justify-between">
-        <h3 className="text-[14px] text-t-primary font-medium">
+        <h3 className="text-[16px] text-t-primary font-semibold">
           {initial ? "编辑定时任务" : "新建定时任务"}
         </h3>
         <button
@@ -266,7 +266,7 @@ function JobForm({ initial, onCancel, onSubmit }: JobFormProps) {
           value={title}
           onChange={(e) => setTitle(e.target.value)}
           placeholder="如：每天提醒喝水"
-          className="w-full bg-surface border border-border-subtle rounded-md px-3 py-2 text-[13px] text-t-primary placeholder:text-t-ghost focus:outline-none focus:border-neon/50"
+          className="w-full bg-surface border border-border-subtle rounded-md px-4 py-3 text-[14px] text-t-primary placeholder:text-t-ghost focus:outline-none focus:border-neon/50"
         />
       </Field>
 
@@ -294,17 +294,17 @@ function JobForm({ initial, onCancel, onSubmit }: JobFormProps) {
           onChange={(e) => setPrompt(e.target.value)}
           placeholder="例：写一首诗，要求选一个国家作为灵感，注明国家名"
           rows={8}
-          className="w-full bg-surface border border-border-subtle rounded-md px-3 py-2 text-[13px] text-t-primary placeholder:text-t-ghost focus:outline-none focus:border-neon/50 resize-none"
+          className="w-full bg-surface border border-border-subtle rounded-md px-4 py-3 text-[14px] text-t-primary placeholder:text-t-ghost focus:outline-none focus:border-neon/50 resize-none"
         />
       </Field>
 
       {/* 启用开关 */}
-      <div className="flex items-center justify-between pt-1 pb-1">
+      <div className="flex items-center justify-between pt-2 pb-1">
         <div>
-          <div className="text-[12px] text-t-secondary leading-tight">
+          <div className="text-[14px] text-t-secondary leading-tight">
             启用调度
           </div>
-          <div className="text-[10.5px] text-t-ghost mt-0.5 leading-tight">
+          <div className="text-[12px] text-t-ghost mt-0.5 leading-tight">
             关闭后调度器跳过该任务，但保留任务定义和历史
           </div>
         </div>
@@ -318,25 +318,25 @@ function JobForm({ initial, onCancel, onSubmit }: JobFormProps) {
       {error && (
         <div className="flex items-start gap-2 px-3 py-2 rounded-md bg-red-400/[0.06] border border-red-400/[0.15]">
           <AlertCircle size={12} className="text-red-400/80 mt-0.5 shrink-0" />
-          <p className="text-[12px] text-red-400/90 leading-relaxed">{error}</p>
+          <p className="text-[13px] text-red-400/90 leading-relaxed">{error}</p>
         </div>
       )}
 
       {/* Actions */}
-      <div className="flex justify-end gap-2 pt-1">
+      <div className="flex justify-end gap-2 pt-2">
         <button
           onClick={onCancel}
           disabled={saving}
-          className="px-3 py-1.5 text-[12px] text-t-secondary rounded-md hover:bg-hover transition-colors disabled:opacity-40"
+          className="px-4 py-2 text-[14px] text-t-secondary rounded-md hover:bg-hover transition-colors disabled:opacity-40"
         >
           取消
         </button>
         <button
           onClick={handleSubmit}
           disabled={saving}
-          className="px-3 py-1.5 text-[12px] font-medium text-base bg-neon rounded-md hover:bg-neon/80 transition-colors disabled:opacity-40 inline-flex items-center gap-1.5"
+          className="px-4 py-2 text-[14px] font-medium text-base bg-neon rounded-md hover:bg-neon/80 transition-colors disabled:opacity-40 inline-flex items-center gap-1.5"
         >
-          {saving && <Loader2 size={11} className="animate-spin" />}
+          {saving && <Loader2 size={13} className="animate-spin" />}
           {initial ? "保存" : "创建"}
         </button>
       </div>
@@ -356,13 +356,13 @@ function Field({
   children: React.ReactNode;
 }) {
   return (
-    <div className="space-y-1">
-      <label className="block text-[11px] text-t-secondary">
+    <div className="space-y-1.5">
+      <label className="block text-[13px] text-t-secondary font-medium">
         {label}
         {required && <span className="text-red-400/80 ml-1">*</span>}
       </label>
       {children}
-      {hint && <p className="text-[10px] text-t-ghost leading-relaxed">{hint}</p>}
+      {hint && <p className="text-[12px] text-t-ghost leading-relaxed">{hint}</p>}
     </div>
   );
 }
