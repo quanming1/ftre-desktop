@@ -538,18 +538,18 @@ export function SessionPanel() {
         <div className="shrink-0 px-2 pt-3 pb-1">
           <ActionRow
             icon={SquarePen}
-            label="New thread"
+            label="新会话"
             onClick={handleNewThread}
           />
           <ActionRow
             icon={Clock}
-            label="Cron"
+            label="定时任务"
             active={activeLeftPanel === "cron"}
             onClick={() => setActiveLeftPanel("cron")}
           />
           <ActionRow
             icon={Zap}
-            label="Skills"
+            label="技能"
             active={activeLeftPanel === "skills"}
             onClick={() => setActiveLeftPanel("skills")}
           />
