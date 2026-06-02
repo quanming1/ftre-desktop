@@ -35,6 +35,7 @@ export function Workbench() {
   const setSidebarWidth = useLayout((s) => s.setSidebarWidth);
   const sessionsWidth = useLayout((s) => s.sessionsWidth);
   const setSessionsWidth = useLayout((s) => s.setSessionsWidth);
+  const sessionsCollapsed = useLayout((s) => s.sessionsCollapsed);
   const centerRatio = useLayout((s) => s.centerRatio);
   const setCenterRatio = useLayout((s) => s.setCenterRatio);
   const activeSidebarView = useLayout((s) => s.activeSidebarView);
@@ -175,7 +176,12 @@ export function Workbench() {
   // sessions and sidebar use fixed width, editor and chat share remaining space
   const getPanelStyle = (id: PanelId): React.CSSProperties => {
     if (id === "sessions") {
-      return { width: sessionsWidth, flexShrink: 0, order: getOrder(id) };
+      return {
+        width: sessionsCollapsed ? 48 : sessionsWidth,
+        flexShrink: 0,
+        order: getOrder(id),
+        transition: "width 160ms ease",
+      };
     }
     if (id === "sidebar") {
       return { width: sidebarWidth, flexShrink: 0, order: getOrder(id) };
@@ -195,6 +201,7 @@ export function Workbench() {
 
   // Check if a resize handle should be visible
   const isResizeHandleVisible = (afterPanelId: PanelId): boolean => {
+    if (sessionsCollapsed && afterPanelId === "sessions") return false;
     const index = visiblePanels.indexOf(afterPanelId);
     return index >= 0 && index < visiblePanels.length - 1;
   };

@@ -38,6 +38,8 @@ import {
   Pin,
   ChevronRight,
   Plus,
+  PanelLeftClose,
+  PanelLeftOpen,
 } from "lucide-react";
 import {
   DndContext,
@@ -218,6 +220,8 @@ export function SessionPanel() {
 
   const activeLeftPanel = useLayout((s) => s.activeLeftPanel);
   const setActiveLeftPanel = useLayout((s) => s.setActiveLeftPanel);
+  const sessionsCollapsed = useLayout((s) => s.sessionsCollapsed);
+  const toggleSessionsCollapsed = useLayout((s) => s.toggleSessionsCollapsed);
 
   const [hoveredSession, setHoveredSession] = useState<string | null>(null);
   /** 每个 group 已展开多少条；未列入即 PER_GROUP_DEFAULT */
@@ -535,14 +539,82 @@ export function SessionPanel() {
 
   return (
     <TooltipProvider>
+      {sessionsCollapsed ? (
+        <div className="h-full flex flex-col items-center bg-base py-3 text-[14px]">
+          <button
+            type="button"
+            onClick={toggleSessionsCollapsed}
+            title="展开会话列表"
+            aria-label="展开会话列表"
+            className="flex items-center justify-center w-9 h-9 rounded-full text-t-muted hover:text-t-primary hover:bg-hover transition-colors"
+          >
+            <PanelLeftOpen size={18} />
+          </button>
+
+          <div className="mt-2 flex flex-col items-center gap-1">
+            <button
+              type="button"
+              onClick={handleNewThread}
+              title="新会话"
+              aria-label="新会话"
+              className="flex items-center justify-center w-9 h-9 rounded-full text-t-muted hover:text-t-primary hover:bg-hover transition-colors"
+            >
+              <SquarePen size={17} />
+            </button>
+            <button
+              type="button"
+              onClick={() => setActiveLeftPanel("cron")}
+              title="定时任务"
+              aria-label="定时任务"
+              className={`flex items-center justify-center w-9 h-9 rounded-full transition-colors ${activeLeftPanel === "cron" ? "bg-active text-t-primary" : "text-t-muted hover:text-t-primary hover:bg-hover"}`}
+            >
+              <Clock size={17} />
+            </button>
+            <button
+              type="button"
+              onClick={() => setActiveLeftPanel("skills")}
+              title="技能"
+              aria-label="技能"
+              className={`flex items-center justify-center w-9 h-9 rounded-full transition-colors ${activeLeftPanel === "skills" ? "bg-active text-t-primary" : "text-t-muted hover:text-t-primary hover:bg-hover"}`}
+            >
+              <Zap size={17} />
+            </button>
+          </div>
+
+          <button
+            type="button"
+            onClick={handleOpenSettings}
+            title="Settings"
+            aria-label="Settings"
+            className="mt-auto flex items-center justify-center w-9 h-9 rounded-full text-t-muted hover:text-t-primary hover:bg-hover transition-colors"
+          >
+            <Settings size={17} />
+          </button>
+        </div>
+      ) : (
       <div className="h-full flex flex-col bg-base text-[14px]">
         {/* ── 顶层动作区（New thread / Cron / Skills）── */}
         <div className="shrink-0 px-2 pt-3 pb-1">
-          <ActionRow
-            icon={SquarePen}
-            label="新会话"
-            onClick={handleNewThread}
-          />
+          <div className="flex items-center gap-1">
+            <button
+              type="button"
+              onClick={handleNewThread}
+              className="flex-1 flex items-center gap-2 h-10 px-3 rounded-full text-t-muted hover:text-t-primary hover:bg-hover transition-colors min-w-0"
+              title="新会话"
+            >
+              <SquarePen size={16} strokeWidth={1.7} className="shrink-0" />
+              <span className="text-[14px] truncate">新会话</span>
+            </button>
+            <button
+              type="button"
+              onClick={toggleSessionsCollapsed}
+              className="shrink-0 flex items-center justify-center w-10 h-10 rounded-full text-t-muted hover:text-t-primary hover:bg-hover transition-colors"
+              title="收起会话列表"
+              aria-label="收起会话列表"
+            >
+              <PanelLeftClose size={18} strokeWidth={1.8} />
+            </button>
+          </div>
           <ActionRow
             icon={Clock}
             label="定时任务"
@@ -732,11 +804,11 @@ export function SessionPanel() {
           {/* 工作区分组已各自分页（每组"展开 +N"按需拉取），不再需要全局加载更多 */}
         </div>
 
-        {/* ── 底部动作区（Settings）── */}
+        {/* ── 底部动作区（设置）── */}
         <div className="shrink-0 px-2 py-2">
           <ActionRow
             icon={Settings}
-            label="Settings"
+            label="设置"
             onClick={handleOpenSettings}
           />
         </div>
@@ -802,6 +874,7 @@ export function SessionPanel() {
           </div>
         )}
       </div>
+      )}
     </TooltipProvider>
   );
 }
