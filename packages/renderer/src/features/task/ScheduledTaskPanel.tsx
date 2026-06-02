@@ -208,7 +208,7 @@ function JobForm({ initial, onCancel, onSubmit }: JobFormProps) {
   };
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-5">
       {/* 字段 */}
       <Field label="标题" required>
         <input
@@ -216,7 +216,7 @@ function JobForm({ initial, onCancel, onSubmit }: JobFormProps) {
           value={title}
           onChange={(e) => setTitle(e.target.value)}
           placeholder="如：每天提醒喝水"
-          className="w-full bg-surface border border-border-subtle rounded-md px-4 py-3 text-[14px] text-t-primary placeholder:text-t-ghost focus:outline-none focus:border-neon/50"
+          className="w-full bg-surface border border-border-subtle rounded-md px-4 py-3 text-[15px] text-t-primary placeholder:text-t-ghost focus:outline-none focus:border-neon/50"
         />
       </Field>
 
@@ -230,7 +230,7 @@ function JobForm({ initial, onCancel, onSubmit }: JobFormProps) {
           value={cron}
           onChange={(e) => setCron(e.target.value)}
           placeholder="*/5 * * * *"
-          className="w-full bg-surface border border-border-subtle rounded-md px-3 py-2 text-[13px] font-mono text-t-primary placeholder:text-t-ghost focus:outline-none focus:border-neon/50"
+          className="w-full bg-surface border border-border-subtle rounded-md px-4 py-3 text-[15px] font-mono text-t-primary placeholder:text-t-ghost focus:outline-none focus:border-neon/50"
         />
       </Field>
 
@@ -244,17 +244,17 @@ function JobForm({ initial, onCancel, onSubmit }: JobFormProps) {
           onChange={(e) => setPrompt(e.target.value)}
           placeholder="例：写一首诗，要求选一个国家作为灵感，注明国家名"
           rows={8}
-          className="w-full bg-surface border border-border-subtle rounded-md px-4 py-3 text-[14px] text-t-primary placeholder:text-t-ghost focus:outline-none focus:border-neon/50 resize-none"
+          className="w-full bg-surface border border-border-subtle rounded-md px-4 py-3 text-[15px] text-t-primary placeholder:text-t-ghost focus:outline-none focus:border-neon/50 resize-none"
         />
       </Field>
 
       {/* 启用开关 */}
       <div className="flex items-center justify-between pt-2 pb-1">
         <div>
-          <div className="text-[14px] text-t-secondary leading-tight">
+          <div className="text-[15px] text-t-secondary leading-tight">
             启用调度
           </div>
-          <div className="text-[12px] text-t-ghost mt-0.5 leading-tight">
+          <div className="text-[13px] text-t-ghost mt-0.5 leading-tight">
             关闭后调度器跳过该任务，但保留任务定义和历史
           </div>
         </div>
@@ -268,7 +268,7 @@ function JobForm({ initial, onCancel, onSubmit }: JobFormProps) {
       {error && (
         <div className="flex items-start gap-2 px-3 py-2 rounded-md bg-red-400/[0.06] border border-red-400/[0.15]">
           <AlertCircle size={12} className="text-red-400/80 mt-0.5 shrink-0" />
-          <p className="text-[13px] text-red-400/90 leading-relaxed">{error}</p>
+          <p className="text-[14px] text-red-400/90 leading-relaxed">{error}</p>
         </div>
       )}
 
@@ -277,16 +277,16 @@ function JobForm({ initial, onCancel, onSubmit }: JobFormProps) {
         <button
           onClick={onCancel}
           disabled={saving}
-          className="px-4 py-2 text-[14px] text-t-secondary rounded-md hover:bg-hover transition-colors disabled:opacity-40"
+          className="px-5 py-2.5 text-[15px] text-t-secondary rounded-md hover:bg-hover transition-colors disabled:opacity-40"
         >
           取消
         </button>
         <button
           onClick={handleSubmit}
           disabled={saving}
-          className="px-4 py-2 text-[14px] font-medium text-base bg-neon rounded-md hover:bg-neon/80 transition-colors disabled:opacity-40 inline-flex items-center gap-1.5"
+          className="px-5 py-2.5 text-[15px] font-medium text-base bg-neon rounded-md hover:bg-neon/80 transition-colors disabled:opacity-40 inline-flex items-center gap-1.5"
         >
-          {saving && <Loader2 size={13} className="animate-spin" />}
+          {saving && <Loader2 size={14} className="animate-spin" />}
           {initial ? "保存" : "创建"}
         </button>
       </div>
@@ -307,12 +307,12 @@ function Field({
 }) {
   return (
     <div className="space-y-1.5">
-      <label className="block text-[13px] text-t-secondary font-medium">
+      <label className="block text-[15px] text-t-secondary font-medium">
         {label}
         {required && <span className="text-red-400/80 ml-1">*</span>}
       </label>
       {children}
-      {hint && <p className="text-[12px] text-t-ghost leading-relaxed">{hint}</p>}
+      {hint && <p className="text-[13px] text-t-ghost leading-relaxed">{hint}</p>}
     </div>
   );
 }
