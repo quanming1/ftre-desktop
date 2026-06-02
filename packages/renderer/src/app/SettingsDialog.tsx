@@ -89,7 +89,7 @@ function SettingsDialogBody({
         { id: "general", label: "通用" },
         { id: "models", label: "模型" },
         { id: "gateway", label: "网关连接" },
-        { id: "agents", label: "Agent 设置" },
+        { id: "agents", label: "智能体" },
       ] satisfies { id: SettingsSection; label: string }[],
     },
   ];
