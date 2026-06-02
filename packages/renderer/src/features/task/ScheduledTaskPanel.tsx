@@ -10,14 +10,12 @@
  *   - 编辑/创建：行内表单 sheet（cron / title / prompt + 启用开关）
  */
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { motion, AnimatePresence } from "framer-motion";
 import {
   RefreshCw,
   Loader2,
   Plus,
   Pencil,
   Trash2,
-  X,
   AlertCircle,
   Power,
   PowerOff,
@@ -32,6 +30,7 @@ import {
   type CronJobInput,
 } from "@/services/api";
 import { useNotification } from "@/stores/notification";
+import { Modal } from "@/components/Modal";
 
 // ─── Helpers ────────────────────────────────────────────────────────
 
@@ -210,18 +209,6 @@ function JobForm({ initial, onCancel, onSubmit }: JobFormProps) {
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <h3 className="text-[16px] text-t-primary font-semibold">
-          {initial ? "编辑定时任务" : "新建定时任务"}
-        </h3>
-        <button
-          onClick={onCancel}
-          className="w-8 h-8 rounded-full flex items-center justify-center text-t-ghost hover:text-t-primary hover:bg-hover transition-colors"
-        >
-          <X size={16} />
-        </button>
-      </div>
-
       {/* 字段 */}
       <Field label="标题" required>
         <input
@@ -330,35 +317,7 @@ function Field({
   );
 }
 
-function JobFormDialog({
-  initial,
-  onCancel,
-  onSubmit,
-}: JobFormProps) {
-  return (
-    <AnimatePresence>
-      <motion.div
-        initial={{ opacity: 0 }}
-        animate={{ opacity: 1 }}
-        exit={{ opacity: 0 }}
-        transition={{ duration: 0.15 }}
-        className="fixed inset-0 z-[200] flex items-center justify-center bg-black/50"
-      >
-        <motion.div
-          initial={{ opacity: 0, scale: 0.92, y: 16 }}
-          animate={{ opacity: 1, scale: 1, y: 0 }}
-          exit={{ opacity: 0, scale: 0.92, y: 16 }}
-          transition={{ duration: 0.2, ease: [0.16, 1, 0.3, 1] }}
-          className="w-[640px] max-w-[calc(100vw-32px)] max-h-[calc(100vh-48px)] min-h-[520px] overflow-y-auto rounded-2xl border border-border bg-elevated shadow-2xl p-6"
-        >
-          <JobForm initial={initial} onCancel={onCancel} onSubmit={onSubmit} />
-        </motion.div>
-      </motion.div>
-    </AnimatePresence>
-  );
-}
 
-// ─── Main ───────────────────────────────────────────────────────────
 
 export function ScheduledTaskPanel() {
   const [jobs, setJobs] = useState<CronJob[]>([]);
@@ -511,18 +470,30 @@ export function ScheduledTaskPanel() {
       {/* List */}
       <div className="flex-1 overflow-y-auto px-4 py-3">
         {editing === "new" && (
-          <JobFormDialog
-            initial={null}
-            onCancel={() => setEditing(null)}
-            onSubmit={handleCreate}
-          />
+          <Modal
+            open
+            onClose={() => setEditing(null)}
+            title="新建定时任务"
+          >
+            <JobForm
+              initial={null}
+              onCancel={() => setEditing(null)}
+              onSubmit={handleCreate}
+            />
+          </Modal>
         )}
         {editing && typeof editing !== "string" && (
-          <JobFormDialog
-            initial={editing}
-            onCancel={() => setEditing(null)}
-            onSubmit={(input) => handleUpdate(editing.id, input)}
-          />
+          <Modal
+            open
+            onClose={() => setEditing(null)}
+            title="编辑定时任务"
+          >
+            <JobForm
+              initial={editing}
+              onCancel={() => setEditing(null)}
+              onSubmit={(input) => handleUpdate(editing.id, input)}
+            />
+          </Modal>
         )}
 
         {/* 状态：loading */}
