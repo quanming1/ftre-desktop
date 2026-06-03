@@ -187,13 +187,13 @@ function AttachmentStrip({
               setPreviewSrc(att.url);
             }}
             title={att.name || "image — 点击预览"}
-            className="group inline-flex items-center gap-2 pl-1 pr-2.5 py-1 rounded-md border border-border-subtle bg-panel text-t-primary text-[12px] max-w-[220px] cursor-pointer hover:border-neon/40 transition-colors"
+            className="group inline-flex items-center gap-2.5 pl-1.5 pr-3 py-1.5 rounded-xl border border-border-subtle bg-panel text-t-primary text-[13px] max-w-[240px] cursor-pointer hover:border-neon/40 transition-colors"
           >
             {/* 缩略图 */}
             <img
               src={att.url}
               alt={att.name || "image"}
-              className="block w-7 h-7 rounded object-cover bg-elevated shrink-0"
+              className="block w-9 h-9 rounded-lg object-cover bg-elevated shrink-0"
               draggable={false}
             />
             {/* 文件名 */}
@@ -222,6 +222,8 @@ interface RollbackPreviewData {
 export const UserMessage = memo(
   function UserMessage({ message }: { message: ChatMessage }) {
     const hasParts = message.parts && message.parts.length > 0;
+    const hasContent = hasParts || (message.content && message.content.trim() !== "");
+    const hasAttachments = message.attachments && message.attachments.length > 0;
     const sessionId = useChat((s) => s.sessionId);
     const isBusy = useChat((s) => s.isBusy);
 
@@ -453,111 +455,114 @@ export const UserMessage = memo(
     return (
       <div id={`msg-${message.id}`} data-msg-id={message.id} data-msg-role="user">
         <TooltipProvider>
-          <div
-            className="flex items-start justify-end gap-1.5 group"
-            onMouseEnter={() => setIsHovered(true)}
-            onMouseLeave={() => setIsHovered(false)}
-          >
-            {/* 操作按钮 - 在消息左侧，与消息顶部对齐 */}
-            <div className="flex items-center gap-1 pt-2">
-              {/* 复制按钮 - hover 时显示，在最左边 */}
-              <Tooltip content="复制" side="top">
-                <button
-                  onClick={handleCopy}
-                  className={`flex items-center justify-center w-9 h-9 text-t-ghost hover:text-t-secondary rounded-full hover:bg-hover transition-all ${
-                    isHovered ? "opacity-100" : "opacity-0 pointer-events-none"
-                  }`}
-                >
-                  {copied ? (
-                    <Check size={18} className="text-green-500" />
-                  ) : (
-                    <Copy size={18} />
-                  )}
-                </button>
-              </Tooltip>
-
-              {/* Fork 按钮 - hover 时显示，仅当有 archive_id 时 */}
-              {canFork && (
-                <Tooltip content="Fork 会话" side="top">
+          {/* 有文字内容时：显示完整气泡 + 操作按钮 */}
+          {hasContent && (
+            <div
+              className="flex items-start justify-end gap-1.5 group"
+              onMouseEnter={() => setIsHovered(true)}
+              onMouseLeave={() => setIsHovered(false)}
+            >
+              {/* 操作按钮 - 在消息左侧，与消息顶部对齐 */}
+              <div className="flex items-center gap-1 pt-2">
+                {/* 复制按钮 - hover 时显示，在最左边 */}
+                <Tooltip content="复制" side="top">
                   <button
-                    onClick={handleFork}
-                    className={`flex items-center justify-center w-7 h-7 text-t-ghost hover:text-t-secondary rounded-full hover:bg-hover transition-all ${
-                      isHovered
-                        ? "opacity-100"
-                        : "opacity-0 pointer-events-none"
+                    onClick={handleCopy}
+                    className={`flex items-center justify-center w-9 h-9 text-t-ghost hover:text-t-secondary rounded-full hover:bg-hover transition-all ${
+                      isHovered ? "opacity-100" : "opacity-0 pointer-events-none"
                     }`}
                   >
-                    <GitFork size={15} />
-                  </button>
-                </Tooltip>
-              )}
-            </div>
-
-            {/* 消息内容 */}
-            <div className="relative max-w-[85%] w-fit">
-              <div
-                ref={(node) => {
-                  messageRef.current = node;
-                  bubbleRef.current = node;
-                }}
-                onContextMenu={handleContextMenu}
-                style={{
-                  borderRadius: bubbleRadius,
-                  maxHeight:
-                    !isOverflowing
-                      ? undefined
-                      : collapsed
-                        ? COLLAPSE_HEIGHT_PX
-                        : contentHeight,
-                  overflow: isOverflowing ? "hidden" : undefined,
-                }}
-                className="text-[var(--text-lg)] leading-relaxed text-t-primary bg-panel px-4 py-3 whitespace-pre-wrap break-words font-sans cursor-default transition-[max-height] duration-300 ease-out"
-              >
-                {hasParts ? (
-                  <PartsContent parts={message.parts!} />
-                ) : (
-                  message.content
-                )}
-              </div>
-
-              {/* 折叠时底部渐隐遮罩（展开时渐隐） */}
-              {isOverflowing && (
-                <div
-                  className={`pointer-events-none absolute left-0 right-0 bottom-0 h-12 bg-gradient-to-t from-panel to-transparent transition-opacity duration-300 ease-out ${
-                    collapsed ? "opacity-100" : "opacity-0"
-                  }`}
-                  style={{
-                    borderBottomLeftRadius: bubbleRadius,
-                    borderBottomRightRadius: bubbleRadius,
-                  }}
-                />
-              )}
-
-              {/* 展开/收起按钮 */}
-              {isOverflowing && (
-                <Tooltip
-                  content={collapsed ? "展开文字" : "收起"}
-                  side="top"
-                >
-                  <button
-                    onClick={() => setCollapsed((v) => !v)}
-                    className="absolute right-3 bottom-3 w-9 h-9 flex items-center justify-center rounded-full bg-white text-t-secondary hover:text-t-primary hover:bg-gray-100 shadow-md transition-colors"
-                  >
-                    {collapsed ? (
-                      <ChevronDown size={22} className="relative top-px" />
+                    {copied ? (
+                      <Check size={18} className="text-green-500" />
                     ) : (
-                      <ChevronUp size={22} className="relative top-px" />
+                      <Copy size={18} />
                     )}
                   </button>
                 </Tooltip>
-              )}
-            </div>
-          </div>
 
-          {/* 附件区 - 独立一行，右对齐 */}
-          {message.attachments && message.attachments.length > 0 && (
-            <div className="flex justify-end">
-              <AttachmentStrip attachments={message.attachments} />
+                {/* Fork 按钮 - hover 时显示，仅当有 archive_id 时 */}
+                {canFork && (
+                  <Tooltip content="Fork 会话" side="top">
+                    <button
+                      onClick={handleFork}
+                      className={`flex items-center justify-center w-7 h-7 text-t-ghost hover:text-t-secondary rounded-full hover:bg-hover transition-all ${
+                        isHovered
+                          ? "opacity-100"
+                          : "opacity-0 pointer-events-none"
+                      }`}
+                    >
+                      <GitFork size={15} />
+                    </button>
+                  </Tooltip>
+                )}
+              </div>
+
+              {/* 消息内容 */}
+              <div className="relative max-w-[85%] w-fit">
+                <div
+                  ref={(node) => {
+                    messageRef.current = node;
+                    bubbleRef.current = node;
+                  }}
+                  onContextMenu={handleContextMenu}
+                  style={{
+                    borderRadius: bubbleRadius,
+                    maxHeight:
+                      !isOverflowing
+                        ? undefined
+                        : collapsed
+                          ? COLLAPSE_HEIGHT_PX
+                          : contentHeight,
+                    overflow: isOverflowing ? "hidden" : undefined,
+                  }}
+                  className="text-[var(--text-lg)] leading-relaxed text-t-primary bg-panel px-4 py-3 whitespace-pre-wrap break-words font-sans cursor-default transition-[max-height] duration-300 ease-out"
+                >
+                  {hasParts ? (
+                    <PartsContent parts={message.parts!} />
+                  ) : (
+                    message.content
+                  )}
+                </div>
+
+                {/* 折叠时底部渐隐遮罩（展开时渐隐） */}
+                {isOverflowing && (
+                  <div
+                    className={`pointer-events-none absolute left-0 right-0 bottom-0 h-12 bg-gradient-to-t from-panel to-transparent transition-opacity duration-300 ease-out ${
+                      collapsed ? "opacity-100" : "opacity-0"
+                    }`}
+                    style={{
+                      borderBottomLeftRadius: bubbleRadius,
+                      borderBottomRightRadius: bubbleRadius,
+                    }}
+                  />
+                )}
+
+                {/* 展开/收起按钮 */}
+                {isOverflowing && (
+                  <Tooltip
+                    content={collapsed ? "展开文字" : "收起"}
+                    side="top"
+                  >
+                    <button
+                      onClick={() => setCollapsed((v) => !v)}
+                      className="absolute right-3 bottom-3 w-9 h-9 flex items-center justify-center rounded-full bg-white text-t-secondary hover:text-t-primary hover:bg-gray-100 shadow-md transition-colors"
+                    >
+                      {collapsed ? (
+                        <ChevronDown size={22} className="relative top-px" />
+                      ) : (
+                        <ChevronUp size={22} className="relative top-px" />
+                      )}
+                    </button>
+                  </Tooltip>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* 附件区 - 右对齐，有内容时独立一行，无内容时作为主体 */}
+          {hasAttachments && (
+            <div className={`flex justify-end ${hasContent ? "mt-2" : ""}`}>
+              <AttachmentStrip attachments={message.attachments!} />
             </div>
           )}
         </TooltipProvider>

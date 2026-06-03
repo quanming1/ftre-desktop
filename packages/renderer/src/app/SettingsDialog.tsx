@@ -15,6 +15,7 @@ import { Modal } from "@/components/Modal";
 import { ModelSettings } from "@/features/settings/ModelSettings";
 import { GatewaySettings } from "@/features/settings/GatewaySettings";
 import { AgentDefSettings } from "@/features/settings/AgentDefSettings";
+import { ModelSelector } from "@/features/chat/ModelSelector";
 import { useTheme, type ThemeMode } from "@/stores/theme";
 import { OPEN_SETTINGS_EVENT, type SettingsSection } from "./settings-events";
 
@@ -153,6 +154,16 @@ function GeneralSettings() {
         <h2 className="text-[16px] font-semibold text-t-primary mb-2">
           通用设置
         </h2>
+      </div>
+
+      <div>
+        <label className="block text-[13px] font-medium text-t-primary mb-3">
+          默认模型
+        </label>
+        <p className="text-[12px] text-t-muted mb-3">
+          选择对话使用的默认 AI 模型，可在模型设置中添加更多模型。
+        </p>
+        <ModelSelector placement="bottom" />
       </div>
 
       <div>
