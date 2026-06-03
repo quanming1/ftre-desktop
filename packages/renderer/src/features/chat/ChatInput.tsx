@@ -105,19 +105,19 @@ function AttachmentBar({
         return (
           <div
             key={att.id}
-            className="group relative inline-flex items-center gap-2 pl-1 pr-2 py-1 rounded-md border border-border bg-hover text-t-primary text-[12px] max-w-[260px]"
+            className="group relative inline-flex items-center gap-2.5 pl-1.5 pr-2.5 py-1.5 rounded-xl border border-border bg-hover text-t-primary text-[13px] max-w-[280px]"
           >
             {/* 缩略图 */}
             <img
               src={url}
               alt={att.name || "image"}
-              className="block w-7 h-7 rounded object-cover bg-elevated shrink-0"
+              className="block w-9 h-9 rounded-lg object-cover bg-elevated shrink-0"
               draggable={false}
             />
             {/* 文件名 + 大小 */}
             <div className="flex flex-col min-w-0 leading-tight">
               <span className="truncate">{att.name || "image"}</span>
-              <span className="text-t-muted text-[10px]">
+              <span className="text-t-muted text-[11px]">
                 {formatBytes(att.bytes)}
               </span>
             </div>
@@ -126,9 +126,9 @@ function AttachmentBar({
               type="button"
               onClick={() => onRemove(att.id)}
               title="移除"
-              className="ml-1 inline-flex items-center justify-center w-5 h-5 rounded-full text-t-muted hover:text-t-primary hover:bg-active transition-colors"
+              className="ml-1 inline-flex items-center justify-center w-6 h-6 rounded-full text-t-muted hover:text-t-primary hover:bg-active transition-colors"
             >
-              <X size={12} />
+              <X size={14} />
             </button>
           </div>
         );
