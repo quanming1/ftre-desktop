@@ -126,7 +126,7 @@ export function TokenRing() {
   );
 
   return (
-    <Tooltip content={tooltip} side="top">
+    <Tooltip content={tooltip} side="top" className="rounded-lg">
       <div className={`${BUTTON_CLASS} ${colorClass}`}>
         <span className="tabular-nums">{label}</span>
       </div>
