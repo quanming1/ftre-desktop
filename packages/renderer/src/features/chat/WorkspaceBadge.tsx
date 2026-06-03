@@ -18,7 +18,6 @@ import {
   useState,
 } from "react";
 import { ChevronDown, ExternalLink, Folder, FolderOpen } from "lucide-react";
-import { Tooltip } from "@ftre/ui";
 import { useSession } from "@/stores/session";
 import { useChat, useSessionId } from "@/stores/chat";
 import { useNotification } from "@/stores/notification";
@@ -231,60 +230,42 @@ export function WorkspaceBadge() {
   const hasWorkspace = !!workspace;
   const display = hasWorkspace ? basename(workspace) : "未设置工作区";
 
-  const tooltip = hasWorkspace ? (
-    <div className="flex flex-col gap-1 min-w-[200px]">
-      <div className="text-[10.5px] uppercase tracking-wider text-t-ghost">
-        当前工作区
-      </div>
-      <div className="font-mono text-[11.5px] text-t-secondary break-all leading-snug">
-        {workspace}
-      </div>
-      <div className="text-[10.5px] text-t-ghost mt-1">
-        {sessionId ? "点击修改" : "首条消息发出后会绑定到该会话"}
-      </div>
-    </div>
-  ) : (
-    <div className="text-[11.5px] text-t-secondary">点击设置工作区</div>
-  );
-
   return (
     <div ref={containerRef} className="relative">
-      <Tooltip content={tooltip} side="top">
-        <div
-          className={`group relative flex items-center h-8 rounded-full transition-colors ${
-            editing ? "bg-[#e7e7e8]" : "hover:bg-[#e7e7e8]"
+      <div
+        className={`group relative flex items-center h-8 rounded-full transition-colors ${
+          editing ? "bg-[#e7e7e8]" : "hover:bg-[#e7e7e8]"
+        }`}
+      >
+        <button
+          type="button"
+          onClick={() => setEditing((p) => !p)}
+          className={`flex items-center gap-1 h-8 px-3 text-[13px] font-mono transition-colors ${
+            hasWorkspace
+              ? "text-t-secondary hover:text-t-primary"
+              : "text-t-ghost hover:text-t-secondary"
           }`}
         >
+          <Folder size={11} className="opacity-70" />
+          <span className="truncate max-w-[140px]">{display}</span>
+          <ChevronDown
+            size={11}
+            className={`opacity-50 transition-transform ${editing ? "rotate-180" : ""}`}
+          />
+        </button>
+
+        {hasWorkspace && (
           <button
             type="button"
-            onClick={() => setEditing((p) => !p)}
-            className={`flex items-center gap-1 h-8 px-3 text-[13px] font-mono transition-colors ${
-              hasWorkspace
-                ? "text-t-secondary hover:text-t-primary"
-                : "text-t-ghost hover:text-t-secondary"
-            }`}
+            onClick={handleReveal}
+            title="在资源管理器中打开"
+            aria-label="在资源管理器中打开"
+            className="ml-0.5 mr-1 h-5 w-5 flex items-center justify-center rounded-full text-t-ghost opacity-0 group-hover:opacity-100 hover:text-t-primary hover:bg-elevated transition-all"
           >
-            <Folder size={11} className="opacity-70" />
-            <span className="truncate max-w-[140px]">{display}</span>
-            <ChevronDown
-              size={11}
-              className={`opacity-50 transition-transform ${editing ? "rotate-180" : ""}`}
-            />
+            <ExternalLink size={11} />
           </button>
-
-          {hasWorkspace && (
-            <button
-              type="button"
-              onClick={handleReveal}
-              title="在资源管理器中打开"
-              aria-label="在资源管理器中打开"
-              className="ml-0.5 mr-1 h-5 w-5 flex items-center justify-center rounded-full text-t-ghost opacity-0 group-hover:opacity-100 hover:text-t-primary hover:bg-elevated transition-all"
-            >
-              <ExternalLink size={11} />
-            </button>
-          )}
-        </div>
-      </Tooltip>
+        )}
+      </div>
 
       {editing && (
         <div
