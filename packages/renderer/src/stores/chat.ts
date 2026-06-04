@@ -307,6 +307,8 @@ export function applyEvent(b: Bucket, ev: BusEvent): void {
       ensure();
       const chunk = d.content || "";
       if (!chunk) return;
+      // 收到新的流式内容说明重试成功，清除重试横幅
+      if (b.retryState) b.retryState = null;
       replaceTail((m) => {
         const parts = [...(m.parts || [])];
         const lastPart = parts[parts.length - 1];
@@ -378,6 +380,7 @@ export function applyEvent(b: Bucket, ev: BusEvent): void {
       ensure();
       const chunk = d.content || "";
       if (!chunk) return;
+      if (b.retryState) b.retryState = null;
       replaceTail((m) => {
         const parts = [...(m.parts || [])];
         const lastPart = parts[parts.length - 1];
@@ -443,6 +446,7 @@ export function applyEvent(b: Bucket, ev: BusEvent): void {
     // ─── 工具调用流式增量（args 分片） ───
     case "tool_call_streaming": {
       ensure();
+      if (b.retryState) b.retryState = null;
       const chunks: any[] = d.tool_calls || [];
       replaceTail((m) => {
         const toolCalls = [...(m.toolCalls || [])];
@@ -533,6 +537,33 @@ export function applyEvent(b: Bucket, ev: BusEvent): void {
     }
 
     case "retry": {
+      // 重试时只清除当前 streaming assistant 尾部正在流式拼接的残片 parts，
+      // 保留之前已完成的 tool_call / tool_result 等 parts 不受影响。
+      const retryTail = tail();
+      if (retryTail) {
+        replaceTail((m) => {
+          // 从末尾移除所有还在 streaming 的 text/reasoning parts（未封口的残片）
+          const parts = [...(m.parts || [])];
+          while (parts.length > 0) {
+            const last = parts[parts.length - 1];
+            if ((last.type === "text" || last.type === "reasoning") && last.streaming) {
+              parts.pop();
+            } else {
+              break;
+            }
+          }
+          // 重新拼接 content 和 reasoning（只保留已封口的）
+          const content = parts
+            .filter((p): p is { type: "text"; text: string; streaming?: boolean } => p.type === "text")
+            .map((p) => p.text)
+            .join("") || null;
+          const reasoning = parts
+            .filter((p): p is { type: "reasoning"; text: string; streaming?: boolean } => p.type === "reasoning")
+            .map((p) => p.text)
+            .join("") || undefined;
+          return { ...m, parts, content, reasoning };
+        });
+      }
       b.retryState = { attempt: d.attempt, maxAttempts: d.max_attempts, message: d.message };
       return;
     }

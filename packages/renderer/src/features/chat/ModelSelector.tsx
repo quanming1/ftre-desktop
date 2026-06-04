@@ -50,14 +50,7 @@ async function writeModelToConfig(
   }
 }
 
-interface ModelSelectorProps {
-  /** 下拉面板方向，默认向上展开（输入框场景）；设置中可传 "bottom" */
-  placement?: "top" | "bottom";
-}
-
-export const ModelSelector = memo(function ModelSelector({
-  placement = "top",
-}: ModelSelectorProps = {}) {
+export const ModelSelector = memo(function ModelSelector() {
   const [providers, setProviders] = useState<ProviderInfo[]>([]);
 
   // 从 store 读取当前选中的 model 和 provider
@@ -138,7 +131,7 @@ export const ModelSelector = memo(function ModelSelector({
       }
       onSelect={handleSelectModel}
       onOpenSettings={openModelSettings}
-      placement={placement}
+      placement="top"
       panelWidthClass="w-[280px]"
       renderTrigger={({ open, toggle }) => (
         <button

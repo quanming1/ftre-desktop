@@ -275,7 +275,7 @@ export const AssistantMessage = memo(
             </div>
           ) : (
             <StreamingContext.Provider value={isStreaming}>
-              <div className="text-[var(--text-lg)] leading-relaxed text-t-primary font-sans break-words">
+              <div className="text-[var(--text-md)] leading-relaxed text-t-primary font-sans break-words">
                 {message.parts && message.parts.length > 0 ? (
                   <div className="space-y-2">
                     <PartsRenderer
