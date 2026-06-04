@@ -105,6 +105,8 @@ interface SessionState {
   loading: boolean;
   /** Session ID currently being loaded (HTTP fetch in progress) */
   loadingSessionId: string | null;
+  /** 正在被 Agent 处理的 session 集合（ws 广播中有活跃事件） */
+  runningSessions: Set<string>;
 
   loadSessions: (workspace?: string | null) => Promise<void>;
   /** 枚举工作区 + 为每个工作区拉首页 session（轮询、初始加载用） */
@@ -126,6 +128,10 @@ interface SessionState {
     sessionId: string,
     patch: { model?: string | null; agentId?: string },
   ) => void;
+  /** 标记 session 进入运行态（收到 user_input echo） */
+  markRunning: (sessionId: string) => void;
+  /** 标记 session 结束运行态（收到 done / error） */
+  markIdle: (sessionId: string) => void;
 }
 
 /** 按 session_id 去重，保持出现顺序（前面的优先） */
@@ -148,6 +154,21 @@ export const useSession = create<SessionState>((set, get) => ({
   openTabs: [],
   loading: false,
   loadingSessionId: null,
+  runningSessions: new Set<string>(),
+
+  markRunning: (sessionId) => {
+    const next = new Set(get().runningSessions);
+    if (next.has(sessionId)) return;
+    next.add(sessionId);
+    set({ runningSessions: next });
+  },
+
+  markIdle: (sessionId) => {
+    const next = new Set(get().runningSessions);
+    if (!next.has(sessionId)) return;
+    next.delete(sessionId);
+    set({ runningSessions: next });
+  },
 
   loadSessions: async (_workspace) => {
     // 兼容旧调用：等价于 loadAllSessions
