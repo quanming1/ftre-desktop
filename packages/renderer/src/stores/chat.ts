@@ -715,16 +715,6 @@ if (!(globalThis as any)[__wsBoundFlag]) {
     const sid = msg.metadata?.session_id as string | undefined;
     if (!sid) return;
 
-    // ── 跨 session 运行态追踪 ──────────────────────────────────────
-    // 广播模式下所有 session 的事件都会到达前端。
-    // user_input → 该 session 进入运行态（Agent 正在处理）
-    // done / error → 该 session 恢复空闲
-    if (ev.type === "user_input") {
-      import("./session").then(({ useSession }) => useSession.getState().markRunning(sid));
-    } else if (ev.type === "done" || ev.type === "error") {
-      import("./session").then(({ useSession }) => useSession.getState().markIdle(sid));
-    }
-
     const b = bucket(sid);
     const busEvent: BusEvent = { type: ev.type, data: ev.data, metadata: msg.metadata };
     // 入桶事件缓存：分页 / refresh 重放时要回到这条事件流
@@ -939,6 +929,7 @@ export const useChat = create<ChatState>((set, get) => ({
         // 创建成功后清掉 pending —— sessions 表 workspace 已经落库，
         // 后续从 useSession 列表读，不再依赖前端 pending 状态
         set({ sessionId: data.session_id, pendingWorkspace: null });
+        wsClient.attach(data.session_id);
         send(data.session_id);
       })
       .catch(() => set({ isBusy: false, error: "创建会话失败" }));
@@ -959,6 +950,7 @@ export const useChat = create<ChatState>((set, get) => ({
     const b = bucket(sessionId);
     if (initialMessages && b.messages.length === 0) b.messages = initialMessages;
     set({ sessionId, messages: b.messages, isBusy: b.isBusy, error: b.error, retryState: b.retryState, contextTokens: 0, tokenUsage: null });
+    wsClient.attach(sessionId);
     // 异步拉一次最新 token 估算（不阻塞 UI 切换）
     void get().refreshTokenUsage(sessionId);
   },
@@ -988,9 +980,6 @@ export const useChat = create<ChatState>((set, get) => ({
     const tail = last(b.messages);
     if (mode === "refresh" && (b.isBusy || tail?.streaming)) return;
     if (mode === "hydrate" && b.messages.length > 0) return;
-    // 广播模式下后台 session 的事件已实时入桶；refresh 拿到的后端数据
-    // 可能比实时桶更旧（后端写入有延迟），跳过以避免消息重复。
-    if (mode === "refresh" && b.events.length > 0) return;
     b.messages = [];
     b.events = [...events];
     b.earliestTs = events.length > 0 ? events[0].ts ?? null : null;
