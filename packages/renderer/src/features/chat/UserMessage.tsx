@@ -515,7 +515,7 @@ export const UserMessage = memo(
                           : contentHeight,
                     overflow: isOverflowing ? "hidden" : undefined,
                   }}
-                  className="text-[var(--text-lg)] leading-relaxed text-t-primary bg-panel px-4 py-3 whitespace-pre-wrap break-words font-sans cursor-default transition-[max-height] duration-300 ease-out"
+                  className="text-[var(--text-md)] leading-relaxed text-t-primary bg-panel px-4 py-3 whitespace-pre-wrap break-words font-sans cursor-default transition-[max-height] duration-300 ease-out"
                 >
                   {hasParts ? (
                     <PartsContent parts={message.parts!} />
