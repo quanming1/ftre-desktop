@@ -635,18 +635,140 @@ export async function deleteLLMProvider(_id: string): Promise<boolean> {
   return true;
 }
 
-// ─── Skills ─────────────────────────────────────────────────────────
+// ─── Skills (~/.ftre/skills/<name>.md 或 <name>/SKILL.md via backend) ──
+//
+// Skill 是存放在 ~/.ftre/skills 下的可复用能力说明。后端（ftre/api/routes.py）
+// 提供 CRUD；底层 IO 见 ftre/skill.py，加载约定见 ~/.ftre/plugins/skill_plugin.py。
 
+const SKILLS_API = "http://127.0.0.1:18790/api/skills";
+
+/** Skill 存储形态：单文件 <name>.md（file）或目录 <name>/SKILL.md（dir）。*/
+export type SkillKind = "file" | "dir";
+
+/** 列表项：不含正文，仅元信息 */
+export interface SkillSummary {
+  /** Skill 唯一标识。Skill 以名称为主键，这里 id === name（兼容 @ 提及/chip）。 */
+  id: string;
+  name: string;
+  description: string;
+  kind: SkillKind;
+  /** 内容文件最近修改时间（epoch 秒） */
+  updated_at: number;
+}
+
+/**
+ * @deprecated 用 SkillSummary。保留别名兼容 ChatInput 的 @ 技能提及。
+ * 字段是 SkillSummary 的子集（id / name / description）。
+ */
 export interface SkillDef {
   id: string;
   name: string;
   description: string;
 }
 
+/** 详情：含完整正文 */
+export interface SkillDetail extends SkillSummary {
+  content: string;
+}
+
+/** 创建 Skill 的输入 */
+export interface SkillCreateInput {
+  name: string;
+  /** 正文；缺省时后端用模板（含 frontmatter）预填 */
+  content?: string;
+  /** 缺省时后端用作模板 description */
+  description?: string;
+  /** 存储形态，默认 "dir" */
+  kind?: SkillKind;
+}
+
+/** 把后端返回的 skill 行补上 id（= name），便于前端按主键引用。 */
+function mapSkillRow(s: any): SkillSummary {
+  const name = typeof s?.name === "string" ? s.name : "";
+  return {
+    id: name,
+    name,
+    description: typeof s?.description === "string" ? s.description : "",
+    kind: s?.kind === "file" ? "file" : "dir",
+    updated_at: typeof s?.updated_at === "number" ? s.updated_at : 0,
+  };
+}
+
+/** workspace 参数仅为兼容旧调用（Skill 是全局的，与工作区无关），已忽略。 */
 export async function fetchSkills(
   _workspace?: string | null,
-): Promise<SkillDef[]> {
-  return [];
+): Promise<SkillSummary[]> {
+  try {
+    const res = await fetch(SKILLS_API);
+    if (!res.ok) return [];
+    const data = await res.json();
+    return Array.isArray(data?.skills) ? data.skills.map(mapSkillRow) : [];
+  } catch (e) {
+    console.error("[api] fetchSkills failed:", e);
+    return [];
+  }
+}
+
+export async function fetchSkill(
+  name: string,
+): Promise<{ skill: SkillDetail } | { error: string }> {
+  try {
+    const res = await fetch(`${SKILLS_API}/${encodeURIComponent(name)}`);
+    if (!res.ok) return { error: await _readError(res) };
+    const raw = await res.json();
+    return { skill: { ...mapSkillRow(raw), content: raw?.content ?? "" } };
+  } catch (e) {
+    return { error: (e as Error).message || "网络错误" };
+  }
+}
+
+export async function createSkill(
+  input: SkillCreateInput,
+): Promise<{ skill: SkillDetail } | { error: string }> {
+  try {
+    const res = await fetch(SKILLS_API, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(input),
+    });
+    if (!res.ok) return { error: await _readError(res) };
+    const raw = await res.json();
+    return { skill: { ...mapSkillRow(raw), content: raw?.content ?? "" } };
+  } catch (e) {
+    return { error: (e as Error).message || "网络错误" };
+  }
+}
+
+export async function updateSkill(
+  name: string,
+  content: string,
+): Promise<{ skill: SkillDetail } | { error: string }> {
+  try {
+    const res = await fetch(`${SKILLS_API}/${encodeURIComponent(name)}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ content }),
+    });
+    if (!res.ok) return { error: await _readError(res) };
+    const raw = await res.json();
+    return { skill: { ...mapSkillRow(raw), content: raw?.content ?? "" } };
+  } catch (e) {
+    return { error: (e as Error).message || "网络错误" };
+  }
+}
+
+export async function deleteSkill(
+  name: string,
+): Promise<{ ok: true } | { error: string }> {
+  try {
+    const res = await fetch(`${SKILLS_API}/${encodeURIComponent(name)}`, {
+      method: "DELETE",
+    });
+    if (!res.ok && res.status !== 204) return { error: await _readError(res) };
+    return { ok: true };
+  } catch (e) {
+    return { error: (e as Error).message || "网络错误" };
+  }
 }
 
 // ─── Agents ─────────────────────────────────────────────────────────
