@@ -939,7 +939,6 @@ export const useChat = create<ChatState>((set, get) => ({
         // 创建成功后清掉 pending —— sessions 表 workspace 已经落库，
         // 后续从 useSession 列表读，不再依赖前端 pending 状态
         set({ sessionId: data.session_id, pendingWorkspace: null });
-        wsClient.attach(data.session_id);
         send(data.session_id);
       })
       .catch(() => set({ isBusy: false, error: "创建会话失败" }));
@@ -960,7 +959,6 @@ export const useChat = create<ChatState>((set, get) => ({
     const b = bucket(sessionId);
     if (initialMessages && b.messages.length === 0) b.messages = initialMessages;
     set({ sessionId, messages: b.messages, isBusy: b.isBusy, error: b.error, retryState: b.retryState, contextTokens: 0, tokenUsage: null });
-    wsClient.attach(sessionId);
     // 异步拉一次最新 token 估算（不阻塞 UI 切换）
     void get().refreshTokenUsage(sessionId);
   },
