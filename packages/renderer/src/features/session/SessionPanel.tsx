@@ -638,11 +638,12 @@ export function SessionPanel() {
                       Pin Threads
                     </span>
                   </div>
-                  <div className="space-y-px pl-[18px]">
+                  <div className="space-y-px">
                     {pinnedList.map((session) => (
                       <SessionRow
                         key={session.session_id}
                         session={session}
+                        alignWithSectionLabel
                         isActive={
                           stripPrefix(session.session_id) ===
                           stripPrefix(currentSessionId || "")
@@ -946,7 +947,7 @@ function WorkspaceGroup({
           onContextMenu={onHeaderContextMenu}
           className={`group flex items-center gap-2 px-2 py-1 min-w-0 transition-colors select-none rounded
             cursor-pointer hover:bg-hover
-            ${bucket.isActive ? "text-t-primary" : "text-t-secondary hover:text-t-primary"}
+            ${bucket.isActive ? "text-t-secondary" : "text-t-muted hover:text-t-secondary"}
           `}
         >
           <ChevronRight
@@ -961,7 +962,7 @@ function WorkspaceGroup({
             style={{ color: accent, opacity: bucket.isActive ? 1 : 0.85 }}
           />
           <span
-            className={`text-[15px] truncate flex-1 ${bucket.isActive ? "font-semibold" : "font-medium"}`}
+            className="text-[14px] truncate flex-1 font-medium"
           >
             {bucket.name}
           </span>
@@ -983,11 +984,12 @@ function WorkspaceGroup({
 
       {/* 会话列表（左缩进对齐工作区名） */}
       {!collapsed && (
-        <div className="mt-0.5 space-y-px pl-[18px]">
+        <div className="mt-0.5 space-y-px">
           {visibleSessions.map((session) => (
             <SessionRow
               key={session.session_id}
               session={session}
+              alignWithSectionLabel
               isActive={
                 stripPrefix(session.session_id) ===
                 stripPrefix(currentSessionId || "")
@@ -1069,6 +1071,7 @@ interface SessionRowProps {
   isHovered: boolean;
   isLoading: boolean;
   isPinned: boolean;
+  alignWithSectionLabel?: boolean;
   onClick: () => void;
   onEnter: () => void;
   onLeave: () => void;
@@ -1081,6 +1084,7 @@ function SessionRow({
   isHovered,
   isLoading,
   isPinned,
+  alignWithSectionLabel = false,
   onClick,
   onEnter,
   onLeave,
@@ -1095,8 +1099,8 @@ function SessionRow({
       onContextMenu={onMenu}
       onMouseEnter={onEnter}
       onMouseLeave={onLeave}
-      className={`flex items-center gap-2 h-10 px-3 rounded-full cursor-pointer select-none transition-colors ${isActive
-        ? "bg-active hover:bg-active"
+      className={`flex items-center gap-2 h-10 pr-3 rounded-full cursor-pointer select-none transition-colors ${alignWithSectionLabel ? "pl-[45px]" : "pl-3"} ${isActive
+        ? "bg-[#e7e7e8] hover:bg-[#e7e7e8]"
         : "hover:bg-hover"
         }`}
     >
