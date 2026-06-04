@@ -988,6 +988,9 @@ export const useChat = create<ChatState>((set, get) => ({
     const tail = last(b.messages);
     if (mode === "refresh" && (b.isBusy || tail?.streaming)) return;
     if (mode === "hydrate" && b.messages.length > 0) return;
+    // 广播模式下后台 session 的事件已实时入桶；refresh 拿到的后端数据
+    // 可能比实时桶更旧（后端写入有延迟），跳过以避免消息重复。
+    if (mode === "refresh" && b.events.length > 0) return;
     b.messages = [];
     b.events = [...events];
     b.earliestTs = events.length > 0 ? events[0].ts ?? null : null;
