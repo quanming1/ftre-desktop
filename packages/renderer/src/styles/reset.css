@@ -45,6 +45,31 @@
     background: var(--ftre-scrollbar-thumb-hover);
   }
 
+  /*
+    Overlay 样式滚动条：默认完全透明，仅在容器 hover 时浮现，并带淡入动画。
+    用法：把 .scrollbar-thin 加到 overflow 的容器上。
+  */
+  .scrollbar-thin::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+  .scrollbar-thin::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  .scrollbar-thin::-webkit-scrollbar-thumb {
+    background: transparent;
+    border: 2px solid transparent;
+    border-radius: 9999px;
+    background-clip: padding-box;
+    transition: background-color 200ms ease;
+  }
+  .scrollbar-thin:hover::-webkit-scrollbar-thumb {
+    background-color: var(--ftre-scrollbar-thumb);
+  }
+  .scrollbar-thin::-webkit-scrollbar-thumb:hover {
+    background-color: var(--ftre-scrollbar-thumb-hover);
+  }
+
   button {
     color: inherit;
     font: inherit;

@@ -27,6 +27,8 @@ import { performanceMetrics } from "@/services/performance-metrics";
 export function Workbench() {
   const [filePaletteOpen, setFilePaletteOpen] = useState(false);
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
+  /** 是否正在拖拽分隔条；拖拽时关闭 sessions 的 width transition，避免每帧补间造成的拖泥带水。 */
+  const [resizing, setResizing] = useState(false);
   const resolvedMode = useTheme((s) => s.resolvedMode);
 
   // Layout store state
@@ -179,7 +181,8 @@ export function Workbench() {
         width: sessionsCollapsed ? 48 : sessionsWidth,
         flexShrink: 0,
         order: getOrder(id),
-        transition: "width 160ms ease",
+        // 折叠/展开时做宽度补间动画；拖拽分隔条时关闭，避免每帧补间造成黏滞。
+        transition: resizing ? undefined : "width 160ms ease",
       };
     }
     if (id === "sidebar") {
@@ -211,7 +214,7 @@ export function Workbench() {
   // - If the target panel === nextPanelId, it's on the RIGHT of the handle -> delta positive = shrink
   const createFixedPanelResizeHandler = useCallback(
     (targetPanel: "sessions" | "sidebar", afterPanelId: PanelId) => {
-      return (delta: number) => {
+      return (delta: number): number => {
         // Read current width from store at call time, not at creation time
         const state = useLayout.getState();
         const currentWidth =
@@ -225,8 +228,17 @@ export function Workbench() {
         const index = currentOrder.indexOf(afterPanelId);
         const nextPanelId = currentOrder[index + 1];
         // If target panel is on the RIGHT of the handle, reverse delta
-        const adjustedDelta = nextPanelId === targetPanel ? -delta : delta;
-        setWidth(Math.max(140, Math.min(400, currentWidth + adjustedDelta)));
+        const reverse = nextPanelId === targetPanel;
+        const adjustedDelta = reverse ? -delta : delta;
+        const clampedWidth = Math.max(
+          140,
+          Math.min(400, currentWidth + adjustedDelta),
+        );
+        const appliedAdjusted = clampedWidth - currentWidth;
+        setWidth(clampedWidth);
+        // Map the actually-applied (post-clamp) delta back to the handle's
+        // coordinate system so it can keep cursor and divider in sync.
+        return reverse ? -appliedAdjusted : appliedAdjusted;
       };
     },
     [], // No dependencies - reads from store at call time
@@ -235,9 +247,9 @@ export function Workbench() {
   // Resize handler for editor/chat divider
   const createCenterResizeHandler = useCallback(
     (afterPanelId: PanelId) => {
-      return (delta: number) => {
+      return (delta: number): number => {
         const container = containerRef.current;
-        if (!container) return;
+        if (!container) return 0;
 
         // Read current state from store at call time
         const state = useLayout.getState();
@@ -253,7 +265,7 @@ export function Workbench() {
         const sessionsW = pv.sessions ? sw : 0;
         const sidebarW = pv.sidebar ? sbw : 0;
         const availableWidth = container.offsetWidth - sessionsW - sidebarW;
-        if (availableWidth <= 0) return;
+        if (availableWidth <= 0) return 0;
         // Convert pixel delta to ratio delta
         const ratioDelta = (delta / availableWidth) * 100;
 
@@ -266,11 +278,13 @@ export function Workbench() {
 
         // If afterPanelId === firstPanel, dragging right increases firstPanel
         // If afterPanelId !== firstPanel, it means firstPanel is on the right, reverse
-        const adjustedRatioDelta =
-          afterPanelId === firstPanel ? ratioDelta : -ratioDelta;
-        state.setCenterRatio(
-          Math.max(10, Math.min(90, cr + adjustedRatioDelta)),
-        );
+        const reverse = afterPanelId !== firstPanel;
+        const adjustedRatioDelta = reverse ? -ratioDelta : ratioDelta;
+        const clampedRatio = Math.max(10, Math.min(90, cr + adjustedRatioDelta));
+        const appliedRatio = clampedRatio - cr;
+        state.setCenterRatio(clampedRatio);
+        const appliedAdjusted = (appliedRatio * availableWidth) / 100;
+        return reverse ? -appliedAdjusted : appliedAdjusted;
       };
     },
     [], // No dependencies - reads from store at call time
@@ -312,8 +326,7 @@ export function Workbench() {
           </div>
         )}
         {panelVisible.sessions &&
-          isResizeHandleVisible("sessions") &&
-          activeLeftPanel === "chat" && (
+          isResizeHandleVisible("sessions") && (
             <div
               className="h-full shrink-0"
               style={{ order: getResizeHandleOrder("sessions") }}
@@ -321,13 +334,18 @@ export function Workbench() {
               <ResizeHandle
                 direction="horizontal"
                 onResize={getResizeHandler("sessions")}
+                onResizeStart={() => setResizing(true)}
+                onResizeEnd={() => setResizing(false)}
               />
             </div>
           )}
 
         {/* Skills 模式：占满 SessionPanel 右侧的所有空间 */}
         {activeLeftPanel === "skills" && (
-          <div className="flex-1 h-full overflow-hidden py-1 pr-1.5">
+          <div
+            className="flex-1 h-full overflow-hidden py-1 pr-1.5"
+            style={{ order: 999 }}
+          >
             <div className="h-full overflow-hidden rounded-xl bg-surface">
               <ErrorBoundary>
                 <SkillsPanel />
@@ -338,7 +356,10 @@ export function Workbench() {
 
         {/* Cron 模式：占满 SessionPanel 右侧的所有空间 */}
         {activeLeftPanel === "cron" && (
-          <div className="flex-1 h-full overflow-hidden py-1 pr-1.5">
+          <div
+            className="flex-1 h-full overflow-hidden py-1 pr-1.5"
+            style={{ order: 999 }}
+          >
             <div className="h-full overflow-hidden rounded-xl bg-surface">
               <ErrorBoundary>
                 <ScheduledTaskPanel />
