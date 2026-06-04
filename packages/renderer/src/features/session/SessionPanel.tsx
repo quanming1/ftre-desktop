@@ -1115,10 +1115,6 @@ function SessionRow({
         : "hover:bg-hover"
         }`}
     >
-      {/* 运行中指示：小圆点脉冲 */}
-      {isRunning && !isActive && (
-        <div className="w-[6px] h-[6px] rounded-full bg-neon/80 animate-pulse shrink-0" />
-      )}
       {/* 置顶标记 */}
       {isPinned && (
         <Pin size={11} className="text-t-ghost shrink-0 mt-[1px]" strokeWidth={2} />
@@ -1135,9 +1131,16 @@ function SessionRow({
         )}
       </span>
 
-      {/* 右侧：时间 / 菜单按钮叠加，hover 切透明度，避免 DOM 替换抖动 */}
+      {/* 右侧：时间 / running / 菜单按钮叠加，hover 切透明度，避免 DOM 替换抖动 */}
       <div className="relative shrink-0 w-7 h-5 flex items-center justify-end">
         {isLoading && (
+          <Loader2
+            size={12}
+            className="absolute right-0 text-t-ghost animate-spin"
+          />
+        )}
+        {/* 运行中：在时间位置显示旋转 icon */}
+        {isRunning && !isLoading && (
           <Loader2
             size={12}
             className="absolute right-0 text-t-ghost animate-spin"
@@ -1146,7 +1149,7 @@ function SessionRow({
         <span
           className="absolute right-0 text-[12px] tabular-nums transition-opacity"
           style={{
-            opacity: isHovered || isLoading ? 0 : time.opacity,
+            opacity: isHovered || isLoading || isRunning ? 0 : time.opacity,
             color: "var(--color-t-dim)",
             pointerEvents: "none",
           }}
