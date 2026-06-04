@@ -53,6 +53,9 @@ class WebSocketClient {
   public connected = false;
   public status: WsConnectionStatus = "disconnected";
 
+  /** 当前已 attach 的 session 集合（重连后自动重发 attach） */
+  private attachedSessions = new Set<string>();
+
   private messageHandlers: MessageHandler[] = [];
   private connectHandlers: ConnectionHandler[] = [];
   private disconnectHandlers: ConnectionHandler[] = [];
@@ -89,6 +92,14 @@ class WebSocketClient {
         this.connected = true;
         this.reconnectAttempt = 0;
         this.setStatus("connected");
+        // 重连后重新 attach 所有之前关注的 session
+        for (const sid of this.attachedSessions) {
+          this.send({
+            id: crypto.randomUUID().slice(0, 16),
+            type: "attach",
+            data: { session_id: sid },
+          });
+        }
         this.connectHandlers.forEach((h) => h());
       };
 
@@ -188,6 +199,27 @@ class WebSocketClient {
       id: crypto.randomUUID().slice(0, 16),
       type: "cancel",
       data: { session_id: sessionId || "" },
+    });
+  }
+
+  /** Attach：告诉后端这条 ws 关注指定 session，后续该 session 的 outbound 会推送过来。 */
+  attach(sessionId: string): void {
+    if (!sessionId) return;
+    this.attachedSessions.add(sessionId);
+    this.send({
+      id: crypto.randomUUID().slice(0, 16),
+      type: "attach",
+      data: { session_id: sessionId },
+    });
+  }
+
+  detach(sessionId: string): void {
+    if (!sessionId) return;
+    this.attachedSessions.delete(sessionId);
+    this.send({
+      id: crypto.randomUUID().slice(0, 16),
+      type: "detach",
+      data: { session_id: sessionId },
     });
   }
 
