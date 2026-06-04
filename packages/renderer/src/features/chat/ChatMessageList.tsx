@@ -36,6 +36,22 @@ export interface ChatMessageListProps {
 
 // ─── Component ──────────────────────────────────────────────────────
 
+/** 重试时显示黄色小球 + 简短文字；否则显示正常 TypingDots */
+function RetryOrTyping() {
+  const retryState = useChat((s) => s.retryState);
+  if (retryState) {
+    return (
+      <div className="inline-flex items-center gap-2 py-2">
+        <div className="w-[7px] h-[7px] rounded-none bg-[#d29922] animate-pulse shadow-[1px_1px_0_0_rgba(0,0,0,0.45)]" />
+        <span className="text-xs text-[#d29922]">
+          重试 {retryState.attempt}/{retryState.maxAttempts}
+        </span>
+      </div>
+    );
+  }
+  return <TypingDots className="py-2" />;
+}
+
 const PAGE_SIZE = 10;
 
 export const ChatMessageList = memo(function ChatMessageList({
@@ -83,7 +99,7 @@ export const ChatMessageList = memo(function ChatMessageList({
   // deps: 最后一条消息 id 变化 → 切 session 时重置锁
   const lastMsgId = messages[messages.length - 1]?.id;
   const { ref: autoScrollRef, scrollToBottom, resetLock } = useAutoScrollToBottom(
-    lastMsgId ? [lastMsgId] : undefined,
+    [lastMsgId],
     { autoScrollLockDefault: true },
   );
   const mergedRef = useCallback(
@@ -273,11 +289,11 @@ export const ChatMessageList = memo(function ChatMessageList({
           );
         })}
 
-        {/* Typing indicator — 压缩进行中时不显示（compact 气泡已有自己的 loading 提示） */}
+        {/* Typing / Retry indicator — 压缩进行中时不显示（compact 气泡已有自己的 loading 提示） */}
         {isBusy &&
           !messages.some((m) => m.streaming) &&
           !messages.some((m) => m.compact?.status === "running") && (
-            <TypingDots className="py-2" />
+            <RetryOrTyping />
           )}
       </div>
 

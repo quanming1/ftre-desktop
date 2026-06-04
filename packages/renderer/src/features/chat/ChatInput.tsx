@@ -11,15 +11,15 @@ import { useCallback, useEffect, useMemo, useState, useRef } from "react";
 import { Slate, Editable } from "slate-react";
 import { Range } from "slate";
 import { ArrowUp, Zap, Paperclip, X } from "lucide-react";
-import { useChat, type RetryState } from "@/stores/chat";
+import { useChat } from "@/stores/chat";
 import { useLayout } from "@/stores/layout";
 import { useWorkspace } from "@/stores/workspace";
 import { useNotification } from "@/stores/notification";
 import { fetchSkills, type SkillDef } from "@/services/api";
 import { AgentSelector } from "./AgentSelector";
+import { ModelSelector } from "./ModelSelector";
 import { TokenRing } from "./TokenRing";
 import { WorkspaceBadge } from "./WorkspaceBadge";
-import { RetryPanel } from "./RetryPanel";
 import {
   ChatInputEditor,
   renderElement,
@@ -144,8 +144,6 @@ export function ChatInput() {
 
   // 细粒度选择器：仅订阅各自需要的字段，避免无关状态变化触发重渲染
   const isBusy = useChat((s) => s.isBusy);
-  const retryState = useChat((s) => s.retryState);
-  const [retryExpanded, setRetryExpanded] = useState(false);
   const workspace = useWorkspace((s) => s.rootPath);
   const autoFollow = useLayout((s) => s.autoFollowFiles);
   const toggleAutoFollow = useLayout((s) => s.toggleAutoFollowFiles);
@@ -457,21 +455,13 @@ export function ChatInput() {
   return (
     <div className="px-6 pb-4 pt-3">
       <div className="mx-auto w-full max-w-[960px]">
-        {/* RetryPanel - 在输入框上方 */}
-        {retryState && (
-          <RetryPanel retry={retryState} onExpandChange={setRetryExpanded} />
-        )}
 
         <div
           onDragOver={handleDragOver}
           onDragLeave={handleDragLeave}
           onDrop={handleDrop}
-          className={`relative bg-panel border border-border-subtle focus-within:border-neon/30 transition-colors shadow-sm ${
+          className={`relative bg-panel border border-border-subtle focus-within:border-neon/30 transition-colors shadow-sm rounded-3xl ${
             isDragging ? "border-neon/50 ring-1 ring-neon/30" : ""
-          } ${
-            retryState && retryExpanded
-              ? "rounded-b-3xl border-t-0"
-              : "rounded-3xl"
           }`}
         >
           {/* Skill 弹窗 */}
@@ -502,7 +492,7 @@ export function ChatInput() {
               onKeyDown={onKeyDown}
               onPaste={handlePaste}
               placeholder="描述你想要做什么... 输入 / 选择 Skill"
-              className="w-full bg-transparent text-[var(--text-xl)] text-t-primary outline-none resize-none px-5 py-4 font-sans font-medium overflow-y-auto overflow-x-hidden"
+              className="w-full bg-transparent text-[var(--text-md)] text-t-primary outline-none resize-none px-5 py-4 font-sans overflow-y-auto overflow-x-hidden"
               style={{
                 minHeight: 64,
                 maxHeight: 180,
@@ -544,8 +534,10 @@ export function ChatInput() {
               <WorkspaceBadge />
             </div>
 
-            {/* 右侧：上下文用量 + 发送 */}
+            {/* 右侧：模型选择 + 上下文用量 + 发送 */}
             <div className="flex items-center gap-1.5">
+              <ModelSelector />
+              <div className="w-px h-3.5 bg-border-subtle mx-1" />
               <TokenRing />
               {isBusy ? (
                 <button
