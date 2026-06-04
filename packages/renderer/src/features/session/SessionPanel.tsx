@@ -213,6 +213,7 @@ export function SessionPanel() {
   const deleteSession = useSession((s) => s.deleteSession);
   const newSession = useSession((s) => s.newSession);
   const loadingSessionId = useSession((s) => s.loadingSessionId);
+  const runningSessions = useSession((s) => s.runningSessions);
   const currentSessionId = useChat((s) => s.sessionId);
 
   const rootPath = useWorkspace((s) => s.rootPath);
@@ -651,6 +652,7 @@ export function SessionPanel() {
                         isHovered={hoveredSession === session.session_id}
                         isLoading={loadingSessionId === session.session_id}
                         isPinned={false}
+                        isRunning={runningSessions.has(session.session_id)}
                         onClick={() => handleSwitchSession(session.session_id)}
                         onEnter={() => setHoveredSession(session.session_id)}
                         onLeave={() => setHoveredSession(null)}
@@ -694,6 +696,7 @@ export function SessionPanel() {
                           currentSessionId={currentSessionId}
                           hoveredSession={hoveredSession}
                           loadingSessionId={loadingSessionId}
+                          runningSessions={runningSessions}
                           collapsed={collapsedWorkspaces.has(bucket.key)}
                           onSwitch={handleSwitchSession}
                           onHover={setHoveredSession}
@@ -753,6 +756,7 @@ export function SessionPanel() {
                         isHovered={hoveredSession === session.session_id}
                         isLoading={loadingSessionId === session.session_id}
                         isPinned={false}
+                        isRunning={runningSessions.has(session.session_id)}
                         onClick={() => handleSwitchSession(session.session_id)}
                         onEnter={() => setHoveredSession(session.session_id)}
                         onLeave={() => setHoveredSession(null)}
@@ -878,6 +882,8 @@ interface WorkspaceGroupProps {
   currentSessionId: string | null;
   hoveredSession: string | null;
   loadingSessionId: string | null;
+  /** 正在被 Agent 处理的 session 集合 */
+  runningSessions: Set<string>;
   /** 是否折叠（会话列表隐藏） */
   collapsed: boolean;
   onSwitch: (sessionId: string) => void;
@@ -900,6 +906,7 @@ function WorkspaceGroup({
   currentSessionId,
   hoveredSession,
   loadingSessionId,
+  runningSessions,
   collapsed,
   onSwitch,
   onHover,
@@ -997,6 +1004,7 @@ function WorkspaceGroup({
               isHovered={hoveredSession === session.session_id}
               isLoading={loadingSessionId === session.session_id}
               isPinned={false}
+              isRunning={runningSessions.has(session.session_id)}
               onClick={() => onSwitch(session.session_id)}
               onEnter={() => onHover(session.session_id)}
               onLeave={() => onHover(null)}
@@ -1071,6 +1079,8 @@ interface SessionRowProps {
   isHovered: boolean;
   isLoading: boolean;
   isPinned: boolean;
+  /** session 正在被 Agent 处理（收到 user_input 但尚未 done） */
+  isRunning?: boolean;
   alignWithSectionLabel?: boolean;
   onClick: () => void;
   onEnter: () => void;
@@ -1084,6 +1094,7 @@ function SessionRow({
   isHovered,
   isLoading,
   isPinned,
+  isRunning = false,
   alignWithSectionLabel = false,
   onClick,
   onEnter,
@@ -1104,6 +1115,10 @@ function SessionRow({
         : "hover:bg-hover"
         }`}
     >
+      {/* 运行中指示：小圆点脉冲 */}
+      {isRunning && !isActive && (
+        <div className="w-[6px] h-[6px] rounded-full bg-neon/80 animate-pulse shrink-0" />
+      )}
       {/* 置顶标记 */}
       {isPinned && (
         <Pin size={11} className="text-t-ghost shrink-0 mt-[1px]" strokeWidth={2} />

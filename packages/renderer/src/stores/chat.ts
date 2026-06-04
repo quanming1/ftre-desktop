@@ -715,6 +715,16 @@ if (!(globalThis as any)[__wsBoundFlag]) {
     const sid = msg.metadata?.session_id as string | undefined;
     if (!sid) return;
 
+    // ── 跨 session 运行态追踪 ──────────────────────────────────────
+    // 广播模式下所有 session 的事件都会到达前端。
+    // user_input → 该 session 进入运行态（Agent 正在处理）
+    // done / error → 该 session 恢复空闲
+    if (ev.type === "user_input") {
+      import("./session").then(({ useSession }) => useSession.getState().markRunning(sid));
+    } else if (ev.type === "done" || ev.type === "error") {
+      import("./session").then(({ useSession }) => useSession.getState().markIdle(sid));
+    }
+
     const b = bucket(sid);
     const busEvent: BusEvent = { type: ev.type, data: ev.data, metadata: msg.metadata };
     // 入桶事件缓存：分页 / refresh 重放时要回到这条事件流
