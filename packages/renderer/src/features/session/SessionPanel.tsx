@@ -650,7 +650,7 @@ export function SessionPanel() {
                         }
                         isHovered={hoveredSession === session.session_id}
                         isLoading={loadingSessionId === session.session_id}
-                        isPinned={false}
+                        isPinned
                         onClick={() => handleSwitchSession(session.session_id)}
                         onEnter={() => setHoveredSession(session.session_id)}
                         onLeave={() => setHoveredSession(null)}
@@ -1104,9 +1104,12 @@ function SessionRow({
         : "hover:bg-hover"
         }`}
     >
-      {/* 置顶标记 */}
+      {/* 置顶会话色点：用 session id 稳定映射颜色，便于视觉记忆 */}
       {isPinned && (
-        <Pin size={11} className="text-t-ghost shrink-0 mt-[1px]" strokeWidth={2} />
+        <span
+          className="shrink-0 w-2.5 h-2.5 rounded-full shadow-[0_0_0_2px_rgba(255,255,255,0.55)]"
+          style={{ backgroundColor: folderColor(session.session_id) }}
+        />
       )}
       <span
         className={`flex-1 truncate text-[13.5px] ${isActive ? "text-t-primary font-medium" : "text-t-secondary"
