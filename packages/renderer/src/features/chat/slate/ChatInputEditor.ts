@@ -322,11 +322,8 @@ export class ChatInputEditor {
             skillRefs.push(chip.skillRef);
             flush();
             parts.push({
-              type: "skill_ref",
-              data: {
-                id: chip.skillRef.id,
-                name: chip.skillRef.name,
-              },
+              type: "skill",
+              data: chip.skillRef.name || chip.skillRef.id,
             });
           } else if ("text" in child) {
             pendingText += (child as { text: string }).text;
