@@ -172,6 +172,21 @@ export class ChatInputEditor {
     Transforms.insertText(this.editor, " ");
   }
 
+  /** 在编辑器末尾插入 skill chip（用于从「+」菜单选择 skill，不依赖 / 搜索范围） */
+  insertSkillChipAtEnd(ref: SkillRef): void {
+    const chip: SkillChipElement = {
+      type: "skill-chip",
+      skillRef: ref,
+      children: [{ text: "" }],
+    };
+    ReactEditor.focus(this.editor as ReactEditor);
+    const end = Editor.end(this.editor, []);
+    Transforms.select(this.editor, end);
+    Transforms.insertNodes(this.editor, chip);
+    Transforms.move(this.editor);
+    Transforms.insertText(this.editor, " ");
+  }
+
   /** 清空编辑器内容，恢复到初始状态 */
   clear(): void {
     Transforms.delete(this.editor, {
