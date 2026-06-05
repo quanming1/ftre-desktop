@@ -83,6 +83,9 @@ const FIRST_PAGE_SIZE = 50;
 const FIRST_PAGE_EVENTS = 200;
 const NEXT_PAGE_EVENTS = 200;
 
+/** 上一次 switchSession 的 AbortController，新切换时取消旧请求 */
+let _switchAbort: AbortController | null = null;
+
 /** 每个工作区首屏拉取的 session 数 */
 const WORKSPACE_PAGE_SIZE = 20;
 
@@ -265,16 +268,21 @@ export const useSession = create<SessionState>((set, get) => ({
       saveTabsToStorage(tabs);
     }
 
-    // 先标记 loading，让 UI 立刻展示骨架屏，消除"卡住"的感觉
+    // 取消上一次切换的请求，避免浪费带宽
+    _switchAbort?.abort();
+    _switchAbort = new AbortController();
+    const signal = _switchAbort.signal;
+
+    // 先标记 loading，让 UI 立刻展示转圈，消除"卡住"的感觉
     const isFirstLoad = !useChat.getState().hasSessionCache(sessionId);
     set({ loadingSessionId: sessionId });
 
-    // 切到目标 session（bucket 已有缓存则立即展示；无缓存则骨架屏盖住空白）
+    // 切到目标 session（bucket 已有缓存则立即展示；无缓存则转圈盖住空白）
     useChat.getState().switchTo(sessionId);
     try { localStorage.setItem(sessionStorageKey(), sessionId); } catch { }
 
-    // 分页拉首屏（末尾 N 条事件）。流式期间 chat store 自己会用 mode 兜底跳过。
-    fetchSessionMessagesPage(sessionId, { limit: FIRST_PAGE_EVENTS })
+    // 分页拉首屏。流式期间 chat store 自己会用 mode 兜底跳过。
+    fetchSessionMessagesPage(sessionId, { limit: FIRST_PAGE_EVENTS, signal } as any)
       .then((page) => {
         if (!page) return;
         useChat.getState().loadSessionEvents(
@@ -282,10 +290,12 @@ export const useSession = create<SessionState>((set, get) => ({
           historyToEvents(page.messages),
           isFirstLoad ? "hydrate" : "refresh",
         );
-        // hasMoreHistory 标记：后续"加载更早"按钮会用
         useChat.getState().prependSessionEvents(sessionId, [], page.hasMore);
       })
-      .catch((err) => console.error("[Session] switchSession fetch error:", err))
+      .catch((err) => {
+        if ((err as Error).name === "AbortError") return;
+        console.error("[Session] switchSession fetch error:", err);
+      })
       .finally(() => {
         if (get().loadingSessionId === sessionId) set({ loadingSessionId: null });
       });
