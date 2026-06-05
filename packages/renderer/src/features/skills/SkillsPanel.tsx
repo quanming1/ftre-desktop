@@ -74,11 +74,8 @@ function SkillCard({
   return (
     <div
       onClick={onOpen}
-      className="group relative p-5 rounded-xl border border-border-subtle bg-elevated/40 hover:bg-elevated hover:border-border/50 transition-all duration-200 cursor-pointer hover:shadow-lg hover:shadow-black/10 hover:-translate-y-0.5"
+      className="group relative p-5 rounded-xl border border-border-subtle bg-elevated/40 hover:bg-elevated hover:border-border/50 transition-colors duration-150 cursor-pointer"
     >
-      {/* Top accent line */}
-      <div className="absolute top-0 left-4 right-4 h-px bg-gradient-to-r from-transparent via-neon/20 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
-
       {/* Header */}
       <div className="flex items-start justify-between mb-3">
         <div className="flex items-center gap-2.5 min-w-0">

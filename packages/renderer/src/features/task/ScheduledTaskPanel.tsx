@@ -111,27 +111,13 @@ function JobCard({
   return (
     <div
       onClick={onEdit}
-      className={`group relative px-4 py-3 rounded-xl border transition-all duration-200 cursor-pointer hover:-translate-y-0.5 hover:shadow-lg hover:shadow-black/10 ${
+      className={`group relative px-4 py-3 rounded-xl border transition-colors duration-150 cursor-pointer ${
         isDisabled
           ? "border-border/15 bg-elevated/20 opacity-60 hover:opacity-80"
           : "border-border-subtle bg-elevated/40 hover:bg-elevated hover:border-border/50"
       }`}
     >
-      {/* Top accent line */}
-      <div className={`absolute top-0 left-4 right-4 h-px bg-gradient-to-r from-transparent via-current to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300 ${
-        isDisabled ? "text-t-ghost/30" : "text-neon/20"
-      }`} />
-
       <div className="flex items-center gap-3 min-w-0">
-        {/* 状态圆点 */}
-        <div
-          className={`shrink-0 w-2 h-2 rounded-full ring-2 ring-offset-1 ring-offset-elevated ${
-            isDisabled
-              ? "bg-t-ghost ring-t-ghost/10"
-              : "bg-neon ring-neon/15"
-          }`}
-        />
-
         <div className="flex-1 min-w-0">
           <h3 className={`text-[14px] font-semibold truncate ${
             isDisabled ? "text-t-muted" : "text-t-primary"
