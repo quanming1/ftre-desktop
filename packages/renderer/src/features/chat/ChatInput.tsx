@@ -10,7 +10,7 @@
 import { useCallback, useEffect, useMemo, useState, useRef } from "react";
 import { Slate, Editable } from "slate-react";
 import { Range } from "slate";
-import { ArrowUp, Zap, Paperclip, X } from "lucide-react";
+import { ArrowUp, Box, Paperclip, X } from "lucide-react";
 import { useChat } from "@/stores/chat";
 import { useLayout } from "@/stores/layout";
 import { useWorkspace } from "@/stores/workspace";
@@ -59,8 +59,11 @@ function SkillDropdown({
   return (
     <div
       ref={listRef}
-      className="absolute bottom-full left-0 mb-1.5 min-w-[200px] max-h-[280px] overflow-y-auto bg-elevated/95 backdrop-blur-sm border border-border-subtle rounded-lg shadow-xl py-1 z-50"
+      className="absolute bottom-full left-0 right-0 mb-1.5 max-h-[320px] overflow-y-auto bg-surface border border-border rounded-2xl shadow-[0_10px_30px_rgba(0,0,0,0.14)] py-1.5 z-50"
     >
+      <div className="px-3 pb-1 text-[12px] leading-5 text-t-muted">
+        技能
+      </div>
       {candidates.map((skill, i) => (
         <button
           key={skill.id}
@@ -70,12 +73,19 @@ function SkillDropdown({
           }}
           className={`w-full flex items-center gap-2 px-3 py-1.5 text-left transition-colors ${
             i === selectedIndex
-              ? "bg-neon/10 text-neon"
-              : "text-t-secondary hover:bg-hover"
+              ? "bg-active text-t-primary"
+              : "text-t-primary hover:bg-hover"
           }`}
         >
-          <Zap size={12} className="shrink-0 opacity-60" />
-          <span className="text-[13px] font-mono truncate">{skill.name}</span>
+          <Box size={14} strokeWidth={1.9} className="shrink-0 text-t-secondary" />
+          <span className="shrink-0 text-[13px] leading-5 font-medium text-t-primary truncate max-w-[240px]">
+            {skill.name}
+          </span>
+          {skill.description && (
+            <span className="min-w-0 flex-1 truncate text-[13px] leading-5 text-t-muted">
+              {skill.description}
+            </span>
+          )}
         </button>
       ))}
     </div>
@@ -466,13 +476,11 @@ export function ChatInput() {
         >
           {/* Skill 弹窗 */}
           {skillSearch && skillCandidates.length > 0 && (
-            <div className="absolute left-4 bottom-full z-50">
-              <SkillDropdown
-                candidates={skillCandidates}
-                selectedIndex={skillIndex}
-                onSelect={handleInsertSkill}
-              />
-            </div>
+            <SkillDropdown
+              candidates={skillCandidates}
+              selectedIndex={skillIndex}
+              onSelect={handleInsertSkill}
+            />
           )}
 
           {/* 附件栏（位于编辑器上方，独立于 Slate） */}

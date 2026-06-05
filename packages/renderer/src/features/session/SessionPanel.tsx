@@ -1,15 +1,22 @@
 /**
- * SessionPanel �?会话列表（侧边栏，工作区分组 + 顶部模式切换 + 底部设置�? *
- * 视觉�? *   - 工作区作为不可折叠的标题行（📁 + basename�? *   - 当前 rootPath 对应的组头有底色和加粗高亮，单击其他组头可切 rootPath
- *   - 每组默认显示 5 条；�?展开 +N �?�?store.loadMoreSessions(10)
+ * SessionPanel — 会话列表（侧边栏，工作区分组 + 顶部模式切换 + 底部设置）
+ *
+ * 视觉：
+ *   - 工作区作为不可折叠的标题行（📁 + basename）
+ *   - 当前 rootPath 对应的组头有底色和加粗高亮，单击其他组头可切 rootPath
+ *   - 每组默认显示 5 条；点击"展开 +N"会调用 store.loadMoreSessions(10)
  *   - 活跃会话用浅灰底+加粗黑字
  *   - 时间右对齐，hover 时被『更多』按钮通过透明度切换覆盖（不重排）
  *
- * 排序�? *   - 桶完全来�?sessions 自身�?workspace 字段
- *   - 当前 rootPath 对应的组优先冒顶；其余按组内最新一�?updated_at 倒序
+ * 排序：
+ *   - 桶完全来自 sessions 自身的 workspace 字段
+ *   - 当前 rootPath 对应的组优先冒顶；其余按组内最新一条 updated_at 倒序
  *   - "未设置工作区"压底
  *
- * 数据�? *   - 后端�?updated_at 倒序分页（GET /api/sessions?limit&offset�? *   - 5s 轮询只刷首页（最新创�?活跃�? */
+ * 数据：
+ *   - 后端按 updated_at 倒序分页（GET /api/sessions?limit&offset）
+ *   - 5s 轮询只刷首页（最新创建/活跃）
+ */
 import {
   useState,
   useMemo,
@@ -89,7 +96,8 @@ function workspaceKey(workspace: string | undefined | null): string {
   return normalizePathForCompare(ws);
 }
 
-// 工作区彩色识别（hash 调色板，用一个小色点辨识�?const FOLDER_PALETTE = [
+// 工作区彩色识别（hash 调色板，用一个小色点辨识）
+const FOLDER_PALETTE = [
   "#6366f1", "#8b5cf6", "#ec4899", "#f59e0b",
   "#10b981", "#06b6d4", "#3b82f6", "#f97316",
   "#14b8a6", "#e11d48", "#a855f7", "#84cc16",
@@ -123,7 +131,7 @@ interface WorkspaceBucket {
   name: string;
   full: string;
   sessions: SessionSummary[];
-  /** 组内最�?updated_at，用于排�?*/
+  /** 组内最新 updated_at，用于排序 */
   latestAt: number;
   /** 是否当前 rootPath 对应的组 */
   isActive: boolean;
@@ -194,7 +202,7 @@ function savePinnedSessions(pinned: Set<string>): void {
   }
 }
 
-// ─── 主组�?────────────────────────────────────────────────────────
+// ─── 主组件 ──────────────────────────────────────────────────────
 
 export function SessionPanel() {
   const allSessions = useSession((s) => s.allSessions);
@@ -230,7 +238,7 @@ export function SessionPanel() {
   const [pinnedSessions, setPinnedSessions] = useState<Set<string>>(() => loadPinnedSessions());
   /** 折叠的工作区 key 集合（纯前端，localStorage 持久化） */
   const [collapsedWorkspaces, setCollapsedWorkspaces] = useState<Set<string>>(() => loadCollapsedWorkspaces());
-  /** 是否展示全部工作区（默认最�?5 个） */
+  /** 是否展示全部工作区（默认最多 5 个） */
   const [showAllGroups, setShowAllGroups] = useState(false);
 
   // 初次加载 + 5s 轮询
@@ -248,7 +256,8 @@ export function SessionPanel() {
 
   /**
    * 一级分流：
-   * - ws channel：进 workspace 分组�?Ws Threads"�?   * - 其它（cron/dmwork/cli/telegram/unknown）：平铺�?"Other Threads"
+   * - ws channel：进 workspace 分组的 "Ws Threads"；
+   * - 其它（cron/dmwork/cli/telegram/unknown）：平铺进 "Other Threads"
    */
   const { pinnedList, wsSessions, otherSessions } = useMemo(() => {
     const pinned: SessionSummary[] = [];
@@ -269,7 +278,9 @@ export function SessionPanel() {
   }, [allSessions, pinnedSessions]);
 
   /**
-   * 桶顺序（�?ws sessions 走分组）�?   * 1. 用户拖动�?�?�?groupOrder（已知组），未在序列里的新组按默认规则追�?   * 2. 默认规则：active workspace 冒顶 �?其余�?latestAt 倒序 �?"未设置工作区"压底
+   * 桶顺序（仅 ws sessions 走分组）：
+   * 1. 用户拖动过 → 按 groupOrder（已知组），未在序列里的新组按默认规则追加
+   * 2. 默认规则：active workspace 冒顶 → 其余按 latestAt 倒序 → "未设置工作区"压底
    */
   const buckets = useMemo<WorkspaceBucket[]>(() => {
     const map = new Map<string, WorkspaceBucket>();
@@ -338,7 +349,9 @@ export function SessionPanel() {
   );
 
   /**
-   * 点击工作区组头：在该工作区下新建会话，并切到 chat 模式�?   * （不再切 rootPath；新建一�?session 会带�?workspace 字段，用户自然就在这�?bucket 里看到新会话�?   */
+   * 点击工作区组头：在该工作区下新建会话，并切到 chat 模式。
+   * （不再切 rootPath；新建一个 session 会带上 workspace 字段，用户自然就在这个 bucket 里看到新会话。）
+   */
   const handleNewInWorkspace = useCallback(
     (full: string) => {
       if (activeLeftPanel !== "chat") setActiveLeftPanel("chat");
@@ -375,7 +388,7 @@ export function SessionPanel() {
       if (ok) loadAllSessions();
       useNotification.getState().addNotification({
         level: ok ? "info" : "error",
-        message: ok ? "会话已重命名" : "重命名失�?,
+        message: ok ? "会话已重命名" : "重命名失败",
       });
       setRenamingSession(null);
     },
@@ -404,7 +417,7 @@ export function SessionPanel() {
           },
           {
             id: "rename-session",
-            label: "重命�?,
+            label: "重命名",
             icon: Pencil,
             action: () => {
               setRenameValue(session.title || "");
@@ -423,7 +436,7 @@ export function SessionPanel() {
     [deleteSession, handleTogglePin, pinnedSessions],
   );
 
-  /** 工作�?header 右键菜单 */
+  /** 工作区 header 右键菜单 */
   const showWorkspaceHeaderMenu = useCallback(
     (e: React.MouseEvent, workspacePath: string) => {
       e.stopPropagation();
@@ -449,10 +462,11 @@ export function SessionPanel() {
     const next = current + PER_GROUP_STEP;
     setExpandCount((prev) => ({ ...prev, [key]: next }));
 
-    // Other Threads 组（�?ws）没有后端按 workspace 分页，纯前端展开即可
+    // Other Threads 组（非 ws）没有后端按 workspace 分页，纯前端展开即可
     if (key === OTHER_KEY) return;
 
-    // 如果展开数超过了已加载的会话数，且后端该工作区还有更多，按工作区拉下一�?    const paging = workspacePaging[groupFull || ""];
+    // 如果展开数超过了已加载的会话数，且后端该工作区还有更多，按工作区拉下一页
+    const paging = workspacePaging[groupFull || ""];
     const hasMoreInBackend = paging ? paging.loaded < paging.total : false;
     if (next > groupTotal && hasMoreInBackend) {
       setLoadingMore(true);
@@ -474,18 +488,18 @@ export function SessionPanel() {
 
   // ─── 顶层动作 ────────────────────────────────────────────────────
 
-  /** New thread —�?在当前工作区下新建会话；若不�?chat 模式则切�?*/
+  /** New thread —— 在当前工作区下新建会话；若不在 chat 模式则切回 */
   const handleNewThread = useCallback(() => {
     if (activeLeftPanel !== "chat") setActiveLeftPanel("chat");
     newSession(rootPath || undefined);
   }, [activeLeftPanel, setActiveLeftPanel, newSession, rootPath]);
 
-  /** 打开全局设置（沿用全局事件，跨组件复用同一份对话框�?*/
+  /** 打开全局设置（沿用全局事件，跨组件复用同一份对话框） */
   const handleOpenSettings = useCallback(() => {
     window.dispatchEvent(new CustomEvent(OPEN_SETTINGS_EVENT));
   }, []);
 
-  // ─── 拖动排序（写�?localStorage �?group 顺序）────────────────
+  // ─── 拖动排序（写入 localStorage 的 group 顺序）────────────────
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
@@ -526,8 +540,8 @@ export function SessionPanel() {
             <button
               type="button"
               onClick={handleNewThread}
-              title="新会�?
-              aria-label="新会�?
+              title="新会话"
+              aria-label="新会话"
               className="flex items-center justify-center w-9 h-9 rounded-full text-t-muted hover:text-t-primary hover:bg-hover transition-colors"
             >
               <SquarePen size={17} />
@@ -544,8 +558,8 @@ export function SessionPanel() {
             <button
               type="button"
               onClick={() => setActiveLeftPanel("skills")}
-              title="技�?
-              aria-label="技�?
+              title="技能"
+              aria-label="技能"
               className={`flex items-center justify-center w-9 h-9 rounded-full transition-colors ${activeLeftPanel === "skills" ? "bg-active text-t-primary" : "text-t-muted hover:text-t-primary hover:bg-hover"}`}
             >
               <Zap size={17} />
@@ -571,10 +585,10 @@ export function SessionPanel() {
               type="button"
               onClick={handleNewThread}
               className="flex-1 flex items-center gap-2 h-10 px-3 rounded-full text-t-muted hover:text-t-primary hover:bg-hover transition-colors min-w-0"
-              title="新会�?
+              title="新会话"
             >
               <SquarePen size={16} strokeWidth={1.7} className="shrink-0" />
-              <span className="text-[14px] truncate">新会�?/span>
+              <span className="text-[14px] truncate">新会话</span>
             </button>
             <button
               type="button"
@@ -594,7 +608,7 @@ export function SessionPanel() {
           />
           <ActionRow
             icon={Zap}
-            label="技�?
+            label="技能"
             active={activeLeftPanel === "skills"}
             onClick={() => setActiveLeftPanel("skills")}
           />
@@ -615,7 +629,7 @@ export function SessionPanel() {
             </div>
           ) : (
             <>
-              {/* Pin Threads：所有置顶会话，�?Ws Threads 平级 */}
+              {/* Pin Threads：所有置顶会话，与 Ws Threads 平级 */}
               {pinnedList.length > 0 && (
                 <div className="mb-4">
                   <div className="px-3 pb-1">
@@ -701,7 +715,7 @@ export function SessionPanel() {
                           onClick={() => setShowAllGroups(true)}
                           className="text-left text-t-ghost hover:text-neon transition-colors"
                         >
-                          展开更多工作�?(+{hiddenCount})
+                          展开更多工作区 (+{hiddenCount})
                         </button>
                       )}
                       {showAllGroups && buckets.length > MAX_GROUPS && (
@@ -719,7 +733,7 @@ export function SessionPanel() {
                 );
               })()}
 
-              {/* Other Threads：非 ws channel，平�?*/}
+              {/* Other Threads：非 ws channel，平铺 */}
               {otherSessions.length > 0 && (
                 <div className={buckets.length > 0 ? "mt-5" : ""}>
                   <div className="px-3 pb-1">
@@ -754,7 +768,8 @@ export function SessionPanel() {
                           onClick={() => handleExpandGroup(OTHER_KEY, "", otherSessions.length)}
                           className="text-left text-t-ghost hover:text-neon transition-colors"
                         >
-                          展开 +{Math.min(PER_GROUP_STEP, otherHidden)} �?                        </button>
+                          展开 +{Math.min(PER_GROUP_STEP, otherHidden)} 条
+                        </button>
                       )}
                       {otherIsExpanded && (
                         <button
@@ -772,7 +787,7 @@ export function SessionPanel() {
             </>
           )}
 
-          {/* 工作区分组已各自分页（每�?展开 +N"按需拉取），不再需要全局加载更多 */}
+          {/* 工作区分组已各自分页（每组"展开 +N"按需拉取），不再需要全局加载更多 */}
         </div>
 
         {/* ── 底部动作区（设置）── */}
@@ -805,7 +820,8 @@ export function SessionPanel() {
             >
               <div className="px-4 py-3 border-b border-border">
                 <span className="text-[13px] text-t-primary font-medium">
-                  重命名会�?                </span>
+                  重命名会话
+                </span>
               </div>
               <div className="p-4">
                 <input
@@ -820,7 +836,7 @@ export function SessionPanel() {
                     }
                   }}
                   className="w-full h-8 px-3 rounded bg-base border border-border focus:border-neon/50 text-[12px] text-t-primary outline-none"
-                  placeholder="输入新标�?
+                  placeholder="输入新标题"
                   autoFocus
                 />
               </div>
@@ -849,15 +865,15 @@ export function SessionPanel() {
   );
 }
 
-// ─── 单个工作区分组（点击=折叠/展开，拖�?排序）──────────────────
+// ─── 单个工作区分组（点击=折叠/展开，拖动=排序）──────────────────
 
 interface WorkspaceGroupProps {
   bucket: WorkspaceBucket;
   first: boolean;
   visibleCount: number;
-  /** 后端该工作区是否还有未加载的会话（决�?展开"按钮是否显示�?*/
+  /** 后端该工作区是否还有未加载的会话（决定"展开"按钮是否显示） */
   hasMoreInBackend: boolean;
-  /** 后端该工作区的总会话数（用�?展开 +N"的计数显示） */
+  /** 后端该工作区的总会话数（用于"展开 +N"的计数显示） */
   backendTotal: number;
   currentSessionId: string | null;
   hoveredSession: string | null;
@@ -871,7 +887,7 @@ interface WorkspaceGroupProps {
   onCollapse: () => void;
   onNewInWorkspace: () => void;
   onToggleCollapse: () => void;
-  /** 工作�?header 右键菜单 */
+  /** 工作区 header 右键菜单 */
   onHeaderContextMenu: (e: React.MouseEvent) => void;
 }
 
@@ -913,14 +929,17 @@ function WorkspaceGroup({
   const hiddenInGroup = bucket.sessions.length - visibleSessions.length;
   const expanded = visibleCount > PER_GROUP_DEFAULT;
   const accent = folderColor(bucket.key);
-  // 还能展开：内存里有隐藏的，或后端还有没拉下来�?  const canExpand = hiddenInGroup > 0 || hasMoreInBackend;
+  // 还能展开：内存里有隐藏的，或后端还有没拉下来的
+  const canExpand = hiddenInGroup > 0 || hasMoreInBackend;
 
   return (
     <div ref={setNodeRef} style={style} className={first ? "" : "mt-4"}>
       {/* 工作区标题：
-          - 单击 �?折叠/展开会话列表
-          - "+" 按钮 �?在此工作区新建会�?          - 右键 �?工作区操作菜�?          - 拖动（≥5px）→ 重排
-          - dnd-kit �?PointerSensor distance=5 已经在区分单击和拖动 */}
+          - 单击 → 折叠/展开会话列表
+          - "+" 按钮 → 在此工作区新建会话
+          - 右键 → 工作区操作菜单
+          - 拖动（≥5px）→ 重排
+          - dnd-kit 的 PointerSensor distance=5 已经在区分单击和拖动 */}
         <div
           {...attributes}
           {...listeners}
@@ -957,13 +976,13 @@ function WorkspaceGroup({
               onNewInWorkspace();
             }}
             className="hidden group-hover:flex shrink-0 w-6 h-6 items-center justify-center rounded-full hover:bg-active text-t-ghost hover:text-t-primary transition-colors"
-            title="在此工作区新建会�?
+            title="在此工作区新建会话"
           >
             <Plus size={15} strokeWidth={2} />
           </button>
         </div>
 
-      {/* 会话列表（左缩进对齐工作区名�?*/}
+      {/* 会话列表（左缩进对齐工作区名） */}
       {!collapsed && (
         <div className="mt-0.5 space-y-px">
           {visibleSessions.map((session) => (
@@ -996,7 +1015,8 @@ function WorkspaceGroup({
               onClick={onExpand}
               className="text-left text-t-ghost hover:text-neon transition-colors"
             >
-              展开 +{PER_GROUP_STEP} �?            </button>
+              展开 +{PER_GROUP_STEP} 条
+            </button>
           )}
           {expanded && (
             <button
@@ -1017,7 +1037,7 @@ function stripPrefix(id: string): string {
   return id.includes(":") ? id.substring(id.indexOf(":") + 1) : id;
 }
 
-// ─── �?底动作行 ────────────────────────────────────────────────
+// ─── 顶/底动作行 ────────────────────────────────────────────────
 
 interface ActionRowProps {
   icon: React.ComponentType<{ size?: number; strokeWidth?: number; className?: string }>;
@@ -1043,7 +1063,7 @@ function ActionRow({ icon: Icon, label, active, onClick }: ActionRowProps) {
   );
 }
 
-// ─── 单条会话�?───────────────────────────────────────────────────
+// ─── 单条会话行 ───────────────────────────────────────────────────
 
 interface SessionRowProps {
   session: SessionSummary;
@@ -1092,7 +1112,7 @@ function SessionRow({
         className={`flex-1 truncate text-[13.5px] ${isActive ? "text-t-primary font-medium" : "text-t-secondary"
           }`}
       >
-        {session.title || "新会�?}
+        {session.title || "新会话"}
         {suffix && (
           <span className="ml-1.5 text-[11.5px] text-t-ghost font-mono">
             ({suffix})
