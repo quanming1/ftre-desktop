@@ -374,14 +374,39 @@ export const InlineToolCallCard = memo(
     // set_workspace：仅显示一行，hover 展示完整路径
     if (isSetWorkspace) {
       const wsPath = (args.path as string) || "";
+      // 从 tool result 解析路径变更信息
+      const resultText = toolCall.result ?? "";
+      const switched = resultText.match(/工作区已切换:\s*(.+?)\s*→\s*(.+)/);
+      const changed = resultText.match(/工作区已变更:\s*(.+)/);
+      const unchanged = resultText.match(/工作区未变化:\s*(.+)/);
+      const fromPath = switched?.[1]?.trim();
+      const toPath = switched?.[2]?.trim() || changed?.[1]?.trim() || wsPath;
+      const displayPath = toPath || wsPath;
+
       return (
         <TooltipProvider>
-          <Tooltip content={wsPath} side="top" sideOffset={4}>
+          <Tooltip
+            content={
+              <div className="flex flex-col gap-1">
+                {fromPath && (
+                  <div className="text-[12px] text-t-ghost">
+                    从 <span className="text-t-dim font-mono">{fromPath}</span>
+                  </div>
+                )}
+                <div className="text-[12px] text-t-secondary">
+                  {fromPath ? "到" : unchanged ? "未变化" : "切换到"}{" "}
+                  <span className="text-t-primary font-mono">{toPath}</span>
+                </div>
+              </div>
+            }
+            side="top"
+            sideOffset={4}
+          >
             <div className="inline-flex items-center gap-2 py-1 cursor-default">
               <Folder size={14} className="text-[#0969da] shrink-0" strokeWidth={1.5} />
               <span className="text-[13px] font-mono text-t-dim truncate max-w-[400px]">
                 <span className="text-t-secondary font-medium">set_workspace</span>
-                {wsPath ? ` ${wsPath}` : ""}
+                {displayPath ? ` ${displayPath}` : ""}
               </span>
               {status === "ok" && <Check size={12} className="text-green-600 shrink-0" />}
               {isError && <X size={12} className="text-red-500 shrink-0" />}
