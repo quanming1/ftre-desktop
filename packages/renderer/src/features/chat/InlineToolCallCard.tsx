@@ -285,6 +285,7 @@ function ThinkBlock({
 export const InlineToolCallCard = memo(
   function InlineToolCallCard({ toolCall }: { toolCall: ToolCall }) {
     const isLoadSkill = toolCall.name === "loadSkill";
+    const isSetWorkspace = toolCall.name === "set_workspace";
     const [expanded, setExpanded] = useState(false);
     const [copied, setCopied] = useState(false);
 
@@ -361,6 +362,26 @@ export const InlineToolCallCard = memo(
               <span className="text-[13px] font-mono text-t-dim truncate">
                 <span className="text-t-secondary font-medium">Loaded Skill</span>
                 {args.skill ? ` «${args.skill}»` : ""}
+              </span>
+              {status === "ok" && <Check size={12} className="text-green-600 shrink-0" />}
+              {isError && <X size={12} className="text-red-500 shrink-0" />}
+            </div>
+          </Tooltip>
+        </TooltipProvider>
+      );
+    }
+
+    // set_workspace：仅显示一行，hover 展示完整路径
+    if (isSetWorkspace) {
+      const wsPath = (args.path as string) || "";
+      return (
+        <TooltipProvider>
+          <Tooltip content={wsPath} side="top" sideOffset={4}>
+            <div className="inline-flex items-center gap-2 py-1 cursor-default">
+              <Folder size={14} className="text-[#0969da] shrink-0" strokeWidth={1.5} />
+              <span className="text-[13px] font-mono text-t-dim truncate max-w-[400px]">
+                <span className="text-t-secondary font-medium">set_workspace</span>
+                {wsPath ? ` ${wsPath}` : ""}
               </span>
               {status === "ok" && <Check size={12} className="text-green-600 shrink-0" />}
               {isError && <X size={12} className="text-red-500 shrink-0" />}
