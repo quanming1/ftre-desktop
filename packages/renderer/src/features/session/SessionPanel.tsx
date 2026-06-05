@@ -143,6 +143,15 @@ const PER_GROUP_STEP = 5;
 // 工作区分组顺序持久化（与 recentFolders 解耦：纯前端排序偏好）
 const GROUP_ORDER_STORAGE_KEY = "ftre-session-group-order";
 const PINNED_SESSIONS_KEY = "ftre-pinned-sessions";
+const PINNED_SESSION_COLORS_KEY = "ftre-pinned-session-colors";
+
+const DOT_PALETTE = [
+  "#e11d48", "#f97316", "#f59e0b", "#eab308",
+  "#84cc16", "#22c55e", "#10b981", "#14b8a6",
+  "#06b6d4", "#0ea5e9", "#3b82f6", "#6366f1",
+  "#8b5cf6", "#a855f7", "#d946ef", "#ec4899",
+];
+
 const COLLAPSED_WORKSPACES_KEY = "ftre-collapsed-workspaces";
 
 function loadCollapsedWorkspaces(): Set<string> {
@@ -202,6 +211,24 @@ function savePinnedSessions(pinned: Set<string>): void {
   }
 }
 
+function loadPinnedSessionColors(): Record<string, string> {
+  try {
+    const raw = localStorage.getItem(PINNED_SESSION_COLORS_KEY);
+    const parsed = raw ? JSON.parse(raw) : {};
+    return parsed && typeof parsed === "object" ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+function savePinnedSessionColors(colors: Record<string, string>): void {
+  try {
+    localStorage.setItem(PINNED_SESSION_COLORS_KEY, JSON.stringify(colors));
+  } catch {
+    /* ignore */
+  }
+}
+
 // ─── 主组件 ──────────────────────────────────────────────────────
 
 export function SessionPanel() {
@@ -236,10 +263,32 @@ export function SessionPanel() {
   const [loadingMore, setLoadingMore] = useState(false);
   /** 置顶会话 ID 集合（纯前端，localStorage 持久化） */
   const [pinnedSessions, setPinnedSessions] = useState<Set<string>>(() => loadPinnedSessions());
+  /** 每个置顶会话的自定义颜色（session_id → hex） */
+  const [pinnedColors, setPinnedColors] = useState<Record<string, string>>(() => loadPinnedSessionColors());
   /** 折叠的工作区 key 集合（纯前端，localStorage 持久化） */
   const [collapsedWorkspaces, setCollapsedWorkspaces] = useState<Set<string>>(() => loadCollapsedWorkspaces());
   /** 是否展示全部工作区（默认最多 5 个） */
   const [showAllGroups, setShowAllGroups] = useState(false);
+  /** 颜色选择器：{ sessionId, 锚点坐标 } */
+  const [colorPicker, setColorPicker] = useState<{
+    sessionId: string;
+    x: number;
+    y: number;
+  } | null>(null);
+
+  const handleSetSessionColor = useCallback((sessionId: string, color: string) => {
+    setPinnedColors((prev) => {
+      const next = { ...prev, [sessionId]: color };
+      savePinnedSessionColors(next);
+      return next;
+    });
+    setColorPicker(null);
+  }, []);
+
+  const getSessionColor = useCallback(
+    (sessionId: string) => pinnedColors[sessionId] || folderColor(sessionId),
+    [pinnedColors],
+  );
 
   // 初次加载 + 5s 轮询
   useEffect(() => {
@@ -651,6 +700,15 @@ export function SessionPanel() {
                         isHovered={hoveredSession === session.session_id}
                         isLoading={loadingSessionId === session.session_id}
                         isPinned
+                        dotColor={getSessionColor(session.session_id)}
+                        onDotClick={(e) => {
+                          e.stopPropagation();
+                          setColorPicker({
+                            sessionId: session.session_id,
+                            x: e.clientX,
+                            y: e.clientY,
+                          });
+                        }}
                         onClick={() => handleSwitchSession(session.session_id)}
                         onEnter={() => setHoveredSession(session.session_id)}
                         onLeave={() => setHoveredSession(null)}
@@ -861,6 +919,36 @@ export function SessionPanel() {
         )}
       </div>
       )}
+
+      {/* 颜色选择器 Popover */}
+      {colorPicker && (
+        <div
+          className="fixed inset-0 z-[200]"
+          onClick={() => setColorPicker(null)}
+        >
+          <div
+            className="absolute bg-elevated border border-border-subtle rounded-xl shadow-2xl p-3 flex flex-wrap gap-2 w-[180px] animate-in fade-in zoom-in-95 duration-150"
+            style={{
+              left: Math.min(colorPicker.x, window.innerWidth - 200),
+              top: Math.min(colorPicker.y + 8, window.innerHeight - 200),
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            {DOT_PALETTE.map((color) => (
+              <button
+                key={color}
+                className="w-7 h-7 rounded-full cursor-pointer transition-transform hover:scale-110 active:scale-90"
+                style={{
+                  backgroundColor: color,
+                  boxShadow: `0 1px 3px rgba(0,0,0,0.2), inset 0 1px 0 rgba(255,255,255,0.25)`,
+                }}
+                onClick={() => handleSetSessionColor(colorPicker.sessionId, color)}
+              />
+            ))}
+          </div>
+        </div>
+      )}
+
     </TooltipProvider>
   );
 }
@@ -1072,6 +1160,8 @@ interface SessionRowProps {
   isLoading: boolean;
   isPinned: boolean;
   alignWithSectionLabel?: boolean;
+  dotColor?: string;
+  onDotClick?: (e: React.MouseEvent) => void;
   onClick: () => void;
   onEnter: () => void;
   onLeave: () => void;
@@ -1085,6 +1175,8 @@ function SessionRow({
   isLoading,
   isPinned,
   alignWithSectionLabel = false,
+  dotColor,
+  onDotClick,
   onClick,
   onEnter,
   onLeave,
@@ -1104,11 +1196,14 @@ function SessionRow({
         : "hover:bg-hover"
         }`}
     >
-      {/* 置顶会话色点：用 session id 稳定映射颜色，便于视觉记忆 */}
-      {isPinned && (
-        <span
-          className="shrink-0 w-2.5 h-2.5 rounded-full shadow-[0_0_0_2px_rgba(255,255,255,0.55)]"
-          style={{ backgroundColor: folderColor(session.session_id) }}
+      {/* 置顶色点：自定义颜色 / hash 默认色 */}
+      {isPinned && dotColor && (
+        <button
+          type="button"
+          onClick={(e) => { e.stopPropagation(); onDotClick?.(e); }}
+          className="shrink-0 w-3 h-3 rounded-full opacity-90 hover:opacity-100 hover:scale-110 active:scale-95 transition-transform cursor-pointer"
+          style={{ backgroundColor: dotColor, boxShadow: `0 1px 3px rgba(0,0,0,0.18), 0 0 0 1px rgba(0,0,0,0.06)` }}
+          title="点击更换颜色"
         />
       )}
       <span
