@@ -324,6 +324,27 @@ export const InlineToolCallCard = memo(
       return description || (args.skill as string) || "";
     }, [isLoadSkill, toolCall.result, args.skill]);
 
+    // loadSkill：仅显示一行 title，不折叠不展开，hover 展示描述
+    if (isLoadSkill) {
+      return (
+        <div className="py-0.5">
+          <div
+            className="flex items-center gap-2 py-1"
+            title={loadSkillDesc || undefined}
+          >
+            <span className="w-3.5 shrink-0" />
+            <Box size={14} className="text-[#1a7f37] shrink-0" strokeWidth={1.5} />
+            <span className="text-[13px] font-mono text-t-dim truncate">
+              <span className="text-t-secondary font-medium">Loaded Skill</span>
+              {args.skill ? ` «${args.skill}»` : ""}
+            </span>
+            {status === "ok" && <Check size={12} className="text-green-600 shrink-0" />}
+            {isError && <X size={12} className="text-red-500 shrink-0" />}
+          </div>
+        </div>
+      );
+    }
+
     const handleCopy = useCallback(() => {
       if (!toolCall.result) return;
       navigator.clipboard.writeText(toolCall.result).then(() => {
