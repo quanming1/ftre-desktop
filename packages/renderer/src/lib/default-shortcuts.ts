@@ -1,6 +1,5 @@
 import { useShortcut } from '../stores/shortcut';
 import { useLayout } from '../stores/layout';
-import { useEditor } from '../stores/editor';
 import { useGlobalSearch } from '../stores/global-search';
 
 /**
@@ -22,18 +21,6 @@ export function registerDefaultShortcuts(): void {
         },
     });
 
-    // Ctrl+P → Quick Open (file palette)
-    register({
-        id: 'quickOpen',
-        keys: 'ctrl+p',
-        label: '快速打开',
-        category: '通用',
-        context: 'global',
-        execute: () => {
-            window.dispatchEvent(new CustomEvent('ftre:toggle-file-palette'));
-        },
-    });
-
     // Ctrl+Shift+P → Command Palette
     register({
         id: 'commandPalette',
@@ -43,18 +30,6 @@ export function registerDefaultShortcuts(): void {
         context: 'global',
         execute: () => {
             window.dispatchEvent(new CustomEvent('ftre:toggle-command-palette'));
-        },
-    });
-
-    // Ctrl+Shift+F → Search in Files (opens global palette with content tab)
-    register({
-        id: 'searchInFiles',
-        keys: 'ctrl+shift+f',
-        label: '在文件中搜索',
-        category: '通用',
-        context: 'global',
-        execute: () => {
-            useGlobalSearch.getState().openWithCategory('content');
         },
     });
 
@@ -82,53 +57,15 @@ export function registerDefaultShortcuts(): void {
         },
     });
 
-    // Ctrl+\ → Split Editor
-    // context: global — this is a globally available action (not editor-only),
-    // and useGlobalShortcuts always dispatches with 'global' context.
+    // 重启应用（重新加载渲染进程）
     register({
-        id: 'splitEditor',
-        keys: 'ctrl+\\',
-        label: '拆分编辑器',
-        category: '编辑器',
-        context: 'global',
-        execute: () => {
-            useEditor.getState().splitEditor();
-        },
-    });
-
-    // Ctrl+N → New Untitled File
-    register({
-        id: 'newUntitledFile',
-        keys: 'ctrl+n',
-        label: '新建无标题文件',
+        id: 'reloadApp',
+        keys: '',
+        label: '重启应用',
         category: '通用',
         context: 'global',
         execute: () => {
-            useEditor.getState().createUntitledFile();
-        },
-    });
-
-    // Toggle Minimap
-    register({
-        id: 'toggleMinimap',
-        keys: '',
-        label: '切换小地图',
-        category: '视图',
-        context: 'global',
-        execute: () => {
-            useLayout.getState().toggleMinimap();
-        },
-    });
-
-    // Toggle Auto Follow Files
-    register({
-        id: 'toggleAutoFollowFiles',
-        keys: '',
-        label: '切换自动跟随文件（AI 编辑/写入）',
-        category: 'AI',
-        context: 'global',
-        execute: () => {
-            useLayout.getState().toggleAutoFollowFiles();
+            window.location.reload();
         },
     });
 }
