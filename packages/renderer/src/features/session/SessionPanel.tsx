@@ -35,7 +35,6 @@ import {
   Zap,
   Settings,
   Pin,
-  ChevronRight,
   Plus,
   PanelLeftClose,
   PanelLeftOpen,
@@ -1038,17 +1037,12 @@ function WorkspaceGroup({
             ${bucket.isActive ? "text-t-secondary" : "text-t-muted hover:text-t-secondary"}
           `}
         >
-          <ChevronRight
-            size={14}
-            className={`shrink-0 self-center transition-transform duration-150 ${collapsed ? "" : "rotate-90"}`}
-            strokeWidth={2}
-          />
-          <Folder
-            size={15}
-            className="shrink-0"
-            strokeWidth={1.8}
-            style={{ color: accent, opacity: bucket.isActive ? 1 : 0.85 }}
-          />
+          {/* 文件夹图标：展开时显示打开，折叠时显示关闭 */}
+          {!collapsed ? (
+            <FolderOpen size={15} className="shrink-0" strokeWidth={1.8} style={{ color: accent, opacity: bucket.isActive ? 1 : 0.85 }} />
+          ) : (
+            <Folder size={15} className="shrink-0" strokeWidth={1.8} style={{ color: accent, opacity: bucket.isActive ? 1 : 0.85 }} />
+          )}
           <span
             className="text-[14px] truncate flex-1 font-medium"
           >
