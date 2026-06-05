@@ -199,7 +199,6 @@ function AddMenu({
           label="使用技能"
           chevron
           active={skillOpen}
-          onMouseEnter={() => setSkillOpen(true)}
           onClick={() => setSkillOpen((v) => !v)}
         />
       </div>
