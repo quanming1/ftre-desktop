@@ -9,7 +9,7 @@
  * 点击展开看详情（命令输出 / 文件内容），默认折叠成一行。
  * 视觉上跟正文段落平级，不用边框/圆角/背景色包裹。
  */
-import { memo, useState, useCallback, useEffect, useRef } from "react";
+import { memo, useState, useCallback, useEffect, useRef, useMemo } from "react";
 import type { ToolCall } from "@/stores/chat";
 import {
   ChevronRight,
@@ -29,6 +29,7 @@ import {
   FilePlus2,
   FileSearch,
   FolderTree,
+  Box,
 } from "lucide-react";
 
 // ─── 工具图标 ───────────────────────────────────────────────────────
@@ -43,6 +44,7 @@ const TOOL_ICONS: Record<string, IconType> = {
   set_workspace: Folder, cron: Clock, task: MessagesSquare,
   send_message: Send, glob: Search, grep: Search,
   search: Search, web_search: Search, web_fetch: Search,
+  loadSkill: Brain,
 };
 
 function getIcon(name: string | undefined): IconType {
@@ -165,6 +167,13 @@ function buildSummary(
       if (ch && sid) return `Sent → ${ch}:${sid.slice(0, 8)}`;
       if (ch) return `Sent → ${ch}`;
       return isDone ? "Sent" : "Sending...";
+    }
+    case "loadSkill": {
+      const skill = (args.skill as string) ?? "";
+      if (skill) {
+        return isDone ? `Loaded Skill «${skill}»` : `Loading Skill «${skill}»…`;
+      }
+      return isDone ? "Loaded Skill" : "Loading Skill…";
     }
     default:
       // 未知/插件工具：原样显示工具名
@@ -393,6 +402,9 @@ function ExpandedDetail({ toolCall, args, isError }: DetailProps) {
   const name = toolCall.name;
   const result = toolCall.result ?? "";
 
+  if (name === "loadSkill") {
+    return <LoadSkillDetail result={result} isError={isError} />;
+  }
   if (name === "bash" || name === "exec" || name === "shell") {
     return <BashDetail result={result} isError={isError} />;
   }
@@ -406,6 +418,55 @@ function ExpandedDetail({ toolCall, args, isError }: DetailProps) {
     return <TaskDetail result={result} isError={isError} />;
   }
   return <RawPre result={result} isError={isError} />;
+}
+
+/** loadSkill 工具结果 → 提取 frontmatter 并渲染为参考卡片 */
+function LoadSkillDetail({ result, isError }: { result: string; isError: boolean }) {
+  const { name, description, body } = useMemo(() => parseSkillContent(result), [result]);
+
+  if (isError) return <RawPre result={result} isError />;
+  return (
+    <div className="pl-3 border-l-2 border-[#1a7f37]/30 space-y-2 animate-in fade-in duration-150">
+      {/* Header: skill name + description from frontmatter */}
+      {name && (
+        <div className="flex items-center gap-2">
+          <span className="inline-flex items-center gap-1.5 text-[13px] font-semibold text-[#1a7f37]">
+            <Box size={14} strokeWidth={2} />
+            {name}
+          </span>
+        </div>
+      )}
+      {description && (
+        <p className="text-[12px] text-t-dim leading-relaxed line-clamp-2">{description}</p>
+      )}
+      {/* Body: raw markdown content, collapsed if huge */}
+      <div className="relative">
+        <pre className="text-[12px] font-mono leading-relaxed text-t-dim whitespace-pre-wrap break-words overflow-x-auto max-h-[320px] overflow-y-auto bg-elevated/30 rounded-lg p-3 border border-border-subtle">
+          {body}
+        </pre>
+      </div>
+    </div>
+  );
+}
+
+/** 从 Skill 正文中提取 frontmatter 的 name / description 和纯正文 */
+function parseSkillContent(text: string): { name: string; description: string; body: string } {
+  let name = "";
+  let description = "";
+  let body = text.trim();
+
+  if (text.startsWith("---")) {
+    const end = text.indexOf("---", 3);
+    if (end > 0) {
+      const fm = text.slice(3, end);
+      const nameMatch = fm.match(/^name:\s*(.+)$/m);
+      if (nameMatch) name = nameMatch[1].trim().replace(/['"]/g, "");
+      const descMatch = fm.match(/^description:\s*(.+)$/m);
+      if (descMatch) description = descMatch[1].trim().replace(/^['"]|['"]$/g, "");
+      body = text.slice(end + 3).trim();
+    }
+  }
+  return { name, description, body };
 }
 
 /** 通用：原始文本 + 左竖线 + 引用色 */
