@@ -215,8 +215,14 @@ export function applyEvent(b: Bucket, ev: BusEvent): void {
     // ─── 历史回放专用：原始 user 输入 ───
     case "USER_INPUT": {
       const c = typeof d.content === "string" ? d.content : "";
+      const parts: MessagePart[] | undefined = Array.isArray(d.content)
+        ? (d.content as MessagePart[])
+        : undefined;
       const rawAtts: any[] = Array.isArray(d.attachments) ? d.attachments : [];
       const localAttachments: MessageAttachment[] = [];
+      const hasPartsContent = parts && parts.some(
+        (p) => p.type === "text" || p.type === "skill",
+      );
       for (const a of rawAtts) {
         if (
           a &&
@@ -233,13 +239,14 @@ export function applyEvent(b: Bucket, ev: BusEvent): void {
           });
         }
       }
-      if (!c && localAttachments.length === 0) return;
+      if (!c && !hasPartsContent && localAttachments.length === 0) return;
       b.messages = [
         ...b.messages,
         {
           id: ev.id ?? nextId("user"),
           role: "user",
           content: c,
+          parts,
           timestamp: ts,
           ...(localAttachments.length > 0 ? { attachments: localAttachments } : {}),
         },
@@ -270,8 +277,14 @@ export function applyEvent(b: Bucket, ev: BusEvent): void {
       if (alreadyHasLocal) return;
 
       const c = typeof d.content === "string" ? d.content : "";
+      const parts: MessagePart[] | undefined = Array.isArray(d.content)
+        ? (d.content as MessagePart[])
+        : undefined;
       const rawAtts: any[] = Array.isArray(d.attachments) ? d.attachments : [];
       const localAttachments: MessageAttachment[] = [];
+      const hasPartsContent = parts && parts.some(
+        (p) => p.type === "text" || p.type === "skill",
+      );
       for (const a of rawAtts) {
         if (
           a &&
@@ -288,13 +301,14 @@ export function applyEvent(b: Bucket, ev: BusEvent): void {
           });
         }
       }
-      if (!c && localAttachments.length === 0) return;
+      if (!c && !hasPartsContent && localAttachments.length === 0) return;
       b.messages = [
         ...b.messages,
         {
           id: frameId || nextId("user"),
           role: "user",
           content: c,
+          parts,
           timestamp: ts,
           ...(localAttachments.length > 0 ? { attachments: localAttachments } : {}),
         },
@@ -795,7 +809,7 @@ interface ChatState {
   pendingWorkspace: string | null;
 
   sendMessage: (
-    content: string,
+    content: string | Array<{ type: string; data: unknown }>,
     attachments?: Array<{
       type: "image";
       mime_type: string;
@@ -859,9 +873,23 @@ export const useChat = create<ChatState>((set, get) => ({
   pendingWorkspace: null,
 
   sendMessage: (content, attachments) => {
-    const trimmed = content.trim();
+    // 归一化：string 或 parts 数组
+    const parts: Array<{ type: string; data: unknown }> =
+      typeof content === "string"
+        ? content.trim()
+          ? [{ type: "text", data: content.trim() }]
+          : []
+        : content;
+
+    // 提取纯文本用于 empt check + local 回显
+    const displayText = parts
+      .filter((p) => p.type === "text")
+      .map((p) => String(p.data ?? "").trim())
+      .join("\n")
+      .trim();
+    const hasSkill = parts.some((p) => p.type === "skill" && p.data);
     const hasAttachments = !!attachments && attachments.length > 0;
-    if (!trimmed && !hasAttachments) return;
+    if (!displayText && !hasSkill && !hasAttachments) return;
 
     // 本地回显用：把后端协议形态的 attachments 转成带 data URL 的形态
     const localAttachments: MessageAttachment[] | undefined = hasAttachments
@@ -874,15 +902,13 @@ export const useChat = create<ChatState>((set, get) => ({
       }))
       : undefined;
 
-    // 帧 id 同时用作本地占位 userMsg.id：
-    // 后端 AgentLoop 会把 inbound user_input 作为 echo 下行（带回 metadata.frame_id），
-    // 前端 case "user_input" 看到 messages 里已有同 id 就跳过，达到去重。
     const frameId = crypto.randomUUID().slice(0, 16);
 
     const userMsg: ChatMessage = {
       id: frameId,
       role: "user",
-      content,
+      content: displayText,
+      parts: parts.length > 0 ? (parts as any) : undefined,
       timestamp: Date.now(),
       ...(localAttachments ? { attachments: localAttachments } : {}),
     };
@@ -895,7 +921,7 @@ export const useChat = create<ChatState>((set, get) => ({
       mirror(sid);
       const { model, provider, agentId } = get();
       wsClient.sendChat(
-        content,
+        parts,
         {
           ...(model && { model }),
           ...(provider && { provider }),

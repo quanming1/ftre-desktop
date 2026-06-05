@@ -33,7 +33,7 @@ function summarize(message: ChatMessage): string {
         if (p.type === "text") return p.data ?? p.text ?? "";
         if (p.type === "code_ref") return `[${p.data?.name ?? "code"}]`;
         if (p.type === "archive_ref") return `[归档]`;
-        if (p.type === "skill_ref") return `[Skill]`;
+        if (p.type === "skill") return `[Skill]`;
         if (p.type === "email") return `[Email]`;
         return "";
       })

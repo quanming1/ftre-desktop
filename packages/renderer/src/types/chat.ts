@@ -43,7 +43,7 @@ export interface EmailPartData {
  * - text:       纯文本段
  * - code_ref:   代码引用段（文件 + 行号 + 代码内容）
  * - email:      邮件消息段（发件人 + 主题 + 正文 + 线程 ID）
- * - skill_ref:  Skill 引用段（通过 / 触发选择）
+ * - skill:      Skill 引用段（通过 / 触发选择；data 为 skill name/id）
  * - image:      图片附件段（前端渲染用；上送时拆到 attachments 字段，本 part 由 user 消息回显使用）
  */
 export type MessagePart =
@@ -59,7 +59,7 @@ export type MessagePart =
   }
   | { type: "email"; data: EmailPartData }
   | { type: "archive_ref"; data: ArchiveRefData }
-  | { type: "skill_ref"; data: SkillRefData }
+  | { type: "skill"; data: string }
   | {
     type: "image";
     data: {
