@@ -265,13 +265,13 @@ export const useSession = create<SessionState>((set, get) => ({
       saveTabsToStorage(tabs);
     }
 
-    // Switch via chat store — uses per-session cache so streaming state survives.
-    useChat.getState().switchTo(sessionId);
-    try { localStorage.setItem(sessionStorageKey(), sessionId); } catch { }
-
-    // Stale-while-revalidate：缓存命中立刻显示；后台 fetch 一次最新数据。
+    // 先标记 loading，让 UI 立刻展示骨架屏，消除"卡住"的感觉
     const isFirstLoad = !useChat.getState().hasSessionCache(sessionId);
     set({ loadingSessionId: sessionId });
+
+    // 切到目标 session（bucket 已有缓存则立即展示；无缓存则骨架屏盖住空白）
+    useChat.getState().switchTo(sessionId);
+    try { localStorage.setItem(sessionStorageKey(), sessionId); } catch { }
 
     // 分页拉首屏（末尾 N 条事件）。流式期间 chat store 自己会用 mode 兜底跳过。
     fetchSessionMessagesPage(sessionId, { limit: FIRST_PAGE_EVENTS })
