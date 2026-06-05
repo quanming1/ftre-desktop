@@ -281,6 +281,11 @@ export const useSession = create<SessionState>((set, get) => ({
     useChat.getState().switchTo(sessionId);
     try { localStorage.setItem(sessionStorageKey(), sessionId); } catch { }
 
+    // 缓存命中：立刻消 loading，后台静默刷新即可，不要空转圈等 HTTP
+    if (useChat.getState().messages.length > 0) {
+      set({ loadingSessionId: null });
+    }
+
     // 分页拉首屏。流式期间 chat store 自己会用 mode 兜底跳过。
     fetchSessionMessagesPage(sessionId, { limit: FIRST_PAGE_EVENTS, signal } as any)
       .then((page) => {
