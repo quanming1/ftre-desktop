@@ -62,9 +62,10 @@ export function Workbench() {
     restoreAll();
   }, []);
 
-  // Register default shortcut bindings on mount
+  // Register default shortcut bindings + preload default workspace
   useEffect(() => {
     registerDefaultShortcuts();
+    useChat.getState().initDefaultWorkspace();
   }, []);
 
   // 全局 SSE 连接：接收所有 session 的实时事件

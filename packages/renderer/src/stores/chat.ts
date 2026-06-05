@@ -72,6 +72,9 @@ export interface ChatMessage {
   };
 }
 
+/** 启动时从后端 config 预加载的默认工作区缓存，newChat() 时直接恢复 */
+let _defaultWsCache: string | null = null;
+
 export interface RetryState {
   attempt: number;
   maxAttempts: number;
@@ -852,6 +855,8 @@ interface ChatState {
   setContextWindow: (n: number | null) => void;
   /** 设置欢迎页/新对话的待用工作区。会在创建 session 时透传给后端。 */
   setPendingWorkspace: (path: string | null) => void;
+  /** 从后端 config 预加载默认工作区（启动时调用一次） */
+  initDefaultWorkspace: () => Promise<void>;
   /** 主动刷新当前 session 的 token 估算（异步，失败静默） */
   refreshTokenUsage: (sessionId?: string) => Promise<void>;
 }
@@ -970,7 +975,7 @@ export const useChat = create<ChatState>((set, get) => ({
     mirror(sid);
   },
 
-  newChat: () => set({ sessionId: null, messages: [], isBusy: false, error: null, retryState: null, contextTokens: 0, tokenUsage: null, pendingWorkspace: null }),
+  newChat: () => set({ sessionId: null, messages: [], isBusy: false, error: null, retryState: null, contextTokens: 0, tokenUsage: null, pendingWorkspace: _defaultWsCache }),
 
   switchTo: (sessionId, initialMessages) => {
     const b = bucket(sessionId);
@@ -1080,6 +1085,20 @@ export const useChat = create<ChatState>((set, get) => ({
   setAgentId: (id) => set({ agentId: id }),
   setContextWindow: (n) => set({ contextWindow: n }),
   setPendingWorkspace: (path) => set({ pendingWorkspace: path }),
+
+  initDefaultWorkspace: async () => {
+    const { pendingWorkspace } = get();
+    if (pendingWorkspace) return;
+    try {
+      const { fetchAppConfig } = await import("@/services/api");
+      const cfg = await fetchAppConfig();
+      const def = cfg?.agents?.defaults?.workspace;
+      if (typeof def === "string" && def.trim() && !get().pendingWorkspace) {
+        _defaultWsCache = def.trim();
+        set({ pendingWorkspace: def.trim() });
+      }
+    } catch { /* 静默失败 */ }
+  },
 
   refreshTokenUsage: async (sessionId) => {
     const sid = sessionId ?? get().sessionId;
