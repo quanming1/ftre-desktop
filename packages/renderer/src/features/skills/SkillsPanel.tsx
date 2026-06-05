@@ -69,7 +69,6 @@ function SkillCard({
   onDelete: () => void;
 }) {
   const KindIcon = skill.kind === "dir" ? Folder : FileText;
-  const kindLabel = skill.kind === "dir" ? "目录" : "单文件";
 
   return (
     <div
@@ -110,12 +109,9 @@ function SkillCard({
       </p>
 
       {/* Footer */}
-      <div className="flex items-center gap-2 text-[11px]">
-        <span className="px-1.5 py-0.5 rounded-md bg-neon/5 text-neon/70 font-mono text-[10px]">{kindLabel}</span>
-        {skill.updated_at > 0 && (
-          <span className="text-t-ghost">更新于 {formatDate(skill.updated_at)}</span>
-        )}
-      </div>
+      {skill.updated_at > 0 && (
+        <div className="text-[11px] text-t-ghost">更新于 {formatDate(skill.updated_at)}</div>
+      )}
     </div>
   );
 }
