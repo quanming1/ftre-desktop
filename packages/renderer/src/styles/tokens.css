@@ -57,6 +57,9 @@ html[data-theme="dark"] {
   --ftre-scrollbar-thumb: #454545;
   --ftre-scrollbar-thumb-hover: rgba(0, 255, 136, 0.3);
   --ftre-scrollbar-track: transparent;
+
+  /* 骨架屏 */
+  --ftre-bg-skeleton: #3a3a3c;
 }
 
 /* ===== Light Mode ===== */
@@ -108,6 +111,9 @@ html[data-theme="light"] {
   --ftre-scrollbar-thumb: #c4c4c8;
   --ftre-scrollbar-thumb-hover: rgba(5, 150, 105, 0.4);
   --ftre-scrollbar-track: transparent;
+
+  /* 骨架屏 */
+  --ftre-bg-skeleton: #d8d8dc;
 }
 
 /* ===== 向后兼容别名 (DEPRECATED — 将在 v0.3.0 移除) ===== */
