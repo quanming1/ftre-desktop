@@ -88,29 +88,31 @@ export function ChatView() {
       {/* 主内容：
           - 仅在没有 sessionId（纯新会话还没创建）+ 可发送 → 居中欢迎页
           - 正在切换 session（loadingSessionId 存在） → 骨架屏
-          - 已有 sessionId 但消息暂时为空（历史加载中、空会话） → 走正常列表
-            它内部的"No messages"空态比欢迎页低调，不会和正在到来的消息抢闪。 */}
+          - 已有 sessionId 但消息暂时为空（历史加载中、空会话） → 走正常列表 */}
       {!sessionId && !isBusy && canSend ? (
         <WelcomeView />
-      ) : isSessionLoading ? (
-        <>
-          <ChatSkeleton />
-          {canSend ? (
-            <ChatInput />
-          ) : (
-            <div className="px-6 pb-4 pt-3">
-              <div className="mx-auto w-full max-w-[960px] flex items-center justify-center gap-1.5 py-2 text-[12px] text-t-ghost">
-                <span className="inline-flex items-center px-1.5 py-0.5 rounded bg-hover font-mono text-[11px] text-t-muted">
-                  {currentSessionChannel}
-                </span>
-                <span>渠道的会话仅供查看</span>
-              </div>
-            </div>
-          )}
-        </>
       ) : (
-        <>
-          <ChatMessageList messages={messages} isBusy={isBusy} className="flex-1" />
+        <div className="flex-1 flex flex-col min-h-0">
+          <div className="flex-1 min-h-0 relative">
+            {/* 骨架屏 — 始终挂载，通过 CSS 控制显隐，实现平滑过渡 */}
+            <div
+              className={`absolute inset-0 transition-opacity duration-200 ${
+                isSessionLoading ? "opacity-100" : "opacity-0 pointer-events-none"
+              }`}
+            >
+              <ChatSkeleton />
+            </div>
+            {/* 消息列表 — 始终挂载，避免 DOM 重建导致的闪烁 */}
+            <div
+              className={`h-full transition-opacity duration-200 ${
+                isSessionLoading ? "opacity-0 pointer-events-none" : "opacity-100"
+              }`}
+            >
+              <ChatMessageList messages={messages} isBusy={isBusy} className="h-full" />
+            </div>
+          </div>
+
+          {/* 输入框 — 始终挂载，不受 loading 影响 */}
           {canSend ? (
             <ChatInput />
           ) : (
@@ -123,7 +125,7 @@ export function ChatView() {
               </div>
             </div>
           )}
-        </>
+        </div>
       )}
 
       {/* WS Log overlay (Storybook only) */}
