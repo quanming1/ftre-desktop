@@ -24,6 +24,7 @@ import {
   AlertCircle,
   FileText,
   Folder,
+  Zap,
 } from "lucide-react";
 import {
   fetchSkills,
@@ -73,53 +74,49 @@ function SkillCard({
   return (
     <div
       onClick={onOpen}
-      className="group relative p-4 border border-border-subtle rounded-lg hover:border-border hover:bg-surface transition-colors cursor-pointer"
+      className="group relative p-5 rounded-xl border border-border-subtle bg-elevated/40 hover:bg-elevated hover:border-border/50 transition-all duration-200 cursor-pointer hover:shadow-lg hover:shadow-black/10 hover:-translate-y-0.5"
     >
+      {/* Top accent line */}
+      <div className="absolute top-0 left-4 right-4 h-px bg-gradient-to-r from-transparent via-neon/20 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
+
       {/* Header */}
-      <div className="flex items-start justify-between mb-2">
-        <div className="flex items-center gap-2 min-w-0">
-          <KindIcon size={13} className="shrink-0 text-t-ghost" />
-          <span className="text-sm font-medium text-t-primary truncate">
+      <div className="flex items-start justify-between mb-3">
+        <div className="flex items-center gap-2.5 min-w-0">
+          <span className="shrink-0 w-6 h-6 rounded-md bg-neon/8 flex items-center justify-center">
+            <KindIcon size={13} className="text-neon/70" />
+          </span>
+          <span className="text-[15px] font-semibold text-t-primary truncate">
             {skill.name}
           </span>
         </div>
-        <div className="flex items-center gap-0.5 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
+        <div className="flex items-center gap-0.5 shrink-0 opacity-0 group-hover:opacity-100 transition-all duration-150">
           <button
-            onClick={(e) => {
-              e.stopPropagation();
-              onOpen();
-            }}
+            onClick={(e) => { e.stopPropagation(); onOpen(); }}
             title="编辑"
-            className="w-7 h-7 rounded-full flex items-center justify-center text-t-ghost hover:text-t-primary hover:bg-hover transition-colors"
+            className="w-7 h-7 rounded-full flex items-center justify-center text-t-ghost hover:text-t-primary hover:bg-white/8 transition-colors"
           >
-            <Pencil size={12} />
+            <Pencil size={13} />
           </button>
           <button
-            onClick={(e) => {
-              e.stopPropagation();
-              onDelete();
-            }}
+            onClick={(e) => { e.stopPropagation(); onDelete(); }}
             title="删除"
-            className="w-7 h-7 rounded-full flex items-center justify-center text-t-ghost hover:text-red-400 hover:bg-hover transition-colors"
+            className="w-7 h-7 rounded-full flex items-center justify-center text-t-ghost hover:text-red-400 hover:bg-red-400/10 transition-colors"
           >
-            <Trash2 size={12} />
+            <Trash2 size={13} />
           </button>
         </div>
       </div>
 
       {/* Description */}
-      <p className="text-[11px] text-t-ghost leading-relaxed mb-3 line-clamp-2 min-h-[2.4em]">
+      <p className="text-[12px] text-t-dim leading-relaxed mb-3 line-clamp-2 min-h-[2.8em]">
         {skill.description || "（无描述）"}
       </p>
 
       {/* Footer */}
-      <div className="flex items-center gap-2 text-[10px] text-t-ghost">
-        <span>{kindLabel}</span>
+      <div className="flex items-center gap-2 text-[11px]">
+        <span className="px-1.5 py-0.5 rounded-md bg-neon/5 text-neon/70 font-mono text-[10px]">{kindLabel}</span>
         {skill.updated_at > 0 && (
-          <>
-            <span>·</span>
-            <span>更新于 {formatDate(skill.updated_at)}</span>
-          </>
+          <span className="text-t-ghost">更新于 {formatDate(skill.updated_at)}</span>
         )}
       </div>
     </div>
@@ -425,85 +422,74 @@ export function SkillsPanel() {
   return (
     <div className="h-full flex flex-col bg-surface text-t-primary">
       {/* Header */}
-      <div className="shrink-0 px-5 py-4 border-b border-border/50">
+      <div className="shrink-0 px-6 pt-5 pb-4 border-b border-border/30">
         <div className="flex items-center justify-between">
           <div>
-            <h1 className="text-[17px] text-t-primary font-semibold">技能</h1>
-            <p className="text-[11px] text-t-dim mt-0.5">
+            <h1 className="text-[18px] font-semibold text-t-primary tracking-tight">技能</h1>
+            <p className="text-[12px] text-t-dim mt-1">
               {skills.length === 0
-                ? "暂无技能"
-                : `${skills.length} 个技能 · 为智能体提供可复用的能力说明`}
+                ? "为智能体提供可复用的能力说明"
+                : `${skills.length} 个技能`}
             </p>
           </div>
-          <div className="flex items-center gap-1.5">
-            <button
-              onClick={reload}
-              disabled={loading}
-              title="刷新"
-              className="p-2 rounded-md text-t-secondary hover:bg-hover hover:text-t-primary transition-colors disabled:opacity-30"
+          <div className="flex items-center gap-2">
+            <button onClick={reload} disabled={loading} title="刷新"
+              className="w-8 h-8 rounded-lg flex items-center justify-center text-t-dim hover:text-t-primary hover:bg-white/6 transition-colors disabled:opacity-30"
             >
-              <RefreshCw size={14} className={loading ? "animate-spin" : ""} />
+              <RefreshCw size={15} className={loading ? "animate-spin" : ""} />
             </button>
-            <button
-              onClick={() => setEditing({ mode: "new" })}
-              className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-md text-[12px] font-medium bg-neon text-base hover:bg-neon/80 transition-colors"
+            <button onClick={() => setEditing({ mode: "new" })}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[13px] font-medium bg-neon text-base hover:bg-neon/90 transition-all duration-150 active:scale-95"
             >
-              <Plus size={13} />
-              新建
+              <Plus size={14} strokeWidth={2} />新建
             </button>
           </div>
         </div>
-
-        {/* Search */}
-        <div className="relative mt-3 max-w-[320px]">
-          <Search
-            size={14}
-            className="absolute left-2.5 top-1/2 -translate-y-1/2 text-t-ghost"
-          />
-          <input
-            className="w-full bg-base border border-border-subtle rounded-md pl-8 pr-3 py-1.5 text-xs text-t-primary placeholder:text-t-ghost focus:outline-none focus:border-neon/50"
-            placeholder="搜索技能"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-          />
-        </div>
+        {skills.length > 0 && (
+          <div className="relative mt-3.5">
+            <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-t-ghost pointer-events-none" />
+            <input
+              className="w-full bg-elevated/40 border border-border-subtle rounded-lg pl-9 pr-3 py-2 text-[13px] text-t-primary placeholder:text-t-ghost focus:outline-none focus:border-neon/40 focus:bg-elevated transition-colors"
+              placeholder="搜索技能名称或描述……" value={search}
+              onChange={(e) => setSearch(e.target.value)}
+            />
+          </div>
+        )}
       </div>
 
       {/* Body */}
-      <div className="flex-1 overflow-y-auto px-5 py-4">
+      <div className="flex-1 overflow-y-auto px-6 py-5">
         {loading && skills.length === 0 && (
-          <div className="flex items-center justify-center py-16">
-            <Loader2 size={16} className="text-t-ghost animate-spin" />
+          <div className="flex items-center justify-center py-20">
+            <Loader2 size={18} className="text-t-ghost animate-spin" />
           </div>
         )}
 
         {error && !loading && (
-          <div className="text-center px-4 py-12">
-            <p className="text-[12px] text-red-400/70">{error}</p>
-            <button
-              onClick={reload}
-              className="mt-2 text-[11px] text-t-ghost hover:text-neon transition-colors"
-            >
-              重试
-            </button>
+          <div className="flex flex-col items-center justify-center py-20 gap-3">
+            <AlertCircle size={28} className="text-red-400/60" />
+            <p className="text-[13px] text-red-400/70">{error}</p>
+            <button onClick={reload}
+              className="text-[12px] text-t-ghost hover:text-neon transition-colors">重试</button>
           </div>
         )}
 
         {!loading && !error && skills.length === 0 && (
-          <div className="text-center px-4 py-16">
-            <p className="text-[14px] text-t-dim">暂无技能</p>
-            <p className="text-[12px] text-t-ghost mt-1">
-              点击右上角「新建」创建你的第一个 Skill
-            </p>
+          <div className="flex flex-col items-center justify-center py-20 gap-4">
+            <div className="w-14 h-14 rounded-2xl bg-neon/5 flex items-center justify-center">
+              <Zap size={24} className="text-neon/40" />
+            </div>
+            <div className="text-center">
+              <p className="text-[15px] text-t-dim font-medium">还没有技能</p>
+              <p className="text-[12px] text-t-ghost mt-1">创建你的第一个 Skill，让智能体拥有可复用的能力</p>
+            </div>
           </div>
         )}
 
         {filtered.length > 0 && (
           <div className="grid grid-cols-2 gap-3">
             {filtered.map((skill) => (
-              <SkillCard
-                key={skill.name}
-                skill={skill}
+              <SkillCard key={skill.name} skill={skill}
                 onOpen={() => openEdit(skill.name)}
                 onDelete={() => handleDelete(skill)}
               />
@@ -512,8 +498,9 @@ export function SkillsPanel() {
         )}
 
         {!loading && !error && skills.length > 0 && filtered.length === 0 && (
-          <div className="text-center text-t-ghost text-xs py-12">
-            没有找到匹配的技能
+          <div className="flex flex-col items-center justify-center py-16 gap-3">
+            <Search size={24} className="text-t-ghost/40" />
+            <p className="text-[13px] text-t-ghost">没有找到匹配「{search}」的技能</p>
           </div>
         )}
       </div>
