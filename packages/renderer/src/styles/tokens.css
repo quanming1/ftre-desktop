@@ -59,7 +59,7 @@ html[data-theme="dark"] {
   --ftre-scrollbar-track: transparent;
 
   /* 骨架屏 */
-  --ftre-bg-skeleton: #3a3a3c;
+  --ftre-bg-skeleton: #2f3033;
 }
 
 /* ===== Light Mode ===== */
@@ -113,7 +113,7 @@ html[data-theme="light"] {
   --ftre-scrollbar-track: transparent;
 
   /* 骨架屏 */
-  --ftre-bg-skeleton: #d8d8dc;
+  --ftre-bg-skeleton: #dcdce0;
 }
 
 /* ===== 向后兼容别名 (DEPRECATED — 将在 v0.3.0 移除) ===== */
