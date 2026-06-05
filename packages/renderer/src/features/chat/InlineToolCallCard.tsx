@@ -10,7 +10,6 @@
  * 视觉上跟正文段落平级，不用边框/圆角/背景色包裹。
  */
 import { memo, useState, useCallback, useEffect, useRef, useMemo } from "react";
-import { createPortal } from "react-dom";
 import type { ToolCall } from "@/stores/chat";
 import {
   ChevronRight,
@@ -32,6 +31,7 @@ import {
   FolderTree,
   Box,
 } from "lucide-react";
+import { Tooltip, TooltipProvider } from "@ftre/ui";
 
 // ─── 工具图标 ───────────────────────────────────────────────────────
 
@@ -287,7 +287,6 @@ export const InlineToolCallCard = memo(
     const isLoadSkill = toolCall.name === "loadSkill";
     const [expanded, setExpanded] = useState(false);
     const [copied, setCopied] = useState(false);
-    const [tooltipRect, setTooltipRect] = useState<DOMRect | null>(null);
 
     const status = toolCall.status || "ok";
     const isPending = status === "pending";
@@ -326,40 +325,23 @@ export const InlineToolCallCard = memo(
       return description || (args.skill as string) || "";
     }, [isLoadSkill, toolCall.result, args.skill]);
 
-    // loadSkill：仅显示一行 title，hover 显示 skill 描述
+    // loadSkill：仅显示一行 title，hover 展示 skill 描述
     if (isLoadSkill) {
       return (
-        <div className="py-0.5">
-          <div
-            className="flex items-center gap-2 py-1 cursor-default"
-            onMouseEnter={(e) => setTooltipRect(e.currentTarget.getBoundingClientRect())}
-            onMouseLeave={() => setTooltipRect(null)}
-          >
-            <span className="w-3.5 shrink-0" />
-            <Box size={14} className="text-[#1a7f37] shrink-0" strokeWidth={1.5} />
-            <span className="text-[13px] font-mono text-t-dim truncate">
-              <span className="text-t-secondary font-medium">Loaded Skill</span>
-              {args.skill ? ` «${args.skill}»` : ""}
-            </span>
-            {status === "ok" && <Check size={12} className="text-green-600 shrink-0" />}
-            {isError && <X size={12} className="text-red-500 shrink-0" />}
-          </div>
-          {tooltipRect && loadSkillDesc && createPortal(
-            <div
-              className="fixed z-[9999] pointer-events-none"
-              style={{
-                left: tooltipRect.left,
-                top: tooltipRect.top - 8,
-                transform: "translateY(-100%)",
-              }}
-            >
-              <div className="bg-elevated border border-border-subtle rounded-lg shadow-xl px-3 py-2 max-w-[360px]">
-                <p className="text-[12px] text-t-secondary leading-relaxed">{loadSkillDesc}</p>
-              </div>
-            </div>,
-            document.body,
-          )}
-        </div>
+        <TooltipProvider>
+          <Tooltip content={loadSkillDesc || undefined} side="top">
+            <div className="flex items-center gap-2 py-1 cursor-default">
+              <span className="w-3.5 shrink-0" />
+              <Box size={14} className="text-[#1a7f37] shrink-0" strokeWidth={1.5} />
+              <span className="text-[13px] font-mono text-t-dim truncate">
+                <span className="text-t-secondary font-medium">Loaded Skill</span>
+                {args.skill ? ` «${args.skill}»` : ""}
+              </span>
+              {status === "ok" && <Check size={12} className="text-green-600 shrink-0" />}
+              {isError && <X size={12} className="text-red-500 shrink-0" />}
+            </div>
+          </Tooltip>
+        </TooltipProvider>
       );
     }
 
