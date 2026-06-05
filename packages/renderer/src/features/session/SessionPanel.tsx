@@ -30,6 +30,7 @@ import {
   Pencil,
   Copy,
   Folder,
+  FolderOpen,
   SquarePen,
   Clock,
   Zap,
