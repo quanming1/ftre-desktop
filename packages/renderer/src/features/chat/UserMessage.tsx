@@ -18,7 +18,7 @@ import {
   Copy,
   Check,
   GitFork,
-  Zap,
+  Box,
   ChevronDown,
   ChevronUp,
 } from "lucide-react";
@@ -50,16 +50,16 @@ function ArchiveChip({ data }: { data: ArchiveRefData }) {
 
 /**
  * 渲染 skill 引用 chip
- * 显示琥珀色背景 + ⚡ 图标 + skill 名称
+ * 与输入框中的 SkillChipView 保持一致：绿色 inline 风格。
  */
 function SkillChip({ data }: { data: string }) {
   return (
     <span
-      className="inline-flex items-center gap-1 px-1.5 py-0.5 mx-0.5 rounded text-[11px] font-mono bg-amber-500/10 text-amber-300/80 border border-amber-500/20 align-baseline"
+      className="relative top-[2px] inline-flex items-center gap-1.5 mx-0.5 px-0 py-0 text-[13px] leading-6 font-semibold text-[#1a7f37] align-baseline max-w-full"
       title={`Skill: ${data}`}
     >
-      <Zap size={10} className="shrink-0 opacity-70" />
-      <span className="truncate max-w-[180px]">{data}</span>
+      <Box size={14} strokeWidth={2} className="shrink-0" />
+      <span className="truncate max-w-[220px]">{data}</span>
     </span>
   );
 }
