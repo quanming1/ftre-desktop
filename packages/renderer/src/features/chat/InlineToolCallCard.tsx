@@ -351,9 +351,10 @@ export const InlineToolCallCard = memo(
               </div>
             }
             side="top"
+            sideOffset={4}
             className="max-w-[360px]"
           >
-            <div className="flex items-center gap-2 py-1 cursor-default">
+            <div className="inline-flex items-center gap-2 py-1 cursor-default">
               <span className="w-3.5 shrink-0" />
               <Box size={14} className="text-[#1a7f37] shrink-0" strokeWidth={1.5} />
               <span className="text-[13px] font-mono text-t-dim truncate">
