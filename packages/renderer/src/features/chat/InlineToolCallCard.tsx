@@ -44,7 +44,7 @@ const TOOL_ICONS: Record<string, IconType> = {
   set_workspace: Folder, cron: Clock, task: MessagesSquare,
   send_message: Send, glob: Search, grep: Search,
   search: Search, web_search: Search, web_fetch: Search,
-  loadSkill: Brain,
+  loadSkill: Box,
 };
 
 function getIcon(name: string | undefined): IconType {
@@ -283,7 +283,8 @@ function ThinkBlock({
 
 export const InlineToolCallCard = memo(
   function InlineToolCallCard({ toolCall }: { toolCall: ToolCall }) {
-    const [expanded, setExpanded] = useState(false);
+    const isLoadSkill = toolCall.name === "loadSkill";
+    const [expanded, setExpanded] = useState(isLoadSkill);
     const [copied, setCopied] = useState(false);
 
     const status = toolCall.status || "ok";
@@ -313,8 +314,17 @@ export const InlineToolCallCard = memo(
     }
 
     const toggleExpand = useCallback(() => {
+      if (isLoadSkill) return; // loadSkill 不可折叠
       if (hasResult || isError) setExpanded((p) => !p);
-    }, [hasResult, isError]);
+    }, [hasResult, isError, isLoadSkill]);
+
+    // loadSkill: 从 result 提取描述用于 tooltip
+    const loadSkillMeta = useMemo(() => {
+      if (!isLoadSkill) return null;
+      return (toolCall.result || args.skill || "")
+        ? parseSkillContent(toolCall.result ?? "")
+        : null;
+    }, [isLoadSkill, toolCall.result, args.skill]);
 
     const handleCopy = useCallback(() => {
       if (!toolCall.result) return;
@@ -327,13 +337,14 @@ export const InlineToolCallCard = memo(
     return (
       <div className="py-0.5">
         {/* 摘要行 */}
-        <button
-          onClick={toggleExpand}
-          disabled={!hasResult && !isError}
-          className="flex items-center gap-2 text-left w-full group py-1 disabled:cursor-default"
+        <div
+          className="flex items-center gap-2 text-left w-full group py-1"
+          title={isLoadSkill && loadSkillMeta?.description ? loadSkillMeta.description : undefined}
         >
-          {/* 展开箭头（有结果时才显示） */}
-          {hasResult || isError ? (
+          {/* 展开箭头 — loadSkill 不显示 */}
+          {isLoadSkill ? (
+            <span className="w-3.5 shrink-0" />
+          ) : hasResult || isError ? (
             <span className="text-t-ghost shrink-0 w-3.5">
               <ChevronRight size={13} className={`transition-transform duration-200 ${expanded ? "rotate-90" : ""}`} />
             </span>
@@ -342,17 +353,17 @@ export const InlineToolCallCard = memo(
           )}
 
           {/* 图标 */}
-          <Icon size={14} className="text-t-ghost shrink-0" strokeWidth={1.5} />
+          <Icon size={14} className={`shrink-0 ${isLoadSkill ? "text-[#1a7f37]" : "text-t-ghost"}`} strokeWidth={1.5} />
 
-          {/* 摘要文字：Verb (target) 句式，verb 加粗一点便于扫读 */}
-          <SummaryLine summary={summary} className="flex-1" />
+          {/* 摘要 */}
+          <SummaryLine summary={summary} className={`flex-1 ${isLoadSkill ? "cursor-default" : "cursor-pointer"}`} />
 
           {/* 状态 */}
           {isPending && <Loader2 size={12} className="text-t-ghost animate-spin shrink-0" />}
           {isRunning && <Loader2 size={12} className="text-neon animate-spin shrink-0" />}
           {status === "ok" && <Check size={12} className="text-green-600 shrink-0" />}
           {isError && <X size={12} className="text-red-500 shrink-0" />}
-        </button>
+        </div>
 
         {/* 展开详情 */}
         <div
