@@ -18,6 +18,7 @@ import { ResizeHandle } from "@/components/ResizeHandle";
 import { useLayout, type PanelId } from "@/stores/layout";
 import { useWorkspace } from "@/stores/workspace";
 import { useEditor } from "@/stores/editor";
+import { useChat } from "@/stores/chat";
 import { useTheme } from "@/stores/theme";
 import { useGlobalShortcuts } from "@/lib/shortcuts";
 import { registerDefaultShortcuts } from "@/lib/default-shortcuts";
