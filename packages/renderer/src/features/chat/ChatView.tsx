@@ -7,9 +7,9 @@
  * - Falls back to streamManager directly if store is empty/unavailable
  */
 import { useState, useEffect, useMemo } from "react";
+import { Loader2 } from "lucide-react";
 import { useChat } from "@/stores/chat";
 import { useSession } from "@/stores/session";
-import { ChatSkeleton } from "./ChatSkeleton";
 import { wsClient } from "@/services/websocket-client";
 import { ChatMessageList } from "./ChatMessageList";
 import { ChatInput } from "./ChatInput";
@@ -87,32 +87,17 @@ export function ChatView() {
 
       {/* 主内容：
           - 仅在没有 sessionId（纯新会话还没创建）+ 可发送 → 居中欢迎页
-          - 正在切换 session（loadingSessionId 存在） → 骨架屏
-          - 已有 sessionId 但消息暂时为空（历史加载中、空会话） → 走正常列表 */}
+          - 正在切换 session（loadingSessionId 存在） → 居中 loading
+          - 已有 sessionId → 消息列表 */}
       {!sessionId && !isBusy && canSend ? (
         <WelcomeView />
+      ) : isSessionLoading ? (
+        <div className="flex-1 flex items-center justify-center">
+          <Loader2 size={22} className="text-t-ghost animate-spin" />
+        </div>
       ) : (
-        <div className="flex-1 flex flex-col min-h-0">
-          <div className="flex-1 min-h-0 relative">
-            {/* 骨架屏 — 始终挂载，通过 CSS 控制显隐，实现平滑过渡 */}
-            <div
-              className={`absolute inset-0 transition-opacity duration-200 ${
-                isSessionLoading ? "opacity-100" : "opacity-0 pointer-events-none"
-              }`}
-            >
-              <ChatSkeleton />
-            </div>
-            {/* 消息列表 — 始终挂载，避免 DOM 重建导致的闪烁 */}
-            <div
-              className={`h-full transition-opacity duration-200 ${
-                isSessionLoading ? "opacity-0 pointer-events-none" : "opacity-100"
-              }`}
-            >
-              <ChatMessageList messages={messages} isBusy={isBusy} className="h-full" />
-            </div>
-          </div>
-
-          {/* 输入框 — 始终挂载，不受 loading 影响 */}
+        <>
+          <ChatMessageList messages={messages} isBusy={isBusy} className="flex-1" />
           {canSend ? (
             <ChatInput />
           ) : (
@@ -125,7 +110,7 @@ export function ChatView() {
               </div>
             </div>
           )}
-        </div>
+        </>
       )}
 
       {/* WS Log overlay (Storybook only) */}
