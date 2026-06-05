@@ -322,9 +322,11 @@ export const InlineToolCallCard = memo(
     const loadSkillMeta = useMemo(() => {
       if (!isLoadSkill || !toolCall.result) return { name: "", description: "" };
       const { name, description } = parseSkillContent(toolCall.result);
+      // 把多行描述压成一行，避免 tooltip 里出现 \n 视觉断行
+      const desc = (description || "").replace(/\s+/g, " ").trim();
       return {
         name: name || (args.skill as string) || "",
-        description: description || "",
+        description: desc,
       };
     }, [isLoadSkill, toolCall.result, args.skill]);
 
@@ -514,8 +516,29 @@ function parseSkillContent(text: string): { name: string; description: string; b
       const fm = text.slice(3, end);
       const nameMatch = fm.match(/^name:\s*(.+)$/m);
       if (nameMatch) name = nameMatch[1].trim().replace(/['"]/g, "");
-      const descMatch = fm.match(/^description:\s*(.+)$/m);
-      if (descMatch) description = descMatch[1].trim().replace(/^['"]|['"]$/g, "");
+
+      const fmLines = fm.split("\n");
+      for (let i = 0; i < fmLines.length; i++) {
+        const line = fmLines[i];
+        const m = line.match(/^description:\s*(.*)$/);
+        if (!m) continue;
+        const raw = m[1].trim();
+        // YAML 块标量：description: | 或 > 或 |- ...
+        if (/^[|>][-+]?$/.test(raw)) {
+          const indent = (fmLines[i + 1]?.match(/^\s+/)?.[0] || "  ").length;
+          const block: string[] = [];
+          for (let j = i + 1; j < fmLines.length; j++) {
+            const ln = fmLines[j];
+            if (!ln.trim()) { block.push(""); continue; }
+            if ((ln.match(/^\s+/)?.[0]?.length ?? 0) < indent) break;
+            block.push(ln.slice(indent));
+          }
+          description = block.join(" ").replace(/\s+/g, " ").trim();
+        } else {
+          description = raw.replace(/^['"]|['"]$/g, "");
+        }
+        break;
+      }
       body = text.slice(end + 3).trim();
     }
   }
