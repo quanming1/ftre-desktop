@@ -318,18 +318,41 @@ export const InlineToolCallCard = memo(
       if (hasResult || isError) setExpanded((p) => !p);
     }, [hasResult, isError]);
 
-    // loadSkill: 从 result 提取描述用于 tooltip
-    const loadSkillDesc = useMemo(() => {
-      if (!isLoadSkill || !toolCall.result) return "";
-      const { description } = parseSkillContent(toolCall.result);
-      return description || (args.skill as string) || "";
+    // loadSkill: 从 result 提取 name + description 用于 tooltip
+    const loadSkillMeta = useMemo(() => {
+      if (!isLoadSkill || !toolCall.result) return { name: "", description: "" };
+      const { name, description } = parseSkillContent(toolCall.result);
+      return {
+        name: name || (args.skill as string) || "",
+        description: description || "",
+      };
     }, [isLoadSkill, toolCall.result, args.skill]);
 
     // loadSkill：仅显示一行 title，hover 展示 skill 描述
     if (isLoadSkill) {
       return (
         <TooltipProvider>
-          <Tooltip content={loadSkillDesc || undefined} side="top">
+          <Tooltip
+            content={
+              <div className="flex flex-col gap-1.5 max-w-[320px]">
+                {/* Skill name */}
+                <div className="flex items-center gap-1.5">
+                  <Box size={12} strokeWidth={2} className="text-[#1a7f37] shrink-0" />
+                  <span className="text-[13px] font-semibold text-[#1a7f37]">
+                    {loadSkillMeta.name || (args.skill as string) || ""}
+                  </span>
+                </div>
+                {/* Description */}
+                {loadSkillMeta.description && (
+                  <p className="text-[12px] text-t-secondary leading-relaxed">
+                    {loadSkillMeta.description}
+                  </p>
+                )}
+              </div>
+            }
+            side="top"
+            className="max-w-[360px]"
+          >
             <div className="flex items-center gap-2 py-1 cursor-default">
               <span className="w-3.5 shrink-0" />
               <Box size={14} className="text-[#1a7f37] shrink-0" strokeWidth={1.5} />
