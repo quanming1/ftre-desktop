@@ -186,9 +186,9 @@ function AddMenu({
   }, [skills, search]);
 
   return (
-    <div ref={rootRef} className="absolute bottom-full left-0 mb-2 z-50 flex items-start gap-2">
+    <div ref={rootRef} className="absolute bottom-full left-0 mb-2 z-50 flex items-end gap-2">
       {/* 主菜单 */}
-      <div className="w-[230px] bg-surface border border-border-subtle rounded-2xl shadow-[0_12px_40px_rgba(0,0,0,0.16)] py-1.5">
+      <div className="w-[230px] shrink-0 bg-surface border border-border-subtle rounded-2xl shadow-[0_12px_40px_rgba(0,0,0,0.16)] py-1.5">
         <MenuItem
           icon={<Paperclip size={16} strokeWidth={1.8} />}
           label="从本地文件添加"
@@ -206,7 +206,7 @@ function AddMenu({
 
       {/* 技能二级面板 */}
       {skillOpen && (
-        <div className="w-[300px] bg-surface border border-border-subtle rounded-2xl shadow-[0_12px_40px_rgba(0,0,0,0.16)] overflow-hidden">
+        <div className="w-[300px] shrink-0 bg-surface border border-border-subtle rounded-2xl shadow-[0_12px_40px_rgba(0,0,0,0.16)] overflow-hidden">
           {/* 搜索 */}
           <div className="flex items-center gap-2 px-3 py-2.5 border-b border-border-subtle">
             <Search size={15} className="shrink-0 text-t-ghost" />
