@@ -19,6 +19,7 @@ import {
   AlertCircle,
   Power,
   PowerOff,
+  Clock,
 } from "lucide-react";
 import { Switch } from "@ftre/ui";
 import {
@@ -110,57 +111,60 @@ function JobCard({
   return (
     <div
       onClick={onEdit}
-      className={`group relative px-4 py-3 rounded-xl border transition-colors cursor-pointer ${
+      className={`group relative px-4 py-3 rounded-xl border transition-all duration-200 cursor-pointer hover:-translate-y-0.5 hover:shadow-lg hover:shadow-black/10 ${
         isDisabled
-          ? "border-border/20 bg-elevated/20 opacity-60 hover:opacity-80"
-          : "border-border/30 hover:bg-surface hover:border-border/60"
+          ? "border-border/15 bg-elevated/20 opacity-60 hover:opacity-80"
+          : "border-border-subtle bg-elevated/40 hover:bg-elevated hover:border-border/50"
       }`}
     >
+      {/* Top accent line */}
+      <div className={`absolute top-0 left-4 right-4 h-px bg-gradient-to-r from-transparent via-current to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300 ${
+        isDisabled ? "text-t-ghost/30" : "text-neon/20"
+      }`} />
+
       <div className="flex items-center gap-3 min-w-0">
         {/* 状态圆点 */}
         <div
-          className={`shrink-0 w-2 h-2 rounded-full ${
-            isDisabled ? "bg-t-ghost" : "bg-neon"
+          className={`shrink-0 w-2 h-2 rounded-full ring-2 ring-offset-1 ring-offset-elevated ${
+            isDisabled
+              ? "bg-t-ghost ring-t-ghost/10"
+              : "bg-neon ring-neon/15"
           }`}
         />
 
         <div className="flex-1 min-w-0">
-          <h3
-            className={`text-[14px] font-medium truncate ${
-              isDisabled ? "text-t-muted" : "text-t-primary"
-            }`}
-          >
+          <h3 className={`text-[14px] font-semibold truncate ${
+            isDisabled ? "text-t-muted" : "text-t-primary"
+          }`}>
             {job.title}
           </h3>
-          <p className="text-[11px] text-t-dim font-mono mt-0.5 truncate">
+          <p className={`text-[11px] font-mono mt-0.5 truncate ${
+            isDisabled ? "text-t-ghost" : "text-t-dim"
+          }`}>
             {cronLabel}
           </p>
         </div>
 
         {/* 操作按钮 — hover 时出现 */}
-        <div className="flex items-center gap-0.5 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
+        <div className="flex items-center gap-0 shrink-0 opacity-0 group-hover:opacity-100 group-hover:gap-0.5 transition-all duration-150">
           <button
             onClick={(e) => { e.stopPropagation(); onToggleDisabled(); }}
             title={isDisabled ? "启用" : "禁用"}
-            className={`w-7 h-7 rounded-full flex items-center justify-center transition-colors ${
-              isDisabled
-                ? "text-t-ghost hover:text-neon hover:bg-hover"
-                : "text-t-ghost hover:text-amber-400 hover:bg-hover"
-            }`}
+            className="w-7 h-7 rounded-full flex items-center justify-center text-t-ghost hover:text-neon hover:bg-white/8 transition-colors"
           >
             {isDisabled ? <Power size={13} /> : <PowerOff size={13} />}
           </button>
           <button
             onClick={(e) => { e.stopPropagation(); onEdit(); }}
             title="编辑"
-            className="w-7 h-7 rounded-full flex items-center justify-center text-t-ghost hover:text-t-primary hover:bg-hover transition-colors"
+            className="w-7 h-7 rounded-full flex items-center justify-center text-t-ghost hover:text-t-primary hover:bg-white/8 transition-colors"
           >
             <Pencil size={13} />
           </button>
           <button
             onClick={(e) => { e.stopPropagation(); onDelete(); }}
             title="删除"
-            className="w-7 h-7 rounded-full flex items-center justify-center text-t-ghost hover:text-red-400 hover:bg-hover transition-colors"
+            className="w-7 h-7 rounded-full flex items-center justify-center text-t-ghost hover:text-red-400 hover:bg-red-400/10 transition-colors"
           >
             <Trash2 size={13} />
           </button>
@@ -434,113 +438,85 @@ export function ScheduledTaskPanel() {
   return (
     <div className="h-full flex flex-col bg-surface">
       {/* Header */}
-      <div className="shrink-0 px-5 py-4 flex items-center justify-between border-b border-border/50">
+      <div className="shrink-0 px-6 pt-5 pb-4 flex items-center justify-between border-b border-border/30">
         <div>
-          <h1 className="text-[17px] text-t-primary font-semibold">定时任务</h1>
-          <p className="text-[11px] text-t-dim mt-0.5">
+          <h1 className="text-[18px] font-semibold text-t-primary tracking-tight">定时任务</h1>
+          <p className="text-[12px] text-t-dim mt-1">
             {jobs.length === 0
-              ? "暂无任务"
+              ? "按 cron 表达式定时触发任务"
               : disabledCount > 0
                 ? `${enabledCount} 启用 · ${disabledCount} 禁用`
                 : `${enabledCount} 个任务`}
           </p>
         </div>
-        <div className="flex items-center gap-1.5">
-          <button
-            onClick={reload}
-            disabled={loading}
-            title="刷新"
-            className="p-2 rounded-md text-t-secondary hover:bg-hover hover:text-t-primary transition-colors disabled:opacity-30"
+        <div className="flex items-center gap-2">
+          <button onClick={reload} disabled={loading} title="刷新"
+            className="w-8 h-8 rounded-lg flex items-center justify-center text-t-dim hover:text-t-primary hover:bg-white/6 transition-colors disabled:opacity-30"
           >
-            <RefreshCw
-              size={14}
-              className={loading ? "animate-spin" : ""}
-            />
+            <RefreshCw size={15} className={loading ? "animate-spin" : ""} />
           </button>
-          <button
-            onClick={() => setEditing("new")}
-            className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-md text-[12px] font-medium bg-neon text-base hover:bg-neon/80 transition-colors"
+          <button onClick={() => setEditing("new")}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[13px] font-medium bg-neon text-base hover:bg-neon/90 transition-all duration-150 active:scale-95"
           >
-            <Plus size={13} />
-            新建
+            <Plus size={14} strokeWidth={2} />新建
           </button>
         </div>
       </div>
 
       {/* List */}
-      <div className="flex-1 overflow-y-auto px-4 py-3">
+      <div className="flex-1 overflow-y-auto px-6 py-5">
+        {/* Modals */}
         {editing === "new" && (
-          <Modal
-            open
-            onClose={() => setEditing(null)}
-            title="新建定时任务"
-          >
-            <JobForm
-              initial={null}
-              onCancel={() => setEditing(null)}
-              onSubmit={handleCreate}
-            />
+          <Modal open onClose={() => setEditing(null)} title="新建定时任务">
+            <JobForm initial={null} onCancel={() => setEditing(null)} onSubmit={handleCreate} />
           </Modal>
         )}
         {editing && typeof editing !== "string" && (
-          <Modal
-            open
-            onClose={() => setEditing(null)}
-            title="编辑定时任务"
-          >
-            <JobForm
-              initial={editing}
-              onCancel={() => setEditing(null)}
-              onSubmit={(input) => handleUpdate(editing.id, input)}
-            />
+          <Modal open onClose={() => setEditing(null)} title="编辑定时任务">
+            <JobForm initial={editing} onCancel={() => setEditing(null)}
+              onSubmit={(input) => handleUpdate(editing.id, input)} />
           </Modal>
         )}
 
-        {/* 状态：loading */}
         {loading && jobs.length === 0 && (
-          <div className="flex items-center justify-center py-16">
-            <Loader2 size={16} className="text-t-ghost animate-spin" />
+          <div className="flex items-center justify-center py-20">
+            <Loader2 size={18} className="text-t-ghost animate-spin" />
           </div>
         )}
 
-        {/* 状态：error */}
         {error && !loading && (
-          <div className="text-center px-4 py-12">
-            <p className="text-[12px] text-red-400/70">{error}</p>
-            <button
-              onClick={reload}
-              className="mt-2 text-[11px] text-t-ghost hover:text-neon transition-colors"
-            >
-              重试
-            </button>
+          <div className="flex flex-col items-center justify-center py-20 gap-3">
+            <AlertCircle size={28} className="text-red-400/60" />
+            <p className="text-[13px] text-red-400/70">{error}</p>
+            <button onClick={reload}
+              className="text-[12px] text-t-ghost hover:text-neon transition-colors">重试</button>
           </div>
         )}
 
-        {/* 状态：empty */}
         {!loading && !error && jobs.length === 0 && (
-          <div className="text-center px-4 py-16">
-            <p className="text-[14px] text-t-dim">暂无定时任务</p>
-            <p className="text-[12px] text-t-ghost mt-1">
-              点击右上角「新建」或在对话中让 AI 创建
-            </p>
+          <div className="flex flex-col items-center justify-center py-20 gap-4">
+            <div className="w-14 h-14 rounded-2xl bg-neon/5 flex items-center justify-center">
+              <Clock size={24} className="text-neon/40" />
+            </div>
+            <div className="text-center">
+              <p className="text-[15px] text-t-dim font-medium">还没有定时任务</p>
+              <p className="text-[12px] text-t-ghost mt-1">创建定时任务，让智能体按计划自动执行</p>
+            </div>
           </div>
         )}
 
-        {/* 任务列表 */}
         {enabledJobs.length > 0 && (
           <div className="mb-4">
-            <div className="px-1 pb-1.5">
-              <span className="text-[12px] text-t-ghost font-medium">运行中</span>
+            <div className="pb-2">
+              <span className="text-[12px] font-medium text-t-dim uppercase tracking-wider">运行中</span>
+              <span className="ml-1.5 text-[11px] text-t-ghost">{enabledJobs.length}</span>
             </div>
             <div className="grid grid-cols-2 gap-2">
               {enabledJobs.map((job) => (
-                <JobCard
-                  key={job.id}
-                  job={job}
+                <JobCard key={job.id} job={job}
                   onEdit={() => setEditing(job)}
                   onDelete={() => handleDelete(job)}
-                  onToggleDisabled={() => handleToggleDisabled(job)}
-                />
+                  onToggleDisabled={() => handleToggleDisabled(job)} />
               ))}
             </div>
           </div>
@@ -548,18 +524,16 @@ export function ScheduledTaskPanel() {
 
         {disabledJobs.length > 0 && (
           <div>
-            <div className="px-1 pb-1.5">
-              <span className="text-[12px] text-t-ghost font-medium">已禁用</span>
+            <div className="pb-2">
+              <span className="text-[12px] font-medium text-t-dim uppercase tracking-wider">已禁用</span>
+              <span className="ml-1.5 text-[11px] text-t-ghost">{disabledJobs.length}</span>
             </div>
             <div className="grid grid-cols-2 gap-2">
               {disabledJobs.map((job) => (
-                <JobCard
-                  key={job.id}
-                  job={job}
+                <JobCard key={job.id} job={job}
                   onEdit={() => setEditing(job)}
                   onDelete={() => handleDelete(job)}
-                  onToggleDisabled={() => handleToggleDisabled(job)}
-                />
+                  onToggleDisabled={() => handleToggleDisabled(job)} />
               ))}
             </div>
           </div>
