@@ -164,9 +164,10 @@ class WebSocketClient {
     this.ws.send(JSON.stringify(data));
   }
 
-  /** 发送聊天消息。返回所用的帧 id（前端可用作本地占位 userMsg.id 与 echo 去重）。 */
+  /** 发送聊天消息。返回所用的帧 id（前端可用作本地占位 userMsg.id 与 echo 去重）。
+   *  content: 纯文本 string 或结构化 parts 数组 [{type, data}] */
   sendChat(
-    content: string,
+    content: string | Array<{ type: string; data: unknown }>,
     metadata?: Record<string, unknown>,
     attachments?: Array<{
       type: "image";

@@ -224,16 +224,10 @@ export function ChatInput() {
     const state = useChat.getState();
     if (state.isBusy) return;
 
-    const { text, codeRefs, archiveRefs, skillRefs } = inputEditor.serialize();
+    const { text, parts } = inputEditor.serialize();
     const hasAttachments = attachments.length > 0;
-    if (
-      !text &&
-      codeRefs.length === 0 &&
-      archiveRefs.length === 0 &&
-      skillRefs.length === 0 &&
-      !hasAttachments
-    )
-      return;
+    const hasContent = parts.length > 0;
+    if (!hasContent && !hasAttachments) return;
 
     const dto: ImageAttachmentDTO[] = attachments.map((a) => ({
       type: "image",
@@ -246,7 +240,10 @@ export function ChatInput() {
     setSkillSearch(null);
     setAttachments([]);
 
-    state.sendMessage(text, dto.length > 0 ? dto : undefined);
+    state.sendMessage(
+      parts.length > 0 ? parts : [{ type: "text", data: text }],
+      dto.length > 0 ? dto : undefined,
+    );
   }, [inputEditor, attachments]);
 
   // ── 取消 ──

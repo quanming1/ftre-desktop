@@ -1,5 +1,5 @@
 import { memo, useCallback, useState, useRef, useLayoutEffect } from "react";
-import type { MessagePart, ArchiveRefData, SkillRefData } from "@/types/chat";
+import type { MessagePart, ArchiveRefData } from "@/types/chat";
 import type { ChatMessage as WsChatMessage } from "@/stores/chat";
 
 /** Extended message type for UserMessage — supports both WS messages and legacy rich messages */
@@ -52,14 +52,14 @@ function ArchiveChip({ data }: { data: ArchiveRefData }) {
  * 渲染 skill 引用 chip
  * 显示琥珀色背景 + ⚡ 图标 + skill 名称
  */
-function SkillChip({ data }: { data: SkillRefData }) {
+function SkillChip({ data }: { data: string }) {
   return (
     <span
       className="inline-flex items-center gap-1 px-1.5 py-0.5 mx-0.5 rounded text-[11px] font-mono bg-amber-500/10 text-amber-300/80 border border-amber-500/20 align-baseline"
-      title={`Skill: ${data.name}`}
+      title={`Skill: ${data}`}
     >
       <Zap size={10} className="shrink-0 opacity-70" />
-      <span className="truncate max-w-[180px]">{data.name}</span>
+      <span className="truncate max-w-[180px]">{data}</span>
     </span>
   );
 }
@@ -124,7 +124,7 @@ function PartsContent({ parts }: { parts: MessagePart[] }) {
         if (part.type === "archive_ref") {
           return <ArchiveChip key={i} data={part.data} />;
         }
-        if (part.type === "skill_ref") {
+        if (part.type === "skill") {
           return <SkillChip key={i} data={part.data} />;
         }
         return null;
@@ -144,7 +144,7 @@ function getMessageText(message: ChatMessage): string {
           return `[${d.name}:L${d.lines[0]}-L${d.lines[1]}]`;
         }
         if (part.type === "archive_ref") return `[归档: ${part.data.display}]`;
-        if (part.type === "skill_ref") return `[Skill: ${part.data.name}]`;
+        if (part.type === "skill") return `[Skill: ${part.data}]`;
         return "";
       })
       .join("");
