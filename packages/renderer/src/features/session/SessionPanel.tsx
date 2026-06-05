@@ -1186,17 +1186,17 @@ function SessionRow({
       onContextMenu={onMenu}
       onMouseEnter={onEnter}
       onMouseLeave={onLeave}
-      className={`flex items-center gap-2 h-10 pr-3 rounded-full cursor-pointer select-none transition-colors ${alignWithSectionLabel ? "pl-[45px]" : "pl-3"} ${isActive
+      className={`relative flex items-center gap-2 h-10 pr-3 rounded-full cursor-pointer select-none transition-colors ${alignWithSectionLabel ? "pl-[45px]" : "pl-3"} ${isActive
         ? "bg-[#e7e7e8] hover:bg-[#e7e7e8]"
         : "hover:bg-hover"
         }`}
     >
-      {/* 置顶色点：自定义颜色 / hash 默认色 */}
+      {/* 置顶色点：绝对定位，不占 flex 空间，保持文字左对齐 */}
       {isPinned && dotColor && (
         <button
           type="button"
           onClick={(e) => { e.stopPropagation(); onDotClick?.(e); }}
-          className="shrink-0 w-3 h-3 rounded-full opacity-90 hover:opacity-100 hover:scale-110 active:scale-95 transition-transform cursor-pointer"
+          className="absolute left-3 top-1/2 -translate-y-1/2 w-3 h-3 rounded-full opacity-90 hover:opacity-100 hover:scale-110 active:scale-95 transition-transform cursor-pointer"
           style={{ backgroundColor: dotColor, boxShadow: `0 1px 3px rgba(0,0,0,0.18), 0 0 0 1px rgba(0,0,0,0.06)` }}
           title="点击更换颜色"
         />
