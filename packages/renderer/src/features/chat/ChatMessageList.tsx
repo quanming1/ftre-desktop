@@ -129,7 +129,7 @@ export const ChatMessageList = memo(function ChatMessageList({
             ?.map((p) =>
               p.type === "tool_call"
                 ? `t${p.toolCallId}`
-                : `${p.type[0]}${p.text.length}`,
+                : `${p.type[0]}${String(p.type === "text" ? p.data : "").length}`,
             )
             .join("|") ?? ""
         }:${
