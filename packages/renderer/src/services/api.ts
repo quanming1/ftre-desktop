@@ -712,6 +712,29 @@ export async function fetchSkills(
   }
 }
 
+// ─── Commands（斜杠指令）────────────────────────────────────────────
+
+const COMMANDS_API = "http://127.0.0.1:18790/api/commands";
+
+export interface CommandDef {
+  command: string;        // "/cancel"
+  description: string;    // "取消当前会话执行"
+  args_hint: string;      // "[preset]" 或 ""
+}
+
+/** 获取后端注册的斜杠指令列表，供输入框 / 面板渲染。 */
+export async function fetchCommands(): Promise<CommandDef[]> {
+  try {
+    const res = await fetch(COMMANDS_API);
+    if (!res.ok) return [];
+    const data = await res.json();
+    return Array.isArray(data?.commands) ? data.commands : [];
+  } catch (e) {
+    console.error("[api] fetchCommands failed:", e);
+    return [];
+  }
+}
+
 export async function fetchSkill(
   name: string,
 ): Promise<{ skill: SkillDetail } | { error: string }> {
