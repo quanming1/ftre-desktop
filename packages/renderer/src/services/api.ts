@@ -65,6 +65,8 @@ export interface SessionSummary {
   source?: string;
   /** 后端 channel_id 原值。空串 / 未知 → "unknown" */
   channel: SessionChannel;
+  /** 后端返回该 session 是否正在执行（AgentLoop 持有活跃 agent） */
+  running?: boolean;
 }
 
 /**
@@ -153,6 +155,7 @@ function mapSessionRow(s: any): SessionSummary {
     meta: s.meta,
     source: s.source,
     channel,
+    running: s.running,
   };
 }
 
