@@ -10,12 +10,12 @@
 import { useCallback, useEffect, useMemo, useState, useRef } from "react";
 import { Slate, Editable } from "slate-react";
 import { Range } from "slate";
-import { ArrowUp, Box, ChevronRight, Paperclip, Plus, Puzzle, Search, X } from "lucide-react";
+import { ArrowUp, Box, ChevronRight, Paperclip, Plus, Puzzle, Search, Slash, X } from "lucide-react";
 import { useChat } from "@/stores/chat";
 import { useLayout } from "@/stores/layout";
 import { useWorkspace } from "@/stores/workspace";
 import { useNotification } from "@/stores/notification";
-import { fetchSkills, type SkillDef } from "@/services/api";
+import { fetchSkills, fetchCommands, type SkillDef, type CommandDef } from "@/services/api";
 import { AgentSelector } from "./AgentSelector";
 import { ModelSelector } from "./ModelSelector";
 import { TokenRing } from "./TokenRing";
@@ -34,60 +34,103 @@ import {
   ImageValidationError,
 } from "./slate/imageUtils";
 
-// ─── Skill 候选列表组件 ────────────────────────────────────────────
+// ─── 斜杠面板：指令 + 技能 ──────────────────────────────────────────
 
-function SkillDropdown({
-  candidates,
+function SlashDropdown({
+  commands,
+  skills,
   selectedIndex,
-  onSelect,
+  onSelectCommand,
+  onSelectSkill,
 }: {
-  candidates: SkillDef[];
+  commands: CommandDef[];
+  skills: SkillDef[];
   selectedIndex: number;
-  onSelect: (skill: SkillDef) => void;
+  onSelectCommand: (cmd: CommandDef) => void;
+  onSelectSkill: (skill: SkillDef) => void;
 }) {
   const listRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    const item = listRef.current?.children[selectedIndex] as
-      | HTMLElement
-      | undefined;
+    const item = listRef.current?.querySelector(
+      `[data-slash-index="${selectedIndex}"]`,
+    ) as HTMLElement | undefined;
     item?.scrollIntoView({ block: "nearest" });
   }, [selectedIndex]);
 
-  if (candidates.length === 0) return null;
+  if (commands.length === 0 && skills.length === 0) return null;
 
   return (
     <div
       ref={listRef}
       className="absolute bottom-full left-0 right-0 mb-1.5 max-h-[320px] overflow-y-auto bg-surface border border-border rounded-2xl shadow-[0_10px_30px_rgba(0,0,0,0.14)] py-1.5 z-50"
     >
-      <div className="px-3 pb-1 text-[12px] leading-5 text-t-muted">
-        技能
-      </div>
-      {candidates.map((skill, i) => (
-        <button
-          key={skill.id}
-          onMouseDown={(e) => {
-            e.preventDefault();
-            onSelect(skill);
-          }}
-          className={`w-full flex items-center gap-2 px-3 py-1.5 text-left transition-colors ${
-            i === selectedIndex
-              ? "bg-active text-t-primary"
-              : "text-t-primary hover:bg-hover"
-          }`}
-        >
-          <Box size={14} strokeWidth={1.9} className="shrink-0 text-t-secondary" />
-          <span className="shrink-0 text-[13px] leading-5 font-medium text-t-primary truncate max-w-[240px]">
-            {skill.name}
-          </span>
-          {skill.description && (
-            <span className="min-w-0 flex-1 truncate text-[13px] leading-5 text-t-muted">
-              {skill.description}
-            </span>
-          )}
-        </button>
-      ))}
+      {commands.length > 0 && (
+        <>
+          <div className="px-3 pb-1 text-[12px] leading-5 text-t-muted">指令</div>
+          {commands.map((cmd, i) => (
+            <button
+              key={cmd.command}
+              data-slash-index={i}
+              onMouseDown={(e) => {
+                e.preventDefault();
+                onSelectCommand(cmd);
+              }}
+              className={`w-full flex items-center gap-2 px-3 py-1.5 text-left transition-colors ${
+                i === selectedIndex
+                  ? "bg-active text-t-primary"
+                  : "text-t-primary hover:bg-hover"
+              }`}
+            >
+              <Slash size={14} strokeWidth={1.9} className="shrink-0 text-t-secondary" />
+              <span className="shrink-0 text-[13px] leading-5 font-medium text-t-primary truncate max-w-[160px]">
+                {cmd.command}
+                {cmd.args_hint && (
+                  <span className="ml-1 font-normal text-t-muted">{cmd.args_hint}</span>
+                )}
+              </span>
+              {cmd.description && (
+                <span className="min-w-0 flex-1 truncate text-[13px] leading-5 text-t-muted">
+                  {cmd.description}
+                </span>
+              )}
+            </button>
+          ))}
+        </>
+      )}
+      {skills.length > 0 && (
+        <>
+          <div className="px-3 pb-1 pt-1 text-[12px] leading-5 text-t-muted">技能</div>
+          {skills.map((skill, i) => {
+            const idx = commands.length + i;
+            return (
+              <button
+                key={skill.id}
+                data-slash-index={idx}
+                onMouseDown={(e) => {
+                  e.preventDefault();
+                  onSelectSkill(skill);
+                }}
+                className={`w-full flex items-center gap-2 px-3 py-1.5 text-left transition-colors ${
+                  idx === selectedIndex
+                    ? "bg-active text-t-primary"
+                    : "text-t-primary hover:bg-hover"
+                }`}
+              >
+                <Box size={14} strokeWidth={1.9} className="shrink-0 text-t-secondary" />
+                <span className="shrink-0 text-[13px] leading-5 font-medium text-t-primary truncate max-w-[240px]">
+                  {skill.name}
+                </span>
+                {skill.description && (
+                  <span className="min-w-0 flex-1 truncate text-[13px] leading-5 text-t-muted">
+                    {skill.description}
+                  </span>
+                )}
+              </button>
+            );
+          })}
+        </>
+      )}
     </div>
   );
 }
@@ -310,6 +353,7 @@ export function ChatInput() {
   } | null>(null);
   const [skillIndex, setSkillIndex] = useState(0);
   const [skillList, setSkillList] = useState<SkillDef[]>([]);
+  const [commandList, setCommandList] = useState<CommandDef[]>([]);
 
   // 加载 skill 列表
   useEffect(() => {
@@ -319,6 +363,22 @@ export function ChatInput() {
     }
     fetchSkills(workspace).then(setSkillList);
   }, [workspace]);
+
+  // 加载指令列表（全局，与工作区无关）
+  useEffect(() => {
+    fetchCommands().then(setCommandList);
+  }, []);
+
+  // 过滤候选指令（/ 面板顶部）
+  const commandCandidates = useMemo(() => {
+    if (!skillSearch) return [];
+    const q = skillSearch.search.toLowerCase();
+    return commandList.filter(
+      (c) =>
+        c.command.toLowerCase().includes(q) ||
+        c.description.toLowerCase().includes(q),
+    );
+  }, [skillSearch, commandList]);
 
   // 过滤候选 skill
   const skillCandidates = useMemo(() => {
@@ -331,10 +391,13 @@ export function ChatInput() {
     );
   }, [skillSearch, skillList]);
 
+  // 合并候选总数（指令在前，技能在后），键盘导航用统一索引
+  const slashTotal = commandCandidates.length + skillCandidates.length;
+
   // 重置选中索引
   useEffect(() => {
     setSkillIndex(0);
-  }, [skillCandidates.length]);
+  }, [slashTotal]);
 
   // 插入 skill chip
   const handleInsertSkill = useCallback(
@@ -387,6 +450,23 @@ export function ChatInput() {
       dto.length > 0 ? dto : undefined,
     );
   }, [inputEditor, attachments]);
+
+  // 选中指令：无参数直接发送，有参数填入等用户补全
+  const handleSelectCommand = useCallback(
+    (cmd: CommandDef) => {
+      if (!skillSearch) return;
+      if (cmd.args_hint) {
+        inputEditor.replaceRange(skillSearch.range, cmd.command + " ");
+        inputEditor.focus();
+      } else {
+        inputEditor.replaceRange(skillSearch.range, cmd.command);
+        setTimeout(() => handleSend(), 0);
+      }
+      setSkillSearch(null);
+      setSkillIndex(0);
+    },
+    [inputEditor, skillSearch, handleSend],
+  );
 
   // ── 取消 ──
   const handleCancel = useCallback(() => {
@@ -499,25 +579,35 @@ export function ChatInput() {
   );
 
   // ── 键盘 ──
+  // 按统一索引选中（指令在前，技能在后）
+  const handleSelectSlashIndex = useCallback(
+    (idx: number) => {
+      if (idx < commandCandidates.length) {
+        handleSelectCommand(commandCandidates[idx]);
+      } else {
+        handleInsertSkill(skillCandidates[idx - commandCandidates.length]);
+      }
+    },
+    [commandCandidates, skillCandidates, handleSelectCommand, handleInsertSkill],
+  );
+
   const onKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
-      // Skill 弹窗激活时的键盘导航
-      if (skillSearch && skillCandidates.length > 0) {
+      // / 面板（指令 + 技能）激活时的键盘导航
+      if (skillSearch && slashTotal > 0) {
         if (e.key === "ArrowDown") {
           e.preventDefault();
-          setSkillIndex((p) => (p + 1) % skillCandidates.length);
+          setSkillIndex((p) => (p + 1) % slashTotal);
           return;
         }
         if (e.key === "ArrowUp") {
           e.preventDefault();
-          setSkillIndex(
-            (p) => (p - 1 + skillCandidates.length) % skillCandidates.length,
-          );
+          setSkillIndex((p) => (p - 1 + slashTotal) % slashTotal);
           return;
         }
         if (e.key === "Enter" || e.key === "Tab") {
           e.preventDefault();
-          handleInsertSkill(skillCandidates[skillIndex]);
+          handleSelectSlashIndex(skillIndex);
           return;
         }
         if (e.key === "Escape") {
@@ -538,9 +628,9 @@ export function ChatInput() {
     },
     [
       skillSearch,
-      skillCandidates,
+      slashTotal,
       skillIndex,
-      handleInsertSkill,
+      handleSelectSlashIndex,
       handleSend,
       handleCancel,
     ],
@@ -613,12 +703,14 @@ export function ChatInput() {
             isDragging ? "border-neon/50 ring-1 ring-neon/30" : ""
           }`}
         >
-          {/* Skill 弹窗 */}
-          {skillSearch && skillCandidates.length > 0 && (
-            <SkillDropdown
-              candidates={skillCandidates}
+          {/* / 面板：指令 + 技能 */}
+          {skillSearch && slashTotal > 0 && (
+            <SlashDropdown
+              commands={commandCandidates}
+              skills={skillCandidates}
               selectedIndex={skillIndex}
-              onSelect={handleInsertSkill}
+              onSelectCommand={handleSelectCommand}
+              onSelectSkill={handleInsertSkill}
             />
           )}
 
