@@ -187,6 +187,13 @@ export class ChatInputEditor {
     Transforms.insertText(this.editor, " ");
   }
 
+  /** 用纯文本替换指定 range（用于把 / 搜索词换成完整命令文本） */
+  replaceRange(targetRange: Range, text: string): void {
+    Transforms.select(this.editor, targetRange);
+    Transforms.delete(this.editor);
+    Transforms.insertText(this.editor, text);
+  }
+
   /** 清空编辑器内容，恢复到初始状态 */
   clear(): void {
     Transforms.delete(this.editor, {
