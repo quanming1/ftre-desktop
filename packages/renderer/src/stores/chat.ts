@@ -726,6 +726,18 @@ if (!(globalThis as any)[__wsBoundFlag]) {
     // 后端在首条用户消息后异步生成标题；前端有自己的会话列表轮询，
     // 拿到新 title 是迟早的事，不需要专门的 push 通知。
 
+    // global_event：全局控制信号（session 运行态等），不进 agent 事件流
+    if (msg.type === "global_event") {
+      const ev = msg.data as any;
+      if (ev?.type === "session_status") {
+        // 触发会话列表刷新（后端 GET /api/sessions 已带 running 字段）
+        import("../stores/session")
+          .then(({ useSession }) => useSession.getState().loadAllSessions())
+          .catch(() => void 0);
+      }
+      return;
+    }
+
     if (msg.type !== "agent_event") return;
     const ev = msg.data;
     if (!ev?.type) return;

@@ -1213,7 +1213,7 @@ function SessionRow({
         )}
       </span>
 
-      {/* 右侧：时间 / 菜单按钮叠加，hover 切透明度，避免 DOM 替换抖动 */}
+      {/* 右侧：时间 / 运行中 spinner / 菜单按钮叠加，hover 切透明度 */}
       <div className="relative shrink-0 w-7 h-5 flex items-center justify-end">
         {isLoading && (
           <Loader2
@@ -1221,10 +1221,16 @@ function SessionRow({
             className="absolute right-0 text-t-ghost animate-spin"
           />
         )}
+        {!isLoading && session.running && (
+          <Loader2
+            size={12}
+            className="absolute right-0 text-neon animate-spin"
+          />
+        )}
         <span
           className="absolute right-0 text-[12px] tabular-nums transition-opacity"
           style={{
-            opacity: isHovered || isLoading ? 0 : time.opacity,
+            opacity: (isHovered || isLoading || session.running) ? 0 : time.opacity,
             color: "var(--color-t-dim)",
             pointerEvents: "none",
           }}
@@ -1234,7 +1240,7 @@ function SessionRow({
         <button
           onClick={onMenu}
           aria-label="更多"
-          className={`absolute right-0 p-1 rounded-full text-t-dim hover:text-t-primary hover:bg-hover transition-opacity ${isHovered && !isLoading ? "opacity-100" : "opacity-0 pointer-events-none"
+          className={`absolute right-0 p-1 rounded-full text-t-dim hover:text-t-primary hover:bg-hover transition-opacity ${isHovered && !isLoading && !session.running ? "opacity-100" : "opacity-0 pointer-events-none"
             }`}
         >
           <MoreHorizontal size={15} />
