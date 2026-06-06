@@ -1224,7 +1224,7 @@ function SessionRow({
         {!isLoading && session.running && (
           <Loader2
             size={12}
-            className="absolute right-0 text-neon animate-spin"
+            className="absolute right-0 text-t-ghost animate-spin"
           />
         )}
         <span
