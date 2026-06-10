@@ -10,7 +10,7 @@
 import { useCallback, useEffect, useMemo, useState, useRef } from "react";
 import { Slate, Editable } from "slate-react";
 import { Range } from "slate";
-import { ArrowUp, Box, ChevronRight, Paperclip, Plus, Puzzle, Search, Slash, X } from "lucide-react";
+import { ArrowUp, Box, ChevronRight, Paperclip, Plus, Puzzle, Search, Terminal, X } from "lucide-react";
 import { useChat } from "@/stores/chat";
 import { useLayout } from "@/stores/layout";
 import { useWorkspace } from "@/stores/workspace";
@@ -82,7 +82,7 @@ function SlashDropdown({
                   : "text-t-primary hover:bg-hover"
               }`}
             >
-              <Slash size={14} strokeWidth={1.9} className="shrink-0 text-t-secondary" />
+              <Terminal size={14} strokeWidth={1.9} className="shrink-0 text-t-secondary" />
               <span className="shrink-0 text-[13px] leading-5 font-medium text-t-primary truncate max-w-[160px]">
                 {cmd.command}
                 {cmd.args_hint && (
@@ -374,11 +374,16 @@ export function ChatInput() {
     if (!skillSearch) return [];
     const q = skillSearch.search.toLowerCase();
     return commandList.filter(
-      (c) =>
-        c.command.toLowerCase().includes(q) ||
-        c.description.toLowerCase().includes(q),
+      (c) => {
+        // /cancel 仅在 session running 时展示
+        if (c.command === "/cancel" && !isBusy) return false;
+        return (
+          c.command.toLowerCase().includes(q) ||
+          c.description.toLowerCase().includes(q)
+        );
+      },
     );
-  }, [skillSearch, commandList]);
+  }, [skillSearch, commandList, isBusy]);
 
   // 过滤候选 skill
   const skillCandidates = useMemo(() => {
@@ -427,9 +432,10 @@ export function ChatInput() {
   // ── 发送 ──
   const handleSend = useCallback(() => {
     const state = useChat.getState();
-    if (state.isBusy) return;
-
     const { text, parts } = inputEditor.serialize();
+    // /cancel 允许在 running 时发送，其他指令/消息需要等 idle
+    const isCancelOnly = parts.length === 1 && parts[0].type === "text" && (parts[0].data as string).trim() === "/cancel";
+    if (state.isBusy && !isCancelOnly) return;
     const hasAttachments = attachments.length > 0;
     const hasContent = parts.length > 0;
     if (!hasContent && !hasAttachments) return;
@@ -456,16 +462,23 @@ export function ChatInput() {
     (cmd: CommandDef) => {
       if (!skillSearch) return;
       if (cmd.args_hint) {
+        // 有参数：把 /xxx 替换成完整指令，等用户补全
         inputEditor.replaceRange(skillSearch.range, cmd.command + " ");
         inputEditor.focus();
       } else {
-        inputEditor.replaceRange(skillSearch.range, cmd.command);
-        setTimeout(() => handleSend(), 0);
+        // 无参数：直接发送，不经过输入框
+        const range = skillSearch.range;
+        setSkillSearch(null);
+        setSkillIndex(0);
+        // 先把 /xxx 从编辑器删掉，避免残留
+        inputEditor.replaceRange(range, "");
+        useChat.getState().sendMessage([{ type: "text", data: cmd.command }]);
+        return;
       }
       setSkillSearch(null);
       setSkillIndex(0);
     },
-    [inputEditor, skillSearch, handleSend],
+    [inputEditor, skillSearch],
   );
 
   // ── 取消 ──
@@ -699,7 +712,7 @@ export function ChatInput() {
           onDragOver={handleDragOver}
           onDragLeave={handleDragLeave}
           onDrop={handleDrop}
-          className={`relative bg-panel border border-border-subtle focus-within:border-neon/30 transition-colors shadow-sm rounded-3xl ${
+          className={`relative bg-[#f6f7f9] border border-border-subtle focus-within:border-neon/30 transition-colors shadow-sm rounded-3xl ${
             isDragging ? "border-neon/50 ring-1 ring-neon/30" : ""
           }`}
         >

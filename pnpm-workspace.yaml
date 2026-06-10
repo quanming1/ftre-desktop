@@ -1,3 +1,7 @@
 packages:
   - 'packages/*'
+allowBuilds:
+  electron: true
+  esbuild: true
+  node-pty: true
 enablePrePostScripts: true

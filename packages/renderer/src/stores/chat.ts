@@ -13,6 +13,7 @@ import { create } from "zustand";
 import { useShallow } from "zustand/shallow";
 import { wsClient } from "@/services/websocket-client";
 import type { WsConnectionStatus, ServerMessage } from "@/services/websocket-client";
+import { createSessionRemote } from "@/services/api";
 
 // ─── Types ──────────────────────────────────────────────────────────
 
@@ -271,12 +272,7 @@ export function applyEvent(b: Bucket, ev: BusEvent): void {
       const frameId = (ev.metadata?.frame_id as string | undefined) ?? "";
       const alreadyHasLocal = !!frameId && b.messages.some((m) => m.id === frameId);
 
-      // 一轮开始：进入 busy，清空上一轮残留的错误/重试状态
-      b.isBusy = true;
-      b.error = null;
-      b.retryState = null;
-
-      // 自己发的：本地乐观占位已经在了，echo 仅用于推进 busy 状态，气泡跳过 push
+      // 自己发的：本地乐观占位已经在了，echo 仅用于去重，气泡跳过 push
       if (alreadyHasLocal) return;
 
       const c = typeof d.content === "string" ? d.content : "";
@@ -534,7 +530,6 @@ export function applyEvent(b: Bucket, ev: BusEvent): void {
           ),
         };
       });
-      b.isBusy = false;
       b.retryState = null;
       return;
     }
@@ -549,7 +544,6 @@ export function applyEvent(b: Bucket, ev: BusEvent): void {
         { id: ev.id ?? nextId("err"), role: "assistant", content: msg, timestamp: ts, isError: true },
       ];
       b.error = code ? `[${code}] ${msg}` : msg;
-      b.isBusy = false;
       return;
     }
 
@@ -730,7 +724,21 @@ if (!(globalThis as any)[__wsBoundFlag]) {
     if (msg.type === "global_event") {
       const ev = msg.data as any;
       if (ev?.type === "session_status") {
-        // 触发会话列表刷新（后端 GET /api/sessions 已带 running 字段）
+        const d = ev.data as any;
+        if (d?.session_id) {
+          const status = d.status as string;
+          const b = bucket(d.session_id);
+          if (status === "running") {
+            // 一轮开始：进入 busy，清空上一轮残留的错误/重试状态
+            b.isBusy = true;
+            b.error = null;
+            b.retryState = null;
+          } else {
+            b.isBusy = false;
+          }
+          mirror(d.session_id);
+        }
+        // 异步刷新会话列表（running 字段）
         import("../stores/session")
           .then(({ useSession }) => useSession.getState().loadAllSessions())
           .catch(() => void 0);
@@ -908,6 +916,9 @@ export const useChat = create<ChatState>((set, get) => ({
     const hasAttachments = !!attachments && attachments.length > 0;
     if (!displayText && !hasSkill && !hasAttachments) return;
 
+    // /cancel 是 ephemeral 控制指令，不创建本地假消息，也不主动改 busy 状态
+    const isCancelCommand = displayText === "/cancel" && !hasSkill && !hasAttachments;
+
     // 本地回显用：把后端协议形态的 attachments 转成带 data URL 的形态
     const localAttachments: MessageAttachment[] | undefined = hasAttachments
       ? attachments!.map((a) => ({
@@ -931,11 +942,13 @@ export const useChat = create<ChatState>((set, get) => ({
     };
     const send = (sid: string) => {
       const b = bucket(sid);
-      b.messages = [...b.messages, userMsg];
-      b.isBusy = true;
-      b.error = null;
-      b.retryState = null;
-      mirror(sid);
+      if (!isCancelCommand) {
+        b.messages = [...b.messages, userMsg];
+        b.isBusy = true;
+        b.error = null;
+        b.retryState = null;
+        mirror(sid);
+      }
       const { model, provider, agentId } = get();
       wsClient.sendChat(
         parts,
@@ -960,15 +973,12 @@ export const useChat = create<ChatState>((set, get) => ({
     // 内容一致，不会闪烁也不会重复。
     set({ isBusy: true, messages: [...get().messages, userMsg] });
 
-    fetch(
-      `http://127.0.0.1:18790/api/sessions?channel_id=ws${get().pendingWorkspace
-        ? `&workspace=${encodeURIComponent(get().pendingWorkspace!)}`
-        : ""
-      }`,
-      { method: "POST" },
-    )
-      .then((r) => r.json())
+    createSessionRemote({
+      channelId: "ws",
+      workspace: get().pendingWorkspace,
+    })
       .then((data) => {
+        if (!data?.session_id) throw new Error("创建会话失败");
         // 创建成功后清掉 pending —— sessions 表 workspace 已经落库，
         // 后续从 useSession 列表读，不再依赖前端 pending 状态
         set({ sessionId: data.session_id, pendingWorkspace: null });
@@ -980,11 +990,10 @@ export const useChat = create<ChatState>((set, get) => ({
 
   cancelStream: () => {
     const sid = get().sessionId;
-    wsClient.sendCancel(sid || undefined);
     if (!sid) return set({ isBusy: false });
-    const b = bucket(sid);
-    b.isBusy = false;
-    mirror(sid);
+    // 暂停按钮统一走 /cancel 指令，不再使用独立 cancel 帧。
+    // /cancel 在 sendMessage 中被识别为 ephemeral 控制指令，不创建本地假消息。
+    get().sendMessage([{ type: "text", data: "/cancel" }]);
   },
 
   newChat: () => set({ sessionId: null, messages: [], isBusy: false, error: null, retryState: null, contextTokens: 0, tokenUsage: null, pendingWorkspace: _defaultWsCache }),

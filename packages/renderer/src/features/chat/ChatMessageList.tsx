@@ -36,16 +36,20 @@ export interface ChatMessageListProps {
 
 // ─── Component ──────────────────────────────────────────────────────
 
-/** 重试时显示黄色小球 + 简短文字；否则显示正常 TypingDots */
+/** 重试时显示普通文字；hover 展示错误原因；否则显示正常 TypingDots */
 function RetryOrTyping() {
   const retryState = useChat((s) => s.retryState);
   if (retryState) {
     return (
-      <div className="inline-flex items-center gap-2 py-2">
-        <div className="w-[7px] h-[7px] rounded-none bg-[#d29922] animate-pulse shadow-[1px_1px_0_0_rgba(0,0,0,0.45)]" />
-        <span className="text-xs text-[#d29922]">
+      <div className="inline-flex items-center py-2 group/retry cursor-default" title={retryState.message}>
+        <span className="text-xs text-t-primary">
           重试 {retryState.attempt}/{retryState.maxAttempts}
         </span>
+        {retryState.message && (
+          <span className="ml-2 text-xs text-t-ghost truncate max-w-[320px] opacity-0 group-hover/retry:opacity-100 transition-opacity duration-150">
+            · {retryState.message}
+          </span>
+        )}
       </div>
     );
   }
