@@ -56,14 +56,18 @@ initEditorHostBridge();
 
 // ── WebSocket 连接初始化 ──
 import { initConnection } from "@/services/api";
-import { wsClient } from "@/services/websocket-client";
+import { normalizeGatewayUrl, wsClient } from "@/services/websocket-client";
 
 // Load saved gateway URL then connect
 (async () => {
   if (window.desktop?.store) {
     const { value } = await window.desktop.store.get("gatewayUrl");
     if (typeof value === "string" && value) {
-      wsClient.setUrl(value);
+      const normalized = normalizeGatewayUrl(value);
+      if (normalized !== value) {
+        await window.desktop.store.set("gatewayUrl", normalized);
+      }
+      wsClient.setUrl(normalized);
     }
   }
   initConnection();

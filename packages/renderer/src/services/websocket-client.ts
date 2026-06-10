@@ -1,5 +1,5 @@
 ﻿/**
- * WebSocket Client — 连接 ftre gateway (ws://127.0.0.1:18790/)
+ * WebSocket Client — 连接 ftre gateway
  *
  * 协议：
  *   上行（client → server）: 任意 JSON，后端只看 data 字段
@@ -38,8 +38,18 @@ type StatusHandler = (status: WsConnectionStatus) => void;
 
 // ─── Constants ──────────────────────────────────────────────────────
 
-const DEFAULT_WS_URL = "ws://127.0.0.1:18790/";
+export const DEFAULT_WS_URL = (import.meta.env.VITE_WS_URL as string) || "ws://127.0.0.1:19470/";
+const LEGACY_DEFAULT_WS_URLS = new Set([
+  "ws://127.0.0.1:18790/",
+  "ws://localhost:18790/",
+]);
 const RECONNECT_DELAYS = [1000, 2000, 4000, 8000, 15000, 30000];
+
+export function normalizeGatewayUrl(url: string): string {
+  const trimmed = url.trim();
+  const normalized = trimmed.endsWith("/") ? trimmed : `${trimmed}/`;
+  return LEGACY_DEFAULT_WS_URLS.has(normalized) ? DEFAULT_WS_URL : normalized;
+}
 
 // ─── WebSocket Client ───────────────────────────────────────────────
 
@@ -70,8 +80,9 @@ class WebSocketClient {
   }
 
   setUrl(url: string): void {
-    const changed = this._url !== url;
-    this._url = url;
+    const nextUrl = normalizeGatewayUrl(url);
+    const changed = this._url !== nextUrl;
+    this._url = nextUrl;
     if (changed && this.connected) {
       this.disconnect();
       this.connect();

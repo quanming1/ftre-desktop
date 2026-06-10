@@ -1,16 +1,15 @@
 /**
  * GatewaySettings - Gateway 连接地址配置
  *
- * 允许用户配置 ai-base gateway 的 WebSocket 地址。
+ * 允许用户配置 ftre gateway 的 WebSocket 地址。
  * 修改后保存到 store 并触发 WS 重连。
  */
 
 import { useState, useEffect } from "react";
 import { Wifi, WifiOff, RefreshCw } from "lucide-react";
-import { wsClient } from "@/services/websocket-client";
+import { DEFAULT_WS_URL, normalizeGatewayUrl, wsClient } from "@/services/websocket-client";
 import { useWsStatus } from "@/stores/chat";
 
-const DEFAULT_GATEWAY_URL = "ws://127.0.0.1:18790/";
 const STORE_KEY = "gatewayUrl";
 
 export function GatewaySettings() {
@@ -23,19 +22,25 @@ export function GatewaySettings() {
     if (window.desktop?.store) {
       window.desktop.store.get(STORE_KEY).then(({ value }) => {
         if (typeof value === "string" && value) {
-          setUrl(value);
+          const normalized = normalizeGatewayUrl(value);
+          setUrl(normalized);
+          if (normalized !== value) {
+            void window.desktop.store?.set(STORE_KEY, normalized);
+          }
         }
       });
     }
   }, []);
 
   const handleSave = async () => {
+    const normalized = normalizeGatewayUrl(url);
+    setUrl(normalized);
     // Save to persistent store
     if (window.desktop?.store) {
-      await window.desktop.store.set(STORE_KEY, url);
+      await window.desktop.store.set(STORE_KEY, normalized);
     }
     // Update WS client and always reconnect
-    wsClient.setUrl(url);
+    wsClient.setUrl(normalized);
     if (!wsClient.connected) {
       wsClient.reconnect();
     }
@@ -44,7 +49,7 @@ export function GatewaySettings() {
   };
 
   const handleReset = () => {
-    setUrl(DEFAULT_GATEWAY_URL);
+    setUrl(DEFAULT_WS_URL);
   };
 
   const handleReconnect = () => {
@@ -83,7 +88,7 @@ export function GatewaySettings() {
           网关连接
         </h2>
         <p className="text-[13px] text-t-secondary">
-          配置 AI 后端 (ai-base gateway) 的 WebSocket 连接地址。
+          配置 ftre gateway 的 WebSocket 连接地址。
           修改后点击保存将自动重连到新地址。
         </p>
       </div>
@@ -112,7 +117,7 @@ export function GatewaySettings() {
             type="text"
             value={url}
             onChange={(e) => setUrl(e.target.value)}
-            placeholder={DEFAULT_GATEWAY_URL}
+            placeholder={DEFAULT_WS_URL}
             className="flex-1 h-9 px-3 rounded-md bg-elevated border border-border text-[13px] text-t-primary placeholder:text-t-ghost focus:outline-none focus:border-accent"
           />
           <button
@@ -123,7 +128,7 @@ export function GatewaySettings() {
           </button>
         </div>
         <p className="text-[12px] text-t-muted">
-          默认: {DEFAULT_GATEWAY_URL}
+          默认: {DEFAULT_WS_URL}
         </p>
       </div>
 

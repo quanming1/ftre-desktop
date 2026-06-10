@@ -93,7 +93,8 @@ function buildSummary(
     case "bash":
     case "exec":
     case "shell": {
-      const cmd = (args.command as string) ?? "";
+      const rawCmd = args.command;
+      const cmd = typeof rawCmd === "string" ? rawCmd : "";
       const oneLine = cmd.replace(/\s+/g, " ").trim();
       const display = oneLine.length > 70 ? oneLine.slice(0, 70) + "…" : oneLine;
       if (display) return `Ran ${display}`;
@@ -792,51 +793,166 @@ function parseCronList(text: string): CronJobRow[] {
   return jobs;
 }
 
+/** 把 cron 翻译成简短中文描述 */
+function translateCron(expr: string): string {
+  const segs = expr.trim().split(/\s+/);
+  if (segs.length !== 5) return expr;
+  const [min, hour, day, month, week] = segs;
+
+  if (day === "*" && month === "*" && week === "*") {
+    if (min.startsWith("*/") && hour === "*") return `每${min.slice(2)}分钟`;
+    if (hour.startsWith("*/") && min === "0") return `每${hour.slice(2)}小时`;
+    if (hour !== "*" && min !== "*") return `每天 ${hour.padStart(2, "0")}:${min.padStart(2, "0")}`;
+    if (hour !== "*") return `每天 ${hour.padStart(2, "0")}:00`;
+    if (min !== "*") return `每小时第${min}分`;
+  }
+
+  if (day === "*" && month === "*" && week !== "*") {
+    const weekNames = ["日", "一", "二", "三", "四", "五", "六"];
+    const w = weekNames[parseInt(week) % 7] || week;
+    if (hour !== "*" && min !== "*") return `每周${w} ${hour.padStart(2, "0")}:${min.padStart(2, "0")}`;
+    return `每周${w}`;
+  }
+
+  if (day !== "*" && month === "*" && week === "*") {
+    if (hour !== "*" && min !== "*") return `每月${day}日 ${hour.padStart(2, "0")}:${min.padStart(2, "0")}`;
+    return `每月${day}日`;
+  }
+
+  return expr;
+}
+
+/** 单个 Cron Job 卡片 —— 点击展开看详情 */
+function CronJobCard({
+  job,
+  defaultExpanded,
+}: {
+  job: CronJobRow;
+  defaultExpanded: boolean;
+}) {
+  const [expanded, setExpanded] = useState(defaultExpanded);
+  const cronLabel = translateCron(job.cron);
+
+  return (
+    <div
+      onClick={() => setExpanded(!expanded)}
+      className={`group rounded-xl border transition-all duration-200 cursor-pointer select-none ${
+        job.enabled
+          ? "border-emerald-500/20 bg-emerald-500/[0.03] hover:border-emerald-500/35 hover:bg-emerald-500/[0.06]"
+          : "border-border/20 bg-elevated/20 hover:border-border/35 hover:bg-elevated/40"
+      }`}
+    >
+      {/* Header：始终可见 */}
+      <div className="px-4 py-3 flex items-center gap-3 min-w-0">
+        {/* 状态指示灯 */}
+        <span
+          className={`shrink-0 w-2 h-2 rounded-full ${
+            job.enabled
+              ? "bg-emerald-500 shadow-[0_0_6px_rgba(16,185,129,0.4)]"
+              : "bg-t-ghost"
+          }`}
+        />
+
+        {/* 标题 + cron */}
+        <div className="flex-1 min-w-0">
+          <h4
+            className={`text-[13px] font-semibold truncate ${
+              job.enabled ? "text-t-primary" : "text-t-muted"
+            }`}
+          >
+            {job.title}
+          </h4>
+          <p className="text-[11px] font-mono text-t-dim mt-0.5 truncate">
+            {cronLabel}
+            {cronLabel !== job.cron && (
+              <span className="text-t-ghost ml-1.5">({job.cron})</span>
+            )}
+          </p>
+        </div>
+
+        {/* 右侧元信息 */}
+        <div className="shrink-0 flex items-center gap-2">
+          {!job.enabled && (
+            <span className="text-[10px] uppercase tracking-wider text-t-ghost bg-surface/60 px-1.5 py-0.5 rounded">
+              off
+            </span>
+          )}
+          <ChevronRight
+            size={14}
+            className={`text-t-ghost transition-transform duration-200 ${
+              expanded ? "rotate-90" : ""
+            }`}
+          />
+        </div>
+      </div>
+
+      {/* Body：展开后显示 */}
+      <div
+        className="grid transition-[grid-template-rows] duration-200 ease-out"
+        style={{ gridTemplateRows: expanded ? "1fr" : "0fr" }}
+      >
+        <div className="overflow-hidden">
+          <div className="px-4 pb-3 space-y-2">
+            {job.prompt && (
+              <div>
+                <p className="text-[10.5px] uppercase tracking-wider text-t-ghost mb-1">
+                  Prompt
+                </p>
+                <p className="text-[12px] text-t-dim leading-relaxed whitespace-pre-wrap break-words">
+                  {job.prompt}
+                </p>
+              </div>
+            )}
+            <div className="flex items-center gap-3 text-[11px] text-t-ghost font-mono pt-1 border-t border-border/20">
+              <span>ID: {job.id}</span>
+              {job.lastRun && <span>上次: {job.lastRun}</span>}
+              {job.runCount > 0 && <span>运行 {job.runCount} 次</span>}
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function CronListDetail({ result, isError }: { result: string; isError: boolean }) {
   if (isError) return <RawPre result={result} isError />;
   if (result.trim() === "当前没有定时任务") {
     return (
-      <div className="pl-3 border-l-2 border-border-subtle text-[12px] italic text-t-ghost">
-        当前没有定时任务
+      <div className="flex flex-col items-center gap-3 py-4 text-center">
+        <Clock size={28} className="text-t-ghost/40" />
+        <p className="text-[12px] text-t-ghost italic">当前没有定时任务</p>
       </div>
     );
   }
   const jobs = parseCronList(result);
   if (jobs.length === 0) return <RawPre result={result} isError={false} />;
 
+  const enabledCount = jobs.filter((j) => j.enabled).length;
+  const disabledCount = jobs.length - enabledCount;
+
   return (
-    <div className="pl-3 border-l-2 border-border-subtle space-y-2">
-      {jobs.map((job) => (
-        <div
-          key={job.id}
-          className="flex items-start gap-2.5 py-1 text-[12px] font-mono"
-        >
-          <span
-            className={`mt-1.5 w-1.5 h-1.5 rounded-full shrink-0 ${
-              job.enabled ? "bg-emerald-500" : "bg-t-ghost"
-            }`}
-          />
-          <div className="flex-1 min-w-0">
-            <div className="flex items-baseline gap-2 flex-wrap">
-              <span className="text-t-secondary truncate">{job.title}</span>
-              <span className="text-t-ghost text-[11px]">{job.cron}</span>
-              {!job.enabled && (
-                <span className="text-[10.5px] uppercase tracking-wide text-t-ghost">
-                  disabled
-                </span>
-              )}
-            </div>
-            {job.prompt && (
-              <div className="text-t-dim text-[11.5px] mt-0.5 truncate">
-                {job.prompt}
-              </div>
-            )}
-            <div className="text-t-ghost text-[11px] mt-0.5">
-              {job.lastRun} · {job.runCount} 次
-            </div>
-          </div>
-        </div>
-      ))}
+    <div className="space-y-3 animate-in fade-in duration-150">
+      {/* 小节标题 */}
+      <div className="flex items-center gap-2 text-[11px] text-t-ghost">
+        <Clock size={13} />
+        <span>{jobs.length} 个任务</span>
+        {enabledCount > 0 && (
+          <span className="text-emerald-600 dark:text-emerald-400">
+            · {enabledCount} 启用
+          </span>
+        )}
+        {disabledCount > 0 && (
+          <span>· {disabledCount} 禁用</span>
+        )}
+      </div>
+
+      {/* 卡片列表：启用的在前，每个卡片默认折叠 */}
+      {jobs
+        .sort((a, b) => (b.enabled ? 1 : 0) - (a.enabled ? 1 : 0))
+        .map((job) => (
+          <CronJobCard key={job.id} job={job} defaultExpanded={false} />
+        ))}
     </div>
   );
 }

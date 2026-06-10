@@ -11,7 +11,7 @@ export function Sidebar() {
   if (!activeSidebarView) return null;
 
   return (
-    <div className="h-full bg-surface flex flex-col overflow-hidden border-r border-border">
+    <div className="h-full bg-[#f6f7f9] flex flex-col overflow-hidden border-r border-border">
       {activeSidebarView === "explorer" && <ExplorerView key={rootPath} />}
       {activeSidebarView === "git" && <GitPanel key={rootPath} />}
       {activeSidebarView === "extensions" && <ExtensionsPanel />}

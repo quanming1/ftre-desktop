@@ -7,6 +7,9 @@
 import { wsClient } from "./websocket-client";
 import { useChat } from "@/stores/chat";
 
+/** 后端 API 基地址，可通过 VITE_API_BASE 环境变量覆盖 */
+export const API_BASE = import.meta.env.VITE_API_BASE || "http://127.0.0.1:19470";
+
 // ─── Connection ─────────────────────────────────────────────────────
 
 export function initConnection(): void {
@@ -116,7 +119,7 @@ export async function fetchWorkspaces(
   const qs = params.toString();
   try {
     const res = await fetch(
-      `http://127.0.0.1:18790/api/workspaces${qs ? `?${qs}` : ""}`,
+      `${API_BASE}/api/workspaces${qs ? `?${qs}` : ""}`,
     );
     if (!res.ok) return [];
     const data = await res.json();
@@ -180,7 +183,7 @@ export async function fetchSessionPage(
   const qs = params.toString();
   try {
     const res = await fetch(
-      `http://127.0.0.1:18790/api/sessions${qs ? `?${qs}` : ""}`,
+      `${API_BASE}/api/sessions${qs ? `?${qs}` : ""}`,
     );
     if (!res.ok) return { sessions: [], total: 0, limit: opts.limit ?? 50, offset: opts.offset ?? 0 };
     const data = await res.json();
@@ -192,6 +195,25 @@ export async function fetchSessionPage(
     };
   } catch {
     return { sessions: [], total: 0, limit: opts.limit ?? 50, offset: opts.offset ?? 0 };
+  }
+}
+
+export async function createSessionRemote(
+  opts: { channelId?: string; workspace?: string | null } = {},
+): Promise<{ session_id: string } | null> {
+  const params = new URLSearchParams();
+  params.set("channel_id", opts.channelId || "ws");
+  if (opts.workspace) params.set("workspace", opts.workspace);
+  try {
+    const res = await fetch(`${API_BASE}/api/sessions?${params.toString()}`, {
+      method: "POST",
+    });
+    if (!res.ok) return null;
+    const data = await res.json();
+    return typeof data?.session_id === "string" ? { session_id: data.session_id } : null;
+  } catch (e) {
+    console.error("[api] createSessionRemote error:", e);
+    return null;
   }
 }
 
@@ -259,7 +281,7 @@ export async function fetchSessionMessages(
 ): Promise<SessionMessage[]> {
   try {
     const res = await fetch(
-      `http://127.0.0.1:18790/api/sessions/${encodeURIComponent(sessionId)}/messages`,
+      `${API_BASE}/api/sessions/${encodeURIComponent(sessionId)}/messages`,
     );
     if (!res.ok) return [];
     const data = await res.json();
@@ -307,7 +329,7 @@ export async function fetchSessionMessagesPage(
   if (opts.afterTs !== undefined) params.set("after_ts", String(opts.afterTs));
   const qs = params.toString();
   const url =
-    `http://127.0.0.1:18790/api/sessions/${encodeURIComponent(sessionId)}/messages` +
+    `${API_BASE}/api/sessions/${encodeURIComponent(sessionId)}/messages` +
     (qs ? `?${qs}` : "");
   try {
     const res = await fetch(url);
@@ -346,7 +368,7 @@ export interface TokenUsage {
 /** 拉取该 session 的 token 用量。失败抛出，由调用方决定是否保留上一次值。 */
 export async function fetchTokenUsage(sessionId: string): Promise<TokenUsage> {
   const res = await fetch(
-    `http://127.0.0.1:18790/api/sessions/${encodeURIComponent(sessionId)}/token_usage`,
+    `${API_BASE}/api/sessions/${encodeURIComponent(sessionId)}/token_usage`,
   );
   if (!res.ok) {
     throw new Error(`token_usage HTTP ${res.status}`);
@@ -396,7 +418,7 @@ export async function updateSession(
   data: { title?: string; workspace?: string },
 ): Promise<{ status: string } | null> {
   try {
-    const res = await fetch(`http://127.0.0.1:18790/api/sessions/${encodeURIComponent(sessionId)}`, {
+    const res = await fetch(`${API_BASE}/api/sessions/${encodeURIComponent(sessionId)}`, {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(data),
@@ -417,7 +439,7 @@ export async function deleteSessionRemote(
 ): Promise<boolean> {
   try {
     const res = await fetch(
-      `http://127.0.0.1:18790/api/sessions/${encodeURIComponent(sessionId)}`,
+      `${API_BASE}/api/sessions/${encodeURIComponent(sessionId)}`,
       { method: "DELETE" },
     );
     return res.ok;
@@ -431,7 +453,7 @@ export async function triggerCompaction(
   sessionId: string,
 ): Promise<{ status: string } | null> {
   try {
-    const res = await fetch(`http://127.0.0.1:18790/api/sessions/${encodeURIComponent(sessionId)}/compact`, {
+    const res = await fetch(`${API_BASE}/api/sessions/${encodeURIComponent(sessionId)}/compact`, {
       method: "POST",
     });
     if (!res.ok) {
@@ -450,7 +472,7 @@ export async function triggerCompaction(
 // 之前是前端通过 Electron IPC 直接读写 config.json；现在统一走后端 HTTP API，
 // 这样浏览器场景也能用，并且后端能在写入时做校验/格式化。
 
-const CONFIG_API = "http://127.0.0.1:18790/api/config";
+const CONFIG_API = `${API_BASE}/api/config`;
 
 /** 读取应用配置（providers / agents.defaults 等）。失败返回空对象。 */
 export async function fetchAppConfig(): Promise<Record<string, any>> {
@@ -482,7 +504,7 @@ export async function saveAppConfig(config: Record<string, any>): Promise<boolea
 
 // ─── Cron Jobs (~/.ftre/cron/<job_id>.json via backend) ───────────
 
-const CRON_API = "http://127.0.0.1:18790/api/cron";
+const CRON_API = `${API_BASE}/api/cron`;
 
 /** 后端 cron job 数据结构（与 ftre/tools/cron.py 一致）*/
 export interface CronJob {
@@ -643,7 +665,7 @@ export async function deleteLLMProvider(_id: string): Promise<boolean> {
 // Skill 是存放在 ~/.ftre/skills 下的可复用能力说明。后端（ftre/api/routes.py）
 // 提供 CRUD；底层 IO 见 ftre/skill.py，加载约定见 ~/.ftre/plugins/skill_plugin.py。
 
-const SKILLS_API = "http://127.0.0.1:18790/api/skills";
+const SKILLS_API = `${API_BASE}/api/skills`;
 
 /** Skill 存储形态：单文件 <name>.md（file）或目录 <name>/SKILL.md（dir）。*/
 export type SkillKind = "file" | "dir";
@@ -714,7 +736,7 @@ export async function fetchSkills(
 
 // ─── Commands（斜杠指令）────────────────────────────────────────────
 
-const COMMANDS_API = "http://127.0.0.1:18790/api/commands";
+const COMMANDS_API = `${API_BASE}/api/commands`;
 
 export interface CommandDef {
   command: string;        // "/cancel"

@@ -574,7 +574,7 @@ export function SessionPanel() {
   return (
     <TooltipProvider>
       {sessionsCollapsed ? (
-        <div className="h-full flex flex-col items-center bg-base py-3 text-[14px]">
+        <div className="h-full flex flex-col items-center bg-[#f6f7f9] py-3 text-[14px]">
           <button
             type="button"
             onClick={toggleSessionsCollapsed}
@@ -626,7 +626,7 @@ export function SessionPanel() {
           </button>
         </div>
       ) : (
-      <div className="h-full flex flex-col bg-base text-[14px]">
+      <div className="h-full flex flex-col bg-[#f6f7f9] text-[14px]">
         {/* ── 顶层动作区（New thread / Cron / Skills）── */}
         <div className="shrink-0 px-2 pt-3 pb-1">
           <div className="flex items-center gap-1">
