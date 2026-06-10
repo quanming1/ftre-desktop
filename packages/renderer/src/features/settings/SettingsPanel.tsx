@@ -157,7 +157,7 @@ export function SettingsPanel() {
           <SettingsCategory
             icon={<Wifi size={18} />}
             title="网关"
-            description="配置 AI 后端（ai-base gateway）连接地址。"
+            description="配置 ftre gateway 连接地址。"
             onClick={() => setView("gateway")}
           />
         </div>

@@ -306,13 +306,13 @@ export function Workbench() {
   };
 
   return (
-    <div className="h-screen w-screen flex flex-col bg-base overflow-hidden">
+    <div className="h-screen w-screen flex flex-col bg-[#f6f7f9] overflow-hidden">
       <TitleBar />
 
       {/* Main area - use CSS order to control panel arrangement without remounting */}
       <div className="flex-1 flex overflow-hidden" ref={containerRef}>
         {/* Content area with rounded top-left corner */}
-        <div className="flex-1 flex overflow-hidden bg-base">
+        <div className="flex-1 flex overflow-hidden bg-[#f6f7f9]">
 
         {/* Sessions Panel — 在所有模式下保持挂载（顶部内化了模式切换） */}
         {panelVisible.sessions && (
@@ -320,7 +320,7 @@ export function Workbench() {
             className="h-full overflow-hidden py-1 pl-1.5"
             style={getPanelStyle("sessions")}
           >
-            <div className="h-full overflow-hidden rounded-xl bg-base">
+            <div className="h-full overflow-hidden rounded-xl bg-[#f6f7f9]">
               <ErrorBoundary>
                 <SessionPanel />
               </ErrorBoundary>
