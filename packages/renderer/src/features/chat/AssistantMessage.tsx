@@ -6,7 +6,7 @@ import { CodeBlock, StreamingContext } from "./CodeBlock";
 import { useThrottledValue } from "@/hooks/useThrottledValue";
 import { splitBlocks } from "./streamingMarkdown";
 import { InlineToolCallCard } from "./InlineToolCallCard";
-import { ChevronRight, Brain, Copy, Check } from "lucide-react";
+import { ChevronRight, Copy, Check } from "lucide-react";
 import { Tooltip, TooltipProvider } from "@ftre/ui";
 import { useNotification } from "@/stores/notification";
 import { ThinkingIndicator } from "./ThinkingIndicator";
@@ -74,31 +74,13 @@ const MarkdownBlock = memo(
   (a, b) => a.content === b.content,
 );
 
-/** Collapsible reasoning */
+/** 思考过程块：默认展开，用户可手动折叠 */
 function ReasoningBlock({ text, isActive }: { text: string; isActive: boolean }) {
-  const [expanded, setExpanded] = useState(false);
-  const [userToggled, setUserToggled] = useState(false);
+  const [expanded, setExpanded] = useState(true);
   const contentRef = useRef<HTMLDivElement>(null);
-  const prevActive = useRef(isActive);
   const prevTextLen = useRef(text.length);
 
-  // 推理开始 → 自动展开（除非用户手动收起过）
-  useEffect(() => {
-    if (isActive && !userToggled) {
-      setExpanded(true);
-    }
-  }, [isActive, userToggled]);
-
-  // 推理结束 → 自动折叠，重置手动标记
-  useEffect(() => {
-    if (prevActive.current && !isActive) {
-      setExpanded(false);
-      setUserToggled(false);
-    }
-    prevActive.current = isActive;
-  }, [isActive]);
-
-  // 内容增长 → 自动滚到底部
+  // 内容增长 → 自动滚到底部（仅在活跃流式时）
   useEffect(() => {
     if (isActive && expanded && contentRef.current && text.length > prevTextLen.current) {
       contentRef.current.scrollTop = contentRef.current.scrollHeight;
@@ -106,16 +88,8 @@ function ReasoningBlock({ text, isActive }: { text: string; isActive: boolean })
     prevTextLen.current = text.length;
   }, [text.length, isActive, expanded]);
 
-  // 展开时（包括手动重新展开）→ 滚到底部，避免漏掉折叠期间新增的内容
-  useEffect(() => {
-    if (expanded && isActive && contentRef.current) {
-      contentRef.current.scrollTop = contentRef.current.scrollHeight;
-    }
-  }, [expanded, isActive]);
-
   const handleToggle = useCallback(() => {
     setExpanded((p) => !p);
-    setUserToggled(true);
   }, []);
 
   return (
@@ -124,7 +98,6 @@ function ReasoningBlock({ text, isActive }: { text: string; isActive: boolean })
         onClick={handleToggle}
         className="flex items-center gap-1.5 text-[12px] text-t-dim hover:text-t-secondary transition-colors"
       >
-        <Brain size={13} className="text-t-ghost" />
         <span>思考过程</span>
         <ChevronRight
           size={12}
@@ -138,7 +111,7 @@ function ReasoningBlock({ text, isActive }: { text: string; isActive: boolean })
         <div className="overflow-hidden">
           <div
             ref={contentRef}
-            className="mt-1.5 pl-5 border-l-2 border-border-subtle text-[12px] text-t-dim leading-relaxed whitespace-pre-wrap max-h-[300px] overflow-y-auto"
+            className="mt-1.5 text-[12px] text-t-dim leading-relaxed whitespace-pre-wrap max-h-[300px] overflow-y-auto"
           >
             {text}
           </div>
@@ -268,7 +241,7 @@ export const AssistantMessage = memo(
 
     return (
       <div className="flex justify-start">
-        <div className="w-full max-w-[90%]">
+        <div className="w-full">
           {message.isError ? (
             <div className="px-3 py-2 rounded-lg text-[13px] text-t-dim italic leading-relaxed">
               {message.content}

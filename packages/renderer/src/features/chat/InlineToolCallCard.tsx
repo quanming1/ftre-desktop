@@ -13,50 +13,16 @@ import { memo, useState, useCallback, useEffect, useRef, useMemo } from "react";
 import type { ToolCall } from "@/stores/chat";
 import {
   ChevronRight,
-  Terminal,
-  FileText,
-  FilePenLine,
   Folder,
   Brain,
   Clock,
-  MessagesSquare,
-  Send,
-  Search,
   Loader2,
   Check,
   X,
   Copy,
-  FilePlus2,
-  FileSearch,
-  FolderTree,
   Box,
 } from "lucide-react";
 import { Tooltip, TooltipProvider } from "@ftre/ui";
-
-// ─── 工具图标 ───────────────────────────────────────────────────────
-
-type IconType = React.ComponentType<{ size?: number; className?: string; strokeWidth?: number }>;
-
-const TOOL_ICONS: Record<string, IconType> = {
-  think: Brain, bash: Terminal, exec: Terminal, shell: Terminal,
-  read: FileSearch, read_file: FileSearch, list_dir: FolderTree,
-  write: FilePlus2, write_file: FilePlus2,
-  edit: FilePenLine, edit_file: FilePenLine,
-  set_workspace: Folder, cron: Clock, task: MessagesSquare,
-  send_message: Send, glob: Search, grep: Search,
-  search: Search, web_search: Search, web_fetch: Search,
-  loadSkill: Box,
-};
-
-function getIcon(name: string | undefined): IconType {
-  if (!name) return Terminal;
-  if (TOOL_ICONS[name]) return TOOL_ICONS[name];
-  const lower = name.toLowerCase();
-  for (const [key, Icon] of Object.entries(TOOL_ICONS)) {
-    if (lower.includes(key)) return Icon;
-  }
-  return Terminal;
-}
 
 // ─── 摘要生成（一行描述） ───────────────────────────────────────────
 
@@ -297,7 +263,6 @@ export const InlineToolCallCard = memo(
     const isComplete = status === "ok" || status === "error";
 
     const args = parseArgs(toolCall.arguments);
-    const Icon = getIcon(toolCall.name);
     const summary = buildSummary(toolCall.name, args, status);
     const hasResult = !!toolCall.result;
     const isThink = toolCall.name === "think";
@@ -442,9 +407,6 @@ export const InlineToolCallCard = memo(
           ) : (
             <span className="w-3.5 shrink-0" />
           )}
-
-          {/* 图标 */}
-          <Icon size={14} className={`shrink-0 ${isLoadSkill ? "text-[#1a7f37]" : "text-t-ghost"}`} strokeWidth={1.5} />
 
           {/* 摘要 */}
           <SummaryLine summary={summary} className="flex-1" />

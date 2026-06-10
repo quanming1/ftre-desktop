@@ -706,7 +706,7 @@ export function ChatInput() {
 
   return (
     <div className="px-6 pb-4 pt-3">
-      <div className="mx-auto w-full max-w-[960px]">
+      <div className="mx-auto w-full max-w-[900px]">
 
         <div
           onDragOver={handleDragOver}
