@@ -16,6 +16,20 @@ import { terminalManager } from "@/services/terminal";
 import { useTerminal, type TerminalInstance } from "@/stores/terminal";
 import { useWorkspace } from "@/stores/workspace";
 import { useLayout } from "@/stores/layout";
+import { useChat } from "@/stores/chat";
+import { useSession } from "@/stores/session";
+
+/** 获取当前 session 的工作区路径，优先级：session.workspace > pendingWorkspace > rootPath */
+function getCurrentSessionWorkspace(): string | null {
+    const chat = useChat.getState();
+    const session = useSession.getState();
+    if (chat.sessionId) {
+        const s = session.allSessions.find((s) => s.session_id === chat.sessionId);
+        if (s?.workspace) return s.workspace;
+    }
+    if (chat.pendingWorkspace) return chat.pendingWorkspace;
+    return useWorkspace.getState().rootPath;
+}
 
 /** 根据平台动态生成可选的 shell 列表 */
 function getShellOptions(): { label: string; shell: string }[] {
@@ -109,12 +123,18 @@ export function TerminalTabBar({ instances, activeTerminalId, onToggleSearch }: 
 
     const handleNewTerminal = useCallback(async () => {
         const workspace = useWorkspace.getState().rootPath;
-        if (workspace) await terminalManager.createTerminal(workspace);
+        if (workspace) {
+            const cwd = getCurrentSessionWorkspace() ?? workspace;
+            await terminalManager.createTerminal(workspace, cwd);
+        }
     }, []);
 
     const handleNewTerminalWithShell = useCallback(async (shell: string) => {
         const workspace = useWorkspace.getState().rootPath;
-        if (workspace) await terminalManager.createTerminal(workspace, undefined, shell);
+        if (workspace) {
+            const cwd = getCurrentSessionWorkspace() ?? workspace;
+            await terminalManager.createTerminal(workspace, cwd, shell);
+        }
         setShowShellMenu(null);
     }, []);
 
