@@ -9,11 +9,28 @@ import { useEffect, useRef, useCallback, useState } from "react";
 import { useTerminal } from "@/stores/terminal";
 import { useWorkspace } from "@/stores/workspace";
 import { useLayout } from "@/stores/layout";
+import { useChat } from "@/stores/chat";
+import { useSession } from "@/stores/session";
 import { terminalManager } from "@/services/terminal";
 import { TerminalTabBar } from "./components/TerminalTabBar";
 import { TerminalPane } from "./components/TerminalPane";
 import { TerminalSearchBar } from "./components/TerminalSearchBar";
 import "@xterm/xterm/css/xterm.css";
+
+/** 获取当前 session 的工作区路径，优先级：session.workspace > pendingWorkspace > rootPath */
+function getCurrentSessionWorkspace(): string | null {
+    const chat = useChat.getState();
+    const session = useSession.getState();
+    // 有 sessionId 时，从 session 列表查找 workspace
+    if (chat.sessionId) {
+        const s = session.allSessions.find((s) => s.session_id === chat.sessionId);
+        if (s?.workspace) return s.workspace;
+    }
+    // 新会话还没创建 session 时，用 pendingWorkspace
+    if (chat.pendingWorkspace) return chat.pendingWorkspace;
+    // 兜底用全局 rootPath
+    return useWorkspace.getState().rootPath;
+}
 
 export function TerminalManager() {
     const instances = useTerminal((s) => s.instances);
@@ -23,7 +40,7 @@ export function TerminalManager() {
     /** 追踪哪些终端已经挂载过 DOM 容器 */
     const attachedIds = useRef<Set<string>>(new Set());
 
-    // ── 自动创建第一个终端 ────────────────────────────────────────────
+    // ── 自动创建第一个终端（cwd 为当前 session 工作区） ──────────────
 
     const rootPath = useWorkspace((s) => s.rootPath);
 
@@ -33,7 +50,8 @@ export function TerminalManager() {
         if (!terminalManager.getActiveWorkspace()) {
             terminalManager.setActiveWorkspace(rootPath);
         }
-        terminalManager.createTerminal(rootPath);
+        const cwd = getCurrentSessionWorkspace() ?? rootPath;
+        terminalManager.createTerminal(rootPath, cwd);
     }, [rootPath]); // eslint-disable-line react-hooks/exhaustive-deps
 
     // ── DOM 容器 ref 回调 ─────────────────────────────────────────────
