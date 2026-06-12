@@ -581,6 +581,8 @@ export function applyEvent(b: Bucket, ev: BusEvent): void {
 
     // ─── 上下文压缩事件 ───
     case "context_compact_start": {
+      // 后台空闲压缩 / 关键路径 raw 兜底带 silent=true，前端不渲染气泡（无感）
+      if (d.silent === true) return;
       b.messages = [
         ...b.messages,
         {
@@ -598,6 +600,7 @@ export function applyEvent(b: Bucket, ev: BusEvent): void {
     }
 
     case "context_compact_done": {
+      if (d.silent === true) return;
       // 找最后一条 running 的压缩消息，标记为 done
       for (let i = b.messages.length - 1; i >= 0; i--) {
         const m = b.messages[i];
@@ -621,6 +624,7 @@ export function applyEvent(b: Bucket, ev: BusEvent): void {
     }
 
     case "context_compact_failed": {
+      if (d.silent === true) return;
       for (let i = b.messages.length - 1; i >= 0; i--) {
         const m = b.messages[i];
         if (m.compact?.status === "running") {
@@ -643,7 +647,10 @@ export function applyEvent(b: Bucket, ev: BusEvent): void {
 
     // ─── 历史回放：context_compact 事件 ───
     case "context_compact": {
-      // 历史回放时遇到压缩事件：仅插入一条分隔气泡，
+      // 历史回放时遇到压缩事件：silent 标记的压缩（后台/raw 兜底）不在历史里
+      // 显式渲染气泡——后端 silent 已经落到 payload 上，前端这里直接跳过。
+      // 用户主动 /compact 才会留下可见气泡。
+      if (d.silent === true) return;
       // 之前的历史消息保留可见（前端只做"提示这里压缩过了"，不做实际折叠）
       const summary = typeof d.summary === "string" ? d.summary : "";
       b.messages = [

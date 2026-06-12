@@ -271,3 +271,66 @@ describe("applyEvent — history replay across multiple ReAct rounds", () => {
         expect(m.content).toBe("Cargo 可用了！");
     });
 });
+
+
+describe("applyEvent — context_compact silent 静默（无感）", () => {
+    it("context_compact_start silent=true 不渲染气泡", () => {
+        const b = fresh();
+        feed(b, [
+            { type: "context_compact_start", data: { events: 10, tokens: 50000, silent: true } },
+        ]);
+        expect(b.messages).toHaveLength(0);
+    });
+
+    it("context_compact_start 默认（无 silent）渲染气泡", () => {
+        const b = fresh();
+        feed(b, [
+            { type: "context_compact_start", data: { events: 10, tokens: 50000 } },
+        ]);
+        expect(b.messages).toHaveLength(1);
+        expect(b.messages[0].role).toBe("system");
+        expect(b.messages[0].compact?.status).toBe("running");
+    });
+
+    it("context_compact_done silent=true 不更新任何消息", () => {
+        const b = fresh();
+        // 先有一条非 silent 的 running 气泡
+        feed(b, [{ type: "context_compact_start", data: { events: 1 } }]);
+        // silent done 不该触碰它
+        feed(b, [
+            { type: "context_compact_done", data: { summary: "x", silent: true } },
+        ]);
+        expect(b.messages[0].compact?.status).toBe("running");
+    });
+
+    it("context_compact_done 默认更新最近 running 为 done", () => {
+        const b = fresh();
+        feed(b, [
+            { type: "context_compact_start", data: { events: 5, tokens: 30000 } },
+            { type: "context_compact_done", data: { summary: "## ok", tokens_before: 30000 } },
+        ]);
+        expect(b.messages[0].compact?.status).toBe("done");
+        expect(b.messages[0].compact?.summaryPreview).toBe("## ok");
+    });
+
+    it("context_compact_failed silent=true 不更新任何消息", () => {
+        const b = fresh();
+        feed(b, [{ type: "context_compact_start", data: {} }]);
+        feed(b, [{ type: "context_compact_failed", data: { reason: "oops", silent: true } }]);
+        expect(b.messages[0].compact?.status).toBe("running");
+    });
+
+    it("context_compact 历史回放 silent=true 不插入分隔气泡", () => {
+        const b = fresh();
+        feed(b, [{ type: "context_compact", data: { summary: "## raw 兜底", silent: true } }]);
+        expect(b.messages).toHaveLength(0);
+    });
+
+    it("context_compact 历史回放默认插入分隔气泡", () => {
+        const b = fresh();
+        feed(b, [{ type: "context_compact", data: { summary: "## subagent 摘要" } }]);
+        expect(b.messages).toHaveLength(1);
+        expect(b.messages[0].compact?.status).toBe("done");
+        expect(b.messages[0].compact?.summaryPreview).toBe("## subagent 摘要");
+    });
+});
