@@ -205,12 +205,12 @@ class WebSocketClient {
     return id;
   }
 
-  /** 取消当前执行 */
+  /** 取消当前执行：发送 /cancel 的 user_input 帧，后端系统级指令在锁外处理 */
   sendCancel(sessionId?: string): void {
     this.send({
       id: crypto.randomUUID().slice(0, 16),
-      type: "cancel",
-      data: { session_id: sessionId || "" },
+      type: "user_input",
+      data: { session_id: sessionId || "", content: "/cancel" },
     });
   }
 

@@ -530,6 +530,7 @@ export function applyEvent(b: Bucket, ev: BusEvent): void {
           ),
         };
       });
+      b.isBusy = false;
       b.retryState = null;
       return;
     }
@@ -543,6 +544,7 @@ export function applyEvent(b: Bucket, ev: BusEvent): void {
         ...b.messages,
         { id: ev.id ?? nextId("err"), role: "assistant", content: msg, timestamp: ts, isError: true },
       ];
+      b.isBusy = false;
       b.error = code ? `[${code}] ${msg}` : msg;
       return;
     }
@@ -1005,9 +1007,8 @@ export const useChat = create<ChatState>((set, get) => ({
   cancelStream: () => {
     const sid = get().sessionId;
     if (!sid) return set({ isBusy: false });
-    // 暂停按钮统一走 /cancel 指令，不再使用独立 cancel 帧。
-    // /cancel 在 sendMessage 中被识别为 ephemeral 控制指令，不创建本地假消息。
-    get().sendMessage([{ type: "text", data: "/cancel" }]);
+    // 发 /cancel 的 user_input 帧，后端系统级指令在 session lock 外处理
+    wsClient.sendCancel(sid);
   },
 
   newChat: () => set({ sessionId: null, messages: [], isBusy: false, error: null, retryState: null, contextTokens: 0, tokenUsage: null, pendingWorkspace: _defaultWsCache }),
@@ -1031,7 +1032,7 @@ export const useChat = create<ChatState>((set, get) => ({
   refreshSession: (sessionId, messages) => {
     const b = bucket(sessionId);
     const tail = last(b.messages);
-    if (b.isBusy || tail?.streaming) return;
+    if (tail?.streaming) return;
     b.messages = messages;
     mirror(sessionId);
   },
@@ -1044,7 +1045,7 @@ export const useChat = create<ChatState>((set, get) => ({
   loadSessionEvents: (sessionId, events, mode) => {
     const b = bucket(sessionId);
     const tail = last(b.messages);
-    if (mode === "refresh" && (b.isBusy || tail?.streaming)) return;
+    if (mode === "refresh" && tail?.streaming) return;
     if (mode === "hydrate" && b.messages.length > 0) return;
     const visibleCompactMessages =
       mode === "refresh" ? b.messages.filter((m) => m.compact && m.compact.status !== "running") : [];
@@ -1070,6 +1071,10 @@ export const useChat = create<ChatState>((set, get) => ({
     if (visibleCompactMessages.length > 0 && !b.messages.some((m) => m.compact)) {
       b.messages = [...b.messages, ...visibleCompactMessages];
     }
+    // 历史回放来自 DB，尾部无 streaming 则不应残留 stale isBusy
+    if (!last(b.messages)?.streaming) {
+      b.isBusy = false;
+    }
     mirror(sessionId);
   },
 
@@ -1083,7 +1088,7 @@ export const useChat = create<ChatState>((set, get) => ({
     const b = bucket(sessionId);
     const tail = last(b.messages);
     // 流式中跳过，避免重排打断（与 loadSessionEvents 'refresh' 同语义）
-    if (b.isBusy || tail?.streaming) return;
+    if (tail?.streaming) return;
 
     // 按 message id 去重合并（earlier 在前；旧 events 在后）
     const seen = new Set<string>();
