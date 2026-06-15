@@ -23,62 +23,58 @@ import {
   useMemo,
   type ReactNode,
 } from "react";
-import { Check, Search, Settings2, Star } from "lucide-react";
+import { Check, Pin, Search, Settings2 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { ModelBadges } from "./ModelBadges";
 import type { ModelItem } from "@/services/api";
 
 // ─────────────────────────────────────────────────────────────
-// 常用模型存储
+// Pin 模型存储（纯前端，localStorage）
 // ─────────────────────────────────────────────────────────────
-const FREQUENT_MODELS_KEY = "ftre:frequent-models";
-const MAX_FREQUENT_MODELS = 3;
+const PINNED_MODELS_KEY = "ftre:pinned-models";
 
-interface FrequentModelRecord {
+interface PinnedModelKey {
   provider: string;
   modelId: string;
-  count: number;
-  lastUsed: number;
 }
 
-function getFrequentModels(): FrequentModelRecord[] {
+function getPinnedModels(): PinnedModelKey[] {
   try {
-    const raw = localStorage.getItem(FREQUENT_MODELS_KEY);
+    const raw = localStorage.getItem(PINNED_MODELS_KEY);
     if (!raw) return [];
-    return JSON.parse(raw) as FrequentModelRecord[];
+    return JSON.parse(raw) as PinnedModelKey[];
   } catch {
     return [];
   }
 }
 
-function recordModelUsage(provider: string, modelId: string): void {
-  const records = getFrequentModels();
-  const key = `${provider}:${modelId}`;
-  const existing = records.find(
-    (r) => `${r.provider}:${r.modelId}` === key,
-  );
-
-  if (existing) {
-    existing.count += 1;
-    existing.lastUsed = Date.now();
-  } else {
-    records.push({
-      provider,
-      modelId,
-      count: 1,
-      lastUsed: Date.now(),
-    });
-  }
-
-  // 按使用次数排序，保留前 10 条
-  records.sort((a, b) => b.count - a.count);
-  const trimmed = records.slice(0, 10);
-
+function setPinnedModels(pins: PinnedModelKey[]): void {
   try {
-    localStorage.setItem(FREQUENT_MODELS_KEY, JSON.stringify(trimmed));
+    localStorage.setItem(PINNED_MODELS_KEY, JSON.stringify(pins));
   } catch {
     // ignore
   }
+}
+
+function togglePin(provider: string, modelId: string): boolean {
+  const pins = getPinnedModels();
+  const idx = pins.findIndex(
+    (p) => p.provider === provider && p.modelId === modelId,
+  );
+  const wasPinned = idx !== -1;
+  if (wasPinned) {
+    pins.splice(idx, 1);
+  } else {
+    pins.push({ provider, modelId });
+  }
+  setPinnedModels(pins);
+  return !wasPinned; // 返回新的 pinned 状态
+}
+
+function isPinned(provider: string, modelId: string): boolean {
+  return getPinnedModels().some(
+    (p) => p.provider === provider && p.modelId === modelId,
+  );
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -152,16 +148,17 @@ export function ModelPicker({
   const toggle = useCallback(() => setOpen((v) => !v), []);
   const close = useCallback(() => setOpen(false), []);
 
-  // 计算常用模型
-  const frequentModels = useMemo(() => {
+  // Pin 模型列表（响应 localStorage 变化需要强制刷新）
+  const [, forceUpdate] = useState(0);
+  const pinnedModels = useMemo(() => {
     if (providers.length === 0) return [];
-    const records = getFrequentModels();
+    const pins = getPinnedModels();
     const result: { provider: ProviderInfo; model: ModelItem }[] = [];
 
-    for (const record of records.slice(0, MAX_FREQUENT_MODELS)) {
-      const p = providers.find((pr) => pr.name === record.provider);
+    for (const pin of pins) {
+      const p = providers.find((pr) => pr.name === pin.provider);
       if (!p) continue;
-      const m = p.models.find((mm) => mm.id === record.modelId);
+      const m = p.models.find((mm) => mm.id === pin.modelId);
       if (!m) continue;
       result.push({ provider: p, model: m });
     }
@@ -175,11 +172,11 @@ export function ModelPicker({
     // 估算每个项的高度
     const itemHeight = 40; // py-2 + text = ~40px
     const groupHeaderHeight = 32; // pt-3 pb-1.5 + text
-    const frequentSectionHeight = frequentModels.length > 0 
-      ? (frequentModels.length * itemHeight + groupHeaderHeight + 16) 
+    const pinnedSectionHeight = pinnedModels.length > 0 
+      ? (pinnedModels.length * itemHeight + groupHeaderHeight + 16) 
       : 0;
     
-    let offset = frequentSectionHeight;
+    let offset = pinnedSectionHeight;
     
     for (const provider of providers) {
       offset += groupHeaderHeight;
@@ -192,7 +189,7 @@ export function ModelPicker({
       }
     }
     return 0;
-  }, [selected, providers, frequentModels]);
+  }, [selected, providers, pinnedModels]);
 
   useEffect(() => {
     if (open) {
@@ -221,8 +218,13 @@ export function ModelPicker({
 
   const handleSelect = async (providerName: string, modelId: string) => {
     close();
-    recordModelUsage(providerName, modelId);
     await onSelect(providerName, modelId);
+  };
+
+  const handleTogglePin = (e: React.MouseEvent, providerName: string, modelId: string) => {
+    e.stopPropagation(); // 阻止触发选择
+    togglePin(providerName, modelId);
+    forceUpdate((n) => n + 1); // 强制刷新让 pinned 列表更新
   };
 
   const handleExtraSelect = async () => {
@@ -308,20 +310,20 @@ export function ModelPicker({
                   </div>
                 )}
 
-                {/* 常用模型 */}
-                {!search.trim() && frequentModels.length > 0 && (
+                {/* Pin 模型 */}
+                {!search.trim() && pinnedModels.length > 0 && (
                   <div className="mb-1">
                     <div className="px-4 pt-2 pb-1.5 text-[11px] text-[var(--ftre-text-ghost,#666)] uppercase tracking-wider font-medium flex items-center gap-1.5">
-                      <Star size={10} className="fill-current" />
-                      常用
+                      <Pin size={10} className="fill-current" />
+                      Pin
                     </div>
-                    {frequentModels.map(({ provider, model }) => {
+                    {pinnedModels.map(({ provider, model }) => {
                       const isSelected =
                         model.id === selected?.modelId &&
                         provider.name === selected?.provider;
                       return (
                         <div
-                          key={`freq-${provider.name}-${model.id}`}
+                          key={`pin-${provider.name}-${model.id}`}
                           className="px-1.5"
                         >
                           <button
@@ -330,7 +332,7 @@ export function ModelPicker({
                             }
                             className={`${itemBaseClass} ${
                               isSelected ? itemSelectedClass : itemNormalClass
-                            }`}
+                            } group`}
                           >
                             <span className="truncate flex-1 min-w-0">
                               {model.name || model.id}
@@ -338,10 +340,29 @@ export function ModelPicker({
                             <span className="text-[11px] text-[var(--ftre-text-ghost,#666)] shrink-0">
                               {provider.label}
                             </span>
-                            <ModelBadges
-                              contextWindow={model.context_window}
-                              vision={model.vision}
-                            />
+                            {/* Badges / Pin 互斥：常驻 Pin，hover 时 Pin 淡出让位给 badges */}
+                            <span className="shrink-0 flex items-center gap-0.5 overflow-hidden">
+                              <span
+                                className={`flex items-center gap-1 transition-all duration-150 ${
+                                  /* hover 时 badges 淡入展开 */
+                                  "max-w-0 opacity-0 group-hover:max-w-[80px] group-hover:opacity-100"
+                                }`}
+                              >
+                                <ModelBadges
+                                  contextWindow={model.context_window}
+                                  vision={model.vision}
+                                />
+                              </span>
+                              <span
+                                onClick={(e) => handleTogglePin(e, provider.name, model.id)}
+                                className={`p-0.5 rounded hover:bg-[var(--ftre-border,#3c3c3c)]/50 cursor-pointer transition-all duration-150 text-[var(--ftre-accent,#00ff88)] ${
+                                  "max-w-[24px] opacity-100 group-hover:max-w-0 group-hover:opacity-0"
+                                }`}
+                                title="取消置顶"
+                              >
+                                <Pin size={13} className="fill-current" />
+                              </span>
+                            </span>
                             {isSelected && (
                               <Check size={14} className="shrink-0" />
                             )}
@@ -374,6 +395,7 @@ export function ModelPicker({
                           const isSelected =
                             model.id === selected?.modelId &&
                             provider.name === selected?.provider;
+                          const modelPinned = isPinned(provider.name, model.id);
                           return (
                             <div
                               key={`${provider.name}-${model.id}`}
@@ -388,15 +410,37 @@ export function ModelPicker({
                                   isSelected
                                     ? itemSelectedClass
                                     : itemNormalClass
-                                }`}
+                                } group`}
                               >
                                 <span className="truncate flex-1 min-w-0">
                                   {model.name || model.id}
                                 </span>
-                                <ModelBadges
-                                  contextWindow={model.context_window}
-                                  vision={model.vision}
-                                />
+                                {/* Badges / Pin 互斥：默认 badges，hover 时 badges 收起 Pin 展开 */}
+                                <span className="shrink-0 flex items-center gap-0.5 overflow-hidden">
+                                  <span
+                                    className={`flex items-center gap-1 transition-all duration-150 ${
+                                      modelPinned
+                                        ? "max-w-0 opacity-0"
+                                        : "max-w-[80px] opacity-100 group-hover:max-w-0 group-hover:opacity-0"
+                                    }`}
+                                  >
+                                    <ModelBadges
+                                      contextWindow={model.context_window}
+                                      vision={model.vision}
+                                    />
+                                  </span>
+                                  <span
+                                    onClick={(e) => handleTogglePin(e, provider.name, model.id)}
+                                    className={`p-0.5 rounded hover:bg-[var(--ftre-border,#3c3c3c)]/50 cursor-pointer transition-all duration-150 ${
+                                      modelPinned
+                                        ? "max-w-[24px] opacity-100 text-[var(--ftre-accent,#00ff88)]"
+                                        : "max-w-0 opacity-0 text-[var(--ftre-text-ghost,#666)] group-hover:max-w-[24px] group-hover:opacity-100"
+                                    }`}
+                                    title={modelPinned ? "取消置顶" : "置顶"}
+                                  >
+                                    <Pin size={13} className={modelPinned ? "fill-current" : ""} />
+                                  </span>
+                                </span>
                                 {isSelected && (
                                   <Check size={14} className="shrink-0" />
                                 )}
