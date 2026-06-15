@@ -645,6 +645,11 @@ export function applyEvent(b: Bucket, ev: BusEvent): void {
       return;
     }
 
+    case "context_compact_enabled": {
+      // 自动启用 pending 摘要只影响后端上下文视图；UI 不额外渲染气泡。
+      return;
+    }
+
     // ─── 历史回放：context_compact 事件 ───
     case "context_compact": {
       // 历史回放时遇到压缩事件：silent 标记的压缩（后台/raw 兜底）不在历史里
@@ -770,8 +775,10 @@ if (!(globalThis as any)[__wsBoundFlag]) {
     // 实时事件结束后刷新 token 估算：
     // - done: 一次完整 LLM 轮次结束，后端刚写入新的 usage_update，重读拿到最新 anchor
     // - external_message: 别的 session 注入了消息，pending 部分会增长
+    // - context_compact_done: 压缩摘要已准备好，刷新拿到最新估算
+    // - context_compact_enabled: 压缩事件启用，token 数大幅下降，立即刷新占比环
     // 只对当前活跃 session 刷新，避免后台 session 频繁打接口
-    if ((ev.type === "done" || ev.type === "external_message") && useChat.getState().sessionId === sid) {
+    if ((ev.type === "done" || ev.type === "external_message" || ev.type === "context_compact_done" || ev.type === "context_compact_enabled") && useChat.getState().sessionId === sid) {
       useChat.getState().refreshTokenUsage(sid);
     }
   });
@@ -1039,6 +1046,8 @@ export const useChat = create<ChatState>((set, get) => ({
     const tail = last(b.messages);
     if (mode === "refresh" && (b.isBusy || tail?.streaming)) return;
     if (mode === "hydrate" && b.messages.length > 0) return;
+    const visibleCompactMessages =
+      mode === "refresh" ? b.messages.filter((m) => m.compact && m.compact.status !== "running") : [];
     b.messages = [];
     b.events = [...events];
     b.earliestTs = events.length > 0 ? events[0].ts ?? null : null;
@@ -1055,6 +1064,11 @@ export const useChat = create<ChatState>((set, get) => ({
       const next = b.messages.slice();
       next[next.length - 1] = { ...t, parts, streaming: false };
       b.messages = next;
+    }
+    // context_compact 会按历史边界 timestamp 回插，刷新最新页时可能拿不到这条
+    // 持久化事件。保留实时路径已经显示的手动 /compact 气泡，避免 idle 后刷新把它抹掉。
+    if (visibleCompactMessages.length > 0 && !b.messages.some((m) => m.compact)) {
+      b.messages = [...b.messages, ...visibleCompactMessages];
     }
     mirror(sessionId);
   },
