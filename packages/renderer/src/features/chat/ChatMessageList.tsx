@@ -264,6 +264,27 @@ export const ChatMessageList = memo(function ChatMessageList({
             !msg.streaming &&
             (!next || next.role !== "assistant");
 
+          // 本轮所有 assistant 消息的文本列表（从上一个 user 消息之后到本条）
+          let turnTexts: string[] | undefined;
+          if (isLastOfTurn) {
+            // 找本轮起始：上一个 user 消息
+            let turnStart = 0;
+            for (let j = i - 1; j >= 0; j--) {
+              if (visibleMessages[j].role === "user") {
+                turnStart = j + 1;
+                break;
+              }
+            }
+            turnTexts = [];
+            for (let j = turnStart; j <= i; j++) {
+              const m = visibleMessages[j];
+              if (m.role !== "assistant") continue;
+              const parts = m.parts?.filter((p): p is { type: "text"; text: string } => p.type === "text" && Boolean(p.text));
+              const text = parts?.length ? parts.map((p) => p.text).join("\n") : m.content ?? "";
+              if (text) turnTexts.push(text);
+            }
+          }
+
           let turnUsage: ChatMessage["usage"] | undefined;
           if (msg.role === "assistant" && msg.usage) {
             let prevTotal = 0;
@@ -289,6 +310,7 @@ export const ChatMessageList = memo(function ChatMessageList({
               message={msg}
               showActions={isLastOfTurn}
               turnUsage={turnUsage}
+              turnTexts={turnTexts}
             />
           );
         })}
@@ -319,10 +341,13 @@ const MessageItem = memo(function MessageItem({
   message,
   showActions = false,
   turnUsage,
+  turnTexts,
 }: {
   message: ChatMessage;
   showActions?: boolean;
   turnUsage?: ChatMessage["usage"];
+  /** 本轮所有 assistant 消息的纯文本列表（isLastOfTurn 时传入） */
+  turnTexts?: string[];
 }) {
   if (message.role === "user") {
     return <UserMessage message={message} />;
@@ -333,6 +358,7 @@ const MessageItem = memo(function MessageItem({
         message={message}
         showActions={showActions}
         turnUsage={turnUsage}
+        turnTexts={turnTexts}
       />
     );
   }
