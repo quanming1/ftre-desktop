@@ -6,6 +6,7 @@ import { CodeBlock, StreamingContext } from "./CodeBlock";
 import { useThrottledValue } from "@/hooks/useThrottledValue";
 import { splitBlocks } from "./streamingMarkdown";
 import { InlineToolCallCard } from "./InlineToolCallCard";
+import { ToolCallGroup } from "./ToolCallGroup";
 import { ChevronRight, Copy, Check } from "lucide-react";
 import { Tooltip, TooltipProvider } from "@ftre/ui";
 import { useNotification } from "@/stores/notification";
@@ -142,30 +143,55 @@ function PartsRenderer({
     if (parts[i].type === "text") { lastTextIdx = i; break; }
   }
 
-  return (
-    <>
-      {parts.map((p, i) => {
-        if (p.type === "tool_call") {
-          const tc = toolCalls.find((t) => t.id === p.toolCallId);
-          if (!tc) return null;
-          return <InlineToolCallCard key={`tc-${tc.id}`} toolCall={tc} />;
-        }
-        if (p.type === "reasoning") {
-          // reasoning part 自带 streaming 标记：reasoning_complete 事件会将其置为 false
-          const isReasoningLive = streaming && p.streaming !== false;
-          return <ReasoningBlock key={`r-${i}`} text={p.text} isActive={isReasoningLive} />;
-        }
-        return (
-          <TextPart
-            key={`tx-${i}`}
-            text={p.text}
-            live={streaming && i === lastTextIdx}
-            anchor={i === lastTextIdx ? mdRef : undefined}
-          />
+  const rendered: React.ReactNode[] = [];
+
+  for (let i = 0; i < parts.length; i++) {
+    const p = parts[i];
+
+    if (p.type === "tool_call") {
+      const groupedIds: string[] = [];
+      while (i < parts.length && parts[i].type === "tool_call") {
+        groupedIds.push(parts[i].toolCallId);
+        i++;
+      }
+      i -= 1;
+
+      const groupedToolCalls = groupedIds
+        .map((id) => toolCalls.find((toolCall) => toolCall.id === id))
+        .filter((toolCall): toolCall is ToolCall => Boolean(toolCall));
+
+      if (groupedToolCalls.length === 1) {
+        rendered.push(
+          <InlineToolCallCard key={`tc-${groupedToolCalls[0].id}`} toolCall={groupedToolCalls[0]} />,
         );
-      })}
-    </>
-  );
+      } else if (groupedToolCalls.length > 1) {
+        rendered.push(
+          <ToolCallGroup
+            key={`tcg-${groupedToolCalls.map((toolCall) => toolCall.id).join("-")}`}
+            toolCalls={groupedToolCalls}
+          />,
+        );
+      }
+      continue;
+    }
+
+    if (p.type === "reasoning") {
+      const isReasoningLive = streaming && p.streaming !== false;
+      rendered.push(<ReasoningBlock key={`r-${i}`} text={p.text} isActive={isReasoningLive} />);
+      continue;
+    }
+
+    rendered.push(
+      <TextPart
+        key={`tx-${i}`}
+        text={p.text}
+        live={streaming && i === lastTextIdx}
+        anchor={i === lastTextIdx ? mdRef : undefined}
+      />,
+    );
+  }
+
+  return <>{rendered}</>;
 }
 
 /**
@@ -207,10 +233,13 @@ export const AssistantMessage = memo(
     message,
     showActions = false,
     turnUsage,
+    turnTexts,
   }: {
     message: ChatMessage;
     showActions?: boolean;
     turnUsage?: ChatMessage["usage"];
+    /** 本轮所有 assistant 消息的纯文本列表 */
+    turnTexts?: string[];
   }) {
     const isStreaming = message.streaming ?? false;
     const throttledContent = useThrottledValue(message.content, 150, isStreaming);
@@ -220,9 +249,12 @@ export const AssistantMessage = memo(
     // 复制
     const [copied, setCopied] = useState(false);
     const handleCopy = useCallback(async () => {
-      const text = (message.parts && message.parts.length > 0)
-        ? message.parts.filter((p): p is { type: "text"; text: string } => p.type === "text").map((p) => p.text).join("\n")
-        : (message.content ?? "");
+      // 优先复制本轮所有 AI 消息；fallback 到本条消息
+      const text = (turnTexts && turnTexts.length > 0)
+        ? turnTexts.join("\n\n")
+        : (message.parts && message.parts.length > 0)
+          ? message.parts.filter((p): p is { type: "text"; text: string } => p.type === "text").map((p) => p.text).join("\n")
+          : (message.content ?? "");
       try {
         await navigator.clipboard.writeText(text);
         setCopied(true);
@@ -230,7 +262,7 @@ export const AssistantMessage = memo(
       } catch {
         useNotification.getState().addNotification({ level: "error", message: "复制失败" });
       }
-    }, [message.parts, message.content]);
+    }, [turnTexts, message.parts, message.content]);
 
     // 流式状态下的"思考中"指示器：取代旧的末尾闪烁光标。
     // 规则：streaming === true 且当前没有 tool 在执行（pending / running）时展示。
@@ -312,6 +344,8 @@ export const AssistantMessage = memo(
                             {(() => {
                               const u = turnUsage ?? message.usage;
                               if (!u) return null;
+                              // 外显本轮输出 token 数
+                              if (u.completion_tokens != null) return `${u.completion_tokens} tok`;
                               if (u.total_tokens != null) return `${u.total_tokens} tok`;
                               return `${u.prompt_tokens ?? 0}+${u.completion_tokens ?? 0} tok`;
                             })()}
@@ -336,6 +370,7 @@ export const AssistantMessage = memo(
     if (prev.message.usage !== next.message.usage) return false;
     if (prev.showActions !== next.showActions) return false;
     if (prev.turnUsage !== next.turnUsage) return false;
+    if (prev.turnTexts !== next.turnTexts) return false;
 
     const a = prev.message.toolCalls, b = next.message.toolCalls;
     if (a === b) return true;
