@@ -774,12 +774,35 @@ if (!(globalThis as any)[__wsBoundFlag]) {
     // 后台时跳过 mirror()，避免攒积 React setState；回前台时 visibilitychange 会一次性刷新
     if (!pageHidden) mirror(sid);
 
-    // 实时事件结束后刷新 token 估算：
-    // - done: 一次完整 LLM 轮次结束，后端刚写入新的 usage_update，重读拿到最新 anchor
-    // - external_message: 别的 session 注入了消息，pending 部分会增长
-    // - context_compact_done: 压缩摘要已准备好，刷新拿到最新估算
-    // - context_compact_enabled: 压缩事件启用，token 数大幅下降，立即刷新占比环
-    // 只对当前活跃 session 刷新，避免后台 session 频繁打接口
+    // ── 实时刷新上下文用量 ──
+    // usage_update：事件自带 usage 数据，就地更新 store，无需再调 API
+    if (ev.type === "usage_update" && useChat.getState().sessionId === sid) {
+      const u = (ev.data as any)?.usage;
+      if (u && typeof u.total_tokens === "number") {
+        const current = useChat.getState().tokenUsage;
+        // anchor 是这次实算的 usage；pending_estimated 从上次的值减去本次实算覆盖的部分
+        const prevAnchorTotal = current?.anchor?.total_tokens ?? 0;
+        const newAnchor = {
+          prompt_tokens: u.prompt_tokens ?? 0,
+          completion_tokens: u.completion_tokens ?? 0,
+          total_tokens: u.total_tokens,
+          at: Date.now() / 1000,
+          source: "usage_update",
+        };
+        // 新 anchor 之后的事件估算暂时为 0（因为还没产生新事件）
+        const pending_estimated = 0;
+        const total = newAnchor.total_tokens + pending_estimated;
+        useChat.setState({
+          contextTokens: total,
+          tokenUsage: {
+            anchor: newAnchor,
+            pending_estimated,
+            total,
+          },
+        });
+      }
+    }
+    // 其他事件：需要重算 pending_estimated 等，调 API
     if ((ev.type === "done" || ev.type === "external_message" || ev.type === "context_compact_done" || ev.type === "context_compact_enabled") && useChat.getState().sessionId === sid) {
       useChat.getState().refreshTokenUsage(sid);
     }
