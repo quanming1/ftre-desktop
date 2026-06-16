@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from "react";
-import { Minus, Square, X, Copy, Terminal, GitBranch, ChevronRight } from "lucide-react";
+import { Minus, Square, X, Copy, Terminal, GitBranch, ChevronRight, Plug } from "lucide-react";
 import { PixelLogo } from "@/components/PixelLogo";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { Tooltip, TooltipProvider } from "@ftre/ui";
@@ -8,6 +8,7 @@ import { useWorkspace } from "@/stores/workspace";
 import { useLayout } from "@/stores/layout";
 import { useGitService } from "@/services/git-service";
 import { buildMenuDefinitions, type MenuItem, type ConfirmAction } from "@/lib/menu-definitions";
+import { McpPopover } from "@/features/mcp/McpPopover";
 
 const drag = { WebkitAppRegion: "drag" } as React.CSSProperties;
 const noDrag = { WebkitAppRegion: "no-drag" } as React.CSSProperties;
@@ -22,6 +23,10 @@ export function TitleBar() {
   const rootPath = useWorkspace((s) => s.rootPath);
   const terminalOpen = useLayout((s) => s.terminalDropdownOpen);
   const toggleTerminal = useLayout((s) => s.toggleTerminalDropdown);
+  const mcpPopoverOpen = useLayout((s) => s.mcpPopoverOpen);
+  const toggleMcpPopover = useLayout((s) => s.toggleMcpPopover);
+  const setMcpPopoverOpen = useLayout((s) => s.setMcpPopoverOpen);
+  const mcpAreaRef = useRef<HTMLDivElement>(null);
   const gitInfo = useGitService((s) => s.getInfo());
 
   const projectName = rootPath ? rootPath.split("/").pop() || rootPath.split("\\").pop() : "Ftre";
@@ -42,6 +47,24 @@ export function TitleBar() {
     document.addEventListener("mousedown", handler);
     return () => document.removeEventListener("mousedown", handler);
   }, [logoMenuOpen]);
+
+  // 点击外部关闭 MCP 面板
+  useEffect(() => {
+    if (!mcpPopoverOpen) return;
+    const handler = (e: MouseEvent) => {
+      if (mcpAreaRef.current && !mcpAreaRef.current.contains(e.target as Node)) {
+        setMcpPopoverOpen(false);
+      }
+    };
+    // 延迟绑定，避免本次点击触发关闭
+    const timer = setTimeout(() => {
+      document.addEventListener("mousedown", handler);
+    }, 0);
+    return () => {
+      clearTimeout(timer);
+      document.removeEventListener("mousedown", handler);
+    };
+  }, [mcpPopoverOpen, setMcpPopoverOpen]);
 
   const handleMenuItemClick = useCallback((item: MenuItem) => {
     item.action();
@@ -152,6 +175,23 @@ export function TitleBar() {
             >
               <Terminal size={14} strokeWidth={1.5} />
             </button>
+          </Tooltip>
+
+          {/* MCP 快捷按钮 + 弹出面板 */}
+          <Tooltip content="MCP 服务器" side="bottom">
+            <div ref={mcpAreaRef} className="relative h-full">
+              <button
+                onClick={toggleMcpPopover}
+                className={`h-full px-3 flex items-center gap-1.5 text-[12px] font-mono transition-colors ${
+                  mcpPopoverOpen ? "text-t-primary bg-hover" : "text-t-dim hover:bg-hover hover:text-t-muted"
+                }`}
+              >
+                <Plug size={14} strokeWidth={1.5} />
+              </button>
+              {mcpPopoverOpen && (
+                <McpPopover />
+              )}
+            </div>
           </Tooltip>
         </TooltipProvider>
 

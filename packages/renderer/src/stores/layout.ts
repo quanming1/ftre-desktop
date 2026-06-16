@@ -70,6 +70,11 @@ export interface LayoutState extends PersistedLayoutData {
     /** Agent 群聊浮动窗口（运行时状态，不持久化） */
     agentChatOpen: boolean;
     toggleAgentChat: () => void;
+
+    /** MCP 快捷面板（运行时状态，不持久化） */
+    mcpPopoverOpen: boolean;
+    toggleMcpPopover: () => void;
+    setMcpPopoverOpen: (open: boolean) => void;
 }
 
 const DEFAULT_PANEL_ORDER: PanelId[] = ['sessions', 'sidebar', 'editor', 'chat'];
@@ -303,5 +308,14 @@ export const useLayout = create<LayoutState>((set, get) => ({
     agentChatOpen: false,
     toggleAgentChat: () => {
         set({ agentChatOpen: !get().agentChatOpen });
+    },
+
+    // MCP 快捷面板 — 运行时状态，不写 localStorage
+    mcpPopoverOpen: false,
+    toggleMcpPopover: () => {
+        set({ mcpPopoverOpen: !get().mcpPopoverOpen });
+    },
+    setMcpPopoverOpen: (open) => {
+        set({ mcpPopoverOpen: open });
     },
 }));
