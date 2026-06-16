@@ -178,21 +178,26 @@ export function TitleBar() {
           </Tooltip>
 
           {/* MCP 快捷按钮 + 弹出面板 */}
-          <Tooltip content="MCP 服务器" side="bottom">
-            <div ref={mcpAreaRef} className="relative h-full">
+          <div ref={mcpAreaRef} className="relative h-full">
+            {mcpPopoverOpen ? (
               <button
                 onClick={toggleMcpPopover}
-                className={`h-full px-3 flex items-center gap-1.5 text-[12px] font-mono transition-colors ${
-                  mcpPopoverOpen ? "text-t-primary bg-hover" : "text-t-dim hover:bg-hover hover:text-t-muted"
-                }`}
+                className="h-full px-3 flex items-center gap-1.5 text-[12px] font-mono transition-colors text-t-primary bg-hover"
               >
                 <Plug size={14} strokeWidth={1.5} />
               </button>
-              {mcpPopoverOpen && (
-                <McpPopover />
-              )}
-            </div>
-          </Tooltip>
+            ) : (
+              <Tooltip content="MCP 服务器" side="bottom">
+                <button
+                  onClick={toggleMcpPopover}
+                  className="h-full px-3 flex items-center gap-1.5 text-[12px] font-mono transition-colors text-t-dim hover:bg-hover hover:text-t-muted"
+                >
+                  <Plug size={14} strokeWidth={1.5} />
+                </button>
+              </Tooltip>
+            )}
+            {mcpPopoverOpen && <McpPopover />}
+          </div>
         </TooltipProvider>
 
         <div className="w-[1px] h-[14px] bg-border mx-0.5" />
