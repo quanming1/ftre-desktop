@@ -1123,3 +1123,73 @@ export async function sendRoomMessage(
   _senderId?: string,
   _targetAgentIds?: string[],
 ): Promise<void> { }
+
+// ─── MCP 服务器管理 ───────────────────────────────────────────────
+
+const MCP_API = `${API_BASE}/api/mcp`;
+
+export interface McpServerConfig {
+  name: string;
+  type: "local" | "remote";
+  /** local 专用 */
+  command?: string[];
+  environment?: Record<string, string>;
+  /** remote 专用 */
+  url?: string;
+  headers?: Record<string, string>;
+  /** 通用 */
+  disabled?: boolean;
+  timeout?: number;
+  /** 运行时状态（仅 GET 返回） */
+  status?: "connected" | "disconnected";
+}
+
+export async function fetchMcpServers(): Promise<McpServerConfig[]> {
+  const res = await fetch(MCP_API);
+  const data = await res.json();
+  return data.servers || [];
+}
+
+export async function createMcpServer(
+  config: Omit<McpServerConfig, "status">,
+): Promise<McpServerConfig> {
+  const res = await fetch(MCP_API, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(config),
+  });
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    throw new Error(data.detail || `创建失败 (${res.status})`);
+  }
+  return res.json();
+}
+
+export async function updateMcpServer(
+  name: string,
+  patch: Partial<McpServerConfig>,
+): Promise<McpServerConfig> {
+  const res = await fetch(`${MCP_API}/${encodeURIComponent(name)}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(patch),
+  });
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    throw new Error(data.detail || `更新失败 (${res.status})`);
+  }
+  return res.json();
+}
+
+export async function deleteMcpServer(
+  name: string,
+): Promise<{ ok: true } | { error: string }> {
+  const res = await fetch(`${MCP_API}/${encodeURIComponent(name)}`, {
+    method: "DELETE",
+  });
+  if (!res.ok && res.status !== 204) {
+    const data = await res.json().catch(() => ({}));
+    return { error: data.detail || `删除失败 (${res.status})` };
+  }
+  return { ok: true };
+}
