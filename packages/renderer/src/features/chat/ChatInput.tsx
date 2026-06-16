@@ -7,7 +7,7 @@
  * - 绑定发送/取消/快捷键、粘贴/拖拽图片
  * - 监听外部事件（ftre:insert-code-ref、ftre:insert-archive-ref）
  */
-import { useCallback, useEffect, useMemo, useState, useRef } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useState, useRef } from "react";
 import { Slate, Editable } from "slate-react";
 import { Range } from "slate";
 import { ArrowUp, Box, ChevronRight, Paperclip, Plus, Puzzle, Search, Terminal, X } from "lucide-react";
@@ -16,6 +16,7 @@ import { useLayout } from "@/stores/layout";
 import { useWorkspace } from "@/stores/workspace";
 import { useNotification } from "@/stores/notification";
 import { fetchSkills, fetchCommands, type SkillDef, type CommandDef } from "@/services/api";
+import { saveSessionDraft, getSessionDraft, deleteSessionDraft as removeDraft } from "./sessionDrafts";
 import { AgentSelector } from "./AgentSelector";
 import { ModelSelector } from "./ModelSelector";
 import { TokenRing } from "./TokenRing";
@@ -336,9 +337,33 @@ export function ChatInput() {
 
   // 细粒度选择器：仅订阅各自需要的字段，避免无关状态变化触发重渲染
   const isBusy = useChat((s) => s.isBusy);
+  const sessionId = useChat((s) => s.sessionId);
   const workspace = useWorkspace((s) => s.rootPath);
   const autoFollow = useLayout((s) => s.autoFollowFiles);
   const toggleAutoFollow = useLayout((s) => s.toggleAutoFollowFiles);
+
+  // ── Session 切换时恢复输入框草稿 ──
+  // 保存采用实时策略（在 onChange 中每次都存），避免组件卸载时丢失草稿。
+  // 这里只做恢复：sessionId 变化时恢复目标 session 的草稿。
+  // restoring 标志防止恢复期间 setContent/clear 触发的 onChange 误删草稿。
+  const restoringRef = useRef(false);
+
+  useLayoutEffect(() => {
+    if (sessionId) {
+      const draft = getSessionDraft(sessionId);
+      if (draft && draft.length > 0) {
+        restoringRef.current = true;
+        inputEditor.setContent(draft);
+        restoringRef.current = false;
+      } else {
+        restoringRef.current = true;
+        inputEditor.clear();
+        restoringRef.current = false;
+      }
+    } else {
+      inputEditor.clear();
+    }
+  }, [sessionId, inputEditor]);
 
   // ── 附件栏状态 ──
   const [attachments, setAttachments] = useState<ImageRef[]>([]);
@@ -425,6 +450,17 @@ export function ChatInput() {
     (value: import("slate").Descendant[]) => {
       inputEditor.onChange(value);
       setSkillSearch(inputEditor.getSkillSearch());
+      // 恢复期间跳过保存：setContent/clear 触发的 onChange 不应写入草稿
+      if (restoringRef.current) return;
+      // 实时保存草稿：每次编辑都存，避免组件卸载时丢失
+      const sid = useChat.getState().sessionId;
+      if (sid) {
+        if (inputEditor.isEmpty) {
+          removeDraft(sid);
+        } else {
+          saveSessionDraft(sid, inputEditor.serialize().parts);
+        }
+      }
     },
     [inputEditor],
   );
@@ -450,6 +486,10 @@ export function ChatInput() {
     inputEditor.clear();
     setSkillSearch(null);
     setAttachments([]);
+
+    // 发送后清除当前 session 的草稿（内容已被消费）
+    const sid = state.sessionId;
+    if (sid) removeDraft(sid);
 
     state.sendMessage(
       parts.length > 0 ? parts : [{ type: "text", data: text }],

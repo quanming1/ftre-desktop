@@ -351,6 +351,11 @@ export const useSession = create<SessionState>((set, get) => ({
 
   deleteSession: async (sessionId) => {
     get().closeTab(sessionId);
+    // 清除该 session 的输入框草稿
+    try {
+      const { deleteSessionDraft } = await import("@/features/chat/sessionDrafts");
+      deleteSessionDraft(sessionId);
+    } catch { /* 静默 */ }
     // 后端先删；本地状态总是同步到 UI（即便后端失败也至少把它从列表里去掉，
     // 下一轮 5s 轮询会重新带回，让用户看到错误信号）
     void deleteSessionRemote(sessionId);
