@@ -340,11 +340,10 @@ export function ModelPicker({
                             <span className="text-[11px] text-[var(--ftre-text-ghost,#666)] shrink-0">
                               {provider.label}
                             </span>
-                            {/* Badges / Pin 互斥：常驻 Pin，hover 时 Pin 淡出让位给 badges */}
+                            {/* Badges / Pin：Pin 常驻可见，hover 时 badges 淡入展开 */}
                             <span className="shrink-0 flex items-center gap-0.5 overflow-hidden">
                               <span
                                 className={`flex items-center gap-1 transition-all duration-150 ${
-                                  /* hover 时 badges 淡入展开 */
                                   "max-w-0 opacity-0 group-hover:max-w-[80px] group-hover:opacity-100"
                                 }`}
                               >
@@ -355,9 +354,8 @@ export function ModelPicker({
                               </span>
                               <span
                                 onClick={(e) => handleTogglePin(e, provider.name, model.id)}
-                                className={`p-0.5 rounded hover:bg-[var(--ftre-border,#3c3c3c)]/50 cursor-pointer transition-all duration-150 text-[var(--ftre-accent,#00ff88)] ${
-                                  "max-w-[24px] opacity-100 group-hover:max-w-0 group-hover:opacity-0"
-                                }`}
+                                onMouseDown={(e) => e.stopPropagation()}
+                                className="p-0.5 rounded hover:bg-[var(--ftre-border,#3c3c3c)]/50 cursor-pointer transition-colors text-[var(--ftre-accent,#00ff88)]"
                                 title="取消置顶"
                               >
                                 <Pin size={13} className="fill-current" />
@@ -431,6 +429,7 @@ export function ModelPicker({
                                   </span>
                                   <span
                                     onClick={(e) => handleTogglePin(e, provider.name, model.id)}
+                                    onMouseDown={(e) => e.stopPropagation()}
                                     className={`p-0.5 rounded hover:bg-[var(--ftre-border,#3c3c3c)]/50 cursor-pointer transition-all duration-150 ${
                                       modelPinned
                                         ? "max-w-[24px] opacity-100 text-[var(--ftre-accent,#00ff88)]"
