@@ -12,4 +12,4 @@
  */
 export const OPEN_SETTINGS_EVENT = "ftre:open-settings";
 
-export type SettingsSection = "general" | "models" | "gateway" | "agents";
+export type SettingsSection = "general" | "models" | "gateway" | "agents" | "mcp";
