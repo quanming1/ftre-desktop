@@ -14,10 +14,7 @@ import {
   Plug,
   Settings,
   Circle,
-  ToggleLeft,
-  ToggleRight,
   RefreshCw,
-  Wrench,
 } from "lucide-react";
 import {
   fetchMcpServers,
@@ -163,20 +160,20 @@ function ServerRow({
 }) {
   const isDisabled = server.disabled;
   const isConnected = server.status === "connected" && !isDisabled;
-  const isDisconnected = !isConnected;
+  const isDisconnected = !isConnected && !isDisabled;
 
   return (
-    <div className="flex items-center gap-2 px-3.5 py-2 hover:bg-hover/60 transition-colors group">
+    <div className="flex items-center gap-2.5 px-3.5 py-2 hover:bg-hover/60 transition-colors">
       {/* 状态圆点 */}
       <Circle
-        size={8}
+        size={7}
         fill={isConnected ? "var(--ftre-accent-default)" : "none"}
         stroke={isDisabled ? "var(--ftre-text-ghost)" : isDisconnected ? "var(--ftre-status-error)" : "var(--ftre-accent-default)"}
         strokeWidth={2}
         className="shrink-0"
       />
 
-      {/* 名称 + 工具数 */}
+      {/* 名称 */}
       <div className="flex-1 min-w-0">
         <span
           className={`text-[12px] font-mono truncate ${
@@ -185,32 +182,30 @@ function ServerRow({
         >
           {server.name}
         </span>
-        {isConnected && (
-          <span className="text-[9px] text-t-ghost font-mono ml-1.5">
-            <Wrench size={9} className="inline -mt-0.5 mr-0.5" strokeWidth={1.5} />
-            可用
-          </span>
-        )}
       </div>
 
-      {/* 启禁用切换 */}
+      {/* 开关 */}
       <button
         onClick={onToggle}
         disabled={toggling}
-        className={`shrink-0 flex items-center transition-colors ${
+        className={`shrink-0 relative w-[36px] h-[20px] rounded-full transition-colors duration-200 ${
           toggling
-            ? "opacity-50 cursor-wait"
-            : "opacity-0 group-hover:opacity-100 cursor-pointer"
+            ? "bg-t-ghost/30 cursor-wait"
+            : isDisabled
+              ? "bg-t-ghost/20 cursor-pointer hover:bg-t-ghost/30"
+              : "bg-neon/60 cursor-pointer hover:bg-neon/80"
         }`}
         aria-label={isDisabled ? "启用" : "禁用"}
         title={isDisabled ? "启用服务器" : "禁用服务器"}
       >
         {toggling ? (
-          <RefreshCw size={13} className="animate-spin text-t-ghost" strokeWidth={1.5} />
-        ) : isDisabled ? (
-          <ToggleLeft size={13} className="text-t-ghost hover:text-t-secondary" strokeWidth={1.5} />
+          <RefreshCw size={10} className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 animate-spin text-t-ghost" strokeWidth={2} />
         ) : (
-          <ToggleRight size={13} className="text-neon" strokeWidth={1.5} />
+          <span
+            className={`absolute top-[2px] w-[16px] h-[16px] rounded-full bg-white shadow-sm transition-transform duration-200 ${
+              isDisabled ? "left-[2px]" : "left-[18px]"
+            }`}
+          />
         )}
       </button>
     </div>
