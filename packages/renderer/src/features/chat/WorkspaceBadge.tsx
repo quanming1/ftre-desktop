@@ -269,14 +269,19 @@ export function WorkspaceBadge() {
 
       {editing && (
         <div
-          className="absolute bottom-full left-0 mb-1 bg-elevated border border-border-subtle rounded-xl shadow-2xl z-[100]"
-          style={{ animation: "fadeIn 0.1s ease-out" }}
+          className="absolute bottom-full left-0 mb-1 z-[100]"
+          onMouseDown={(e) => e.stopPropagation()}
         >
-          <WorkspaceEditor
-            initialValue={workspace}
-            onSave={handleSave}
-            onCancel={() => setEditing(false)}
-          />
+          <div
+            className="bg-elevated border border-border-subtle rounded-xl shadow-2xl overflow-hidden"
+            style={{ animation: "fadeIn 0.1s ease-out" }}
+          >
+            <WorkspaceEditor
+              initialValue={workspace}
+              onSave={handleSave}
+              onCancel={() => setEditing(false)}
+            />
+          </div>
         </div>
       )}
     </div>
