@@ -257,6 +257,15 @@ export class ChatInputEditor {
           createdAt: 0,
         };
         this.insertArchiveChip(archiveRef);
+      } else if (part.type === "skill") {
+        // 转换 data 为 SkillRef 格式并插入
+        const data = part.data as string;
+        const skillRef: SkillRef = {
+          id: data,
+          name: data,
+          description: "",
+        };
+        this.insertSkillChipAtEnd(skillRef);
       }
     }
 

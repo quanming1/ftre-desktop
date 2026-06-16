@@ -397,7 +397,6 @@ export const InlineToolCallCard = memo(
           onClick={toggleExpand}
           disabled={!hasResult && !isError}
           className="flex items-center gap-2 text-left w-full group py-1 disabled:cursor-default"
-          title={isLoadSkill && loadSkillDesc ? loadSkillDesc : undefined}
         >
           {/* 展开箭头（有结果时才显示） */}
           {hasResult || isError ? (
