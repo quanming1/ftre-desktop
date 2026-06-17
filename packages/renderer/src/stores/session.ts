@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Session store — tracks known chat sessions (local state).
  *
  * History 加载：把后端记录直接转成 BusEvent 喂给 chat store 的统一 reducer
@@ -77,7 +77,7 @@ const FIRST_PAGE_SIZE = 50;
 /**
  * 单个 session 内的消息分页大小。
  * - ChatMessageList 默认渲染 PAGE_SIZE=10 条 ChatMessage（约 5 轮对话）
- * - 1 轮 react 平均产生 5-15 个 events（USER_INPUT + 多个 tool_call/tool_result + message_complete）
+ * - 1 轮 react 平均产生 5-15 个 events（user_message + 多个 tool_call/tool_result + message_complete）
  * - 200 events 足够覆盖 ~20 轮对话，远超首屏可见范围；用户多翻几屏也基本不用第二次请求
  */
 const FIRST_PAGE_EVENTS = 200;
