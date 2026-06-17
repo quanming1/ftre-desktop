@@ -50,6 +50,7 @@ interface AiBaseConfig {
       model?: string;
       provider?: string;
       title_generation?: { provider?: string; model?: string } | null;
+      compact_generation?: { provider?: string; model?: string } | null;
     };
   };
   providers?: Record<string, ProviderConfig>;
@@ -263,6 +264,112 @@ function TitleGenerationPicker({
         </div>
         <div className="text-[11.5px] text-t-ghost mt-0.5">
           首条用户消息后异步生成会话标题；不选则沿用主对话模型。
+        </div>
+      </div>
+      <ModelPicker
+        providers={providers}
+        selected={selected}
+        onSelect={handleSelectModel}
+        placement="bottom"
+        panelWidthClass="w-full min-w-[280px]"
+        extraTopOption={{
+          key: "fallback",
+          label: "沿用主对话模型",
+          selected: !selected,
+          onSelect: handleClear,
+        }}
+        renderTrigger={({ open, toggle }) => (
+          <button
+            type="button"
+            onClick={toggle}
+            className="w-full h-8 px-3 flex items-center justify-between gap-2 rounded-md bg-elevated border border-border text-[13px] text-t-primary hover:border-accent/60 transition-colors"
+          >
+            <span className="truncate text-left flex-1">{currentLabel}</span>
+            <ChevronDown
+              size={12}
+              className={`shrink-0 opacity-60 transition-transform ${open ? "rotate-180" : ""}`}
+            />
+          </button>
+        )}
+      />
+    </div>
+  );
+}
+
+// ─── Compact Generation Model Picker ──────────────────────────────
+//
+// 上下文压缩是后台高频长上下文调用，单独挂到便宜/大窗口模型上更合理；
+// 不配的话后端自动回退到主对话模型。
+//
+// 落库格式：agents.defaults.compact_generation = {"provider": "...", "model": "..."}
+// 复用 ModelPicker，保持视觉一致。
+
+function CompactGenerationPicker({
+  config,
+  onChange,
+}: {
+  config: AiBaseConfig;
+  onChange: (next: AiBaseConfig) => void;
+}) {
+  const providers = useMemo(
+    () => buildProviderInfos(config.providers),
+    [config.providers],
+  );
+  const cg = config.agents?.defaults?.compact_generation || null;
+  const selected =
+    cg?.provider && cg?.model
+      ? { provider: cg.provider, modelId: cg.model }
+      : null;
+
+  // 当前选中的展示名
+  const currentLabel = (() => {
+    if (!selected) return "沿用主对话模型";
+    for (const p of providers) {
+      const m = p.models.find((mm) => mm.id === selected.modelId);
+      if (m && p.name === selected.provider) return m.name || m.id;
+    }
+    return `${selected.provider} / ${selected.modelId}`;
+  })();
+
+  const persist = async (next: AiBaseConfig) => {
+    try {
+      await writeConfig(next);
+      onChange(next);
+    } catch {
+      // 失败时不更新本地，下一次重新加载会回到上一稳态
+    }
+  };
+
+  const handleSelectModel = async (
+    providerName: string,
+    modelId: string,
+  ) => {
+    const updated: AiBaseConfig = JSON.parse(JSON.stringify(config));
+    if (!updated.agents) updated.agents = { defaults: {} };
+    if (!updated.agents.defaults) updated.agents.defaults = {};
+    updated.agents.defaults.compact_generation = {
+      provider: providerName,
+      model: modelId,
+    };
+    await persist(updated);
+  };
+
+  const handleClear = async () => {
+    const updated: AiBaseConfig = JSON.parse(JSON.stringify(config));
+    if (updated.agents?.defaults?.compact_generation !== undefined) {
+      delete updated.agents.defaults.compact_generation;
+    }
+    await persist(updated);
+  };
+
+  return (
+    <div className="mb-6 p-4 rounded-lg border border-border bg-elevated/30">
+      <div className="mb-2">
+        <div className="text-[13px] text-t-primary font-medium">
+          上下文压缩模型
+        </div>
+        <div className="text-[11.5px] text-t-ghost mt-0.5">
+          后台异步压缩对话历史为摘要；不选则沿用主对话模型。
         </div>
       </div>
       <ModelPicker
@@ -852,6 +959,7 @@ export function ModelSettings() {
       ) : (
         <>
           <TitleGenerationPicker config={config!} onChange={setConfig} />
+          <CompactGenerationPicker config={config!} onChange={setConfig} />
           <div className="space-y-2">
           {providerNames.map((name) => {
             const p = providers[name];
