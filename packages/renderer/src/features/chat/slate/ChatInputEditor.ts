@@ -386,13 +386,27 @@ export class ChatInputEditor {
       (p) => !(p.type === "text" && !p.data.trim()),
     );
 
+    // 过滤空白 text parts，并合并相邻的纯文本 part（用 \n 分隔）
+    // 避免 Slate 多 paragraph 产生多个独立 text part，丢失换行符
+    const mergedParts: MessagePart[] = [];
+    for (const p of cleanParts) {
+      if (p.type === "text" && mergedParts.length > 0 && mergedParts[mergedParts.length - 1].type === "text") {
+        mergedParts[mergedParts.length - 1] = {
+          type: "text",
+          data: (mergedParts[mergedParts.length - 1].data as string) + "\n" + (p.data as string),
+        };
+      } else {
+        mergedParts.push(p);
+      }
+    }
+
     return {
       text: fullText,
       codeRefs,
       archiveRefs,
       skillRefs,
       parts:
-        cleanParts.length > 0 ? cleanParts : [{ type: "text", data: fullText }],
+        mergedParts.length > 0 ? mergedParts : [{ type: "text", data: fullText }],
     };
   }
 }

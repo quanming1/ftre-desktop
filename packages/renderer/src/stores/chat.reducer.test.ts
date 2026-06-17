@@ -33,8 +33,8 @@ describe("applyEvent — canonical streaming flow", () => {
     it("message → message → done collapses into one assistant msg with final text", () => {
         const b = fresh();
         feed(b, [
-            { type: "message", data: { content: "Hello" } },
-            { type: "message", data: { content: ", world" } },
+            { type: "assistant_message", data: { content: "Hello" } },
+            { type: "assistant_message", data: { content: ", world" } },
             { type: "done", data: { success: true } },
         ]);
         expect(b.messages).toHaveLength(1);
@@ -44,11 +44,11 @@ describe("applyEvent — canonical streaming flow", () => {
         expect(b.isBusy).toBe(false);
     });
 
-    it("message_complete after streaming repairs throttled tail", () => {
+    it("assistant_message_complete after streaming repairs throttled tail", () => {
         const b = fresh();
         feed(b, [
-            { type: "message", data: { content: "He" } },
-            { type: "message_complete", data: { content: "Hello, world" } },
+            { type: "assistant_message", data: { content: "He" } },
+            { type: "assistant_message_complete", data: { content: "Hello, world" } },
             { type: "done" },
         ]);
         expect(b.messages[0].content).toBe("Hello, world");
@@ -58,10 +58,10 @@ describe("applyEvent — canonical streaming flow", () => {
     it("tool_call after message stays in the same assistant msg until done", () => {
         const b = fresh();
         feed(b, [
-            { type: "message", data: { content: "before" } },
+            { type: "assistant_message", data: { content: "before" } },
             { type: "tool_call", data: { id: "t1", name: "ls", arguments: { path: "/" } } },
             { type: "tool_result", data: { id: "t1", result: "ok" } },
-            { type: "message", data: { content: "after" } },
+            { type: "assistant_message", data: { content: "after" } },
             { type: "done" },
         ]);
         expect(b.messages).toHaveLength(1);
@@ -84,7 +84,7 @@ describe("applyEvent — canonical streaming flow", () => {
     it("error event creates a new error msg and sets bucket.error", () => {
         const b = fresh();
         feed(b, [
-            { type: "message", data: { content: "trying" } },
+            { type: "assistant_message", data: { content: "trying" } },
             { type: "error", data: { message: "boom", code: "E1" } },
         ]);
         expect(b.messages).toHaveLength(2);
@@ -94,13 +94,13 @@ describe("applyEvent — canonical streaming flow", () => {
         expect(b.isBusy).toBe(false);
     });
 
-    it("history replay (user_message + tool_call + message_complete) builds rich messages", () => {
+    it("history replay (user_message + tool_call + assistant_message_complete) builds rich messages", () => {
         const b = fresh();
         feed(b, [
             { type: "user_message", data: { metadata: { hide: false }, content: "hi" }, ts: 1000 },
             { type: "tool_call", data: { id: "t1", name: "ls", arguments: {} }, ts: 1100 },
             { type: "tool_result", data: { id: "t1", result: "ok" }, ts: 1200 },
-            { type: "message_complete", data: { content: "done" }, ts: 1300 },
+            { type: "assistant_message_complete", data: { content: "done" }, ts: 1300 },
         ]);
         expect(b.messages).toHaveLength(2);
         expect(b.messages[0].role).toBe("user");
@@ -117,10 +117,21 @@ describe("applyEvent — canonical streaming flow", () => {
         expect(b.retryState).toEqual({ attempt: 2, maxAttempts: 3, message: "rate limit" });
     });
 
+    it("retry event seals streaming tail so retry indicator can render", () => {
+        const b = fresh();
+        feed(b, [
+            { type: "assistant_message", data: { content: "partial" } },
+            { type: "retry", data: { attempt: 1, max_attempts: 5, message: "api error" } },
+        ]);
+        expect(b.retryState).toEqual({ attempt: 1, maxAttempts: 5, message: "api error" });
+        expect(b.messages[0].streaming).toBe(false);
+        expect(b.messages.some((m) => m.streaming)).toBe(false);
+    });
+
     it("usage_update attaches usage to current streaming msg", () => {
         const b = fresh();
         feed(b, [
-            { type: "message", data: { content: "x" } },
+            { type: "assistant_message", data: { content: "x" } },
             { type: "usage_update", data: { usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 } } },
             { type: "done" },
         ]);
@@ -146,15 +157,15 @@ describe("applyEvent — history replay across multiple ReAct rounds", () => {
         feed(b, [
             { type: "user_message", data: { metadata: { hide: false }, content: "hi" }, ts: 1000 },
             // round 1
-            { type: "message_complete", data: { content: "round1" }, ts: 1100 },
+            { type: "assistant_message_complete", data: { content: "round1" }, ts: 1100 },
             { type: "tool_call", data: { id: "t1", name: "ls", arguments: {} }, ts: 1110 },
             { type: "tool_result", data: { id: "t1", result: "ok1" }, ts: 1120 },
             // round 2
-            { type: "message_complete", data: { content: "round2" }, ts: 1200 },
+            { type: "assistant_message_complete", data: { content: "round2" }, ts: 1200 },
             { type: "tool_call", data: { id: "t2", name: "cat", arguments: {} }, ts: 1210 },
             { type: "tool_result", data: { id: "t2", result: "ok2" }, ts: 1220 },
             // round 3 — final answer
-            { type: "message_complete", data: { content: "final" }, ts: 1300 },
+            { type: "assistant_message_complete", data: { content: "final" }, ts: 1300 },
             { type: "done", data: { success: true }, ts: 1310 },
         ]);
 
@@ -186,12 +197,12 @@ describe("applyEvent — history replay across multiple ReAct rounds", () => {
             { type: "user_message", data: { metadata: { hide: false }, content: "hi" }, ts: 1000 },
             // round 1
             { type: "reasoning_complete", data: { content: "thinking-1" }, ts: 1100 },
-            { type: "message_complete", data: { content: "say-1" }, ts: 1110 },
+            { type: "assistant_message_complete", data: { content: "say-1" }, ts: 1110 },
             { type: "tool_call", data: { id: "t1", name: "x", arguments: {} }, ts: 1120 },
             { type: "tool_result", data: { id: "t1", result: "ok" }, ts: 1130 },
             // round 2
             { type: "reasoning_complete", data: { content: "thinking-2" }, ts: 1200 },
-            { type: "message_complete", data: { content: "say-2" }, ts: 1210 },
+            { type: "assistant_message_complete", data: { content: "say-2" }, ts: 1210 },
             { type: "done", data: { success: true }, ts: 1220 },
         ]);
 
@@ -215,14 +226,14 @@ describe("applyEvent — history replay across multiple ReAct rounds", () => {
         // 实时场景：chunks 先到、complete 后到，必须落到当轮已累积的 part 上。
         const b = fresh();
         feed(b, [
-            { type: "message", data: { content: "He" } },
-            { type: "message", data: { content: "llo" } },
-            { type: "message_complete", data: { content: "Hello" } },
+            { type: "assistant_message", data: { content: "He" } },
+            { type: "assistant_message", data: { content: "llo" } },
+            { type: "assistant_message_complete", data: { content: "Hello" } },
             { type: "tool_call", data: { id: "t1", name: "ls", arguments: {} } },
             { type: "tool_result", data: { id: "t1", result: "ok" } },
-            { type: "message", data: { content: "Wo" } },
-            { type: "message", data: { content: "rld" } },
-            { type: "message_complete", data: { content: "World" } },
+            { type: "assistant_message", data: { content: "Wo" } },
+            { type: "assistant_message", data: { content: "rld" } },
+            { type: "assistant_message_complete", data: { content: "World" } },
             { type: "done", data: { success: true } },
         ]);
 
@@ -239,19 +250,19 @@ describe("applyEvent — history replay across multiple ReAct rounds", () => {
         expect(m.content).toBe("HelloWorld");
     });
 
-    it("tool_call_streaming arriving before message_complete must not duplicate the text", () => {
+    it("tool_call_streaming arriving before assistant_message_complete must not duplicate the text", () => {
         // 真实路径：LLM 边吐字边 emit tool_call_streaming（args 分片）
         // 整个一轮的事件顺序：message chunks → tool_call_streaming x N
-        // → message_complete → tool_call(确认) → tool_result
+        // → assistant_message_complete → tool_call(确认) → tool_result
         // 这是用户截图复现的 bug：以前 tool_call_streaming 里把流式 text 封口了，
-        // message_complete 看末尾不是 streaming text，又 push 一段，导致重复。
+        // assistant_message_complete 看末尾不是 streaming text，又 push 一段，导致重复。
         const b = fresh();
         feed(b, [
-            { type: "message", data: { content: "Cargo " } },
-            { type: "message", data: { content: "可用了！" } },
+            { type: "assistant_message", data: { content: "Cargo " } },
+            { type: "assistant_message", data: { content: "可用了！" } },
             { type: "tool_call_streaming", data: { tool_calls: [{ id: "t1", name: "bash", arguments_delta: '{"command":' }] } },
             { type: "tool_call_streaming", data: { tool_calls: [{ id: "t1", arguments_delta: '"cargo build"}' }] } },
-            { type: "message_complete", data: { content: "Cargo 可用了！" } },
+            { type: "assistant_message_complete", data: { content: "Cargo 可用了！" } },
             { type: "tool_call", data: { id: "t1", name: "bash", arguments: { command: "cargo build" } } },
             { type: "tool_result", data: { id: "t1", result: "ok" } },
             { type: "done", data: { success: true } },
