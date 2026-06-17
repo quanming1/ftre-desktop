@@ -216,8 +216,9 @@ export function applyEvent(b: Bucket, ev: BusEvent): void {
   };
 
   switch (ev.type) {
-    // ─── 历史回放专用：原始 user 输入 ───
-    case "USER_INPUT": {
+    // ─── 历史回放专用：用户消息 ───
+    case "user_message": {
+      if (d.metadata?.hide) return;
       const c = typeof d.content === "string" ? d.content : "";
       const parts: MessagePart[] | undefined = Array.isArray(d.content)
         ? (d.content as MessagePart[])

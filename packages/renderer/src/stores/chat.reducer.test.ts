@@ -94,10 +94,10 @@ describe("applyEvent — canonical streaming flow", () => {
         expect(b.isBusy).toBe(false);
     });
 
-    it("history replay (USER_INPUT + tool_call + message_complete) builds rich messages", () => {
+    it("history replay (user_message + tool_call + message_complete) builds rich messages", () => {
         const b = fresh();
         feed(b, [
-            { type: "USER_INPUT", data: { content: "hi" }, ts: 1000 },
+            { type: "user_message", data: { metadata: { hide: false }, content: "hi" }, ts: 1000 },
             { type: "tool_call", data: { id: "t1", name: "ls", arguments: {} }, ts: 1100 },
             { type: "tool_result", data: { id: "t1", result: "ok" }, ts: 1200 },
             { type: "message_complete", data: { content: "done" }, ts: 1300 },
@@ -144,7 +144,7 @@ describe("applyEvent — history replay across multiple ReAct rounds", () => {
     it("two rounds: text → tool → text keeps interleaved part order", () => {
         const b = fresh();
         feed(b, [
-            { type: "USER_INPUT", data: { content: "hi" }, ts: 1000 },
+            { type: "user_message", data: { metadata: { hide: false }, content: "hi" }, ts: 1000 },
             // round 1
             { type: "message_complete", data: { content: "round1" }, ts: 1100 },
             { type: "tool_call", data: { id: "t1", name: "ls", arguments: {} }, ts: 1110 },
@@ -183,7 +183,7 @@ describe("applyEvent — history replay across multiple ReAct rounds", () => {
     it("reasoning across rounds: complete events do not overwrite prior round", () => {
         const b = fresh();
         feed(b, [
-            { type: "USER_INPUT", data: { content: "hi" }, ts: 1000 },
+            { type: "user_message", data: { metadata: { hide: false }, content: "hi" }, ts: 1000 },
             // round 1
             { type: "reasoning_complete", data: { content: "thinking-1" }, ts: 1100 },
             { type: "message_complete", data: { content: "say-1" }, ts: 1110 },

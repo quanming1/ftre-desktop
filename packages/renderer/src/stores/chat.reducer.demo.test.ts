@@ -61,7 +61,7 @@ function applyEventOldBuggy(b: { messages: ChatMessage[] }, ev: BusEvent): void 
         b.messages = next;
     };
 
-    if (ev.type === "USER_INPUT") {
+    if (ev.type === "user_message") {
         b.messages = [
             ...b.messages,
             { id: `u_${b.messages.length}`, role: "user", content: d.content || "", timestamp: ts },
@@ -127,7 +127,7 @@ function applyEventOldBuggy(b: { messages: ChatMessage[] }, ev: BusEvent): void 
 
 // ─── Mock 历史 ─────
 const HISTORY: BusEvent[] = [
-    { type: "USER_INPUT", data: { content: "需求：列目录然后总结" }, ts: 1000 },
+    { type: "user_message", data: { metadata: { hide: false }, content: "需求：列目录然后总结" }, ts: 1000 },
     // round 1
     { type: "message_complete", data: { content: "我先列一下根目录" }, ts: 1100 },
     { type: "tool_call", data: { id: "t1", name: "ls", arguments: { path: "." } }, ts: 1110 },
@@ -173,7 +173,7 @@ describe("DEMO: 旧 vs 新 reducer 在同一份 DB 回放数据上的行为", ()
         console.log("Mock 历史（DB 回放，无 streaming chunks）：");
         HISTORY.forEach((e, i) => {
             const s =
-                e.type === "USER_INPUT" || e.type === "message_complete"
+                e.type === "user_message" || e.type === "message_complete"
                     ? `"${e.data?.content}"`
                     : e.type === "tool_call"
                         ? `id=${e.data?.id} name=${e.data?.name}`
