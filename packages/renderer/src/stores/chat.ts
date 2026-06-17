@@ -763,6 +763,10 @@ if (!(globalThis as any)[__wsBoundFlag]) {
     if (msg.type !== "agent_event") return;
     const ev = msg.data;
     if (!ev?.type) return;
+
+    // user_message 且 hide=true → 不渲染（工具内部注入的消息，仅 LLM 可见）
+    if (ev.type === "user_message" && ev.data?.metadata?.hide) return;
+
     const sid = msg.metadata?.session_id as string | undefined;
     if (!sid) return;
 
