@@ -28,7 +28,7 @@ import {
     type ToolCall,
 } from "./chat";
 
-// ─── 旧 reducer 仿写（仅复刻有 BUG 的 message_complete 处理） ─────
+// ─── 旧 reducer 仿写（仅复刻有 BUG 的 assistant_message_complete 处理） ─────
 function applyEventOldBuggy(b: { messages: ChatMessage[] }, ev: BusEvent): void {
     const d = ev.data || {};
     const ts = ev.ts ?? Date.now();
@@ -68,7 +68,7 @@ function applyEventOldBuggy(b: { messages: ChatMessage[] }, ev: BusEvent): void 
         ];
         return;
     }
-    if (ev.type === "message_complete") {
+    if (ev.type === "assistant_message_complete") {
         ensure();
         const final = d.content || "";
         replaceTail((m) => {
@@ -129,15 +129,15 @@ function applyEventOldBuggy(b: { messages: ChatMessage[] }, ev: BusEvent): void 
 const HISTORY: BusEvent[] = [
     { type: "user_message", data: { metadata: { hide: false }, content: "需求：列目录然后总结" }, ts: 1000 },
     // round 1
-    { type: "message_complete", data: { content: "我先列一下根目录" }, ts: 1100 },
+    { type: "assistant_message_complete", data: { content: "我先列一下根目录" }, ts: 1100 },
     { type: "tool_call", data: { id: "t1", name: "ls", arguments: { path: "." } }, ts: 1110 },
     { type: "tool_result", data: { id: "t1", result: "a.py b.py" }, ts: 1120 },
     // round 2
-    { type: "message_complete", data: { content: "看到 2 个 py 文件" }, ts: 1200 },
+    { type: "assistant_message_complete", data: { content: "看到 2 个 py 文件" }, ts: 1200 },
     { type: "tool_call", data: { id: "t2", name: "cat", arguments: { file: "a.py" } }, ts: 1210 },
     { type: "tool_result", data: { id: "t2", result: "print('hi')" }, ts: 1220 },
     // round 3 — 最终
-    { type: "message_complete", data: { content: "总结：是 hello world" }, ts: 1300 },
+    { type: "assistant_message_complete", data: { content: "总结：是 hello world" }, ts: 1300 },
     { type: "done", data: { success: true }, ts: 1310 },
 ];
 
@@ -173,7 +173,7 @@ describe("DEMO: 旧 vs 新 reducer 在同一份 DB 回放数据上的行为", ()
         console.log("Mock 历史（DB 回放，无 streaming chunks）：");
         HISTORY.forEach((e, i) => {
             const s =
-                e.type === "user_message" || e.type === "message_complete"
+                e.type === "user_message" || e.type === "assistant_message_complete"
                     ? `"${e.data?.content}"`
                     : e.type === "tool_call"
                         ? `id=${e.data?.id} name=${e.data?.name}`

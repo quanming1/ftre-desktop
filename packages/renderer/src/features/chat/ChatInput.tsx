@@ -752,7 +752,7 @@ export function ChatInput() {
           onDragOver={handleDragOver}
           onDragLeave={handleDragLeave}
           onDrop={handleDrop}
-          className={`relative bg-[#f6f7f9] border border-border-subtle focus-within:border-neon/30 transition-colors shadow-sm rounded-3xl ${
+          className={`relative bg-[#f6f7f9] border border-border-subtle focus-within:border-neon/30 transition-colors rounded-3xl ${
             isDragging ? "border-neon/50 ring-1 ring-neon/30" : ""
           }`}
         >

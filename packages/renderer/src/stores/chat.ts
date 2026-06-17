@@ -118,7 +118,7 @@ const last = <T>(arr: T[]): T | undefined => arr[arr.length - 1];
 /**
  * 从末尾向前找最近一个仍在流式填充的 text/reasoning part 索引。找不到返回 -1。
  *
- * 用于 message_complete / reasoning_complete 收尾：
+ * 用于 assistant_message_complete / reasoning_complete 收尾：
  * 流式 chunk 期间会在 parts 里保留 streaming=true 的占位段，complete 事件
  * 到达时把它替换成权威总和。tool_call / tool_call_streaming 可能在 complete
  * 之前先把 tool part 推到末尾，因此不能只看 parts[-1]，要往前扫到 streaming 段。
@@ -317,7 +317,7 @@ export function applyEvent(b: Bucket, ev: BusEvent): void {
     }
 
     // ─── 流式文本片段 ───
-    case "message": {
+    case "assistant_message": {
       ensure();
       const chunk = d.content || "";
       if (!chunk) return;
@@ -341,7 +341,7 @@ export function applyEvent(b: Bucket, ev: BusEvent): void {
 
     // ─── 流式文本最终化（ws）/ 历史回放完整文本 ───
     // 不在此处置 message.streaming=false；由 done 事件统一收尾。
-    case "message_complete": {
+    case "assistant_message_complete": {
       ensure();
       const final = d.content || "";
       replaceTail((m) => {
@@ -409,7 +409,7 @@ export function applyEvent(b: Bucket, ev: BusEvent): void {
       return;
     }
 
-    // ─── 一轮思考的完整文本（对应 message_complete 的 reasoning 版） ───
+    // ─── 一轮思考的完整文本（对应 assistant_message_complete 的 reasoning 版） ───
     // 实时：reasoning chunks 后到达，原地覆盖封口
     // 回放：DB 只有 reasoning_complete 没有 chunk，直接 push
     case "reasoning_complete": {
@@ -575,7 +575,7 @@ export function applyEvent(b: Bucket, ev: BusEvent): void {
             .filter((p): p is { type: "reasoning"; text: string; streaming?: boolean } => p.type === "reasoning")
             .map((p) => p.text)
             .join("") || undefined;
-          return { ...m, parts, content, reasoning };
+          return { ...m, parts, content, reasoning, streaming: false };
         });
       }
       b.retryState = { attempt: d.attempt, maxAttempts: d.max_attempts, message: d.message };

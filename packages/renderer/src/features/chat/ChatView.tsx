@@ -97,16 +97,20 @@ export function ChatView() {
         </div>
       ) : (
         <>
-          <ChatMessageList messages={messages} isBusy={isBusy} className="flex-1" />
+          <ChatMessageList messages={messages} isBusy={isBusy} className="flex-1 min-h-0 pb-[180px]" />
           {canSend ? (
-            <ChatInput />
+            <div className="absolute bottom-0 left-0 right-0">
+              <ChatInput />
+            </div>
           ) : (
-            <div className="px-6 pb-4 pt-3">
-              <div className="mx-auto w-full max-w-[960px] flex items-center justify-center gap-1.5 py-2 text-[12px] text-t-ghost">
-                <span className="inline-flex items-center px-1.5 py-0.5 rounded bg-hover font-mono text-[11px] text-t-muted">
-                  {currentSessionChannel}
-                </span>
-                <span>渠道的会话仅供查看</span>
+            <div className="absolute bottom-0 left-0 right-0">
+              <div className="px-6 pb-4 pt-3">
+                <div className="mx-auto w-full max-w-[960px] flex items-center justify-center gap-1.5 py-2 text-[12px] text-t-ghost">
+                  <span className="inline-flex items-center px-1.5 py-0.5 rounded bg-hover font-mono text-[11px] text-t-muted">
+                    {currentSessionChannel}
+                  </span>
+                  <span>渠道的会话仅供查看</span>
+                </div>
               </div>
             </div>
           )}

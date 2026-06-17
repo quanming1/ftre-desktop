@@ -6,7 +6,7 @@
  *   下行（server → client）: { id, type, data: AgentEvent, metadata }
  *
  * AgentEvent.data.type:
- *   message, message_complete, reasoning, tool_call, tool_result,
+ *   assistant_message, assistant_message_complete, reasoning, tool_call, tool_result,
  *   tool_call_streaming, external_message, done, error, retry, usage_update
  */
 
