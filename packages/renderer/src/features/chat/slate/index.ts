@@ -15,10 +15,6 @@ export {
 } from "./ChatInputEditor";
 export { renderElement } from "./renderer";
 export type {
-  CodeRef,
-  CodeChipElement,
-  ArchiveRef,
-  ArchiveChipElement,
   MentionRef,
   MentionChipElement,
   SkillRef,

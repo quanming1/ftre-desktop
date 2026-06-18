@@ -5,7 +5,7 @@
  * - 渲染 Slate 编辑器（通过 ChatInputEditor 实例）
  * - 在编辑器之上独立维护一栏附件区（不进 Slate 富文本树）
  * - 绑定发送/取消/快捷键、粘贴/拖拽图片
- * - 监听外部事件（ftre:insert-code-ref、ftre:insert-archive-ref）
+ * - 监听外部事件（rollback refill、plan next step）
  */
 import { useCallback, useEffect, useLayoutEffect, useMemo, useState, useRef } from "react";
 import { Slate, Editable } from "slate-react";
@@ -28,7 +28,7 @@ import {
   type ImageRef,
   type ImageAttachmentDTO,
 } from "./slate";
-import type { CodeRef, ArchiveRef, SkillRef } from "./slate";
+import type { SkillRef } from "./slate";
 import {
   fileToImageRef,
   extractImageFiles,
@@ -470,7 +470,11 @@ export function ChatInput() {
     const state = useChat.getState();
     const { text, parts } = inputEditor.serialize();
     // /cancel 允许在 running 时发送，其他指令/消息需要等 idle
-    const isCancelOnly = parts.length === 1 && parts[0].type === "text" && (parts[0].data as string).trim() === "/cancel";
+    const firstText =
+      parts.length === 1 && parts[0].type === "text"
+        ? String(parts[0].text ?? (parts[0] as any).data ?? "").trim()
+        : "";
+    const isCancelOnly = firstText === "/cancel";
     if (state.isBusy && !isCancelOnly) return;
     const hasAttachments = attachments.length > 0;
     const hasContent = parts.length > 0;
@@ -492,7 +496,7 @@ export function ChatInput() {
     if (sid) removeDraft(sid);
 
     state.sendMessage(
-      parts.length > 0 ? parts : [{ type: "text", data: text }],
+      parts.length > 0 ? parts : [{ type: "text", text }],
       dto.length > 0 ? dto : undefined,
     );
   }, [inputEditor, attachments]);
@@ -512,7 +516,7 @@ export function ChatInput() {
         setSkillIndex(0);
         // 先把 /xxx 从编辑器删掉，避免残留
         inputEditor.replaceRange(range, "");
-        useChat.getState().sendMessage([{ type: "text", data: cmd.command }]);
+        useChat.getState().sendMessage([{ type: "text", text: cmd.command }]);
         return;
       }
       setSkillSearch(null);
@@ -646,7 +650,6 @@ export function ChatInput() {
 
   const onKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
-      // / 面板（指令 + 技能）激活时的键盘导航
       if (skillSearch && slashTotal > 0) {
         if (e.key === "ArrowDown") {
           e.preventDefault();
@@ -670,12 +673,13 @@ export function ChatInput() {
         }
       }
 
-      // 正常的发送/取消
       if (e.key === "Enter" && !e.shiftKey) {
         e.preventDefault();
         handleSend();
+        return;
       }
       if (e.key === "Escape") {
+        e.preventDefault();
         handleCancel();
       }
     },
@@ -689,35 +693,10 @@ export function ChatInput() {
     ],
   );
 
-  // ── 外部事件：插入代码引用 ──
-  useEffect(() => {
-    const handler = (e: Event) => {
-      const ref = (e as CustomEvent).detail as CodeRef;
-      if (!ref) return;
-      inputEditor.insertCodeChip(ref);
-      inputEditor.focus();
-    };
-    window.addEventListener("ftre:insert-code-ref", handler);
-    return () => window.removeEventListener("ftre:insert-code-ref", handler);
-  }, [inputEditor]);
-
-  // ── 外部事件：插入归档引用 ──
-  useEffect(() => {
-    const handler = (e: Event) => {
-      const ref = (e as CustomEvent).detail as ArchiveRef;
-      if (!ref) return;
-      inputEditor.insertArchiveChip(ref);
-      inputEditor.focus();
-    };
-    window.addEventListener("ftre:insert-archive-ref", handler);
-    return () => window.removeEventListener("ftre:insert-archive-ref", handler);
-  }, [inputEditor]);
-
-  // ── 外部事件：回滚后回填输入框 ──
   useEffect(() => {
     const handler = (e: Event) => {
       const { parts } = (e as CustomEvent).detail as {
-        parts: Array<{ type: string; data: unknown }>;
+        parts: Array<{ type: string; text?: string; data?: unknown }>;
       };
       if (!parts || parts.length === 0) return;
       inputEditor.setContent(parts);
