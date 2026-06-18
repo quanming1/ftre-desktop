@@ -1,92 +1,40 @@
 export type MessageRole = "user" | "assistant" | "tool" | "system";
 
-export interface CodeRef {
-  filePath: string;
-  fileName: string;
-  startLine: number;
-  endLine: number;
-  content: string;
-}
-
-/** 归档引用数据 */
-export interface ArchiveRefData {
-  id: string;
-  /** 显示文本（label || summary，仅用于前端展示） */
-  display: string;
-}
-
-/** Skill 引用数据 */
 export interface SkillRefData {
   id: string;
   name: string;
 }
 
-/** 邮件消息数据 */
 export interface EmailPartData {
-  /** 发送者显示名（如 "Web前端负责人"） */
   from_name: string;
-  /** 发送者的 agent 定义 ID（如 "omni-flow-web"） */
   from_agent_id: string;
-  /** 邮件主题 */
   subject: string;
-  /** 邮件正文 */
   content: string;
-  /** 邮件线程 ID（用于查看完整线程） */
   room_id: string;
-  /** 发送时间戳（秒） */
   timestamp: number;
 }
 
-/**
- * 消息部分 — 前后端统一的 parts 协议
- *
- * - text:       纯文本段
- * - code_ref:   代码引用段（文件 + 行号 + 代码内容）
- * - email:      邮件消息段（发件人 + 主题 + 正文 + 线程 ID）
- * - skill:      Skill 引用段（通过 / 触发选择；data 为 skill name/id）
- * - image:      图片附件段（前端渲染用；上送时拆到 attachments 字段，本 part 由 user 消息回显使用）
- */
 export type MessagePart =
-  | { type: "text"; data: string }
-  | {
-    type: "code_ref";
-    data: {
-      path: string;
-      lines: [number, number];
-      raw: string;
-      name: string;
-    };
-  }
+  | { type: "text"; text: string }
   | { type: "email"; data: EmailPartData }
-  | { type: "archive_ref"; data: ArchiveRefData }
   | { type: "skill"; data: string }
   | {
-    type: "image";
-    data: {
-      /** data:<mime>;base64,<...> 的完整 URL，可直接用作 <img src> */
-      url: string;
-      /** 原始文件名（仅展示） */
-      name?: string;
-      /** MIME 类型 */
-      mime?: string;
-      /** 解码后字节数 */
-      bytes?: number;
+      type: "image";
+      data: {
+        url: string;
+        name?: string;
+        mime?: string;
+        bytes?: number;
+      };
     };
-  };
 
 export interface ChatMessage {
   id: string;
   role: MessageRole;
   content: string;
-  /** 是否正在流式输出中 */
   streaming?: boolean;
-  /** 附带的代码引用 */
-  codeRefs?: CodeRef[];
-  /** 结构化消息部分（用于渲染 inline chips） */
   parts?: MessagePart[];
-  /** 本轮对话的文件变更摘要（仅 user 消息） */
   diffMeta?: DiffMeta;
-  /** 消息元数据（如 archive_id） */
   metadata?: {
     archive_id?: string;
     [key: string]: unknown;

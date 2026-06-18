@@ -1028,16 +1028,17 @@ export function ArchivesView({ visible }: { visible: boolean }) {
   );
 
   const handleInsertRef = useCallback((archive: ArchiveEntry) => {
-    const archiveRef = {
-      id: archive.id,
-      summary: archive.summary,
-      turnCount: archive.meta.turn_count,
-      totalMessages: archive.meta.total_messages,
-      label: archive.meta.label,
-      createdAt: archive.created_at,
-    };
     window.dispatchEvent(
-      new CustomEvent("ftre:insert-archive-ref", { detail: archiveRef }),
+      new CustomEvent("ftre:rollback-refill", {
+        detail: {
+          parts: [
+            {
+              type: "text",
+              text: `引用归档 ${archive.meta.label || archive.id}\n\n${archive.summary}`,
+            },
+          ],
+        },
+      }),
     );
     useNotification.getState().addNotification({
       level: "info",
