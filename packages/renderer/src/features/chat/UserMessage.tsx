@@ -1,23 +1,19 @@
 import { memo, useCallback, useState, useRef, useLayoutEffect } from "react";
-import type { MessagePart, ArchiveRefData } from "@/types/chat";
+import type { MessagePart } from "@/types/chat";
 import type { ChatMessage as WsChatMessage } from "@/stores/chat";
 
 /** Extended message type for UserMessage — supports both WS messages and legacy rich messages */
 interface ChatMessage extends Omit<WsChatMessage, "parts"> {
   parts?: MessagePart[];
-  codeRefs?: any[];
   diffMeta?: { base_hash: string; final_hash: string; workspace: string };
   metadata?: Record<string, unknown>;
 }
-import { handleOpenFileAtLine } from "./toolActions";
 import { EmailCard } from "./EmailCard";
 import {
-  Archive,
   RotateCcw,
   Loader2,
   Copy,
   Check,
-  GitFork,
   Box,
   ChevronDown,
   ChevronUp,
@@ -25,33 +21,12 @@ import {
 import { useChat } from "@/stores/chat";
 import { useEditor } from "@/stores/editor";
 import { useNotification } from "@/stores/notification";
-import { useSession } from "@/stores/session";
 import { previewRollback, executeRollback } from "@/services/api";
-import { fetchSessionMessages, fetchArchiveDetail } from "@/services/api";
+import { fetchSessionMessages } from "@/services/api";
 import { RollbackConfirmDialog } from "./RollbackConfirmDialog";
 import { ContextMenu, type ContextMenuItem } from "@/components/ContextMenu";
 import { Tooltip, TooltipProvider, ImageViewer } from "@ftre/ui";
 
-/**
- * 渲染归档引用 chip
- * 显示紫色背景 + 📦 图标 + 显示文本
- */
-function ArchiveChip({ data }: { data: ArchiveRefData }) {
-  return (
-    <span
-      className="inline-flex items-center gap-1 px-1.5 py-0.5 mx-0.5 rounded text-[11px] font-sans bg-violet-500/10 text-violet-300/80 border border-violet-500/20 align-baseline"
-      title={`归档引用: ${data.display}`}
-    >
-      <Archive size={10} className="shrink-0 opacity-70" />
-      <span className="truncate max-w-[200px]">{data.display}</span>
-    </span>
-  );
-}
-
-/**
- * 渲染 skill 引用 chip
- * 与输入框中的 SkillChipView 保持一致：绿色 inline 风格。
- */
 function SkillChip({ data }: { data: string }) {
   return (
     <span
@@ -65,64 +40,21 @@ function SkillChip({ data }: { data: string }) {
 }
 
 /**
- * 渲染单个 code ref chip（和编辑器中的 CodeChipView 样式一致）
- * 点击跳转到对应文件的指定行
- */
-function CodeChip({
-  data,
-}: {
-  data: { path: string; name: string; lines: [number, number]; raw: string };
-}) {
-  const label = `${data.name}:L${data.lines[0]}-L${data.lines[1]}`;
-
-  const handleClick = useCallback(() => {
-    handleOpenFileAtLine(data.path, data.lines[0]);
-  }, [data.path, data.lines]);
-
-  return (
-    <span
-      onClick={handleClick}
-      className="inline-flex items-center gap-1 px-1.5 py-0.5 mx-0.5 rounded text-[11px] font-mono bg-surface text-t-secondary border border-border-subtle align-baseline cursor-pointer hover:bg-hover hover:text-t-primary transition-colors"
-      title={`${data.path} L${data.lines[0]}-L${data.lines[1]} — 点击打开`}
-    >
-      <svg
-        width="10"
-        height="10"
-        viewBox="0 0 16 16"
-        fill="currentColor"
-        className="shrink-0 opacity-60"
-      >
-        <path d="M2 1.5A1.5 1.5 0 013.5 0h6.879a1.5 1.5 0 011.06.44l2.122 2.12A1.5 1.5 0 0114 3.622V14.5a1.5 1.5 0 01-1.5 1.5h-9A1.5 1.5 0 012 14.5v-13z" />
-      </svg>
-      {label}
-    </span>
-  );
-}
-
-/**
  * 渲染 parts 数组为 inline 内容
  *
  * parts 类型：
  * - text:        渲染为 <span>
- * - code_ref:    渲染为 <CodeChip>（可点击跳转）
  * - email:       渲染为 <EmailCard>（邮件卡片）
- * - archive_ref: 渲染为 <ArchiveChip>（归档引用）
  */
 function PartsContent({ parts }: { parts: MessagePart[] }) {
   return (
     <>
       {parts.map((part, i) => {
         if (part.type === "text") {
-          return <span key={i}>{part.data}</span>;
-        }
-        if (part.type === "code_ref") {
-          return <CodeChip key={i} data={part.data} />;
+          return <span key={i}>{part.text ?? (part as any).data ?? ""}</span>;
         }
         if (part.type === "email") {
           return <EmailCard key={i} data={part.data} />;
-        }
-        if (part.type === "archive_ref") {
-          return <ArchiveChip key={i} data={part.data} />;
         }
         if (part.type === "skill") {
           return <SkillChip key={i} data={part.data} />;
@@ -138,12 +70,7 @@ function getMessageText(message: ChatMessage): string {
   if (message.parts && message.parts.length > 0) {
     return message.parts
       .map((part) => {
-        if (part.type === "text") return part.data;
-        if (part.type === "code_ref") {
-          const d = part.data;
-          return `[${d.name}:L${d.lines[0]}-L${d.lines[1]}]`;
-        }
-        if (part.type === "archive_ref") return `[归档: ${part.data.display}]`;
+        if (part.type === "text") return part.text ?? (part as any).data ?? "";
         if (part.type === "skill") return `[Skill: ${part.data}]`;
         return "";
       })
@@ -216,7 +143,7 @@ interface RollbackPreviewData {
   rolledBackCount: number;
   hasCodeChanges: boolean;
   filesAffected: Array<{ file: string; additions: number; deletions: number }>;
-  refillMessage: { parts: Array<{ type: string; data: unknown }> };
+  refillMessage: { parts: Array<{ type: string; text?: string; data?: unknown }> };
 }
 
 export const UserMessage = memo(
@@ -272,9 +199,6 @@ export const UserMessage = memo(
     // 检查是否可以回滚（不在处理中，有 sessionId）
     const canRollback = !isBusy && !!sessionId;
 
-    // 检查是否可以 Fork（消息有 archive_id）
-    const archiveId = message.metadata?.archive_id as string | undefined;
-    const canFork = !!archiveId;
 
     // 复制消息内容
     const handleCopy = useCallback(async () => {
@@ -359,7 +283,7 @@ export const UserMessage = memo(
           // 刷新消息列表 (TODO: implement via WS)
           await fetchSessionMessages(sessionId);
 
-          // 通过全局事件回填输入框（与 ftre:insert-code-ref 模式一致）
+          // 通过全局事件回填输入框
           if (result.refill_message?.parts) {
             window.dispatchEvent(
               new CustomEvent("ftre:rollback-refill", {
@@ -391,37 +315,6 @@ export const UserMessage = memo(
       setPreviewData(null);
     }, []);
 
-    // 处理 Fork 会话
-    const handleFork = useCallback(async () => {
-      if (!archiveId) return;
-
-      // 获取归档详情
-      const archive = await fetchArchiveDetail(archiveId);
-      if (!archive) {
-        useNotification.getState().addNotification({
-          level: "error",
-          message: "获取归档详情失败",
-        });
-        return;
-      }
-
-      // 跳转到新会话
-      useSession.getState().newSession();
-
-      // 构造完整的 ArchiveRef 并插入输入框
-      window.dispatchEvent(
-        new CustomEvent("ftre:insert-archive-ref", {
-          detail: {
-            id: archive.id,
-            summary: archive.summary,
-            turnCount: archive.meta?.turn_count,
-            totalMessages: archive.meta?.total_messages,
-            label: archive.meta?.label,
-            createdAt: archive.created_at,
-          },
-        }),
-      );
-    }, [archiveId]);
 
     // 右键菜单
     const handleContextMenu = useCallback((e: React.MouseEvent) => {
@@ -440,16 +333,6 @@ export const UserMessage = memo(
         icon: Copy,
         action: handleCopy,
       },
-      ...(canFork
-        ? [
-            {
-              id: "fork",
-              label: "Fork 会话",
-              icon: GitFork,
-              action: handleFork,
-            },
-          ]
-        : []),
     ];
 
     return (
@@ -480,21 +363,6 @@ export const UserMessage = memo(
                   </button>
                 </Tooltip>
 
-                {/* Fork 按钮 - hover 时显示，仅当有 archive_id 时 */}
-                {canFork && (
-                  <Tooltip content="Fork 会话" side="top">
-                    <button
-                      onClick={handleFork}
-                      className={`flex items-center justify-center w-7 h-7 text-t-ghost hover:text-t-secondary rounded-full hover:bg-hover transition-all ${
-                        isHovered
-                          ? "opacity-100"
-                          : "opacity-0 pointer-events-none"
-                      }`}
-                    >
-                      <GitFork size={15} />
-                    </button>
-                  </Tooltip>
-                )}
               </div>
 
               {/* 消息内容 */}

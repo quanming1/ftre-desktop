@@ -7,12 +7,12 @@
  *
  * 设计为纯数据模块，不依赖 React 或任何 store，可被 UI 组件和 store 共同引用。
  */
-const sessionDrafts = new Map<string, Array<{ type: string; data: unknown }>>();
+const sessionDrafts = new Map<string, Array<{ type: string; text?: string; data?: unknown }>>();
 
 /** 保存指定 session 的输入框草稿 */
 export function saveSessionDraft(
   sessionId: string,
-  parts: Array<{ type: string; data: unknown }>,
+  parts: Array<{ type: string; text?: string; data?: unknown }>,
 ) {
   sessionDrafts.set(sessionId, parts);
 }
@@ -20,7 +20,7 @@ export function saveSessionDraft(
 /** 读取指定 session 的输入框草稿（无草稿返回 undefined） */
 export function getSessionDraft(
   sessionId: string,
-): Array<{ type: string; data: unknown }> | undefined {
+): Array<{ type: string; text?: string; data?: unknown }> | undefined {
   return sessionDrafts.get(sessionId);
 }
 

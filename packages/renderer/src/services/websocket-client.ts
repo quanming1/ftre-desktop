@@ -2,7 +2,7 @@
  * WebSocket Client — 连接 ftre gateway
  *
  * 协议：
- *   上行（client → server）: 任意 JSON，后端只看 data 字段
+ *   上行（client → server）: { id, type: "user_message", data, metadata }
  *   下行（server → client）: { id, type, data: AgentEvent, metadata }
  *
  * AgentEvent.data.type:
@@ -44,6 +44,7 @@ const LEGACY_DEFAULT_WS_URLS = new Set([
   "ws://localhost:18790/",
 ]);
 const RECONNECT_DELAYS = [1000, 2000, 4000, 8000, 15000, 30000];
+const MAX_PENDING_SENDS = 100;
 
 export function normalizeGatewayUrl(url: string): string {
   const trimmed = url.trim();
@@ -59,6 +60,7 @@ class WebSocketClient {
   private reconnectAttempt = 0;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private intentionalClose = false;
+  private pendingSends: string[] = [];
 
   public connected = false;
   public status: WsConnectionStatus = "disconnected";
@@ -111,6 +113,7 @@ class WebSocketClient {
             data: { session_id: sid },
           });
         }
+        this.flushPendingSends();
         this.connectHandlers.forEach((h) => h());
       };
 
@@ -168,17 +171,25 @@ class WebSocketClient {
 
   /** 发送用户消息 */
   send(data: Record<string, unknown>): void {
+    const payload = JSON.stringify(data);
     if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
-      console.warn("[WS] Cannot send, not connected");
+      this.pendingSends.push(payload);
+      if (this.pendingSends.length > MAX_PENDING_SENDS) {
+        this.pendingSends.shift();
+      }
+      console.warn("[WS] Queued send, not connected", { type: data.type });
+      if (!this.ws || this.ws.readyState === WebSocket.CLOSED) {
+        this.connect();
+      }
       return;
     }
-    this.ws.send(JSON.stringify(data));
+    this.ws.send(payload);
   }
 
   /** 发送聊天消息。返回所用的帧 id（前端可用作本地占位 userMsg.id 与 echo 去重）。
-   *  content: 纯文本 string 或结构化 parts 数组 [{type, data}] */
+   *  content: 纯文本 string 或结构化 parts 数组 [{type:"text", text:"..."}] */
   sendChat(
-    content: string | Array<{ type: string; data: unknown }>,
+    content: string | Array<{ type: string; text?: string; data?: unknown }>,
     metadata?: Record<string, unknown>,
     attachments?: Array<{
       type: "image";
@@ -198,18 +209,18 @@ class WebSocketClient {
     const id = frameId || crypto.randomUUID().slice(0, 16);
     this.send({
       id,
-      type: "user_input",
+      type: "user_message",
       data,
       metadata: metadata || {},
     });
     return id;
   }
 
-  /** 取消当前执行：发送 /cancel 的 user_input 帧，后端系统级指令在锁外处理 */
+  /** 取消当前执行：发送 /cancel 的 user_message 帧，后端系统级指令在锁外处理 */
   sendCancel(sessionId?: string): void {
     this.send({
       id: crypto.randomUUID().slice(0, 16),
-      type: "user_input",
+      type: "user_message",
       data: { session_id: sessionId || "", content: "/cancel" },
     });
   }
@@ -281,6 +292,15 @@ class WebSocketClient {
       this.reconnectAttempt++;
       this.connect();
     }, delay);
+  }
+
+  private flushPendingSends(): void {
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return;
+    while (this.pendingSends.length > 0) {
+      const payload = this.pendingSends.shift();
+      if (!payload) continue;
+      this.ws.send(payload);
+    }
   }
 }
 

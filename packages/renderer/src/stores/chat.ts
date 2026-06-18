@@ -28,9 +28,10 @@ export interface ToolCall {
 }
 
 export type MessagePart =
-  | { type: "text"; text: string; streaming?: boolean }
+  | { type: "text"; text: string; data?: string; streaming?: boolean }
   | { type: "reasoning"; text: string; streaming?: boolean }
-  | { type: "tool_call"; toolCallId: string };
+  | { type: "tool_call"; toolCallId: string }
+  | { type: "skill"; data: string };
 
 /** 用户消息附件（与后端 attachments 协议同形，base64 已转成 data URL） */
 export interface MessageAttachment {
@@ -219,63 +220,8 @@ export function applyEvent(b: Bucket, ev: BusEvent): void {
     // ─── 历史回放专用：用户消息 ───
     case "user_message": {
       if (d.metadata?.hide) return;
-      const c = typeof d.content === "string" ? d.content : "";
-      const parts: MessagePart[] | undefined = Array.isArray(d.content)
-        ? (d.content as MessagePart[])
-        : undefined;
-      const rawAtts: any[] = Array.isArray(d.attachments) ? d.attachments : [];
-      const localAttachments: MessageAttachment[] = [];
-      const hasPartsContent = parts && parts.some(
-        (p) => p.type === "text" || p.type === "skill",
-      );
-      for (const a of rawAtts) {
-        if (
-          a &&
-          a.type === "image" &&
-          typeof a.mime_type === "string" &&
-          typeof a.data === "string"
-        ) {
-          localAttachments.push({
-            type: "image",
-            url: `data:${a.mime_type};base64,${a.data}`,
-            mime: a.mime_type,
-            name: typeof a.name === "string" ? a.name : undefined,
-            bytes: Math.floor(a.data.length * 0.75),
-          });
-        }
-      }
-      if (!c && !hasPartsContent && localAttachments.length === 0) return;
-      b.messages = [
-        ...b.messages,
-        {
-          id: ev.id ?? nextId("user"),
-          role: "user",
-          content: c,
-          parts,
-          timestamp: ts,
-          ...(localAttachments.length > 0 ? { attachments: localAttachments } : {}),
-        },
-      ];
-      return;
-    }
-
-    // ─── 实时 echo：AgentLoop 把 inbound user_input 也下行一份 ───
-    // 用途：跨 session 唤起（send_message 触发的远端 user_input）时，目标 session
-    // 前端没有本地占位，需要这条 echo 才能渲染出用户气泡。
-    // 自己发的 user_input 也会被 echo 回来，靠帧 id 与本地占位匹配做去重：
-    //   - sendMessage 时本地 push 的 userMsg.id = 上行帧 id
-    //   - AgentLoop echo 把 inbound.metadata.frame_id 透传回来
-    //   - 这里检查 b.messages 是否已经有同 id 消息，有就跳过
-    //
-    // 同时这是"一轮 agent 开始"的统一信号源 —— 进入 busy 让 loading 气泡就位。
-    // 覆盖所有触发源：本地 sendMessage、跨 session 唤起、cron、多端同步。
-    case "user_input": {
       const frameId = (ev.metadata?.frame_id as string | undefined) ?? "";
-      const alreadyHasLocal = !!frameId && b.messages.some((m) => m.id === frameId);
-
-      // 自己发的：本地乐观占位已经在了，echo 仅用于去重，气泡跳过 push
-      if (alreadyHasLocal) return;
-
+      if (frameId && b.messages.some((m) => m.id === frameId)) return;
       const c = typeof d.content === "string" ? d.content : "";
       const parts: MessagePart[] | undefined = Array.isArray(d.content)
         ? (d.content as MessagePart[])
@@ -305,7 +251,7 @@ export function applyEvent(b: Bucket, ev: BusEvent): void {
       b.messages = [
         ...b.messages,
         {
-          id: frameId || nextId("user"),
+          id: frameId || ev.id || nextId("user"),
           role: "user",
           content: c,
           parts,
@@ -876,7 +822,7 @@ interface ChatState {
   pendingWorkspace: string | null;
 
   sendMessage: (
-    content: string | Array<{ type: string; data: unknown }>,
+    content: string | Array<{ type: string; text?: string; data?: unknown }>,
     attachments?: Array<{
       type: "image";
       mime_type: string;
@@ -943,17 +889,17 @@ export const useChat = create<ChatState>((set, get) => ({
 
   sendMessage: (content, attachments) => {
     // 归一化：string 或 parts 数组
-    const parts: Array<{ type: string; data: unknown }> =
+    const parts: Array<{ type: string; text?: string; data?: unknown }> =
       typeof content === "string"
         ? content.trim()
-          ? [{ type: "text", data: content.trim() }]
+          ? [{ type: "text", text: content.trim() }]
           : []
         : content;
 
     // 提取纯文本用于 empt check + local 回显
     const displayText = parts
       .filter((p) => p.type === "text")
-      .map((p) => String(p.data ?? "").trim())
+      .map((p) => String(p.text ?? p.data ?? "").trim())
       .join("\n")
       .trim();
     const hasSkill = parts.some((p) => p.type === "skill" && p.data);
@@ -1035,7 +981,7 @@ export const useChat = create<ChatState>((set, get) => ({
   cancelStream: () => {
     const sid = get().sessionId;
     if (!sid) return set({ isBusy: false });
-    // 发 /cancel 的 user_input 帧，后端系统级指令在 session lock 外处理
+    // 发 /cancel 的 user_message 帧，后端系统级指令在 session lock 外处理
     wsClient.sendCancel(sid);
   },
 

@@ -30,9 +30,7 @@ function summarize(message: ChatMessage): string {
   if (message.parts && message.parts.length > 0) {
     const text = message.parts
       .map((p: any) => {
-        if (p.type === "text") return p.data ?? p.text ?? "";
-        if (p.type === "code_ref") return `[${p.data?.name ?? "code"}]`;
-        if (p.type === "archive_ref") return `[归档]`;
+        if (p.type === "text") return p.text ?? p.data ?? "";
         if (p.type === "skill") return `[Skill]`;
         if (p.type === "email") return `[Email]`;
         return "";

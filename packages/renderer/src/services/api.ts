@@ -265,7 +265,7 @@ function encodeSessionKey(sessionIdOrKey: string): string {
 export interface SessionMessage {
   id: string;
   session_id: string;
-  type: string;  // USER_INPUT / tool_call / tool_result / message_complete / done / error
+  type: string;  // user_message / tool_call / tool_result / message_complete / done / error
   data: Record<string, any>;
   timestamp: number;
 }
