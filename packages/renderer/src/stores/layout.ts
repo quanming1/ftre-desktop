@@ -2,7 +2,7 @@ import { create } from 'zustand';
 
 export type SidebarView = 'explorer' | 'git' | 'extensions';
 export type BottomTab = 'terminal' | 'problems' | 'output';
-export type LeftPanelType = 'chat' | 'skills' | 'cron' | 'settings';
+export type LeftPanelType = 'chat' | 'skills' | 'cron' | 'traces' | 'settings';
 
 export type SplitMode = 'ai-center' | 'code-center';
 export type PanelId = 'sessions' | 'sidebar' | 'editor' | 'chat';
@@ -62,6 +62,11 @@ export interface LayoutState extends PersistedLayoutData {
     toggleAutoFollowFiles: () => void;
     setLayoutMode: (mode: LayoutMode) => void;
     setActiveLeftPanel: (panel: LeftPanelType) => void;
+
+    /** Session 右键定位 Trace（运行时状态，不持久化） */
+    traceFocusSessionId: string | null;
+    locateTraceSession: (sessionId: string) => void;
+    clearTraceFocus: () => void;
 
     /** 终端浮动窗口（运行时状态，不持久化） */
     terminalDropdownOpen: boolean;
@@ -297,6 +302,13 @@ export const useLayout = create<LayoutState>((set, get) => ({
         set({ activeLeftPanel: panel });
         get().persist();
     },
+
+    traceFocusSessionId: null,
+    locateTraceSession: (sessionId) => {
+        set({ activeLeftPanel: 'traces', traceFocusSessionId: sessionId });
+        get().persist();
+    },
+    clearTraceFocus: () => set({ traceFocusSessionId: null }),
 
     // 终端浮动窗口 — 运行时状态，不写 localStorage
     terminalDropdownOpen: false,
