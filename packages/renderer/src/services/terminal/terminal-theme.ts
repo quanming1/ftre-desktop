@@ -45,8 +45,11 @@ const ANSI_DARK: Pick<
 const ANSI_LIGHT: typeof ANSI_DARK = {
     black: '#1a1a1a',
     brightBlack: '#6e7681',
-    white: '#f8f9fa',
-    brightWhite: '#ffffff',
+    // ⚠️ 在浅色终端中，ANSI "white" 语义是"最亮的前景色"，
+    // 但物理上必须是深色才能在浅色背景上可读。
+    // 不能用 #f8f9fa / #ffffff — 那样就是白字白背景。
+    white: '#6e7681',
+    brightWhite: '#1f2328',
     blue: '#0969da',
     brightBlue: '#218bff',
     green: '#116329',

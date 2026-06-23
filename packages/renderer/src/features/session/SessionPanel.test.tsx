@@ -34,6 +34,7 @@ vi.mock("@/stores/layout", () => ({
     selector({
       activeLeftPanel: "chat",
       setActiveLeftPanel: vi.fn(),
+      locateTraceSession: vi.fn(),
     }),
 }));
 

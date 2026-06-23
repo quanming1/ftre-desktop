@@ -125,6 +125,8 @@ const itemNormalClass =
   "text-t-secondary hover:text-t-primary hover:bg-hover active:bg-active active:text-t-primary";
 const itemSelectedClass =
   "text-[#1a1a1a] bg-[#e2e2e3]";
+const itemFocusedClass =
+  "bg-[var(--ftre-hover,#e8e8ea)] text-t-primary";
 
 // ─────────────────────────────────────────────────────────────
 // Component
@@ -141,6 +143,7 @@ export function ModelPicker({
 }: ModelPickerProps) {
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState("");
+  const [focusIndex, setFocusIndex] = useState(-1);
   const panelRef = useRef<HTMLDivElement>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
@@ -149,7 +152,7 @@ export function ModelPicker({
   const close = useCallback(() => setOpen(false), []);
 
   // Pin 模型列表（响应 localStorage 变化需要强制刷新）
-  const [, forceUpdate] = useState(0);
+  const [pinVersion, forceUpdate] = useState(0);
   const pinnedModels = useMemo(() => {
     if (providers.length === 0) return [];
     const pins = getPinnedModels();
@@ -163,7 +166,8 @@ export function ModelPicker({
       result.push({ provider: p, model: m });
     }
     return result;
-  }, [providers]);
+    // pinVersion 变化时重新计算（togglePin 后 forceUpdate 触发）
+  }, [providers, pinVersion]);
 
   // 计算初始滚动位置（在渲染前计算，避免闪烁）
   const initialScrollTop = useMemo(() => {
@@ -233,6 +237,70 @@ export function ModelPicker({
     await extraTopOption.onSelect();
   };
 
+  // 扁平可选项列表，用于键盘导航。每项包含 provider/modelId 和 select 回调。
+  const flatItems = useMemo(() => {
+    const items: { key: string; label: string; onSelect: () => void }[] = [];
+    if (extraTopOption) {
+      items.push({
+        key: extraTopOption.key,
+        label: extraTopOption.label,
+        onSelect: handleExtraSelect,
+      });
+    }
+    if (!search.trim()) {
+      for (const { provider, model } of pinnedModels) {
+        items.push({
+          key: `pin:${provider.name}:${model.id}`,
+          label: `${model.name || model.id} (${provider.label})`,
+          onSelect: () => handleSelect(provider.name, model.id),
+        });
+      }
+    }
+    for (const provider of providers) {
+      for (const model of provider.models) {
+        if (search.trim()) {
+          const q = search.toLowerCase();
+          if (!model.name.toLowerCase().includes(q) && !model.id.toLowerCase().includes(q)) continue;
+        }
+        items.push({
+          key: `${provider.name}:${model.id}`,
+          label: `${model.name || model.id} (${provider.label})`,
+          onSelect: () => handleSelect(provider.name, model.id),
+        });
+      }
+    }
+    return items;
+  }, [extraTopOption, pinnedModels, providers, search, handleSelect, handleExtraSelect]);
+
+  // 搜索变化时重置焦点到第一项
+  useEffect(() => {
+    setFocusIndex(flatItems.length > 0 ? 0 : -1);
+  }, [search, flatItems.length]);
+
+  const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
+    if (e.key === "Escape") { close(); return; }
+    if (flatItems.length === 0) return;
+    if (e.key === "ArrowDown") {
+      e.preventDefault();
+      setFocusIndex((prev) => Math.min(prev + 1, flatItems.length - 1));
+    } else if (e.key === "ArrowUp") {
+      e.preventDefault();
+      setFocusIndex((prev) => Math.max(prev - 1, 0));
+    } else if (e.key === "Enter" && focusIndex >= 0) {
+      e.preventDefault();
+      flatItems[focusIndex]?.onSelect();
+    }
+  }, [flatItems, focusIndex, close]);
+
+  // 滚动聚焦项到可视区域
+  useEffect(() => {
+    if (focusIndex < 0 || !listRef.current) return;
+    const target = listRef.current.querySelector(`[data-model-key="${flatItems[focusIndex]?.key}"]`);
+    (target as HTMLElement)?.scrollIntoView({ block: "nearest" });
+  }, [focusIndex, flatItems]);
+
+  const isFocused = (key: string) => flatItems.findIndex((i) => i.key === key) === focusIndex;
+
   const placementClass =
     placement === "top" ? "bottom-full mb-1" : "top-full mt-1";
 
@@ -265,6 +333,7 @@ export function ModelPicker({
                   onChange={(e) => setSearch(e.target.value)}
                   placeholder="搜索模型..."
                   className="w-full h-8 pl-8 pr-3 text-[13px] bg-[var(--ftre-base,#1a1a1a)] border border-[var(--ftre-border,#3c3c3c)] rounded-lg text-[var(--ftre-text-primary,#e8e8e8)] placeholder:text-[var(--ftre-text-ghost,#666)] outline-none focus:border-[var(--ftre-accent,#00ff88)] transition-colors"
+                    onKeyDown={handleKeyDown}
                 />
               </div>
             </div>
@@ -294,11 +363,12 @@ export function ModelPicker({
                   <div className="px-1.5 mb-1">
                     <button
                       onClick={() => void handleExtraSelect()}
+                      data-model-key={extraTopOption.key}
                       className={`${itemBaseClass} ${
                         extraTopOption.selected
                           ? itemSelectedClass
                           : itemNormalClass
-                      }`}
+                      } ${isFocused(extraTopOption.key) ? itemFocusedClass : ""}`}
                     >
                       <span className="truncate flex-1 min-w-0">
                         {extraTopOption.label}
@@ -326,13 +396,14 @@ export function ModelPicker({
                           key={`pin-${provider.name}-${model.id}`}
                           className="px-1.5"
                         >
-                          <button
+                          <div
                             onClick={() =>
                               void handleSelect(provider.name, model.id)
                             }
                             className={`${itemBaseClass} ${
                               isSelected ? itemSelectedClass : itemNormalClass
-                            } group`}
+                            } ${isFocused(`pin:${provider.name}:${model.id}`) ? itemFocusedClass : ""} group cursor-pointer`}
+                            data-model-key={`pin:${provider.name}:${model.id}`}
                           >
                             <span className="truncate flex-1 min-w-0">
                               {model.name || model.id}
@@ -354,7 +425,6 @@ export function ModelPicker({
                               </span>
                               <span
                                 onClick={(e) => handleTogglePin(e, provider.name, model.id)}
-                                onMouseDown={(e) => e.stopPropagation()}
                                 className="p-0.5 rounded hover:bg-[var(--ftre-border,#3c3c3c)]/50 cursor-pointer transition-colors text-[var(--ftre-accent,#00ff88)]"
                                 title="取消置顶"
                               >
@@ -364,7 +434,7 @@ export function ModelPicker({
                             {isSelected && (
                               <Check size={14} className="shrink-0" />
                             )}
-                          </button>
+                          </div>
                         </div>
                       );
                     })}
@@ -400,7 +470,7 @@ export function ModelPicker({
                               className="px-1.5"
                               data-model-key={`${provider.name}:${model.id}`}
                             >
-                              <button
+                              <div
                                 onClick={() =>
                                   void handleSelect(provider.name, model.id)
                                 }
@@ -408,7 +478,7 @@ export function ModelPicker({
                                   isSelected
                                     ? itemSelectedClass
                                     : itemNormalClass
-                                } group`}
+                                } ${isFocused(`${provider.name}:${model.id}`) ? itemFocusedClass : ""} group cursor-pointer`}
                               >
                                 <span className="truncate flex-1 min-w-0">
                                   {model.name || model.id}
@@ -429,7 +499,6 @@ export function ModelPicker({
                                   </span>
                                   <span
                                     onClick={(e) => handleTogglePin(e, provider.name, model.id)}
-                                    onMouseDown={(e) => e.stopPropagation()}
                                     className={`p-0.5 rounded hover:bg-[var(--ftre-border,#3c3c3c)]/50 cursor-pointer transition-all duration-150 ${
                                       modelPinned
                                         ? "max-w-[24px] opacity-100 text-[var(--ftre-accent,#00ff88)]"
@@ -443,7 +512,7 @@ export function ModelPicker({
                                 {isSelected && (
                                   <Check size={14} className="shrink-0" />
                                 )}
-                              </button>
+                              </div>
                             </div>
                           );
                         })}
