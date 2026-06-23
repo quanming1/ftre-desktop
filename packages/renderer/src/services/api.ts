@@ -1193,3 +1193,72 @@ export async function deleteMcpServer(
   }
   return { ok: true };
 }
+
+// ─── Agent Traces ──────────────────────────────────────────────────
+
+export type TraceRunType = "agent" | "llm" | "tool";
+export type TraceRunStatus = "running" | "completed" | "error" | "cancelled";
+
+export interface TraceEvent {
+  name: string;
+  time: string;
+  data: Record<string, unknown>;
+}
+
+export interface TraceRun {
+  id: string;
+  trace_id: string;
+  parent_run_id: string | null;
+  name: string;
+  run_type: TraceRunType;
+  status: TraceRunStatus;
+  start_time: string;
+  end_time: string | null;
+  duration_ms: number | null;
+  inputs: Record<string, unknown>;
+  outputs: Record<string, unknown>;
+  error: string | null;
+  metadata: Record<string, unknown>;
+  tags: string[];
+  events: TraceEvent[];
+  payload_loaded?: boolean;
+}
+
+export interface TraceSummary {
+  trace_id: string;
+  name: string;
+  status: TraceRunStatus | "unknown";
+  start_time: string;
+  end_time: string | null;
+  duration_ms: number | null;
+  metadata: Record<string, unknown>;
+  tags: string[];
+  outputs: Record<string, unknown>;
+  run_count: number;
+  llm_run_count: number;
+  tool_run_count: number;
+  stop_without_tools: number;
+  response_models: string[];
+  error_count: number;
+}
+
+export async function fetchTraces(limit = 100): Promise<{ traces: TraceSummary[]; path: string }> {
+  const response = await fetch(`${API_BASE}/api/traces?limit=${limit}`);
+  if (!response.ok) throw new Error(`加载 Trace 失败 (${response.status})`);
+  return response.json();
+}
+
+export async function fetchTrace(traceId: string): Promise<{ trace_id: string; runs: TraceRun[] }> {
+  const response = await fetch(`${API_BASE}/api/traces/${encodeURIComponent(traceId)}`);
+  if (!response.ok) throw new Error(`加载 Trace 详情失败 (${response.status})`);
+  return response.json();
+}
+
+export async function fetchTraceRun(traceId: string, runId: string): Promise<TraceRun> {
+  const response = await fetch(
+    `${API_BASE}/api/traces/${encodeURIComponent(traceId)}/runs/${encodeURIComponent(runId)}`,
+  );
+  if (!response.ok) throw new Error(`加载 Run Payload 失败 (${response.status})`);
+  const data = await response.json();
+  return data.run;
+}
