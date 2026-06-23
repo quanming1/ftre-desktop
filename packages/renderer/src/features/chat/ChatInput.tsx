@@ -363,6 +363,10 @@ export function ChatInput() {
     } else {
       inputEditor.clear();
     }
+    // 切换 session 后自动聚焦输入框
+    // rAF 确保 Slate DOM 已就绪（组件重新挂载场景下尤其需要）
+    const rafId = requestAnimationFrame(() => inputEditor.focus());
+    return () => cancelAnimationFrame(rafId);
   }, [sessionId, inputEditor]);
 
   // ── 附件栏状态 ──

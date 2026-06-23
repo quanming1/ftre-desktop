@@ -39,6 +39,7 @@ import {
   Plus,
   PanelLeftClose,
   PanelLeftOpen,
+  Activity,
 } from "lucide-react";
 import {
   DndContext,
@@ -246,6 +247,7 @@ export function SessionPanel() {
 
   const activeLeftPanel = useLayout((s) => s.activeLeftPanel);
   const setActiveLeftPanel = useLayout((s) => s.setActiveLeftPanel);
+  const locateTraceSession = useLayout((s) => s.locateTraceSession);
   const sessionsCollapsed = useLayout((s) => s.sessionsCollapsed);
   const toggleSessionsCollapsed = useLayout((s) => s.toggleSessionsCollapsed);
 
@@ -465,6 +467,12 @@ export function SessionPanel() {
             action: () => navigator.clipboard.writeText(session.session_id),
           },
           {
+            id: "locate-trace",
+            label: "定位 Trace",
+            icon: Activity,
+            action: () => locateTraceSession(session.session_id),
+          },
+          {
             id: "rename-session",
             label: "重命名",
             icon: Pencil,
@@ -482,7 +490,7 @@ export function SessionPanel() {
         ],
       });
     },
-    [deleteSession, handleTogglePin, pinnedSessions],
+    [deleteSession, handleTogglePin, locateTraceSession, pinnedSessions],
   );
 
   /** 工作区 header 右键菜单 */
@@ -613,6 +621,15 @@ export function SessionPanel() {
             >
               <Zap size={17} />
             </button>
+            <button
+              type="button"
+              onClick={() => setActiveLeftPanel("traces")}
+              title="Agent Traces"
+              aria-label="Agent Traces"
+              className={`flex items-center justify-center w-9 h-9 rounded-full transition-colors ${activeLeftPanel === "traces" ? "bg-active text-t-primary" : "text-t-muted hover:text-t-primary hover:bg-hover"}`}
+            >
+              <Activity size={17} />
+            </button>
           </div>
 
           <button
@@ -660,6 +677,12 @@ export function SessionPanel() {
             label="技能"
             active={activeLeftPanel === "skills"}
             onClick={() => setActiveLeftPanel("skills")}
+          />
+          <ActionRow
+            icon={Activity}
+            label="追踪"
+            active={activeLeftPanel === "traces"}
+            onClick={() => setActiveLeftPanel("traces")}
           />
         </div>
 
