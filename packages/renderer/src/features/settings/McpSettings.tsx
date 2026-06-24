@@ -1,13 +1,5 @@
 /**
- * McpSettings — MCP 服务器管理设置页
- *
- * 设计风格：服务器机架仪表板
- * - 清晰的信息层级：名称 → 类型 → 预览 → 状态
- * - 紧凑的卡片布局，展开后显示完整配置
- * - 状态用圆点而非标签（更简洁、更易扫描）
- * - 表单分段布局，不堆叠
- * - 删除带确认
- * - 空状态带引导性插图
+ * McpSettings — MCP 服务器管理
  *
  * 所有操作通过后端 API 热生效，无需重启网关。
  */
@@ -17,11 +9,11 @@ import {
   Terminal,
   Globe,
   RefreshCw,
-  ChevronDown,
-  ChevronLeft,
-  Pencil,
-  ToggleLeft,
-  ToggleRight,
+  Plus,
+  X,
+  AlertTriangle,
+  Check,
+  Info,
 } from "lucide-react";
 import { Button } from "@ftre/ui";
 import {
@@ -120,38 +112,31 @@ export function McpSettings() {
     }
   };
 
-  // ─── 加载态 ───
-
   if (loading && servers.length === 0) {
     return (
-      <div className="flex items-center justify-center h-48 text-t-ghost text-[13px]">
+      <div className="flex items-center justify-center h-48 text-black/30 text-[13px]">
         <RefreshCw size={14} className="animate-spin mr-2" />
-        正在加载服务器列表…
+        正在加载…
       </div>
     );
   }
 
-  // ─── 编辑态 ───
-
   if (editing) {
     return (
-      <div className="space-y-5">
-        <div className="flex items-center gap-3">
-          <button
-            onClick={() => { setEditing(null); setError(null); }}
-            className="flex items-center gap-1 text-[13px] text-t-dim hover:text-t-primary transition-colors"
-          >
-            <ChevronLeft size={14} />
-            返回列表
-          </button>
-          <span className="text-t-ghost">·</span>
-          <span className="text-[13px] text-t-secondary">
-            {editing._originalName ? `编辑 ${editing._originalName}` : "添加服务器"}
-          </span>
-        </div>
+      <div className="space-y-6">
+        <button
+          onClick={() => { setEditing(null); setError(null); }}
+          className="group flex items-center gap-1.5 text-[13px] text-black/40 hover:text-black transition-colors active:scale-[0.96] transition-transform"
+        >
+          <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
+            <path d="M9 3L4 8L4 10L6 10L11 5" />
+          </svg>
+          {editing._originalName ? `编辑 ${editing._originalName}` : "添加服务器"}
+        </button>
 
         {error && (
-          <div className="px-3 py-2 text-[12px] rounded-md bg-[var(--ftre-status-error)]/10 text-[var(--ftre-status-error)]">
+          <div className="flex items-center gap-2 px-4 py-2.5 text-[12px] rounded-lg bg-red-50 text-red-600">
+            <AlertTriangle size={13} />
             {error}
           </div>
         )}
@@ -165,58 +150,67 @@ export function McpSettings() {
     );
   }
 
-  // ─── 列表态 ───
-
   return (
-    <div className="space-y-5">
+    <div className="space-y-6">
       <div>
-        <h2 className="text-[15px] font-medium text-t-primary">MCP 服务器</h2>
-        <p className="text-[12px] text-t-ghost mt-1">
+        <h2 className="text-[15px] font-semibold text-black">MCP 服务器</h2>
+        <p className="text-[12px] text-black/40 mt-1">
           连接外部工具服务器，扩展 Agent 可用工具集
         </p>
       </div>
 
       {error && (
-        <div className="px-3 py-2 text-[12px] rounded-md bg-[var(--ftre-status-error)]/10 text-[var(--ftre-status-error)]">
+        <div className="flex items-center gap-2 px-4 py-2.5 text-[12px] rounded-lg bg-red-50 text-red-600">
+          <AlertTriangle size={13} />
           {error}
+          <button onClick={() => setError(null)} className="ml-auto text-red-400 hover:text-red-600 transition-colors active:scale-[0.96] transition-transform">
+            <X size={13} />
+          </button>
         </div>
       )}
 
-      {/* 操作栏 */}
       <div className="flex items-center gap-2">
-        <Button size="sm" onClick={() => setEditing({ ...EMPTY_LOCAL })}>
-          <Terminal size={13} />
-          本地
-        </Button>
-        <Button size="sm" onClick={() => setEditing({ ...EMPTY_REMOTE })}>
-          <Globe size={13} />
-          远程
-        </Button>
+        <button
+          onClick={() => setEditing({ ...EMPTY_LOCAL })}
+          className="flex items-center gap-2 h-9 px-4 rounded-full text-[13px] font-medium bg-black text-white hover:bg-black/85 active:scale-[0.96] transition-[background-color,transform]"
+        >
+          <Plus size={14} />
+          添加本地
+        </button>
+        <button
+          onClick={() => setEditing({ ...EMPTY_REMOTE })}
+          className="flex items-center gap-2 h-9 px-4 rounded-full text-[13px] font-medium bg-black/[0.04] text-black/70 hover:bg-black/[0.08] active:scale-[0.96] transition-[background-color,transform]"
+        >
+          <Plus size={14} />
+          添加远程
+        </button>
         <button
           onClick={refresh}
-          className="ml-auto flex items-center gap-1 text-[12px] text-t-ghost hover:text-t-secondary transition-colors"
+          className="ml-auto flex items-center gap-1.5 text-[12px] text-black/30 hover:text-black/60 active:scale-[0.96] transition-[color,transform]"
         >
-          <RefreshCw size={12} />
+          <RefreshCw size={12} className={loading ? "animate-spin" : ""} />
           刷新
         </button>
       </div>
 
-      {/* 删除确认浮层 */}
       {deleteConfirm && (
-        <div className="flex items-center justify-between px-3 py-2 rounded-md bg-[var(--ftre-status-error)]/5 border border-[var(--ftre-status-error)]/20">
-          <span className="text-[12px] text-[var(--ftre-status-error)]">
-            确定删除 <strong>{deleteConfirm}</strong>？
-          </span>
+        <div className="flex items-center justify-between px-4 py-3 rounded-xl bg-red-50 border border-red-100">
+          <div className="flex items-center gap-2">
+            <AlertTriangle size={14} className="text-red-500" />
+            <span className="text-[13px] text-red-700">
+              确定删除 <strong>{deleteConfirm}</strong>？
+            </span>
+          </div>
           <div className="flex gap-2">
             <button
               onClick={() => setDeleteConfirm(null)}
-              className="text-[12px] text-t-secondary hover:text-t-primary transition-colors"
+              className="px-3 py-1.5 text-[12px] font-medium rounded-lg text-black/50 hover:text-black hover:bg-black/[0.04] active:scale-[0.96] transition-[color,background-color,transform]"
             >
               取消
             </button>
             <button
               onClick={() => handleDelete(deleteConfirm)}
-              className="text-[12px] text-[var(--ftre-status-error)] hover:text-[var(--ftre-status-danger)] font-medium transition-colors"
+              className="px-3 py-1.5 text-[12px] font-medium rounded-lg bg-red-500 text-white hover:bg-red-600 active:scale-[0.96] transition-[background-color,transform]"
             >
               删除
             </button>
@@ -224,11 +218,13 @@ export function McpSettings() {
         </div>
       )}
 
-      {/* 服务器列表 */}
       {servers.length === 0 ? (
-        <EmptyState onAddLocal={() => setEditing({ ...EMPTY_LOCAL })} onAddRemote={() => setEditing({ ...EMPTY_REMOTE })} />
+        <EmptyState
+          onAddLocal={() => setEditing({ ...EMPTY_LOCAL })}
+          onAddRemote={() => setEditing({ ...EMPTY_REMOTE })}
+        />
       ) : (
-        <div className="space-y-1.5">
+        <div className="space-y-2">
           {servers.map((s) => (
             <McpServerCard
               key={s.name}
@@ -250,34 +246,18 @@ export function McpSettings() {
 
 function EmptyState({ onAddLocal, onAddRemote }: { onAddLocal: () => void; onAddRemote: () => void }) {
   return (
-    <div className="flex flex-col items-center justify-center py-12">
-      {/* MCP logo — 简单的菱形图标 */}
-      <div className="w-10 h-10 rounded-lg bg-elevated border border-border flex items-center justify-center mb-4">
-        <svg width="20" height="20" viewBox="0 0 20 20" fill="none" className="text-t-ghost">
-          <rect x="3" y="3" width="14" height="14" rx="2" stroke="currentColor" strokeWidth="1.5" />
-          <line x1="10" y1="6" x2="10" y2="14" stroke="currentColor" strokeWidth="1.5" />
-          <line x1="6" y1="10" x2="14" y2="10" stroke="currentColor" strokeWidth="1.5" />
-          <circle cx="10" cy="10" r="1.5" fill="currentColor" />
-        </svg>
+    <div className="flex flex-col items-center justify-center py-12 rounded-2xl bg-black/[0.01] border border-dashed border-black/[0.06]">
+      <div className="w-12 h-12 rounded-2xl bg-black/[0.03] flex items-center justify-center mb-4">
+        <Terminal size={20} className="text-black/30" />
       </div>
-      <p className="text-[13px] text-t-secondary mb-1">暂无 MCP 服务器</p>
-      <p className="text-[11px] text-t-ghost mb-4">
-        添加服务器以扩展 Agent 工具集
-      </p>
+      <p className="text-[13px] font-medium text-black/60 mb-1">暂无 MCP 服务器</p>
+      <p className="text-[11px] text-black/30 mb-6">添加服务器以扩展 Agent 工具集</p>
       <div className="flex gap-2">
-        <button
-          onClick={onAddLocal}
-          className="flex items-center gap-1.5 px-3 py-2 text-[12px] rounded-md border border-border text-t-secondary hover:border-neon hover:text-neon transition-colors"
-        >
-          <Terminal size={12} />
-          本地 (stdio)
+        <button onClick={onAddLocal} className="flex items-center gap-2 h-8 px-4 rounded-full text-[13px] font-medium bg-black text-white hover:bg-black/85 active:scale-[0.96] transition-[background-color,transform]">
+          <Terminal size={13} />本地
         </button>
-        <button
-          onClick={onAddRemote}
-          className="flex items-center gap-1.5 px-3 py-2 text-[12px] rounded-md border border-border text-t-secondary hover:border-neon hover:text-neon transition-colors"
-        >
-          <Globe size={12} />
-          远程 (HTTP)
+        <button onClick={onAddRemote} className="flex items-center gap-2 h-8 px-4 rounded-full text-[13px] font-medium bg-black/[0.04] text-black/70 hover:bg-black/[0.08] active:scale-[0.96] transition-[background-color,transform]">
+          <Globe size={13} />远程
         </button>
       </div>
     </div>
@@ -302,106 +282,76 @@ function McpServerCard({
   onDelete: () => void;
 }) {
   const isLocal = server.type === "local";
-  const isDisabled = server.disabled;
-  const isConnected = !isDisabled && server.status === "connected";
-
-  // 状态颜色映射
-  const statusColor = isDisabled
-    ? "bg-t-faint"      // 灰色 — 禁用
-    : isConnected
-      ? "bg-neon"         // 绿色 — 已连接
-      : "bg-[var(--ftre-status-warning)]"; // 黄色 — 未连接
-
-  const statusLabel = isDisabled ? "禁用" : isConnected ? "已连接" : "未连接";
-
-  // 命令/URL 预览
-  const preview = isLocal
-    ? (server.command || []).slice(0, 3).join(" ") + ((server.command?.length ?? 0) > 3 ? " ..." : "")
-    : server.url || "";
+  const isDisabled = !!server.disabled;
+  const status = server.status;
+  const isConnected = status === "connected";
+  const isConnecting = status === "connecting";
 
   return (
-    <div className={`group rounded-md border transition-colors ${
-      isDisabled
-        ? "border-border bg-elevated/30"
-        : "border-border hover:border-border-subtle bg-surface"
-    }`}>
-      {/* 主行：名称 + 类型 + 预览 + 状态 + 操作 */}
-      <div className="flex items-center gap-3 px-3 py-2.5 cursor-pointer" onClick={onExpand}>
-        {/* 类型图标 */}
-        <div className={`shrink-0 w-7 h-7 rounded flex items-center justify-center ${
-          isDisabled ? "bg-elevated" : "bg-elevated group-hover:bg-neon-dim"
-        }`}>
-          {isLocal
-            ? <Terminal size={13} className={isDisabled ? "text-t-faint" : "text-t-ghost group-hover:text-neon"} />
-            : <Globe size={13} className={isDisabled ? "text-t-faint" : "text-t-ghost group-hover:text-neon"} />
-          }
+    <div className="rounded-xl border border-black/[0.06] bg-white hover:border-black/[0.1] transition-colors">
+      <button
+        onClick={onExpand}
+        className="flex w-full items-center gap-3 px-4 py-3 text-left active:scale-[0.99] transition-transform"
+      >
+        <div className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg ${isLocal ? "bg-blue-50 text-blue-500" : "bg-purple-50 text-purple-500"}`}>
+          {isLocal ? <Terminal size={15} /> : <Globe size={15} />}
         </div>
-
-        {/* 名称 */}
-        <span className={`text-[13px] truncate ${isDisabled ? "text-t-ghost" : "text-t-primary"}`}>
-          {server.name}
-        </span>
-
-        {/* 预览 */}
-        <span className="text-[11px] text-t-ghost truncate flex-1">
-          {preview}
-        </span>
-
-        {/* 状态圆点 */}
-        <div className="shrink-0 flex items-center gap-1.5">
-          <span className={`w-2 h-2 rounded-full ${statusColor}`} />
-          <span className={`text-[10px] ${isDisabled ? "text-t-faint" : "text-t-dim"}`}>
-            {statusLabel}
-          </span>
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-2">
+            <span className="text-[13px] font-semibold text-black truncate">{server.name}</span>
+            <span className={`shrink-0 text-[10px] font-medium rounded px-1.5 py-0.5 ${isDisabled ? "bg-amber-50 text-amber-600" : "bg-emerald-50 text-emerald-600"}`}>
+              {isDisabled ? "已禁用" : "启用"}
+            </span>
+          </div>
+          <div className="flex items-center gap-2 mt-0.5">
+            <span className="text-[11px] text-black/40">{isLocal ? "stdio" : "remote"}</span>
+            {!isDisabled && (
+              <>
+                <span className="text-black/15">·</span>
+                <span className={`flex items-center gap-1 text-[11px] ${isConnected ? "text-emerald-600" : isConnecting ? "text-amber-600" : "text-black/40"}`}>
+                  <span className={`h-1.5 w-1.5 rounded-full ${isConnected ? "bg-emerald-500" : isConnecting ? "bg-amber-500 animate-pulse" : "bg-black/20"}`} />
+                  {status || "未知"}
+                </span>
+              </>
+            )}
+          </div>
         </div>
+        <svg
+          className={`shrink-0 text-black/25 transition-transform ${expanded ? "rotate-180" : ""}`}
+          width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"
+        >
+          <path d="M3 5L6 8L9 5" />
+        </svg>
+      </button>
 
-        {/* 操作按钮 */}
-        <div className="shrink-0 flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
-          <button onClick={(e) => { e.stopPropagation(); onToggle(); }} title={isDisabled ? "启用" : "禁用"}
-            className="p-1.5 rounded hover:bg-elevated text-t-ghost hover:text-t-secondary transition-colors">
-            <ToggleLeft size={13} />
-          </button>
-          <button onClick={(e) => { e.stopPropagation(); onEdit(); }}
-            className="p-1.5 rounded hover:bg-elevated text-t-ghost hover:text-neon transition-colors">
-            <Pencil size={13} />
-          </button>
-          <button onClick={(e) => { e.stopPropagation(); onDelete(); }}
-            className="p-1.5 rounded hover:bg-elevated text-t-ghost hover:text-[var(--ftre-status-error)] transition-colors">
-            <Trash2 size={13} />
-          </button>
-        </div>
-
-        {/* 展开箭头 */}
-        <ChevronDown size={12} className={`shrink-0 text-t-faint transition-transform ${expanded ? "rotate-180" : ""}`} />
-      </div>
-
-      {/* 展开详情 */}
       {expanded && (
-        <div className="px-3 pb-3 pt-1 border-t border-border/50 space-y-2">
+        <div className="border-t border-black/[0.04] px-4 py-4 space-y-3">
           {isLocal ? (
-            <>
-              <DetailRow label="命令" value={(server.command || []).join(" ")} mono />
-              <DetailRow label="环境变量" value={
-                Object.entries(server.environment || {}).map(([k, v]) => `${k}=${v}`).join("\n") || "无"
-              } mono />
-            </>
+            <DetailRow label="命令" value={(server.command || []).join(" ") || "—"} mono />
           ) : (
-            <>
-              <DetailRow label="URL" value={server.url || "—"} mono />
-              <DetailRow label="请求头" value={
-                Object.entries(server.headers || {}).map(([k, v]) => `${k}: ${v}`).join("\n") || "无"
-              } mono />
-            </>
+            <DetailRow label="URL" value={server.url || "—"} mono />
           )}
           <DetailRow label="超时" value={`${server.timeout || 30000}ms`} />
           <div className="flex gap-2 pt-1">
-            <Button size="sm" variant="ghost" onClick={onEdit}>
-              <Pencil size={12} />
-              编辑配置
-            </Button>
-            <Button size="sm" variant="ghost" onClick={onToggle}>
+            <button
+              onClick={onEdit}
+              className="flex items-center gap-1.5 h-8 px-3 rounded-full text-[12px] font-medium bg-black/[0.03] text-black/60 hover:bg-black/[0.06] hover:text-black active:scale-[0.96] transition-[background-color,color,transform]"
+            >
+              编辑
+            </button>
+            <button
+              onClick={onToggle}
+              className="flex items-center gap-1.5 h-8 px-3 rounded-full text-[12px] font-medium bg-black/[0.03] text-black/60 hover:bg-black/[0.06] hover:text-black active:scale-[0.96] transition-[background-color,color,transform]"
+            >
               {isDisabled ? "启用" : "禁用"}
-            </Button>
+            </button>
+            <button
+              onClick={onDelete}
+              className="flex items-center gap-1.5 h-8 px-3 rounded-full text-[12px] font-medium text-red-500 hover:bg-red-50 active:scale-[0.96] transition-[background-color,color,transform]"
+            >
+              <Trash2 size={12} />
+              删除
+            </button>
           </div>
         </div>
       )}
@@ -414,8 +364,8 @@ function McpServerCard({
 function DetailRow({ label, value, mono }: { label: string; value: string; mono?: boolean }) {
   return (
     <div className="flex gap-4 text-[12px]">
-      <span className="shrink-0 w-16 text-t-ghost">{label}</span>
-      <span className={`flex-1 text-t-secondary whitespace-pre-wrap ${mono ? "font-mono" : ""}`}>
+      <span className="shrink-0 w-14 text-black/35">{label}</span>
+      <span className={`flex-1 text-black/60 whitespace-pre-wrap ${mono ? "font-mono text-[11px]" : ""}`}>
         {value}
       </span>
     </div>
@@ -442,20 +392,20 @@ function McpServerForm({
   const headersStr = Object.entries(data.headers || {})
     .map(([k, v]) => `${k}: ${v}`).join("\n");
 
+  const valid = data.name.trim() && (isLocal ? data.command?.length : data.url);
+
   return (
     <div className="space-y-5">
-      {/* 名称 */}
       <FormField label="服务器名称" hint="仅允许字母、数字、连字符和下划线">
         <input
           value={data.name}
           onChange={(e) => onChange({ ...data, name: e.target.value })}
           disabled={isEdit}
           placeholder="filesystem"
-          className="w-full h-9 px-3 rounded-md bg-elevated border border-border text-[13px] text-t-primary placeholder:text-t-ghost focus:outline-none focus:border-neon disabled:opacity-40 transition-colors"
+          className="w-full h-10 px-3.5 rounded-lg bg-black/[0.02] border border-black/[0.08] text-[13px] text-black placeholder:text-black/25 focus:outline-none focus:border-black/30 focus:bg-white disabled:opacity-40 transition-all"
         />
       </FormField>
 
-      {/* 类型切换（仅新建时） */}
       {!isEdit && (
         <FormField label="连接类型">
           <div className="flex gap-2">
@@ -466,10 +416,10 @@ function McpServerForm({
                   ...(t === "local" ? EMPTY_LOCAL : EMPTY_REMOTE),
                   name: data.name,
                 })}
-                className={`flex items-center gap-2 px-4 py-2.5 text-[12px] rounded-md border transition-all ${
+                className={`flex items-center gap-2 px-4 py-2.5 text-[12px] font-medium rounded-lg border transition-all active:scale-[0.96] ${
                   data.type === t
-                    ? "border-neon text-neon bg-neon-ghost"
-                    : "border-border text-t-secondary hover:border-border-subtle"
+                    ? "border-black bg-black text-white"
+                    : "border-black/[0.08] bg-white text-black/60 hover:border-black/[0.15]"
                 }`}
               >
                 {t === "local" ? <Terminal size={14} /> : <Globe size={14} />}
@@ -480,15 +430,14 @@ function McpServerForm({
         </FormField>
       )}
 
-      {/* Local 字段 */}
       {isLocal && (
         <>
-          <FormField label="启动命令" hint="空格分隔，如 npx -y @mcp/server-fs /path">
+          <FormField label="启动命令" hint="空格分隔">
             <input
               value={commandStr}
               onChange={(e) => onChange({ ...data, command: e.target.value.split(/\s+/).filter(Boolean) })}
-              placeholder="npx -y @modelcontextprotocol/server-filesystem /path"
-              className="w-full h-9 px-3 rounded-md bg-elevated border border-border text-[13px] text-t-primary placeholder:text-t-ghost focus:outline-none focus:border-neon font-mono transition-colors"
+              placeholder="npx -y @mcp/server-fs /path"
+              className="w-full h-10 px-3.5 rounded-lg bg-black/[0.02] border border-black/[0.08] text-[13px] text-black placeholder:text-black/25 focus:outline-none focus:border-black/30 focus:bg-white font-mono transition-all"
             />
           </FormField>
           <FormField label="环境变量" hint="每行 KEY=VALUE">
@@ -503,14 +452,13 @@ function McpServerForm({
                 onChange({ ...data, environment: env });
               }}
               rows={3}
-              placeholder="API_KEY=xxx&#10;DEBUG=true"
-              className="w-full px-3 py-2 rounded-md bg-elevated border border-border text-[12px] text-t-primary placeholder:text-t-ghost focus:outline-none focus:border-neon font-mono resize-y transition-colors"
+              placeholder="API_KEY=xxx"
+              className="w-full px-3.5 py-2.5 rounded-lg bg-black/[0.02] border border-black/[0.08] text-[12px] text-black placeholder:text-black/25 focus:outline-none focus:border-black/30 focus:bg-white font-mono resize-y transition-all"
             />
           </FormField>
         </>
       )}
 
-      {/* Remote 字段 */}
       {!isLocal && (
         <>
           <FormField label="服务器 URL">
@@ -518,7 +466,7 @@ function McpServerForm({
               value={data.url || ""}
               onChange={(e) => onChange({ ...data, url: e.target.value })}
               placeholder="https://example.com/mcp"
-              className="w-full h-9 px-3 rounded-md bg-elevated border border-border text-[13px] text-t-primary placeholder:text-t-ghost focus:outline-none focus:border-neon font-mono transition-colors"
+              className="w-full h-10 px-3.5 rounded-lg bg-black/[0.02] border border-black/[0.08] text-[13px] text-black placeholder:text-black/25 focus:outline-none focus:border-black/30 focus:bg-white font-mono transition-all"
             />
           </FormField>
           <FormField label="请求头" hint="每行 Key: Value">
@@ -534,47 +482,51 @@ function McpServerForm({
               }}
               rows={3}
               placeholder="Authorization: Bearer xxx"
-              className="w-full px-3 py-2 rounded-md bg-elevated border border-border text-[12px] text-t-primary placeholder:text-t-ghost focus:outline-none focus:border-neon font-mono resize-y transition-colors"
+              className="w-full px-3.5 py-2.5 rounded-lg bg-black/[0.02] border border-black/[0.08] text-[12px] text-black placeholder:text-black/25 focus:outline-none focus:border-black/30 focus:bg-white font-mono resize-y transition-all"
             />
           </FormField>
         </>
       )}
 
-      {/* 通用字段 */}
       <div className="flex items-start gap-6">
-        <FormField label="超时" className="w-28">
+        <FormField label="超时" className="w-32">
           <input
             type="number"
             value={data.timeout || 30000}
             onChange={(e) => onChange({ ...data, timeout: parseInt(e.target.value) || 30000 })}
-            className="w-full h-9 px-3 rounded-md bg-elevated border border-border text-[13px] text-t-primary focus:outline-none focus:border-neon transition-colors"
+            className="w-full h-10 px-3.5 rounded-lg bg-black/[0.02] border border-black/[0.08] text-[13px] text-black focus:outline-none focus:border-black/30 focus:bg-white tabular-nums transition-all"
           />
         </FormField>
         <div className="flex items-center gap-2 pt-7">
           <button
             onClick={() => onChange({ ...data, disabled: !data.disabled })}
-            className={`w-4 h-4 rounded-sm border flex items-center justify-center transition-colors ${
-              data.disabled
-                ? "border-neon bg-neon text-[var(--ftre-bg-base)]"
-                : "border-border bg-elevated"
-            }`}
+            className={`flex items-center gap-1.5 text-[12px] text-black/50 hover:text-black transition-colors active:scale-[0.96] transition-transform`}
           >
-            {data.disabled && <svg width="8" height="8" viewBox="0 0 8 8"><path d="M1 4L3 6L7 2" stroke="currentColor" strokeWidth="1.5" fill="none" /></svg>}
+            <div className={`w-4 h-4 rounded border flex items-center justify-center transition-all ${
+              data.disabled
+                ? "border-black bg-black text-white"
+                : "border-black/[0.15] bg-white"
+            }`}>
+              {data.disabled && <Check size={10} strokeWidth={2.5} />}
+            </div>
+            创建时禁用
           </button>
-          <span className="text-[12px] text-t-secondary">创建时禁用</span>
         </div>
       </div>
 
-      {/* 保存 */}
-      <div className="flex items-center gap-3 pt-2 border-t border-border/50">
-        <Button onClick={onSave} disabled={!data.name.trim() || (isLocal && !data.command?.length) || (!isLocal && !data.url)}>
-          保存
-        </Button>
+      <div className="flex items-center gap-3 pt-4 border-t border-black/[0.06]">
         <button
-          onClick={() => { onChange(data); }}
-          className="text-[12px] text-t-ghost hover:text-t-secondary transition-colors"
+          onClick={onSave}
+          disabled={!valid}
+          className="h-9 px-5 rounded-full text-[13px] font-medium bg-black text-white hover:bg-black/85 active:scale-[0.96] transition-[background-color,transform] disabled:opacity-30 disabled:pointer-events-none"
         >
-          重置表单
+          保存
+        </button>
+        <button
+          onClick={() => onChange(data)}
+          className="text-[12px] text-black/35 hover:text-black/60 active:scale-[0.96] transition-[color,transform]"
+        >
+          重置
         </button>
       </div>
     </div>
@@ -591,9 +543,9 @@ function FormField({ label, hint, children, className }: {
 }) {
   return (
     <div className={className}>
-      <div className="flex items-baseline gap-2 mb-1.5">
-        <span className="text-[12px] font-medium text-t-primary">{label}</span>
-        {hint && <span className="text-[10px] text-t-ghost">{hint}</span>}
+      <div className="flex items-baseline gap-2 mb-2">
+        <span className="text-[12px] font-semibold text-black/70">{label}</span>
+        {hint && <span className="text-[10px] text-black/30">{hint}</span>}
       </div>
       {children}
     </div>
