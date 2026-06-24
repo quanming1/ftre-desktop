@@ -1,165 +1,72 @@
-/**
- * SettingsPanel - 设置面板组件
- */
-
 import { useState } from "react";
-import { Settings, Bot, ChevronRight, Cpu, Wifi } from "lucide-react";
+import { Bot, Cpu, Wifi } from "lucide-react";
 import { AgentDefSettings } from "./AgentDefSettings";
 import { ModelSettings } from "./ModelSettings";
 import { GatewaySettings } from "./GatewaySettings";
+import { McpSettings } from "./McpSettings";
+import { ChevronRight, Server } from "lucide-react";
 
-type SettingsView = "home" | "agents" | "models" | "gateway";
-
-interface SettingsCategoryProps {
-  icon: React.ReactNode;
-  title: string;
-  description: string;
-  onClick?: () => void;
-  children?: React.ReactNode;
-}
-
-function SettingsCategory({
-  icon,
-  title,
-  description,
-  onClick,
-  children,
-}: SettingsCategoryProps) {
-  const isClickable = !!onClick;
-  return (
-    <div
-      className={`border border-border rounded-lg p-4 transition-colors ${
-        isClickable
-          ? "cursor-pointer hover:border-accent hover:bg-hover"
-          : "opacity-50 cursor-not-allowed"
-      }`}
-      onClick={isClickable ? onClick : undefined}
-    >
-      <div className="flex items-start gap-3">
-        <div className="text-t-muted mt-0.5">{icon}</div>
-        <div className="flex-1">
-          <h3 className="text-[14px] font-medium text-t-primary mb-1">
-            {title}
-          </h3>
-          <p className="text-[13px] text-t-secondary">{description}</p>
-          {children && <div className="mt-3">{children}</div>}
-        </div>
-        {isClickable && (
-          <ChevronRight size={16} className="text-t-muted mt-0.5" />
-        )}
-      </div>
-    </div>
-  );
-}
+type SettingsView = "home" | "agents" | "models" | "gateway" | "mcp";
 
 export function SettingsPanel() {
   const [view, setView] = useState<SettingsView>("home");
 
-  if (view === "agents") {
+  if (view !== "home") {
+    const titles: Record<string, string> = {
+      agents: "智能体",
+      models: "模型",
+      gateway: "网关",
+      mcp: "MCP 服务器",
+    };
     return (
-      <div className="h-full overflow-auto bg-surface">
+      <div className="h-full overflow-auto bg-white">
         <div className="max-w-[800px] mx-auto p-8">
           <button
             onClick={() => setView("home")}
-            className="flex items-center gap-2 text-[18px] text-t-muted hover:text-t-primary mb-6 transition-colors"
+            className="flex items-center gap-1.5 text-[13px] text-black/40 hover:text-black mb-6 transition-colors active:scale-[0.96] transition-transform"
           >
-            <Settings size={18} />
-            <span>设置</span>
-            <ChevronRight size={18} />
-            <span className="text-t-primary font-medium">智能体</span>
+            <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"><path d="M9 3L4 8L4 10L6 10L11 5" /></svg>
+            设置 / {titles[view]}
           </button>
-
-          <AgentDefSettings />
-        </div>
-      </div>
-    );
-  }
-
-  if (view === "models") {
-    return (
-      <div className="h-full overflow-auto bg-surface">
-        <div className="max-w-[800px] mx-auto p-8">
-          <button
-            onClick={() => setView("home")}
-            className="flex items-center gap-2 text-[18px] text-t-muted hover:text-t-primary mb-6 transition-colors"
-          >
-            <Settings size={18} />
-            <span>设置</span>
-            <ChevronRight size={18} />
-            <span className="text-t-primary font-medium">模型</span>
-          </button>
-
-          <ModelSettings />
-        </div>
-      </div>
-    );
-  }
-
-  if (view === "gateway") {
-    return (
-      <div className="h-full overflow-auto bg-surface">
-        <div className="max-w-[800px] mx-auto p-8">
-          <button
-            onClick={() => setView("home")}
-            className="flex items-center gap-2 text-[18px] text-t-muted hover:text-t-primary mb-6 transition-colors"
-          >
-            <Settings size={18} />
-            <span>设置</span>
-            <ChevronRight size={18} />
-            <span className="text-t-primary font-medium">网关</span>
-          </button>
-
-          <GatewaySettings />
+          {view === "agents" && <AgentDefSettings />}
+          {view === "models" && <ModelSettings />}
+          {view === "gateway" && <GatewaySettings />}
+          {view === "mcp" && <McpSettings />}
         </div>
       </div>
     );
   }
 
   return (
-    <div className="h-full overflow-auto bg-surface">
+    <div className="h-full overflow-auto bg-white">
       <div className="max-w-[800px] mx-auto p-8">
-        {/* 标题 */}
-        <div className="flex items-center gap-3 mb-8">
-          <Settings size={24} className="text-t-muted" />
-          <div>
-            <h1 className="text-[20px] font-semibold text-t-primary">设置</h1>
-            <p className="text-[13px] text-t-secondary">
-              配置你的 FTRE 使用体验
-            </p>
-          </div>
+        <div className="mb-8">
+          <h1 className="text-[15px] font-semibold text-black">设置</h1>
+          <p className="text-[12px] text-black/40 mt-1">配置你的 FTRE 使用体验</p>
         </div>
 
-        {/* 搜索（占位） */}
-        <div className="mb-6">
-          <input
-            type="text"
-            placeholder="搜索设置..."
-            className="w-full h-9 px-3 rounded-md bg-elevated border border-border text-[13px] text-t-primary placeholder:text-t-ghost focus:outline-none focus:border-accent"
-          />
-        </div>
-
-        {/* 分类 */}
-        <div className="space-y-4">
-          <SettingsCategory
-            icon={<Bot size={18} />}
-            title="智能体"
-            description="配置跨工作区协作的 AI 智能体。"
-            onClick={() => setView("agents")}
-          />
-
-          <SettingsCategory
-            icon={<Cpu size={18} />}
-            title="模型"
-            description="配置 AI 提供商和模型设置。"
-            onClick={() => setView("models")}
-          />
-
-          <SettingsCategory
-            icon={<Wifi size={18} />}
-            title="网关"
-            description="配置 ftre gateway 连接地址。"
-            onClick={() => setView("gateway")}
-          />
+        <div className="space-y-3">
+          {[
+            { icon: <Bot size={18} />, title: "智能体", desc: "跨工作区协作的 AI 智能体", view: "agents" as const },
+            { icon: <Cpu size={18} />, title: "模型", desc: "AI 提供商和模型设置", view: "models" as const },
+            { icon: <Server size={18} />, title: "MCP 服务器", desc: "连接外部工具服务器", view: "mcp" as const },
+            { icon: <Wifi size={18} />, title: "网关", desc: "ftre gateway 连接地址", view: "gateway" as const },
+          ].map(({ icon, title, desc, view: v }) => (
+            <button
+              key={v}
+              onClick={() => setView(v)}
+              className="flex w-full items-center gap-4 p-4 rounded-xl border border-black/[0.06] bg-white hover:border-black/[0.1] transition-colors text-left active:scale-[0.99]"
+            >
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-black/[0.03] text-black/50">
+                {icon}
+              </div>
+              <div className="flex-1 min-w-0">
+                <div className="text-[13px] font-semibold text-black">{title}</div>
+                <div className="text-[12px] text-black/40 mt-0.5">{desc}</div>
+              </div>
+              <ChevronRight size={16} className="text-black/20" />
+            </button>
+          ))}
         </div>
       </div>
     </div>
