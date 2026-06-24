@@ -33,6 +33,8 @@ import { useLayout } from "@/stores/layout";
 const POLL_INTERVAL_MS = 3000;
 const TRACE_PAGE_SIZE = 100;
 const MAX_DISPLAY_CHARS = 120_000;
+const TRACE_ROW_HEIGHT = 80;
+const OVERSCAN = 5;
 type DetailTab = "input" | "output" | "metadata" | "events";
 type TraceModule = "traces" | "tree" | "detail";
 
@@ -123,14 +125,14 @@ function JsonViewer({ value, loading }: { value: unknown; loading: boolean }) {
         </span>
         <div className="flex items-center gap-1">
           <div className="flex items-center rounded-md bg-base p-0.5">
-            <button type="button" onClick={() => setViewMode("tree")} className={`flex items-center gap-1 rounded px-2 py-1 text-[9px] transition-colors ${viewMode === "tree" ? "bg-active text-t-primary shadow-sm" : "text-t-ghost hover:text-t-muted"}`}>
+            <button type="button" onClick={() => setViewMode("tree")} className={`flex items-center gap-1 rounded px-2 py-1 text-[9px] transition-colors active:scale-[0.96] ${viewMode === "tree" ? "bg-active text-t-primary shadow-sm" : "text-t-ghost hover:text-t-muted"}`}>
               <ListTree size={11} />Tree
             </button>
-            <button type="button" onClick={() => setViewMode("text")} className={`flex items-center gap-1 rounded px-2 py-1 text-[9px] transition-colors ${viewMode === "text" ? "bg-active text-t-primary shadow-sm" : "text-t-ghost hover:text-t-muted"}`}>
+            <button type="button" onClick={() => setViewMode("text")} className={`flex items-center gap-1 rounded px-2 py-1 text-[9px] transition-colors active:scale-[0.96] ${viewMode === "text" ? "bg-active text-t-primary shadow-sm" : "text-t-ghost hover:text-t-muted"}`}>
               <Braces size={11} />文本
             </button>
           </div>
-          <button type="button" disabled={!serialized} onClick={() => void copy()} className="flex items-center gap-1.5 rounded-md px-2 py-1 text-[10px] text-t-muted transition-colors hover:bg-hover hover:text-t-primary disabled:cursor-not-allowed disabled:opacity-40" title="复制完整内容">
+          <button type="button" disabled={!serialized} onClick={() => void copy()} className="flex items-center gap-1.5 rounded-md px-2 py-1 text-[10px] text-t-muted transition-colors hover:bg-hover hover:text-t-primary active:scale-[0.96] disabled:cursor-not-allowed disabled:opacity-40" title="复制完整内容">
             {copied ? <Check size={12} className="text-emerald-500" /> : <Copy size={12} />}
             {copied ? "已复制" : "复制全部"}
           </button>
@@ -159,7 +161,7 @@ function RunNode({ run, runs, depth, selectedId, onSelect }: RunNodeProps) {
       <button
         type="button"
         onClick={() => onSelect(run)}
-        className={`group flex w-full items-center gap-2 rounded-lg py-2.5 pr-2 text-left transition-colors ${
+        className={`group flex w-full items-center gap-2 rounded-lg py-2.5 pr-2 text-left transition-colors active:scale-[0.96] ${
           selectedId === run.id ? "bg-active text-t-primary shadow-sm" : "text-t-muted hover:bg-hover hover:text-t-primary"
         }`}
         style={{ paddingLeft: 10 + depth * 18 }}
@@ -170,7 +172,7 @@ function RunNode({ run, runs, depth, selectedId, onSelect }: RunNodeProps) {
         </span>
         <span className="min-w-0 flex-1 truncate text-[12px] font-medium">{run.name}</span>
         {finishReason && <span className="rounded bg-elevated px-1.5 py-0.5 font-mono text-[9px]">{finishReason}</span>}
-        <span className="font-mono text-[9px] text-t-ghost">{formatDuration(run.duration_ms)}</span>
+        <span className="font-mono text-[9px] text-t-ghost tabular-nums">{formatDuration(run.duration_ms)}</span>
       </button>
       {children.map((child) => (
         <RunNode key={child.id} run={child} runs={runs} depth={depth + 1} selectedId={selectedId} onSelect={onSelect} />
@@ -337,6 +339,8 @@ export function TracePanel() {
     );
   }, [query, traces]);
 
+  const { containerRef: traceListRef, handleScroll: onTraceScroll, visibleItems: visibleTraces, totalHeight: traceTotalHeight, offsetY: traceOffsetY } = useVirtualList(filteredTraces, TRACE_ROW_HEIGHT, OVERSCAN);
+
   const selectedRun = selectedRunPayload || runs.find((run) => run.id === selectedRunId) || null;
   const roots = runs.filter((run) => run.parent_run_id == null);
   const tabValue = activeTab === "input" ? selectedRun?.inputs
@@ -353,9 +357,9 @@ export function TracePanel() {
         <div className="flex items-center gap-4">
           <div className="flex min-w-0 flex-1 items-center gap-2">
             <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-neon/10 text-neon"><Activity size={17} /></span>
-            <div className="min-w-0"><h1 className="text-[14px] font-semibold">Agent Traces</h1><p className="truncate font-mono text-[9px] text-t-ghost" title={tracePath}>{tracePath || "等待 Gateway"}</p></div>
+            <div className="min-w-0"><h1 className="text-[14px] font-semibold text-wrap-balance">Agent Traces</h1><p className="truncate font-mono text-[9px] text-t-ghost" title={tracePath}>{tracePath || "等待 Gateway"}</p></div>
           </div>
-          <button type="button" onClick={() => void manualRefresh()} className="flex items-center gap-1.5 rounded-md px-2 py-1.5 text-[10px] text-t-ghost transition-colors hover:bg-hover hover:text-t-primary">
+          <button type="button" onClick={() => void manualRefresh()} className="flex items-center gap-1.5 rounded-md px-2 py-1.5 text-[10px] text-t-ghost transition-colors hover:bg-hover hover:text-t-primary active:scale-[0.96]">
             <RefreshCw size={12} className={listLoading || treeLoading ? "animate-spin" : ""} />刷新
           </button>
         </div>
@@ -375,20 +379,22 @@ export function TracePanel() {
               <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索 Session、模型或 Trace ID" className="min-w-0 flex-1 bg-transparent text-[11px] outline-none placeholder:text-t-ghost" />
             </div>
           </div>
-          <div className="flex-1 overflow-y-auto px-2 pb-3">
-            {listLoading && traces.length === 0 ? <PanelLoading /> : filteredTraces.map((trace) => (
-              <button key={trace.trace_id} type="button" onClick={() => void selectTrace(trace.trace_id)} className={`mb-1.5 w-full rounded-xl p-3 text-left transition-all ${selectedTraceId === trace.trace_id ? "bg-active shadow-sm" : "hover:bg-hover"}`}>
-                <div className="flex items-center gap-2"><StatusIcon status={trace.status} /><span className="min-w-0 flex-1 truncate text-[12px] font-medium">{String(trace.metadata?.session_id || trace.name)}</span><span className="font-mono text-[9px] text-t-ghost">{shortId(trace.trace_id)}</span></div>
-                <div className="mt-2 flex items-center gap-2 text-[9px] text-t-ghost"><Clock3 size={10} />{formatTime(trace.start_time)}<span>·</span><span>{formatDuration(trace.duration_ms)}</span></div>
-                <div className="mt-2 flex flex-wrap gap-1"><Badge>LLM {trace.llm_run_count}</Badge><Badge>Tool {trace.tool_run_count}</Badge>{trace.stop_without_tools > 0 && <Badge warn>stop/no-tool {trace.stop_without_tools}</Badge>}</div>
-              </button>
-            ))}
+          <div className="flex-1 overflow-y-auto px-2 pb-3" ref={traceListRef} onScroll={onTraceScroll}>
+            {listLoading && traces.length === 0 ? <PanelLoading /> : (
+              <div style={{ height: traceTotalHeight, position: "relative" }}>
+                <div style={{ position: "absolute", top: 0, left: 0, right: 0, transform: `translateY(${traceOffsetY}px)` }}>
+                  {visibleTraces.map((trace) => (
+                    <TraceRow key={trace.trace_id} trace={trace} selected={selectedTraceId === trace.trace_id} onSelect={(id) => void selectTrace(id)} />
+                  ))}
+                </div>
+              </div>
+            )}
             {!query.trim() && hasMore && (
               <button
                 type="button"
                 disabled={loadingMore}
                 onClick={() => void loadMoreTraces()}
-                className="mt-2 flex w-full items-center justify-center gap-2 rounded-lg bg-elevated/60 px-3 py-2 text-[11px] text-t-muted transition-colors hover:bg-hover hover:text-t-primary disabled:cursor-not-allowed disabled:opacity-50"
+                className="mt-2 flex w-full items-center justify-center gap-2 rounded-lg bg-elevated/60 px-3 py-2 text-[11px] text-t-muted transition-colors hover:bg-hover hover:text-t-primary active:scale-[0.96] disabled:cursor-not-allowed disabled:opacity-50"
               >
                 <RefreshCw size={12} className={loadingMore ? "animate-spin" : ""} />
                 {loadingMore ? "加载中" : "加载更多"}
@@ -421,8 +427,8 @@ export function TracePanel() {
               <div className="group/detail flex items-start justify-between gap-3 [&>div:last-child>button]:opacity-0 [&>div:last-child>button]:transition-opacity [&>div:last-child>button:focus]:opacity-100 [&>div:last-child>button:hover]:opacity-100 [&:hover>div:last-child>button]:opacity-100">
                 <div><div className="flex items-center gap-2"><span className="flex h-8 w-8 items-center justify-center rounded-lg bg-elevated"><RunIcon type={selectedRun.run_type} /></span><h2 className="text-[15px] font-semibold">{selectedRun.name}</h2><StatusIcon status={selectedRun.status} /></div><p className="mt-1 pl-10 font-mono text-[9px] text-t-ghost">{selectedRun.id}</p></div>
                 <div className="flex items-start gap-3">
-                  <div className="text-right text-[9px] text-t-ghost"><div className="font-mono text-[11px] text-t-muted">{formatDuration(selectedRun.duration_ms)}</div><div className="mt-1">{formatTime(selectedRun.start_time)}</div></div>
-                  <button type="button" onClick={() => toggleModule("detail")} className="flex h-7 w-7 items-center justify-center rounded-md text-t-ghost hover:bg-hover hover:text-t-primary" title="收起 Run Detail" aria-label="收起 Run Detail"><PanelRightClose size={14} /></button>
+                  <div className="text-right text-[9px] text-t-ghost"><div className="font-mono text-[11px] text-t-muted tabular-nums">{formatDuration(selectedRun.duration_ms)}</div><div className="mt-1">{formatTime(selectedRun.start_time)}</div></div>
+                  <button type="button" onClick={() => toggleModule("detail")} className="flex h-7 w-7 items-center justify-center rounded-md text-t-ghost hover:bg-hover hover:text-t-primary active:scale-[0.96] transition-transform" title="收起 Run Detail" aria-label="收起 Run Detail"><PanelRightClose size={14} /></button>
                 </div>
               </div>
 
@@ -431,7 +437,7 @@ export function TracePanel() {
 
               <div className="mt-5 inline-flex items-center gap-1 rounded-lg bg-elevated/45 p-1">
                 {(["input", "output", "metadata", "events"] as DetailTab[]).map((tab) => (
-                  <button key={tab} type="button" onClick={() => setActiveTab(tab)} className={`relative rounded-md px-3 py-1.5 text-[11px] font-medium transition-colors ${activeTab === tab ? "bg-active text-t-primary shadow-sm" : "text-t-ghost hover:text-t-muted"}`}>
+                  <button key={tab} type="button" onClick={() => setActiveTab(tab)} className={`relative rounded-md px-3 py-1.5 text-[11px] font-medium transition-colors active:scale-[0.96] ${activeTab === tab ? "bg-active text-t-primary shadow-sm" : "text-t-ghost hover:text-t-muted"}`}>
                     {tab === "input" ? "Input" : tab === "output" ? "Output" : tab === "metadata" ? "Metadata" : "Events"}
                   </button>
                 ))}
@@ -450,6 +456,63 @@ function Badge({ children, warn = false }: { children: React.ReactNode; warn?: b
   return <span className={`rounded px-1.5 py-0.5 text-[9px] ${warn ? "bg-amber-500/10 text-amber-600" : "bg-elevated text-t-muted"}`}>{children}</span>;
 }
 
+function useVirtualList<T>(items: T[], rowHeight: number, overscan = 5) {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [scrollTop, setScrollTop] = useState(0);
+  const [containerHeight, setContainerHeight] = useState(0);
+
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+    const obs = new ResizeObserver(([entry]) => {
+      setContainerHeight(entry.contentRect.height);
+    });
+    obs.observe(el);
+    return () => obs.disconnect();
+  }, []);
+
+  const handleScroll = useCallback(() => {
+    if (containerRef.current) {
+      setScrollTop(containerRef.current.scrollTop);
+    }
+  }, []);
+
+  const visibleCount = Math.ceil(containerHeight / rowHeight);
+  const startIdx = Math.max(0, Math.floor(scrollTop / rowHeight) - overscan);
+  const endIdx = Math.min(items.length, startIdx + visibleCount + overscan * 2);
+  const visibleItems = items.slice(startIdx, endIdx);
+  const totalHeight = items.length * rowHeight;
+  const offsetY = startIdx * rowHeight;
+
+  return { containerRef, handleScroll, visibleItems, totalHeight, offsetY, startIdx };
+}
+
+function TraceRow({ trace, selected, onSelect }: { trace: TraceSummary; selected: boolean; onSelect: (id: string) => void }) {
+  return (
+    <button
+      type="button"
+      onClick={() => onSelect(trace.trace_id)}
+      className={`mb-1.5 w-full rounded-xl p-3 text-left transition-[background-color,box-shadow,transform] active:scale-[0.96] ${selected ? "bg-active shadow-sm" : "hover:bg-hover"}`}
+    >
+      <div className="flex items-center gap-2">
+        <StatusIcon status={trace.status} />
+        <span className="min-w-0 flex-1 truncate text-[12px] font-medium">{String(trace.metadata?.session_id || trace.name)}</span>
+        <span className="font-mono text-[9px] text-t-ghost">{shortId(trace.trace_id)}</span>
+      </div>
+      <div className="mt-2 flex items-center gap-2 text-[9px] text-t-ghost">
+        <Clock3 size={10} />
+        {formatTime(trace.start_time)}<span>·</span>
+        <span className="font-mono tabular-nums">{formatDuration(trace.duration_ms)}</span>
+      </div>
+      <div className="mt-2 flex flex-wrap gap-1">
+        <Badge>LLM {trace.llm_run_count}</Badge>
+        <Badge>Tool {trace.tool_run_count}</Badge>
+        {trace.stop_without_tools > 0 && <Badge warn>stop/no-tool {trace.stop_without_tools}</Badge>}
+      </div>
+    </button>
+  );
+}
+
 function DetailStat({ label, value }: { label: string; value: string }) {
   return <div className="rounded-xl bg-elevated/45 p-3"><div className="text-[9px] text-t-ghost">{label}</div><div className="mt-1 truncate font-mono text-[11px] text-t-primary" title={value}>{value}</div></div>;
 }
@@ -457,8 +520,8 @@ function DetailStat({ label, value }: { label: string; value: string }) {
 function ModuleHeader({ label, count, onCollapse }: { label: string; count: number; onCollapse: () => void }) {
   return (
     <div className="group flex h-10 shrink-0 items-center justify-between px-3 [&>button]:opacity-0 [&>button]:transition-opacity [&>button:focus]:opacity-100 [&>button:hover]:opacity-100 [&:hover>button]:opacity-100">
-      <div className="flex items-center gap-2"><span className="text-[11px] font-medium text-t-muted">{label}</span><span className="font-mono text-[9px] text-t-ghost">{count}</span></div>
-      <button type="button" onClick={onCollapse} className="flex h-7 w-7 items-center justify-center rounded-md text-t-ghost hover:bg-hover hover:text-t-primary" title={`收起 ${label}`} aria-label={`收起 ${label}`}><PanelLeftClose size={14} /></button>
+      <div className="flex items-center gap-2"><span className="text-[11px] font-medium text-t-muted">{label}</span><span className="font-mono text-[9px] text-t-ghost tabular-nums">{count}</span></div>
+      <button type="button" onClick={onCollapse} className="flex h-7 w-7 items-center justify-center rounded-md text-t-ghost hover:bg-hover hover:text-t-primary active:scale-[0.96] transition-transform" title={`收起 ${label}`} aria-label={`收起 ${label}`}><PanelLeftClose size={14} /></button>
     </div>
   );
 }
@@ -466,7 +529,7 @@ function ModuleHeader({ label, count, onCollapse }: { label: string; count: numb
 function CollapsedRail({ label, icon: Icon, onExpand, fill = false }: { label: string; icon: typeof Activity; onExpand: () => void; fill?: boolean }) {
   return (
     <div className={`flex w-10 shrink-0 flex-col items-center rounded-xl bg-base/45 py-2 ${fill ? "mr-auto" : ""}`}>
-      <button type="button" onClick={onExpand} className="flex h-7 w-7 items-center justify-center rounded-md text-t-muted hover:bg-hover hover:text-t-primary" title={`展开 ${label}`} aria-label={`展开 ${label}`}>
+      <button type="button" onClick={onExpand} className="flex h-7 w-7 items-center justify-center rounded-md text-t-muted hover:bg-hover hover:text-t-primary active:scale-[0.96] transition-transform" title={`展开 ${label}`} aria-label={`展开 ${label}`}>
         {fill ? <PanelRightOpen size={14} /> : <PanelLeftOpen size={14} />}
       </button>
       <Icon size={13} className="mt-3 text-t-ghost" />
