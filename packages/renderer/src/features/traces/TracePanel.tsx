@@ -31,6 +31,7 @@ import { JsonTree } from "./JsonTree";
 import { useLayout } from "@/stores/layout";
 
 const POLL_INTERVAL_MS = 3000;
+const TRACE_PAGE_SIZE = 100;
 const MAX_DISPLAY_CHARS = 120_000;
 type DetailTab = "input" | "output" | "metadata" | "events";
 type TraceModule = "traces" | "tree" | "detail";
@@ -189,7 +190,11 @@ export function TracePanel() {
   const [activeTab, setActiveTab] = useState<DetailTab>("input");
   const [query, setQuery] = useState("");
   const [tracePath, setTracePath] = useState("");
+  const [traceTotal, setTraceTotal] = useState(0);
+  const [nextOffset, setNextOffset] = useState<number | null>(null);
+  const [hasMore, setHasMore] = useState(false);
   const [listLoading, setListLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [treeLoading, setTreeLoading] = useState(false);
   const [payloadLoading, setPayloadLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -200,6 +205,7 @@ export function TracePanel() {
   });
   const selectedTraceRef = useRef<string | null>(null);
   const payloadRequestRef = useRef(0);
+  const traceListLimitRef = useRef(TRACE_PAGE_SIZE);
 
   useEffect(() => {
     selectedTraceRef.current = selectedTraceId;
@@ -245,9 +251,12 @@ export function TracePanel() {
   const refreshList = useCallback(async (showLoading = false) => {
     if (showLoading) setListLoading(true);
     try {
-      const data = await fetchTraces();
+      const data = await fetchTraces(traceListLimitRef.current, 0);
       setTraces(data.traces);
       setTracePath(data.path);
+      setTraceTotal(data.total);
+      setNextOffset(data.next_offset);
+      setHasMore(data.has_more);
       setError(null);
       if (!selectedTraceRef.current && data.traces[0]) {
         const traceId = data.traces[0].trace_id;
@@ -261,6 +270,30 @@ export function TracePanel() {
       setListLoading(false);
     }
   }, [loadTree]);
+
+  const loadMoreTraces = useCallback(async () => {
+    if (!hasMore || nextOffset == null || loadingMore) return;
+    setLoadingMore(true);
+    try {
+      const data = await fetchTraces(TRACE_PAGE_SIZE, nextOffset);
+      setTraces((current) => {
+        const seen = new Set(current.map((trace) => trace.trace_id));
+        const appended = data.traces.filter((trace) => !seen.has(trace.trace_id));
+        const next = [...current, ...appended];
+        traceListLimitRef.current = Math.max(TRACE_PAGE_SIZE, next.length);
+        return next;
+      });
+      setTracePath(data.path);
+      setTraceTotal(data.total);
+      setNextOffset(data.next_offset);
+      setHasMore(data.has_more);
+      setError(null);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : String(cause));
+    } finally {
+      setLoadingMore(false);
+    }
+  }, [hasMore, loadingMore, nextOffset]);
 
   useEffect(() => {
     void refreshList(true);
@@ -335,7 +368,7 @@ export function TracePanel() {
           <CollapsedRail label="Traces" icon={Activity} onExpand={() => toggleModule("traces")} />
         ) : (
         <section className="flex w-[290px] shrink-0 flex-col overflow-hidden rounded-xl bg-base/55">
-          <ModuleHeader label="Traces" count={filteredTraces.length} onCollapse={() => toggleModule("traces")} />
+          <ModuleHeader label="Traces" count={traceTotal || filteredTraces.length} onCollapse={() => toggleModule("traces")} />
           <div className="p-3">
             <div className="flex items-center gap-2 rounded-lg bg-elevated/65 px-2.5 py-2">
               <Search size={13} className="text-t-ghost" />
@@ -350,6 +383,17 @@ export function TracePanel() {
                 <div className="mt-2 flex flex-wrap gap-1"><Badge>LLM {trace.llm_run_count}</Badge><Badge>Tool {trace.tool_run_count}</Badge>{trace.stop_without_tools > 0 && <Badge warn>stop/no-tool {trace.stop_without_tools}</Badge>}</div>
               </button>
             ))}
+            {!query.trim() && hasMore && (
+              <button
+                type="button"
+                disabled={loadingMore}
+                onClick={() => void loadMoreTraces()}
+                className="mt-2 flex w-full items-center justify-center gap-2 rounded-lg bg-elevated/60 px-3 py-2 text-[11px] text-t-muted transition-colors hover:bg-hover hover:text-t-primary disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                <RefreshCw size={12} className={loadingMore ? "animate-spin" : ""} />
+                {loadingMore ? "加载中" : "加载更多"}
+              </button>
+            )}
             {!listLoading && filteredTraces.length === 0 && <div className="py-16 text-center text-[11px] text-t-ghost">暂无 Trace。发送消息后会自动出现。</div>}
           </div>
         </section>
