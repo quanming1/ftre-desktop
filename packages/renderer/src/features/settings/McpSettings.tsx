@@ -160,10 +160,10 @@ export function McpSettings() {
       </div>
 
       {error && (
-        <div className="flex items-center gap-2 px-4 py-2.5 text-[12px] rounded-lg bg-red-50 text-red-600">
-          <AlertTriangle size={13} />
+        <div className="flex items-center gap-2 px-4 py-2.5 text-[12px] rounded-lg bg-black/[0.02] border border-black/[0.06] text-black/60">
+          <AlertTriangle size={13} className="text-black/40" />
           {error}
-          <button onClick={() => setError(null)} className="ml-auto text-red-400 hover:text-red-600 transition-colors active:scale-[0.96] transition-transform">
+          <button onClick={() => setError(null)} className="ml-auto text-black/30 hover:text-black/60 transition-colors active:scale-[0.96] transition-transform">
             <X size={13} />
           </button>
         </div>
@@ -194,11 +194,11 @@ export function McpSettings() {
       </div>
 
       {deleteConfirm && (
-        <div className="flex items-center justify-between px-4 py-3 rounded-xl bg-red-50 border border-red-100">
+        <div className="flex items-center justify-between px-4 py-3 rounded-xl bg-black/[0.02] border border-black/[0.06]">
           <div className="flex items-center gap-2">
-            <AlertTriangle size={14} className="text-red-500" />
-            <span className="text-[13px] text-red-700">
-              确定删除 <strong>{deleteConfirm}</strong>？
+            <AlertTriangle size={14} className="text-black/40" />
+            <span className="text-[13px] text-black/70">
+              确定删除 <strong className="font-semibold text-black">{deleteConfirm}</strong>？
             </span>
           </div>
           <div className="flex gap-2">
@@ -210,7 +210,7 @@ export function McpSettings() {
             </button>
             <button
               onClick={() => handleDelete(deleteConfirm)}
-              className="px-3 py-1.5 text-[12px] font-medium rounded-lg bg-red-500 text-white hover:bg-red-600 active:scale-[0.96] transition-[background-color,transform]"
+              className="px-3 py-1.5 text-[12px] font-medium rounded-lg bg-black text-white hover:bg-black/85 active:scale-[0.96] transition-[background-color,transform]"
             >
               删除
             </button>
@@ -293,13 +293,13 @@ function McpServerCard({
         onClick={onExpand}
         className="flex w-full items-center gap-3 px-4 py-3 text-left active:scale-[0.99] transition-transform"
       >
-        <div className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg ${isLocal ? "bg-blue-50 text-blue-500" : "bg-purple-50 text-purple-500"}`}>
-          {isLocal ? <Terminal size={15} /> : <Globe size={15} />}
+        <div className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-black/[0.03]`}>
+          {isLocal ? <Terminal size={15} className="text-black/50" /> : <Globe size={15} className="text-black/50" />}
         </div>
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
             <span className="text-[13px] font-semibold text-black truncate">{server.name}</span>
-            <span className={`shrink-0 text-[10px] font-medium rounded px-1.5 py-0.5 ${isDisabled ? "bg-amber-50 text-amber-600" : "bg-emerald-50 text-emerald-600"}`}>
+            <span className={`shrink-0 text-[10px] font-medium rounded px-1.5 py-0.5 ${isDisabled ? "bg-black/[0.04] text-black/40" : "bg-black/[0.04] text-black/60"}`}>
               {isDisabled ? "已禁用" : "启用"}
             </span>
           </div>
@@ -308,8 +308,8 @@ function McpServerCard({
             {!isDisabled && (
               <>
                 <span className="text-black/15">·</span>
-                <span className={`flex items-center gap-1 text-[11px] ${isConnected ? "text-emerald-600" : isConnecting ? "text-amber-600" : "text-black/40"}`}>
-                  <span className={`h-1.5 w-1.5 rounded-full ${isConnected ? "bg-emerald-500" : isConnecting ? "bg-amber-500 animate-pulse" : "bg-black/20"}`} />
+                <span className="flex items-center gap-1 text-[11px] text-black/40">
+                  <span className={`h-1.5 w-1.5 rounded-full ${isConnected ? "bg-black/40" : isConnecting ? "bg-black/20 animate-pulse" : "bg-black/15"}`} />
                   {status || "未知"}
                 </span>
               </>
@@ -347,7 +347,7 @@ function McpServerCard({
             </button>
             <button
               onClick={onDelete}
-              className="flex items-center gap-1.5 h-8 px-3 rounded-full text-[12px] font-medium text-red-500 hover:bg-red-50 active:scale-[0.96] transition-[background-color,color,transform]"
+              className="flex items-center gap-1.5 h-8 px-3 rounded-full text-[12px] font-medium text-black/40 hover:text-black hover:bg-black/[0.04] active:scale-[0.96] transition-[background-color,color,transform]"
             >
               <Trash2 size={12} />
               删除
