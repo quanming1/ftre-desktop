@@ -14,7 +14,12 @@ vi.mock("@/stores/layout", () => ({
 
 vi.mock("@/services/api", () => ({
   fetchTraces: vi.fn(async () => ({
-    path: "C:\\Users\\test\\.ftre\\traces\\agent-traces.jsonl",
+    path: "C:\\Users\\test\\.ftre\\traces\\agent-traces.sqlite",
+    total: 1,
+    limit: 100,
+    offset: 0,
+    next_offset: null,
+    has_more: false,
     traces: [{
       trace_id: "trace-1",
       name: "session:sess_1",
