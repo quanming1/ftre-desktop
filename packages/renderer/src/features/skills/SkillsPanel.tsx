@@ -142,7 +142,7 @@ function SkillPreview({
   }
 
   return (
-    <div className="markdown-body max-h-[60vh] overflow-y-auto">
+    <div className="markdown-body">
       <ReactMarkdown remarkPlugins={[remarkGfm]}>
         {content || "（空内容）"}
       </ReactMarkdown>
