@@ -6,7 +6,6 @@ import { CodeBlock, StreamingContext } from "./CodeBlock";
 import { useThrottledValue } from "@/hooks/useThrottledValue";
 import { splitBlocks } from "./streamingMarkdown";
 import { InlineToolCallCard } from "./InlineToolCallCard";
-import { ToolCallGroup } from "./ToolCallGroup";
 import { ChevronRight, Copy, Check } from "lucide-react";
 import { Tooltip, TooltipProvider } from "@ftre/ui";
 import { useNotification } from "@/stores/notification";
@@ -160,16 +159,9 @@ function PartsRenderer({
         .map((id) => toolCalls.find((toolCall) => toolCall.id === id))
         .filter((toolCall): toolCall is ToolCall => Boolean(toolCall));
 
-      if (groupedToolCalls.length === 1) {
+      for (const toolCall of groupedToolCalls) {
         rendered.push(
-          <InlineToolCallCard key={`tc-${groupedToolCalls[0].id}`} toolCall={groupedToolCalls[0]} />,
-        );
-      } else if (groupedToolCalls.length > 1) {
-        rendered.push(
-          <ToolCallGroup
-            key={`tcg-${groupedToolCalls.map((toolCall) => toolCall.id).join("-")}`}
-            toolCalls={groupedToolCalls}
-          />,
+          <InlineToolCallCard key={`tc-${toolCall.id}`} toolCall={toolCall} />,
         );
       }
       continue;
