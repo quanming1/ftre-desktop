@@ -9,12 +9,12 @@ export interface SwitchProps
 
 const sizeConfig = {
   sm: {
-    root: "h-4 w-7",
-    thumb: "h-3 w-3 data-[state=checked]:translate-x-3",
+    root: "h-5 w-9",
+    thumb: "h-4 w-4 data-[state=checked]:translate-x-[18px]",
   },
   md: {
-    root: "h-5 w-9",
-    thumb: "h-4 w-4 data-[state=checked]:translate-x-4",
+    root: "h-6 w-11",
+    thumb: "h-5 w-5 data-[state=checked]:translate-x-[22px]",
   },
 };
 
@@ -25,7 +25,7 @@ export const Switch = forwardRef<HTMLButtonElement, SwitchProps>(
       <SwitchPrimitive.Root
         ref={ref}
         className={cn(
-          "inline-flex shrink-0 cursor-pointer items-center rounded-full border-2 border-transparent transition-colors",
+          "inline-flex shrink-0 cursor-pointer items-center rounded-full transition-colors p-0.5",
           "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ftre-accent,#00ff88)] focus-visible:ring-offset-1 focus-visible:ring-offset-[var(--ftre-base,#1a1b1d)]",
           "disabled:cursor-not-allowed disabled:opacity-50",
           "data-[state=unchecked]:bg-[var(--ftre-border,#3c3c3c)]",
@@ -38,8 +38,7 @@ export const Switch = forwardRef<HTMLButtonElement, SwitchProps>(
         <SwitchPrimitive.Thumb
           className={cn(
             "pointer-events-none block rounded-full shadow-sm transition-transform",
-            "bg-[var(--ftre-text-primary,#e8e8e8)]",
-            "data-[state=unchecked]:translate-x-0.5",
+            "bg-white",
             config.thumb,
           )}
         />
