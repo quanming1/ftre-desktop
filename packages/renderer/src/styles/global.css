@@ -101,12 +101,12 @@
 }
 
 
-/* ===== Chat 代码块 ===== *
- * 用 CSS 变量驱动主题：在 light / dark 下分别提供卡片底色和 token 调色板。
- * 用 !important 压住 .markdown-body code 的全局浅色样式。
+/* ===== Chat 代码�?===== *
+ * �?CSS 变量驱动主题：在 light / dark 下分别提供卡片底色和 token 调色板�?
+ * �?!important 压住 .markdown-body code 的全局浅色样式�?
  */
 
-/* — 暗色主题（默认） — */
+/* �?暗色主题（默认） �?*/
 .codeblock-card {
   --cb-bg: #0e0f12;
   --cb-fg: #e7e7ea;
@@ -132,7 +132,7 @@
   box-shadow: 0 1px 0 rgba(255, 255, 255, 0.04) inset;
 }
 
-/* — 亮色主题：浅卡片 + 经典 GitHub Light token 调色板 — */
+/* �?亮色主题：浅卡片 + 经典 GitHub Light token 调色�?�?*/
 html[data-theme="light"] .codeblock-card {
   --cb-bg: #f6f7f9;
   --cb-fg: #1f2328;
@@ -141,12 +141,12 @@ html[data-theme="light"] .codeblock-card {
   --cb-icon-fg-hover: #1f2328;
   --cb-icon-bg-hover: rgba(0, 0, 0, 0.06);
   --cb-active: #1a7f37;
-  --cb-keyword: #cf222e;     /* 关键字 红 */
-  --cb-string: #0a3069;      /* 字符串 深蓝 */
+  --cb-keyword: #cf222e;     /* 关键�?�?*/
+  --cb-string: #0a3069;      /* 字符�?深蓝 */
   --cb-number: #0550ae;
   --cb-comment: #6e7781;
-  --cb-title: #6639ba;       /* 函数名 紫 */
-  --cb-attr: #116329;        /* 属性 绿 */
+  --cb-title: #6639ba;       /* 函数�?�?*/
+  --cb-attr: #116329;        /* 属�?�?*/
   --cb-params: #24292f;
   --cb-type: #953800;        /* 类型 棕橙 */
   --cb-deletion: #82071e;
@@ -162,7 +162,7 @@ html[data-theme="light"] .codeblock-card {
   border: none !important;
   border-radius: 0 !important;
   margin: 0 !important;
-  /* 卡片内边距：左右 20px / 底 18px / 顶 6px（紧贴 header） */
+  /* 卡片内边距：左右 20px / �?18px / �?6px（紧�?header�?*/
   padding: 6px 20px 18px 20px !important;
 }
 
@@ -254,7 +254,7 @@ html[data-theme="light"] .codeblock-card {
   color: var(--cb-addition) !important;
 }
 
-/* 滚动条 */
+/* 滚动�?*/
 .codeblock-card pre::-webkit-scrollbar {
   height: 6px;
 }
@@ -264,4 +264,87 @@ html[data-theme="light"] .codeblock-card {
 }
 .codeblock-card pre::-webkit-scrollbar-thumb:hover {
   background: var(--cb-scroll-hover);
+}
+
+/* ── tool-highlight: 单色灰阶 JSON 高亮（用于工具入参展开�?── */
+.tool-highlight .hljs-attr,
+.tool-highlight .hljs-attribute,
+.tool-highlight .hljs-property {
+  color: #1f2328;
+  font-weight: 600;
+}
+html[data-theme="dark"] .tool-highlight .hljs-attr,
+html[data-theme="dark"] .tool-highlight .hljs-attribute,
+html[data-theme="dark"] .tool-highlight .hljs-property {
+  color: #e7e7ea;
+}
+
+.tool-highlight .hljs-string,
+.tool-highlight .hljs-regexp,
+.tool-highlight .hljs-template-tag,
+.tool-highlight .hljs-template-variable {
+  color: #57606a;
+}
+html[data-theme="dark"] .tool-highlight .hljs-string,
+html[data-theme="dark"] .tool-highlight .hljs-regexp,
+html[data-theme="dark"] .tool-highlight .hljs-template-tag,
+html[data-theme="dark"] .tool-highlight .hljs-template-variable {
+  color: #9ca0aa;
+}
+
+.tool-highlight .hljs-number,
+.tool-highlight .hljs-literal,
+.tool-highlight .hljs-bullet {
+  color: #1f2328;
+  font-weight: 500;
+}
+html[data-theme="dark"] .tool-highlight .hljs-number,
+html[data-theme="dark"] .tool-highlight .hljs-literal,
+html[data-theme="dark"] .tool-highlight .hljs-bullet {
+  color: #c9d1d9;
+}
+
+.tool-highlight .hljs-keyword,
+.tool-highlight .hljs-built_in,
+.tool-highlight .hljs-meta {
+  color: #6e7781;
+  font-style: italic;
+}
+html[data-theme="dark"] .tool-highlight .hljs-keyword,
+html[data-theme="dark"] .tool-highlight .hljs-built_in,
+html[data-theme="dark"] .tool-highlight .hljs-meta {
+  color: #8b949e;
+}
+
+.tool-highlight .hljs-comment,
+.tool-highlight .hljs-quote {
+  color: #8c959f;
+  font-style: italic;
+}
+html[data-theme="dark"] .tool-highlight .hljs-comment,
+html[data-theme="dark"] .tool-highlight .hljs-quote {
+  color: #6e7681;
+}
+
+.tool-highlight .hljs-title,
+.tool-highlight .hljs-section {
+  color: #24292f;
+}
+html[data-theme="dark"] .tool-highlight .hljs-title,
+html[data-theme="dark"] .tool-highlight .hljs-section {
+  color: #d2a8ff;
+}
+
+.tool-highlight .hljs-params {
+  color: #24292f;
+}
+html[data-theme="dark"] .tool-highlight .hljs-params {
+  color: #c9d1d9;
+}
+
+.tool-highlight .hljs-type {
+  color: #57606a;
+}
+html[data-theme="dark"] .tool-highlight .hljs-type {
+  color: #9ca0aa;
 }
