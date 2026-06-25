@@ -395,7 +395,7 @@ export const ChatMessageList = memo(function ChatMessageList({
                   <div className="flex items-center gap-2">
                     <button
                       onClick={() => toggleTurn(turnIdx)}
-                      className="inline-flex items-center gap-1.5 text-[12px] text-t-ghost hover:text-t-secondary transition-colors active:scale-[0.96] origin-left"
+                      className="inline-flex items-center gap-1.5 text-[12px] text-t-dim hover:text-t-secondary transition-colors active:scale-[0.96] origin-left"
                     >
                       <ChevronRight size={13} className="rotate-90" />
                       展开 {hiddenCount} 条消息
@@ -413,12 +413,12 @@ export const ChatMessageList = memo(function ChatMessageList({
           const isOldTurn = turnIdx < turns.length - 2;
 
           return (
-            <div key={`turn-${turnIdx}`} className="space-y-12">
+            <div key={`turn-${turnIdx}`}>
               {isOldTurn && (
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2 mb-3">
                   <button
                     onClick={() => toggleTurn(turnIdx)}
-                    className="inline-flex items-center gap-1.5 text-[12px] text-t-ghost hover:text-t-secondary transition-colors active:scale-[0.96] origin-left"
+                    className="inline-flex items-center gap-1.5 text-[12px] text-t-dim hover:text-t-secondary transition-colors active:scale-[0.96] origin-left"
                   >
                     <ChevronRight size={13} className="-rotate-90" />
                     折叠本轮
@@ -426,10 +426,12 @@ export const ChatMessageList = memo(function ChatMessageList({
                   <div className="flex-1 h-px bg-border/30" />
                 </div>
               )}
-              {Array.from(
-                { length: turn.endIdx - turn.startIdx + 1 },
-                (_, k) => renderMessageItem(turn.startIdx + k),
-              )}
+              <div className="space-y-12">
+                {Array.from(
+                  { length: turn.endIdx - turn.startIdx + 1 },
+                  (_, k) => renderMessageItem(turn.startIdx + k),
+                )}
+              </div>
             </div>
           );
         })}
