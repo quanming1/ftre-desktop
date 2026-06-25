@@ -33,8 +33,8 @@ export const ToggleSwitch: FC<ToggleSwitchProps> = ({
         width: dims.w,
         height: dims.h,
         background: checked
-          ? "var(--ftre-accent, #00ff88)"
-          : "var(--ftre-border, #3c3c3c)",
+          ? "var(--ftre-text-primary, #000000)"
+          : "var(--ftre-border, #d1d5db)",
       }}
     >
       <span
