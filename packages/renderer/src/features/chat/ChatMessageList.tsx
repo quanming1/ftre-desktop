@@ -7,7 +7,7 @@
  * - Storybook (fed by mock data or live WebSocket)
  * - Embedded panels (preview, debug)
  */
-import { memo, useRef, useEffect, useState, useCallback, useMemo } from "react";
+import { memo, useRef, useEffect, useState, useCallback } from "react";
 import { ChevronUp, Loader2, Archive, AlertCircle, ChevronRight, Copy } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -67,17 +67,6 @@ export const ChatMessageList = memo(function ChatMessageList({
 }: ChatMessageListProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
-
-  // ─── Turn collapsing: older turns only show last AI message ──────────
-  const [expandedTurns, setExpandedTurns] = useState<Set<number>>(new Set());
-  const toggleTurn = useCallback((turnIdx: number) => {
-    setExpandedTurns((prev) => {
-      const next = new Set(prev);
-      if (next.has(turnIdx)) next.delete(turnIdx);
-      else next.add(turnIdx);
-      return next;
-    });
-  }, []);
 
   // ─── 右键菜单（选中文本后复制）────────────────────────────────────
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null);
@@ -168,7 +157,6 @@ export const ChatMessageList = memo(function ChatMessageList({
   useEffect(() => {
     if (messages.length < prevLenRef.current || messages.length === 0) {
       setVisibleCount(PAGE_SIZE);
-      setExpandedTurns(new Set());
     }
     prevLenRef.current = messages.length;
   }, [messages.length]);
@@ -224,94 +212,6 @@ export const ChatMessageList = memo(function ChatMessageList({
     }
   }, [localHidden, totalCount, hasMoreHistory, sessionId, loadingHistory, loadEarlier]);
 
-  // ─── Turn computation: group messages into turns ───────────────────
-  // A turn = user message + all following non-user messages until next user
-  const turns = useMemo(() => {
-    if (visibleMessages.length === 0) return [];
-    const result: { startIdx: number; endIdx: number }[] = [];
-    let turnStart = 0;
-    for (let i = 1; i < visibleMessages.length; i++) {
-      if (visibleMessages[i].role === "user") {
-        result.push({ startIdx: turnStart, endIdx: i - 1 });
-        turnStart = i;
-      }
-    }
-    result.push({ startIdx: turnStart, endIdx: visibleMessages.length - 1 });
-    return result;
-  }, [visibleMessages]);
-
-  // A turn is collapsed if: not one of the last two, not user-expanded,
-  // and its last message is an assistant message
-  const isTurnCollapsed = (turnIdx: number): boolean => {
-    if (turnIdx >= turns.length - 2) return false;
-    if (expandedTurns.has(turnIdx)) return false;
-    const turn = turns[turnIdx];
-    const lastMsg = visibleMessages[turn.endIdx];
-    return lastMsg?.role === "assistant";
-  };
-
-  // Render a single message item (extracted from the old inline map)
-  const renderMessageItem = (msgIdx: number) => {
-    const msg = visibleMessages[msgIdx];
-    const next = visibleMessages[msgIdx + 1];
-    const isLastOfTurn =
-      msg.role === "assistant" &&
-      !msg.streaming &&
-      (!next || next.role !== "assistant");
-
-    let turnTexts: string[] | undefined;
-    if (isLastOfTurn) {
-      let turnStart = 0;
-      for (let j = msgIdx - 1; j >= 0; j--) {
-        if (visibleMessages[j].role === "user") {
-          turnStart = j + 1;
-          break;
-        }
-      }
-      turnTexts = [];
-      for (let j = turnStart; j <= msgIdx; j++) {
-        const m = visibleMessages[j];
-        if (m.role !== "assistant") continue;
-        const parts = m.parts?.filter(
-          (p): p is { type: "text"; text: string } => p.type === "text" && Boolean(p.text),
-        );
-        const text = parts?.length
-          ? parts.map((p) => p.text).join("\n")
-          : m.content ?? "";
-        if (text) turnTexts.push(text);
-      }
-    }
-
-    let turnUsage: ChatMessage["usage"] | undefined;
-    if (msg.role === "assistant" && msg.usage) {
-      let prevTotal = 0;
-      for (let j = msgIdx - 1; j >= 0; j--) {
-        const prev = visibleMessages[j];
-        if (prev.role === "assistant" && prev.usage?.total_tokens != null) {
-          prevTotal = prev.usage.total_tokens;
-          break;
-        }
-      }
-      const cur = msg.usage;
-      turnUsage = {
-        prompt_tokens: cur.prompt_tokens,
-        completion_tokens: cur.completion_tokens,
-        total_tokens:
-          cur.total_tokens != null ? cur.total_tokens - prevTotal : undefined,
-      };
-    }
-
-    return (
-      <MessageItem
-        key={msg.id}
-        message={msg}
-        showActions={isLastOfTurn}
-        turnUsage={turnUsage}
-        turnTexts={turnTexts}
-      />
-    );
-  };
-
   return (
     <div
       ref={mergedRef}
@@ -357,84 +257,61 @@ export const ChatMessageList = memo(function ChatMessageList({
           </div>
         )}
 
-        {turns.map((turn, turnIdx) => {
-          const collapsed = isTurnCollapsed(turnIdx);
+        {visibleMessages.map((msg, i) => {
+          const next = visibleMessages[i + 1];
+          const isLastOfTurn =
+            msg.role === "assistant" &&
+            !msg.streaming &&
+            (!next || next.role !== "assistant");
 
-          if (collapsed) {
-            // 找本轮最后一条 assistant 消息
-            let lastAssistantIdx = turn.endIdx;
-            while (
-              lastAssistantIdx >= turn.startIdx &&
-              visibleMessages[lastAssistantIdx].role !== "assistant"
-            ) {
-              lastAssistantIdx--;
+          // 本轮所有 assistant 消息的文本列表（从上一个 user 消息之后到本条）
+          let turnTexts: string[] | undefined;
+          if (isLastOfTurn) {
+            // 找本轮起始：上一个 user 消息
+            let turnStart = 0;
+            for (let j = i - 1; j >= 0; j--) {
+              if (visibleMessages[j].role === "user") {
+                turnStart = j + 1;
+                break;
+              }
             }
-
-            // 没找到 assistant → 全部展示
-            if (lastAssistantIdx < turn.startIdx) {
-              return (
-                <div key={`turn-${turnIdx}`} className="space-y-12">
-                  {Array.from(
-                    { length: turn.endIdx - turn.startIdx + 1 },
-                    (_, k) => renderMessageItem(turn.startIdx + k),
-                  )}
-                </div>
-              );
+            turnTexts = [];
+            for (let j = turnStart; j <= i; j++) {
+              const m = visibleMessages[j];
+              if (m.role !== "assistant") continue;
+              const parts = m.parts?.filter((p): p is { type: "text"; text: string } => p.type === "text" && Boolean(p.text));
+              const text = parts?.length ? parts.map((p) => p.text).join("\n") : m.content ?? "";
+              if (text) turnTexts.push(text);
             }
-
-            // 折叠：展示 [turn.startIdx] (通常是 user) + 最后一条 assistant
-            // 其它消息（中间的 + lastAssistantIdx 之后的尾部）全部折进按钮
-            const headIdx = turn.startIdx;
-            const visibleCount = headIdx === lastAssistantIdx ? 1 : 2;
-            const hiddenCount = turn.endIdx - turn.startIdx + 1 - visibleCount;
-
-            return (
-              <div key={`turn-${turnIdx}`} className="space-y-12">
-                {/* 头部消息（user / system）始终展示 */}
-                {renderMessageItem(headIdx)}
-                {/* 折叠按钮 */}
-                {hiddenCount > 0 && (
-                  <div className="flex items-center gap-2 -my-8">
-                    <button
-                      onClick={() => toggleTurn(turnIdx)}
-                      className="inline-flex items-center gap-1.5 text-[12px] text-t-dim hover:text-t-secondary transition-colors active:scale-[0.96] origin-left"
-                    >
-                      <ChevronRight size={13} className="rotate-90" />
-                      展开 {hiddenCount} 条消息
-                    </button>
-                    <div className="flex-1 h-px bg-border/30" />
-                  </div>
-                )}
-                {/* 最后一条 assistant 消息（如果不是 headIdx 本身） */}
-                {headIdx !== lastAssistantIdx && renderMessageItem(lastAssistantIdx)}
-              </div>
-            );
           }
 
-          // Expanded turn — for older turns that were expanded, show collapse button
-          const isOldTurn = turnIdx < turns.length - 2;
+          let turnUsage: ChatMessage["usage"] | undefined;
+          if (msg.role === "assistant" && msg.usage) {
+            let prevTotal = 0;
+            for (let j = i - 1; j >= 0; j--) {
+              const prev = visibleMessages[j];
+              if (prev.role === "assistant" && prev.usage?.total_tokens != null) {
+                prevTotal = prev.usage.total_tokens;
+                break;
+              }
+            }
+            const cur = msg.usage;
+            turnUsage = {
+              prompt_tokens: cur.prompt_tokens,
+              completion_tokens: cur.completion_tokens,
+              total_tokens:
+                cur.total_tokens != null ? cur.total_tokens - prevTotal : undefined,
+            };
+          }
 
           return (
-            <div key={`turn-${turnIdx}`}>
-              {isOldTurn && (
-                <div className="flex items-center gap-2 mb-3">
-                  <button
-                    onClick={() => toggleTurn(turnIdx)}
-                    className="inline-flex items-center gap-1.5 text-[12px] text-t-dim hover:text-t-secondary transition-colors active:scale-[0.96] origin-left"
-                  >
-                    <ChevronRight size={13} className="-rotate-90" />
-                    折叠本轮
-                  </button>
-                  <div className="flex-1 h-px bg-border/30" />
-                </div>
-              )}
-              <div className="space-y-12">
-                {Array.from(
-                  { length: turn.endIdx - turn.startIdx + 1 },
-                  (_, k) => renderMessageItem(turn.startIdx + k),
-                )}
-              </div>
-            </div>
+            <MessageItem
+              key={msg.id}
+              message={msg}
+              showActions={isLastOfTurn}
+              turnUsage={turnUsage}
+              turnTexts={turnTexts}
+            />
           );
         })}
 
