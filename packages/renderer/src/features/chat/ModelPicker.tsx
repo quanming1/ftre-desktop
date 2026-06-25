@@ -228,6 +228,7 @@ export function ModelPicker({
   const handleTogglePin = (e: React.MouseEvent, providerName: string, modelId: string) => {
     e.preventDefault();
     e.stopPropagation();
+    e.nativeEvent.stopImmediatePropagation();
     togglePin(providerName, modelId);
     forceUpdate((n) => n + 1); // 强制刷新让 pinned 列表更新
   };
@@ -398,9 +399,10 @@ export function ModelPicker({
                           className="px-1.5"
                         >
                           <div
-                            onClick={() =>
-                              void handleSelect(provider.name, model.id)
-                            }
+                            onClick={(e) => {
+                              if ((e.target as HTMLElement).closest('[data-pin-button]')) return;
+                              void handleSelect(provider.name, model.id);
+                            }}
                             className={`${itemBaseClass} ${
                               isSelected ? itemSelectedClass : itemNormalClass
                             } ${isFocused(`pin:${provider.name}:${model.id}`) ? itemFocusedClass : ""} group cursor-pointer`}
@@ -425,7 +427,8 @@ export function ModelPicker({
                                 />
                               </span>
                               <span
-                                onMouseDown={(e) => handleTogglePin(e, provider.name, model.id)}
+                                data-pin-button
+                                onClick={(e) => handleTogglePin(e, provider.name, model.id)}
                                 className="p-0.5 rounded hover:bg-[var(--ftre-border,#3c3c3c)]/50 cursor-pointer transition-colors text-[var(--ftre-accent,#00ff88)]"
                                 title="取消置顶"
                               >
@@ -472,9 +475,10 @@ export function ModelPicker({
                               data-model-key={`${provider.name}:${model.id}`}
                             >
                               <div
-                                onClick={() =>
-                                  void handleSelect(provider.name, model.id)
-                                }
+                                onClick={(e) => {
+                                  if ((e.target as HTMLElement).closest('[data-pin-button]')) return;
+                                  void handleSelect(provider.name, model.id);
+                                }}
                                 className={`${itemBaseClass} ${
                                   isSelected
                                     ? itemSelectedClass
@@ -499,7 +503,8 @@ export function ModelPicker({
                                     />
                                   </span>
                                   <span
-                                    onMouseDown={(e) => handleTogglePin(e, provider.name, model.id)}
+                                    data-pin-button
+                                    onClick={(e) => handleTogglePin(e, provider.name, model.id)}
                                     className={`p-0.5 rounded hover:bg-[var(--ftre-border,#3c3c3c)]/50 cursor-pointer transition-all duration-150 ${
                                       modelPinned
                                         ? "max-w-[24px] opacity-100 text-[var(--ftre-accent,#00ff88)]"
