@@ -2,16 +2,14 @@
  * SkillsPanel — Skill 管理面板（CRUD）。
  *
  * 后端契约（~/.ftre/skills/<name>.md 或 <name>/SKILL.md）：
- *   列表项 { name, description, kind, updated_at }
- *   详情   { name, description, kind, updated_at, content }
- *
- * Skill 是可复用的本地能力说明；后端会把它们的描述注入 system_prompt，
- * 并提供 loadSkill 工具按需读取完整内容（见 ~/.ftre/plugins/skill_plugin.py）。
+ *   列表项 { name, description, kind, updated_at, disabled }
+ *   详情   { name, description, kind, updated_at, content, disabled }
  *
  * UI：
  *   - 顶部：标题 + 搜索 + 刷新 + 新建
- *   - 列表：卡片网格，hover 显示编辑/删除
- *   - 查看/编辑/创建：Modal 内嵌 markdown 文本编辑器
+ *   - 列表：卡片网格，hover 显示预览/删除，左下角禁用开关
+ *   - 预览：大弹窗只读展示 Markdown 原文
+ *   - 创建：Modal 内嵌表单
  */
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
@@ -19,19 +17,20 @@ import {
   Plus,
   RefreshCw,
   Loader2,
-  Pencil,
+  Eye,
   Trash2,
   AlertCircle,
   FileText,
   Folder,
   Zap,
+  Power,
 } from "lucide-react";
 import {
   fetchSkills,
   fetchSkill,
   createSkill,
-  updateSkill,
   deleteSkill,
+  toggleSkillDisabled,
   type SkillSummary,
   type SkillKind,
 } from "@/services/api";
@@ -61,19 +60,23 @@ function formatDate(ts: number): string {
 
 function SkillCard({
   skill,
-  onOpen,
+  onPreview,
   onDelete,
+  onToggleDisabled,
 }: {
   skill: SkillSummary;
-  onOpen: () => void;
+  onPreview: () => void;
   onDelete: () => void;
+  onToggleDisabled: () => void;
 }) {
   const KindIcon = skill.kind === "dir" ? Folder : FileText;
 
   return (
     <div
-      onClick={onOpen}
-      className="group relative p-5 rounded-xl border border-border-subtle bg-elevated/40 hover:bg-elevated hover:border-border/50 transition-colors duration-150 cursor-pointer"
+      onClick={onPreview}
+      className={`group relative p-5 rounded-xl border border-border-subtle bg-elevated/40 hover:bg-elevated hover:border-border/50 transition-colors duration-150 cursor-pointer ${
+        skill.disabled ? "opacity-50" : ""
+      }`}
     >
       {/* Header */}
       <div className="flex items-start justify-between mb-3">
@@ -84,14 +87,26 @@ function SkillCard({
           <span className="text-[15px] font-semibold text-t-primary truncate">
             {skill.name}
           </span>
+          {skill.disabled && (
+            <span className="shrink-0 px-1.5 py-0.5 rounded text-[10px] font-medium bg-t-ghost/10 text-t-ghost">
+              已禁用
+            </span>
+          )}
         </div>
         <div className="flex items-center gap-0.5 shrink-0 opacity-0 group-hover:opacity-100 transition-all duration-150">
           <button
-            onClick={(e) => { e.stopPropagation(); onOpen(); }}
-            title="编辑"
+            onClick={(e) => { e.stopPropagation(); onToggleDisabled(); }}
+            title={skill.disabled ? "启用" : "禁用"}
             className="w-7 h-7 rounded-full flex items-center justify-center text-t-ghost hover:text-t-primary hover:bg-white/8 transition-colors"
           >
-            <Pencil size={13} />
+            <Power size={13} />
+          </button>
+          <button
+            onClick={(e) => { e.stopPropagation(); onPreview(); }}
+            title="预览"
+            className="w-7 h-7 rounded-full flex items-center justify-center text-t-ghost hover:text-t-primary hover:bg-white/8 transition-colors"
+          >
+            <Eye size={13} />
           </button>
           <button
             onClick={(e) => { e.stopPropagation(); onDelete(); }}
@@ -116,14 +131,37 @@ function SkillCard({
   );
 }
 
-// ─── 编辑 / 创建表单 ────────────────────────────────────────────────
+// ─── 预览组件 ────────────────────────────────────────────────────────
+
+function SkillPreview({
+  name,
+  content,
+  loading,
+}: {
+  name: string;
+  content: string;
+  loading: boolean;
+}) {
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center py-16">
+        <Loader2 size={18} className="text-t-ghost animate-spin" />
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-4">
+      <pre className="w-full bg-surface border border-border-subtle rounded-lg px-5 py-4 text-[13px] font-mono leading-relaxed text-t-primary whitespace-pre-wrap break-words max-h-[60vh] overflow-y-auto">
+        {content || "（空内容）"}
+      </pre>
+    </div>
+  );
+}
+
+// ─── 创建表单 ────────────────────────────────────────────────────────
 
 interface SkillFormProps {
-  /** "new" = 新建；否则编辑已存在 Skill */
-  mode: "new" | "edit";
-  initialName?: string;
-  initialContent?: string;
-  loading?: boolean;
   onCancel: () => void;
   onSubmit: (data: {
     name: string;
@@ -133,26 +171,18 @@ interface SkillFormProps {
 }
 
 function SkillForm({
-  mode,
-  initialName = "",
-  initialContent = "",
-  loading = false,
   onCancel,
   onSubmit,
 }: SkillFormProps) {
-  const [name, setName] = useState(initialName);
+  const [name, setName] = useState("");
   const [kind, setKind] = useState<SkillKind>("dir");
-  const [content, setContent] = useState(initialContent);
+  const [content, setContent] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
-  const isEdit = mode === "edit";
-
   const handleSubmit = async () => {
-    if (!isEdit) {
-      const nameErr = quickValidateName(name);
-      if (nameErr) return setError(nameErr);
-    }
+    const nameErr = quickValidateName(name);
+    if (nameErr) return setError(nameErr);
     setError(null);
     setSaving(true);
     try {
@@ -164,43 +194,32 @@ function SkillForm({
     }
   };
 
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center py-16">
-        <Loader2 size={18} className="text-t-ghost animate-spin" />
-      </div>
-    );
-  }
-
   return (
     <div className="space-y-5">
       <Field label="名称" required>
         <input
           type="text"
           value={name}
-          disabled={isEdit}
           onChange={(e) => setName(e.target.value)}
           placeholder="如：pdf-processing"
-          className="w-full bg-surface border border-border-subtle rounded-md px-4 py-3 text-[15px] font-mono text-t-primary placeholder:text-t-ghost focus:outline-none focus:border-neon/50 disabled:opacity-50"
+          className="w-full bg-surface border border-border-subtle rounded-md px-4 py-3 text-[15px] font-mono text-t-primary placeholder:text-t-ghost focus:outline-none focus:border-neon/50"
         />
       </Field>
 
-      {!isEdit && (
-        <Field label="存储形态" hint="目录形态可附带 references / scripts 等资源">
-          <div className="flex items-center gap-2">
-            <KindOption
-              label="目录 (<name>/SKILL.md)"
-              active={kind === "dir"}
-              onClick={() => setKind("dir")}
-            />
-            <KindOption
-              label="单文件 (<name>.md)"
-              active={kind === "file"}
-              onClick={() => setKind("file")}
-            />
-          </div>
-        </Field>
-      )}
+      <Field label="存储形态" hint="目录形态可附带 references / scripts 等资源">
+        <div className="flex items-center gap-2">
+          <KindOption
+            label="目录 (<name>/SKILL.md)"
+            active={kind === "dir"}
+            onClick={() => setKind("dir")}
+          />
+          <KindOption
+            label="单文件 (<name>.md)"
+            active={kind === "file"}
+            onClick={() => setKind("file")}
+          />
+        </div>
+      </Field>
 
       <Field
         label="内容"
@@ -237,7 +256,7 @@ function SkillForm({
           className="px-5 py-2.5 text-[15px] font-medium text-base bg-neon rounded-md hover:bg-neon/80 transition-colors disabled:opacity-40 inline-flex items-center gap-1.5"
         >
           {saving && <Loader2 size={14} className="animate-spin" />}
-          {isEdit ? "保存" : "创建"}
+          创建
         </button>
       </div>
     </div>
@@ -259,7 +278,7 @@ function KindOption({
       className={`px-3 py-2 rounded-md text-[13px] font-mono border transition-colors ${
         active
           ? "border-neon/50 bg-neon/10 text-t-primary"
-          : "border-border-subtle text-t-ghost hover:text-t-secondary hover:bg-hover"
+          : "border-border-subtle bg-surface text-t-dim hover:text-t-secondary"
       }`}
     >
       {label}
@@ -279,23 +298,27 @@ function Field({
   children: React.ReactNode;
 }) {
   return (
-    <div className="space-y-1.5">
-      <label className="block text-[15px] text-t-secondary font-medium">
-        {label}
-        {required && <span className="text-red-400/80 ml-1">*</span>}
-      </label>
+    <div>
+      <div className="flex items-baseline gap-2 mb-2">
+        <label className="text-[13px] font-medium text-t-secondary">
+          {label}
+          {required && <span className="text-neon/70 ml-0.5">*</span>}
+        </label>
+        {hint && <span className="text-[11px] text-t-ghost">{hint}</span>}
+      </div>
       {children}
-      {hint && <p className="text-[13px] text-t-ghost leading-relaxed">{hint}</p>}
     </div>
   );
 }
 
-// ─── Panel ──────────────────────────────────────────────────────────
+// ─── Main ───────────────────────────────────────────────────────────
+
+type PreviewState = { name: string; content: string; loading: boolean } | null;
 
 type EditState =
   | null
   | { mode: "new" }
-  | { mode: "edit"; name: string; content: string; loading: boolean };
+  | { mode: "preview"; name: string; content: string; loading: boolean };
 
 export function SkillsPanel() {
   const [skills, setSkills] = useState<SkillSummary[]>([]);
@@ -321,8 +344,8 @@ export function SkillsPanel() {
     reload();
   }, [reload]);
 
-  const openEdit = useCallback(async (name: string) => {
-    setEditing({ mode: "edit", name, content: "", loading: true });
+  const openPreview = useCallback(async (name: string) => {
+    setEditing({ mode: "preview", name, content: "", loading: true });
     const res = await fetchSkill(name);
     if ("error" in res) {
       useNotification.getState().addNotification({
@@ -333,7 +356,7 @@ export function SkillsPanel() {
       return;
     }
     setEditing({
-      mode: "edit",
+      mode: "preview",
       name,
       content: res.skill.content,
       loading: false,
@@ -364,26 +387,6 @@ export function SkillsPanel() {
     [reload],
   );
 
-  const handleUpdate = useCallback(
-    async (name: string, content: string) => {
-      const res = await updateSkill(name, content);
-      if ("error" in res) {
-        useNotification.getState().addNotification({
-          level: "error",
-          message: `保存失败: ${res.error}`,
-        });
-        throw new Error(res.error);
-      }
-      useNotification.getState().addNotification({
-        level: "success",
-        message: `已保存 Skill「${name}」`,
-      });
-      setEditing(null);
-      await reload();
-    },
-    [reload],
-  );
-
   const handleDelete = useCallback(
     async (skill: SkillSummary) => {
       const extra =
@@ -397,6 +400,27 @@ export function SkillsPanel() {
         });
         return;
       }
+      await reload();
+    },
+    [reload],
+  );
+
+  const handleToggleDisabled = useCallback(
+    async (skill: SkillSummary) => {
+      const res = await toggleSkillDisabled(skill.name);
+      if ("error" in res) {
+        useNotification.getState().addNotification({
+          level: "error",
+          message: `操作失败: ${res.error}`,
+        });
+        return;
+      }
+      useNotification.getState().addNotification({
+        level: "success",
+        message: res.disabled
+          ? `已禁用 Skill「${skill.name}」`
+          : `已启用 Skill「${skill.name}」`,
+      });
       await reload();
     },
     [reload],
@@ -483,8 +507,9 @@ export function SkillsPanel() {
           <div className="grid grid-cols-2 gap-3">
             {filtered.map((skill) => (
               <SkillCard key={skill.name} skill={skill}
-                onOpen={() => openEdit(skill.name)}
+                onPreview={() => openPreview(skill.name)}
                 onDelete={() => handleDelete(skill)}
+                onToggleDisabled={() => handleToggleDisabled(skill)}
               />
             ))}
           </div>
@@ -502,30 +527,25 @@ export function SkillsPanel() {
       {editing?.mode === "new" && (
         <Modal open onClose={() => setEditing(null)} title="新建技能">
           <SkillForm
-            mode="new"
             onCancel={() => setEditing(null)}
             onSubmit={handleCreate}
           />
         </Modal>
       )}
 
-      {/* 编辑 */}
-      {editing?.mode === "edit" && (
+      {/* 预览 */}
+      {editing?.mode === "preview" && (
         <Modal
           open
           onClose={() => setEditing(null)}
-          title={`编辑技能 · ${editing.name}`}
+          title={`预览 · ${editing.name}`}
+          width={900}
         >
-          {/* key 随 loading 翻转：内容拉到后强制重挂载，
-              让 SkillForm 的 useState(initialContent) 重新读到正文 */}
-          <SkillForm
+          <SkillPreview
             key={editing.loading ? "loading" : "loaded"}
-            mode="edit"
-            initialName={editing.name}
-            initialContent={editing.content}
+            name={editing.name}
+            content={editing.content}
             loading={editing.loading}
-            onCancel={() => setEditing(null)}
-            onSubmit={({ content }) => handleUpdate(editing.name, content)}
           />
         </Modal>
       )}
