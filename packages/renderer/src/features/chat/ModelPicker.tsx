@@ -220,7 +220,18 @@ export function ModelPicker({
     return () => document.removeEventListener("mousedown", handler);
   }, [open, close]);
 
+  // 用于防止 Pin 点击触发 handleSelect 关闭弹窗
+  const pinClickRef = useRef(false);
+  // 每次渲染后重置，防止残留（stopPropagation 生效时 handleSelect 不会执行，flag 不会在 handleSelect 里被清掉）
+  useEffect(() => {
+    pinClickRef.current = false;
+  });
+
   const handleSelect = async (providerName: string, modelId: string) => {
+    if (pinClickRef.current) {
+      pinClickRef.current = false;
+      return;
+    }
     close();
     await onSelect(providerName, modelId);
   };
@@ -228,9 +239,9 @@ export function ModelPicker({
   const handleTogglePin = (e: React.MouseEvent, providerName: string, modelId: string) => {
     e.preventDefault();
     e.stopPropagation();
-    e.nativeEvent.stopImmediatePropagation();
+    pinClickRef.current = true;
     togglePin(providerName, modelId);
-    forceUpdate((n) => n + 1); // 强制刷新让 pinned 列表更新
+    forceUpdate((n) => n + 1);
   };
 
   const handleExtraSelect = async () => {
@@ -399,44 +410,45 @@ export function ModelPicker({
                           className="px-1.5"
                         >
                           <div
-                            onClick={(e) => {
-                              if ((e.target as HTMLElement).closest('[data-pin-button]')) return;
-                              void handleSelect(provider.name, model.id);
-                            }}
                             className={`${itemBaseClass} ${
                               isSelected ? itemSelectedClass : itemNormalClass
-                            } ${isFocused(`pin:${provider.name}:${model.id}`) ? itemFocusedClass : ""} group cursor-pointer`}
+                            } ${isFocused(`pin:${provider.name}:${model.id}`) ? itemFocusedClass : ""} group relative`}
                             data-model-key={`pin:${provider.name}:${model.id}`}
                           >
-                            <span className="truncate flex-1 min-w-0">
+                            {/* 整行铺底的选择按钮 */}
+                            <button
+                              type="button"
+                              onClick={() => void handleSelect(provider.name, model.id)}
+                              className="absolute inset-0 w-full h-full cursor-pointer"
+                              aria-label={`选择 ${model.name || model.id}`}
+                            />
+                            <span className="truncate flex-1 min-w-0 pointer-events-none relative">
                               {model.name || model.id}
                             </span>
-                            <span className="text-[11px] text-[var(--ftre-text-ghost,#666)] shrink-0">
+                            <span className="text-[11px] text-[var(--ftre-text-ghost,#666)] shrink-0 pointer-events-none relative">
                               {provider.label}
                             </span>
                             {/* Badges / Pin：Pin 常驻可见，hover 时 badges 淡入展开 */}
-                            <span className="shrink-0 flex items-center gap-0.5 overflow-hidden">
+                            <span className="shrink-0 flex items-center gap-0.5 overflow-hidden relative">
                               <span
-                                className={`flex items-center gap-1 transition-all duration-150 ${
-                                  "max-w-0 opacity-0 group-hover:max-w-[80px] group-hover:opacity-100"
-                                }`}
+                                className="flex items-center gap-1 transition-opacity transition-colors duration-150 max-w-0 opacity-0 group-hover:max-w-[80px] group-hover:opacity-100 pointer-events-none"
                               >
                                 <ModelBadges
                                   contextWindow={model.context_window}
                                   vision={model.vision}
                                 />
                               </span>
-                              <span
-                                data-pin-button
+                              <button
+                                type="button"
                                 onClick={(e) => handleTogglePin(e, provider.name, model.id)}
-                                className="p-0.5 rounded hover:bg-[var(--ftre-border,#3c3c3c)]/50 cursor-pointer transition-colors text-[var(--ftre-accent,#00ff88)]"
+                                className="relative z-10 p-0.5 rounded hover:bg-[var(--ftre-border,#3c3c3c)]/50 cursor-pointer transition-colors text-[var(--ftre-accent,#00ff88)]"
                                 title="取消置顶"
                               >
                                 <Pin size={13} className="fill-current" />
-                              </span>
+                              </button>
                             </span>
                             {isSelected && (
-                              <Check size={14} className="shrink-0" />
+                              <Check size={14} className="shrink-0 pointer-events-none relative" />
                             )}
                           </div>
                         </div>
@@ -475,10 +487,7 @@ export function ModelPicker({
                               data-model-key={`${provider.name}:${model.id}`}
                             >
                               <div
-                                onClick={(e) => {
-                                  if ((e.target as HTMLElement).closest('[data-pin-button]')) return;
-                                  void handleSelect(provider.name, model.id);
-                                }}
+                                onClick={() => void handleSelect(provider.name, model.id)}
                                 className={`${itemBaseClass} ${
                                   isSelected
                                     ? itemSelectedClass
@@ -491,7 +500,7 @@ export function ModelPicker({
                                 {/* Badges / Pin 互斥：默认 badges，hover 时 badges 收起 Pin 展开 */}
                                 <span className="shrink-0 flex items-center gap-0.5 overflow-hidden">
                                   <span
-                                    className={`flex items-center gap-1 transition-all duration-150 ${
+                                    className={`flex items-center gap-1 transition-opacity transition-colors duration-150 ${
                                       modelPinned
                                         ? "max-w-0 opacity-0"
                                         : "max-w-[80px] opacity-100 group-hover:max-w-0 group-hover:opacity-0"
@@ -505,7 +514,7 @@ export function ModelPicker({
                                   <span
                                     data-pin-button
                                     onClick={(e) => handleTogglePin(e, provider.name, model.id)}
-                                    className={`p-0.5 rounded hover:bg-[var(--ftre-border,#3c3c3c)]/50 cursor-pointer transition-all duration-150 ${
+                                    className={`p-0.5 rounded hover:bg-[var(--ftre-border,#3c3c3c)]/50 cursor-pointer transition-opacity transition-colors duration-150 ${
                                       modelPinned
                                         ? "max-w-[24px] opacity-100 text-[var(--ftre-accent,#00ff88)]"
                                         : "max-w-0 opacity-0 text-[var(--ftre-text-ghost,#666)] group-hover:max-w-[24px] group-hover:opacity-100"
