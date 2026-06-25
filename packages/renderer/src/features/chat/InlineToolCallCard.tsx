@@ -477,7 +477,7 @@ export const InlineToolCallCard = memo(
           style={{ gridTemplateRows: expanded ? "1fr" : "0fr" }}
         >
           <div className="overflow-hidden">
-            <div className="ml-[22px] mt-1 mb-2 space-y-3">
+            <div className="ml-[22px] mt-1 mb-2 space-y-3 rounded-xl p-3 bg-[#f6f7f9] dark:bg-white/[0.03]">
               {/* 入参区域 */}
               <ArgsView args={args} toolName={toolCall.name} />
 
