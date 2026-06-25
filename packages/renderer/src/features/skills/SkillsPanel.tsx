@@ -16,7 +16,6 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import {
   Search,
-  Plus,
   RefreshCw,
   Loader2,
   Eye,
@@ -30,26 +29,14 @@ import { Switch } from "@ftre/ui";
 import {
   fetchSkills,
   fetchSkill,
-  createSkill,
   deleteSkill,
   toggleSkillDisabled,
   type SkillSummary,
-  type SkillKind,
 } from "@/services/api";
 import { useNotification } from "@/stores/notification";
 import { Modal } from "@/components/Modal";
 
 // ─── Helpers ────────────────────────────────────────────────────────
-
-/** Skill 名称合法性自检（与后端 is_valid_name 对齐，前端即时反馈）。*/
-function quickValidateName(name: string): string | null {
-  const trimmed = name.trim();
-  if (!trimmed) return "名称不能为空";
-  if (trimmed === "." || trimmed === "..") return "名称非法";
-  if (trimmed.startsWith(".")) return "名称不能以 . 开头";
-  if (/[\\/]/.test(trimmed)) return "名称不能包含 / 或 \\";
-  return null;
-}
 
 /** epoch 秒 → 中文日期 */
 function formatDate(ts: number): string {
@@ -161,165 +148,10 @@ function SkillPreview({
   );
 }
 
-// ─── 创建表单 ────────────────────────────────────────────────────────
-
-interface SkillFormProps {
-  onCancel: () => void;
-  onSubmit: (data: {
-    name: string;
-    content: string;
-    kind: SkillKind;
-  }) => Promise<void>;
-}
-
-function SkillForm({
-  onCancel,
-  onSubmit,
-}: SkillFormProps) {
-  const [name, setName] = useState("");
-  const [kind, setKind] = useState<SkillKind>("dir");
-  const [content, setContent] = useState("");
-  const [error, setError] = useState<string | null>(null);
-  const [saving, setSaving] = useState(false);
-
-  const handleSubmit = async () => {
-    const nameErr = quickValidateName(name);
-    if (nameErr) return setError(nameErr);
-    setError(null);
-    setSaving(true);
-    try {
-      await onSubmit({ name: name.trim(), content, kind });
-    } catch (e) {
-      setError((e as Error).message || "保存失败");
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  return (
-    <div className="space-y-5">
-      <Field label="名称" required>
-        <input
-          type="text"
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-          placeholder="如：pdf-processing"
-          className="w-full bg-surface border border-border-subtle rounded-md px-4 py-3 text-[15px] font-mono text-t-primary placeholder:text-t-ghost focus:outline-none focus:border-neon/50"
-        />
-      </Field>
-
-      <Field label="存储形态" hint="目录形态可附带 references / scripts 等资源">
-        <div className="flex items-center gap-2">
-          <KindOption
-            label="目录 (<name>/SKILL.md)"
-            active={kind === "dir"}
-            onClick={() => setKind("dir")}
-          />
-          <KindOption
-            label="单文件 (<name>.md)"
-            active={kind === "file"}
-            onClick={() => setKind("file")}
-          />
-        </div>
-      </Field>
-
-      <Field
-        label="内容"
-        hint="Skill 正文（Markdown）。建议含 frontmatter 的 description，便于被自动识别。"
-      >
-        <textarea
-          value={content}
-          onChange={(e) => setContent(e.target.value)}
-          placeholder={"---\nname: my-skill\ndescription: 这个 Skill 用来……\n---\n\n# My Skill\n"}
-          rows={16}
-          spellCheck={false}
-          className="w-full bg-surface border border-border-subtle rounded-md px-4 py-3 text-[13px] font-mono leading-relaxed text-t-primary placeholder:text-t-ghost focus:outline-none focus:border-neon/50 resize-none"
-        />
-      </Field>
-
-      {error && (
-        <div className="flex items-start gap-2 px-3 py-2 rounded-md bg-red-400/[0.06] border border-red-400/[0.15]">
-          <AlertCircle size={12} className="text-red-400/80 mt-0.5 shrink-0" />
-          <p className="text-[14px] text-red-400/90 leading-relaxed">{error}</p>
-        </div>
-      )}
-
-      <div className="flex justify-end gap-2 pt-2">
-        <button
-          onClick={onCancel}
-          disabled={saving}
-          className="px-5 py-2.5 text-[15px] text-t-secondary rounded-md hover:bg-hover transition-colors disabled:opacity-40"
-        >
-          取消
-        </button>
-        <button
-          onClick={handleSubmit}
-          disabled={saving}
-          className="px-5 py-2.5 text-[15px] font-medium text-base bg-neon rounded-md hover:bg-neon/80 transition-colors disabled:opacity-40 inline-flex items-center gap-1.5"
-        >
-          {saving && <Loader2 size={14} className="animate-spin" />}
-          创建
-        </button>
-      </div>
-    </div>
-  );
-}
-
-function KindOption({
-  label,
-  active,
-  onClick,
-}: {
-  label: string;
-  active: boolean;
-  onClick: () => void;
-}) {
-  return (
-    <button
-      onClick={onClick}
-      className={`px-3 py-2 rounded-md text-[13px] font-mono border transition-colors ${
-        active
-          ? "border-neon/50 bg-neon/10 text-t-primary"
-          : "border-border-subtle bg-surface text-t-dim hover:text-t-secondary"
-      }`}
-    >
-      {label}
-    </button>
-  );
-}
-
-function Field({
-  label,
-  required,
-  hint,
-  children,
-}: {
-  label: string;
-  required?: boolean;
-  hint?: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <div>
-      <div className="flex items-baseline gap-2 mb-2">
-        <label className="text-[13px] font-medium text-t-secondary">
-          {label}
-          {required && <span className="text-neon/70 ml-0.5">*</span>}
-        </label>
-        {hint && <span className="text-[11px] text-t-ghost">{hint}</span>}
-      </div>
-      {children}
-    </div>
-  );
-}
-
 // ─── Main ───────────────────────────────────────────────────────────
-
-type PreviewState = { name: string; content: string; loading: boolean } | null;
 
 type EditState =
   | null
-  | { mode: "new" }
   | { mode: "preview"; name: string; content: string; loading: boolean };
 
 export function SkillsPanel() {
@@ -364,30 +196,6 @@ export function SkillsPanel() {
       loading: false,
     });
   }, []);
-
-  const handleCreate = useCallback(
-    async (data: { name: string; content: string; kind: SkillKind }) => {
-      const res = await createSkill({
-        name: data.name,
-        content: data.content || undefined,
-        kind: data.kind,
-      });
-      if ("error" in res) {
-        useNotification.getState().addNotification({
-          level: "error",
-          message: `创建失败: ${res.error}`,
-        });
-        throw new Error(res.error);
-      }
-      useNotification.getState().addNotification({
-        level: "success",
-        message: `已创建 Skill「${data.name}」`,
-      });
-      setEditing(null);
-      await reload();
-    },
-    [reload],
-  );
 
   const handleDelete = useCallback(
     async (skill: SkillSummary) => {
@@ -457,11 +265,6 @@ export function SkillsPanel() {
             >
               <RefreshCw size={15} className={loading ? "animate-spin" : ""} />
             </button>
-            <button onClick={() => setEditing({ mode: "new" })}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[13px] font-medium bg-neon text-base hover:bg-neon/90 transition-all duration-150 active:scale-95"
-            >
-              <Plus size={14} strokeWidth={2} />新建
-            </button>
           </div>
         </div>
         {skills.length > 0 && (
@@ -524,16 +327,6 @@ export function SkillsPanel() {
           </div>
         )}
       </div>
-
-      {/* 新建 */}
-      {editing?.mode === "new" && (
-        <Modal open onClose={() => setEditing(null)} title="新建技能">
-          <SkillForm
-            onCancel={() => setEditing(null)}
-            onSubmit={handleCreate}
-          />
-        </Modal>
-      )}
 
       {/* 预览 */}
       {editing?.mode === "preview" && (
