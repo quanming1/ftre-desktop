@@ -478,10 +478,21 @@ export function Workbench() {
       <Toaster
         position="bottom-left"
         theme={resolvedMode}
-        richColors
         closeButton
         expand={false}
-        style={{ fontFamily: "var(--font-sans)" }}
+        style={{
+          fontFamily: "var(--font-sans)",
+          background: "var(--ftre-bg-elevated, #1a1b1d)",
+          border: "1px solid var(--ftre-border-default, #3c3c3c)",
+          color: "var(--ftre-text-primary, #e8e8e8)",
+        }}
+        toastOptions={{
+          style: {
+            background: "var(--ftre-bg-elevated, #1a1b1d)",
+            border: "1px solid var(--ftre-border-default, #3c3c3c)",
+            color: "var(--ftre-text-primary, #e8e8e8)",
+          },
+        }}
       />
     </div>
   );
