@@ -287,7 +287,6 @@ function ArgsView({ args, toolName }: { args: Record<string, unknown>; toolName?
     <div className="space-y-1">
       <div className="flex items-center gap-2 text-[10.5px] font-mono tracking-wider text-t-ghost">
         <span>Arguments</span>
-        {toolName && <span className="text-t-ghost/50">· {toolName}</span>}
       </div>
       <pre className="tool-highlight text-[12px] font-mono leading-relaxed text-t-dim whitespace-pre-wrap break-words overflow-x-auto max-h-[200px] overflow-y-auto">
         {highlightedHtml ? (
