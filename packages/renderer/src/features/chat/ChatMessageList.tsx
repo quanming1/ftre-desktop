@@ -382,17 +382,19 @@ export const ChatMessageList = memo(function ChatMessageList({
               );
             }
 
-            // user 消息在 startIdx，最后一条 assistant 在 lastAssistantIdx
-            // 中间的消息被折叠
-            const hiddenCount = lastAssistantIdx - turn.startIdx - 1;
+            // 折叠：展示 [turn.startIdx] (通常是 user) + 最后一条 assistant
+            // 其它消息（中间的 + lastAssistantIdx 之后的尾部）全部折进按钮
+            const headIdx = turn.startIdx;
+            const visibleCount = headIdx === lastAssistantIdx ? 1 : 2;
+            const hiddenCount = turn.endIdx - turn.startIdx + 1 - visibleCount;
 
             return (
-              <div key={`turn-${turnIdx}`} className="space-y-2">
-                {/* user 消息始终展示 */}
-                {renderMessageItem(turn.startIdx)}
-                {/* 折叠按钮（有中间消息时才显示） */}
+              <div key={`turn-${turnIdx}`} className="space-y-12">
+                {/* 头部消息（user / system）始终展示 */}
+                {renderMessageItem(headIdx)}
+                {/* 折叠按钮 */}
                 {hiddenCount > 0 && (
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-2 -my-8">
                     <button
                       onClick={() => toggleTurn(turnIdx)}
                       className="inline-flex items-center gap-1.5 text-[12px] text-t-dim hover:text-t-secondary transition-colors active:scale-[0.96] origin-left"
@@ -403,8 +405,8 @@ export const ChatMessageList = memo(function ChatMessageList({
                     <div className="flex-1 h-px bg-border/30" />
                   </div>
                 )}
-                {/* 最后一条 assistant 消息 */}
-                {renderMessageItem(lastAssistantIdx)}
+                {/* 最后一条 assistant 消息（如果不是 headIdx 本身） */}
+                {headIdx !== lastAssistantIdx && renderMessageItem(lastAssistantIdx)}
               </div>
             );
           }
