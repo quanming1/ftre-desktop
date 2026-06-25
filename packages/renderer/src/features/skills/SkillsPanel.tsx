@@ -12,6 +12,8 @@
  *   - 创建：Modal 内嵌表单
  */
 import { useCallback, useEffect, useMemo, useState } from "react";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import {
   Search,
   Plus,
@@ -23,8 +25,8 @@ import {
   FileText,
   Folder,
   Zap,
-  Power,
 } from "lucide-react";
+import { Switch } from "@ftre/ui";
 import {
   fetchSkills,
   fetchSkill,
@@ -93,28 +95,30 @@ function SkillCard({
             </span>
           )}
         </div>
-        <div className="flex items-center gap-0.5 shrink-0 opacity-0 group-hover:opacity-100 transition-all duration-150">
-          <button
-            onClick={(e) => { e.stopPropagation(); onToggleDisabled(); }}
-            title={skill.disabled ? "启用" : "禁用"}
-            className="w-7 h-7 rounded-full flex items-center justify-center text-t-ghost hover:text-t-primary hover:bg-white/8 transition-colors"
-          >
-            <Power size={13} />
-          </button>
-          <button
-            onClick={(e) => { e.stopPropagation(); onPreview(); }}
-            title="预览"
-            className="w-7 h-7 rounded-full flex items-center justify-center text-t-ghost hover:text-t-primary hover:bg-white/8 transition-colors"
-          >
-            <Eye size={13} />
-          </button>
-          <button
-            onClick={(e) => { e.stopPropagation(); onDelete(); }}
-            title="删除"
-            className="w-7 h-7 rounded-full flex items-center justify-center text-t-ghost hover:text-red-400 hover:bg-red-400/10 transition-colors"
-          >
-            <Trash2 size={13} />
-          </button>
+        <div className="flex items-center gap-1 shrink-0">
+          <div onClick={(e) => e.stopPropagation()}>
+            <Switch
+              checked={!skill.disabled}
+              onCheckedChange={() => onToggleDisabled()}
+              size="sm"
+            />
+          </div>
+          <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-all duration-150">
+            <button
+              onClick={(e) => { e.stopPropagation(); onPreview(); }}
+              title="预览"
+              className="w-7 h-7 rounded-full flex items-center justify-center text-t-ghost hover:text-t-primary hover:bg-white/8 transition-colors"
+            >
+              <Eye size={13} />
+            </button>
+            <button
+              onClick={(e) => { e.stopPropagation(); onDelete(); }}
+              title="删除"
+              className="w-7 h-7 rounded-full flex items-center justify-center text-t-ghost hover:text-red-400 hover:bg-red-400/10 transition-colors"
+            >
+              <Trash2 size={13} />
+            </button>
+          </div>
         </div>
       </div>
 
@@ -134,11 +138,9 @@ function SkillCard({
 // ─── 预览组件 ────────────────────────────────────────────────────────
 
 function SkillPreview({
-  name,
   content,
   loading,
 }: {
-  name: string;
   content: string;
   loading: boolean;
 }) {
@@ -151,10 +153,10 @@ function SkillPreview({
   }
 
   return (
-    <div className="space-y-4">
-      <pre className="w-full bg-surface border border-border-subtle rounded-lg px-5 py-4 text-[13px] font-mono leading-relaxed text-t-primary whitespace-pre-wrap break-words max-h-[60vh] overflow-y-auto">
+    <div className="markdown-body max-h-[60vh] overflow-y-auto">
+      <ReactMarkdown remarkPlugins={[remarkGfm]}>
         {content || "（空内容）"}
-      </pre>
+      </ReactMarkdown>
     </div>
   );
 }
@@ -543,7 +545,6 @@ export function SkillsPanel() {
         >
           <SkillPreview
             key={editing.loading ? "loading" : "loaded"}
-            name={editing.name}
             content={editing.content}
             loading={editing.loading}
           />
