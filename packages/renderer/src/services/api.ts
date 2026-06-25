@@ -679,6 +679,8 @@ export interface SkillSummary {
   kind: SkillKind;
   /** 内容文件最近修改时间（epoch 秒） */
   updated_at: number;
+  /** 是否被禁用（config.json 的 disabled_skills 数组） */
+  disabled?: boolean;
 }
 
 /**
@@ -716,6 +718,7 @@ function mapSkillRow(s: any): SkillSummary {
     description: typeof s?.description === "string" ? s.description : "",
     kind: s?.kind === "file" ? "file" : "dir",
     updated_at: typeof s?.updated_at === "number" ? s.updated_at : 0,
+    disabled: s?.disabled === true,
   };
 }
 
@@ -814,6 +817,20 @@ export async function deleteSkill(
     });
     if (!res.ok && res.status !== 204) return { error: await _readError(res) };
     return { ok: true };
+  } catch (e) {
+    return { error: (e as Error).message || "网络错误" };
+  }
+}
+
+export async function toggleSkillDisabled(
+  name: string,
+): Promise<{ name: string; disabled: boolean } | { error: string }> {
+  try {
+    const res = await fetch(`${SKILLS_API}/${encodeURIComponent(name)}/toggle`, {
+      method: "PATCH",
+    });
+    if (!res.ok) return { error: await _readError(res) };
+    return await res.json();
   } catch (e) {
     return { error: (e as Error).message || "网络错误" };
   }
