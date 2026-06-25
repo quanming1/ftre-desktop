@@ -25,7 +25,7 @@ import {
   Folder,
   Zap,
 } from "lucide-react";
-import { Switch } from "@ftre/ui";
+import { ToggleSwitch } from "@/components/ToggleSwitch";
 import {
   fetchSkills,
   fetchSkill,
@@ -84,9 +84,9 @@ function SkillCard({
         </div>
         <div className="flex items-center gap-1 shrink-0">
           <div onClick={(e) => e.stopPropagation()}>
-            <Switch
+            <ToggleSwitch
               checked={!skill.disabled}
-              onCheckedChange={() => onToggleDisabled()}
+              onChange={() => onToggleDisabled()}
               size="sm"
             />
           </div>
