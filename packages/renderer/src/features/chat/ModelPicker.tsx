@@ -120,7 +120,7 @@ export interface ModelPickerProps {
 // Styles
 // ─────────────────────────────────────────────────────────────
 const itemBaseClass =
-  "w-full px-3 py-2 text-left text-[13px] flex items-center gap-2 rounded-lg transition-all duration-150";
+  "w-full px-3 py-1 text-left text-[13px] flex items-center gap-2 rounded-lg transition-all duration-150";
 const itemNormalClass =
   "text-t-secondary hover:text-t-primary hover:bg-hover active:bg-active active:text-t-primary";
 const itemSelectedClass =
@@ -174,8 +174,8 @@ export function ModelPicker({
     if (!selected || providers.length === 0) return 0;
     
     // 估算每个项的高度
-    const itemHeight = 40; // py-2 + text = ~40px
-    const groupHeaderHeight = 32; // pt-3 pb-1.5 + text
+    const itemHeight = 32; // py-1 + text = ~32px
+    const groupHeaderHeight = 28; // pt-3 pb-1.5 + text
     const pinnedSectionHeight = pinnedModels.length > 0 
       ? (pinnedModels.length * itemHeight + groupHeaderHeight + 16) 
       : 0;
@@ -226,7 +226,8 @@ export function ModelPicker({
   };
 
   const handleTogglePin = (e: React.MouseEvent, providerName: string, modelId: string) => {
-    e.stopPropagation(); // 阻止触发选择
+    e.preventDefault();
+    e.stopPropagation();
     togglePin(providerName, modelId);
     forceUpdate((n) => n + 1); // 强制刷新让 pinned 列表更新
   };
@@ -424,7 +425,7 @@ export function ModelPicker({
                                 />
                               </span>
                               <span
-                                onClick={(e) => handleTogglePin(e, provider.name, model.id)}
+                                onMouseDown={(e) => handleTogglePin(e, provider.name, model.id)}
                                 className="p-0.5 rounded hover:bg-[var(--ftre-border,#3c3c3c)]/50 cursor-pointer transition-colors text-[var(--ftre-accent,#00ff88)]"
                                 title="取消置顶"
                               >
@@ -498,7 +499,7 @@ export function ModelPicker({
                                     />
                                   </span>
                                   <span
-                                    onClick={(e) => handleTogglePin(e, provider.name, model.id)}
+                                    onMouseDown={(e) => handleTogglePin(e, provider.name, model.id)}
                                     className={`p-0.5 rounded hover:bg-[var(--ftre-border,#3c3c3c)]/50 cursor-pointer transition-all duration-150 ${
                                       modelPinned
                                         ? "max-w-[24px] opacity-100 text-[var(--ftre-accent,#00ff88)]"
