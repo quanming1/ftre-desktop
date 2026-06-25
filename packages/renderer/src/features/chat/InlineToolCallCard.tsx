@@ -11,6 +11,7 @@
  */
 import { memo, useState, useCallback, useEffect, useRef, useMemo } from "react";
 import type { ToolCall } from "@/stores/chat";
+import hljs from "highlight.js/lib/common";
 import {
   ChevronRight,
   Folder,
@@ -247,7 +248,7 @@ function ThinkBlock({
   );
 }
 
-// ─── ArgsView：展示完整入参 ─────────────────────────────────────
+// ─── ArgsView：展示完整入参（带 JSON 语法高亮） ─────────────────────
 
 /** 将参数对象格式化为缩进 JSON，大字符串截断 */
 function formatArgs(args: Record<string, unknown>): string {
@@ -270,19 +271,30 @@ function formatArgs(args: Record<string, unknown>): string {
 }
 
 function ArgsView({ args, toolName }: { args: Record<string, unknown>; toolName?: string }) {
-  const formatted = useMemo(() => formatArgs(args), [args]);
-  const isEmpty = Object.keys(args).length === 0;
+  const highlightedHtml = useMemo(() => {
+    const formatted = formatArgs(args);
+    try {
+      return hljs.highlight(formatted, { language: "json" }).value;
+    } catch {
+      return null;
+    }
+  }, [args]);
 
+  const isEmpty = Object.keys(args).length === 0;
   if (isEmpty) return null;
 
   return (
     <div className="space-y-1">
-      <div className="flex items-center gap-2 text-[10.5px] font-mono uppercase tracking-wider text-t-ghost">
+      <div className="flex items-center gap-2 text-[10.5px] font-mono tracking-wider text-t-ghost">
         <span>Arguments</span>
         {toolName && <span className="text-t-ghost/50">· {toolName}</span>}
       </div>
-      <pre className="py-2 pl-3 border-l-2 border-border-subtle text-[12px] font-mono leading-relaxed text-t-dim whitespace-pre-wrap break-words overflow-x-auto max-h-[200px] overflow-y-auto">
-        {formatted}
+      <pre className="tool-highlight text-[12px] font-mono leading-relaxed text-t-dim whitespace-pre-wrap break-words overflow-x-auto max-h-[200px] overflow-y-auto">
+        {highlightedHtml ? (
+          <code dangerouslySetInnerHTML={{ __html: highlightedHtml }} />
+        ) : (
+          <code>{formatArgs(args)}</code>
+        )}
       </pre>
     </div>
   );
@@ -473,9 +485,9 @@ export const InlineToolCallCard = memo(
               {toolCall.result && (
                 <div className="space-y-1 relative group/result">
                   <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2 text-[10.5px] font-mono uppercase tracking-wider text-t-ghost">
+                    <div className="flex items-center gap-2 text-[10.5px] font-mono tracking-wider text-t-ghost">
                       <span>Result</span>
-                      {isError && <span className="text-red-500/70">· error</span>}
+                      {isError && <span className="text-red-500/70">· Error</span>}
                     </div>
                     <button
                       onClick={handleCopy}
@@ -543,7 +555,7 @@ function LoadSkillDetail({ result, isError }: { result: string; isError: boolean
 
   if (isError) return <RawPre result={result} isError />;
   return (
-    <div className="pl-3 border-l-2 border-[#1a7f37]/30 space-y-2 animate-in fade-in duration-150">
+    <div className="space-y-2 animate-in fade-in duration-150">
       {/* Header: skill name + description from frontmatter */}
       {name && (
         <div className="flex items-center gap-2">
@@ -558,7 +570,7 @@ function LoadSkillDetail({ result, isError }: { result: string; isError: boolean
       )}
       {/* Body: raw markdown content, collapsed if huge */}
       <div className="relative">
-        <pre className="py-2 pl-3 border-l-2 border-border-subtle text-[12px] font-mono leading-relaxed text-t-dim whitespace-pre-wrap break-words overflow-x-auto max-h-[320px] overflow-y-auto">
+        <pre className="py-2 text-[12px] font-mono leading-relaxed text-t-dim whitespace-pre-wrap break-words overflow-x-auto max-h-[320px] overflow-y-auto">
           {body}
         </pre>
       </div>
@@ -607,11 +619,11 @@ function parseSkillContent(text: string): { name: string; description: string; b
   return { name, description, body };
 }
 
-/** 通用：原始文本 + 左竖线 + 引用色 */
+/** 通用：原始文本 */
 function RawPre({ result, isError }: { result: string; isError: boolean }) {
   return (
     <pre
-      className={`py-2 pl-3 border-l-2 border-border-subtle text-[12px] font-mono leading-relaxed overflow-x-auto ${
+      className={`py-2 text-[12px] font-mono leading-relaxed overflow-x-auto ${
         isError ? "text-red-500" : "text-t-dim"
       } ${result.length > 500 ? "max-h-[240px] overflow-y-auto" : ""}`}
     >
@@ -673,7 +685,7 @@ function BashDetail({ result, isError }: { result: string; isError: boolean }) {
   if (p.raw !== undefined) return <RawPre result={p.raw} isError={isError} />;
 
   return (
-    <div className="pl-3 border-l-2 border-border-subtle space-y-2">
+    <div className="space-y-2">
       {p.cwd && (
         <div className="text-[11px] font-mono text-t-ghost">
           cwd: <span className="text-t-dim">{p.cwd}</span>
@@ -686,8 +698,8 @@ function BashDetail({ result, isError }: { result: string; isError: boolean }) {
       )}
       {p.stderr && (
         <div className="space-y-0.5">
-          <div className="text-[10.5px] font-mono uppercase tracking-wide text-amber-600">
-            stderr
+          <div className="text-[10.5px] font-mono tracking-wide text-amber-600">
+            Stderr
           </div>
           <pre className="text-[12px] font-mono leading-relaxed text-amber-700 dark:text-amber-400 whitespace-pre-wrap break-words overflow-x-auto max-h-[200px] overflow-y-auto">
             {p.stderr}
@@ -726,7 +738,7 @@ function EditDetail({
   if (!hasDiff) return <RawPre result={result} isError={isError} />;
 
   return (
-    <div className="pl-3 border-l-2 border-border-subtle space-y-2">
+    <div className="space-y-2">
       {oldStr && <DiffSide kind="old" text={oldStr} />}
       {newStr && <DiffSide kind="new" text={newStr} />}
       {result && (
@@ -987,12 +999,12 @@ function TaskDetail({ result, isError }: { result: string; isError: boolean }) {
   const { sid, status, body } = parseTaskResult(result);
 
   return (
-    <div className="pl-3 border-l-2 border-border-subtle space-y-2">
+    <div className="space-y-2">
       {(sid || status) && (
         <div className="flex items-center gap-2 text-[11px] font-mono">
           {status && (
             <span
-              className={`px-1.5 py-0.5 rounded uppercase tracking-wide text-[10px] ${
+              className={`px-1.5 py-0.5 rounded tracking-wide text-[10px] ${
                 status === "completed"
                   ? "bg-emerald-500/[0.08] text-emerald-700 dark:text-emerald-400"
                   : status.includes("timeout")
