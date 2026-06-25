@@ -247,6 +247,47 @@ function ThinkBlock({
   );
 }
 
+// ─── ArgsView：展示完整入参 ─────────────────────────────────────
+
+/** 将参数对象格式化为缩进 JSON，大字符串截断 */
+function formatArgs(args: Record<string, unknown>): string {
+  const truncated: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(args)) {
+    if (typeof v === "string" && v.length > 2000) {
+      truncated[k] = v.slice(0, 2000) + `\n… [${v.length} chars total]`;
+    } else if (typeof v === "string" && v.includes("\n")) {
+      const lines = v.split("\n");
+      if (lines.length > 50) {
+        truncated[k] = lines.slice(0, 50).join("\n") + `\n… [${lines.length} lines total]`;
+      } else {
+        truncated[k] = v;
+      }
+    } else {
+      truncated[k] = v;
+    }
+  }
+  return JSON.stringify(truncated, null, 2);
+}
+
+function ArgsView({ args, toolName }: { args: Record<string, unknown>; toolName?: string }) {
+  const formatted = useMemo(() => formatArgs(args), [args]);
+  const isEmpty = Object.keys(args).length === 0;
+
+  if (isEmpty) return null;
+
+  return (
+    <div className="space-y-1">
+      <div className="flex items-center gap-2 text-[10.5px] font-mono uppercase tracking-wider text-t-ghost">
+        <span>Arguments</span>
+        {toolName && <span className="text-t-ghost/50">· {toolName}</span>}
+      </div>
+      <pre className="py-2 pl-3 border-l-2 border-border-subtle text-[12px] font-mono leading-relaxed text-t-dim whitespace-pre-wrap break-words overflow-x-auto max-h-[200px] overflow-y-auto">
+        {formatted}
+      </pre>
+    </div>
+  );
+}
+
 // ─── 主组件 ─────────────────────────────────────────────────────────
 
 export const InlineToolCallCard = memo(
@@ -265,6 +306,7 @@ export const InlineToolCallCard = memo(
     const args = parseArgs(toolCall.arguments);
     const summary = buildSummary(toolCall.name, args, status);
     const hasResult = !!toolCall.result;
+    const hasArgs = Object.keys(args).length > 0;
     const isThink = toolCall.name === "think";
 
     // think 工具：直接展示 thought 内容；点击切换展开/折叠
@@ -282,8 +324,8 @@ export const InlineToolCallCard = memo(
     }
 
     const toggleExpand = useCallback(() => {
-      if (hasResult || isError) setExpanded((p) => !p);
-    }, [hasResult, isError]);
+      if (hasResult || isError || hasArgs) setExpanded((p) => !p);
+    }, [hasResult, isError, hasArgs]);
 
     // loadSkill: 从 result 提取 name + description 用于 tooltip
     const loadSkillMeta = useMemo(() => {
@@ -395,11 +437,11 @@ export const InlineToolCallCard = memo(
         {/* 摘要行 */}
         <button
           onClick={toggleExpand}
-          disabled={!hasResult && !isError}
+          disabled={!hasResult && !isError && !hasArgs}
           className="flex items-center gap-2 text-left w-full group py-1 disabled:cursor-default"
         >
-          {/* 展开箭头（有结果时才显示） */}
-          {hasResult || isError ? (
+          {/* 展开箭头（有结果或有入参时才显示） */}
+          {hasResult || isError || hasArgs ? (
             <span className="text-t-ghost shrink-0 w-3.5">
               <ChevronRight size={13} className={`transition-transform duration-200 ${expanded ? "rotate-90" : ""}`} />
             </span>
@@ -417,30 +459,42 @@ export const InlineToolCallCard = memo(
           {isError && <X size={12} className="text-red-500 shrink-0" />}
         </button>
 
-        {/* 展开详情 */}
+        {/* 展开详情：上面完整入参，下面完整出参 */}
         <div
           className="grid transition-[grid-template-rows] duration-200 ease-out"
-          style={{ gridTemplateRows: expanded && toolCall.result ? "1fr" : "0fr" }}
+          style={{ gridTemplateRows: expanded ? "1fr" : "0fr" }}
         >
           <div className="overflow-hidden">
-            {toolCall.result && (
-              <div className="ml-[22px] mt-1 mb-2 relative group/result">
-                <button
-                  onClick={handleCopy}
-                  className="absolute top-2 right-2 p-1 rounded opacity-0 group-hover/result:opacity-100 transition-opacity bg-elevated hover:bg-hover z-10"
-                  title="复制"
-                >
-                  {copied
-                    ? <Check size={11} className="text-green-600" />
-                    : <Copy size={11} className="text-t-dim" />}
-                </button>
-                <ExpandedDetail
-                  toolCall={toolCall}
-                  args={args}
-                  isError={isError}
-                />
-              </div>
-            )}
+            <div className="ml-[22px] mt-1 mb-2 space-y-3">
+              {/* 入参区域 */}
+              <ArgsView args={args} toolName={toolCall.name} />
+
+              {/* 出参区域（如果有结果） */}
+              {toolCall.result && (
+                <div className="space-y-1 relative group/result">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2 text-[10.5px] font-mono uppercase tracking-wider text-t-ghost">
+                      <span>Result</span>
+                      {isError && <span className="text-red-500/70">· error</span>}
+                    </div>
+                    <button
+                      onClick={handleCopy}
+                      className="p-1 rounded opacity-0 group-hover/result:opacity-100 transition-opacity bg-elevated hover:bg-hover"
+                      title="复制结果"
+                    >
+                      {copied
+                        ? <Check size={11} className="text-green-600" />
+                        : <Copy size={11} className="text-t-dim" />}
+                    </button>
+                  </div>
+                  <ExpandedDetail
+                    toolCall={toolCall}
+                    args={args}
+                    isError={isError}
+                  />
+                </div>
+              )}
+            </div>
           </div>
         </div>
       </div>
@@ -504,7 +558,7 @@ function LoadSkillDetail({ result, isError }: { result: string; isError: boolean
       )}
       {/* Body: raw markdown content, collapsed if huge */}
       <div className="relative">
-        <pre className="text-[12px] font-mono leading-relaxed text-t-dim whitespace-pre-wrap break-words overflow-x-auto max-h-[320px] overflow-y-auto bg-elevated/30 rounded-lg p-3 border border-border-subtle">
+        <pre className="py-2 pl-3 border-l-2 border-border-subtle text-[12px] font-mono leading-relaxed text-t-dim whitespace-pre-wrap break-words overflow-x-auto max-h-[320px] overflow-y-auto">
           {body}
         </pre>
       </div>
