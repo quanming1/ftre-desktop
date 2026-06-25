@@ -285,10 +285,10 @@ function ArgsView({ args, toolName }: { args: Record<string, unknown>; toolName?
 
   return (
     <div className="space-y-1">
-      <div className="flex items-center gap-2 text-[10.5px] font-mono tracking-wider text-t-ghost">
+      <div className="flex items-center gap-2 text-[12px] font-mono tracking-wider text-t-ghost">
         <span>Arguments</span>
       </div>
-      <pre className="tool-highlight text-[12px] font-mono leading-relaxed text-t-dim whitespace-pre-wrap break-words overflow-x-auto max-h-[200px] overflow-y-auto">
+      <pre className="tool-highlight text-[13px] font-mono leading-relaxed text-t-secondary whitespace-pre-wrap break-words overflow-x-auto max-h-[200px] overflow-y-auto">
         {highlightedHtml ? (
           <code dangerouslySetInnerHTML={{ __html: highlightedHtml }} />
         ) : (
@@ -484,7 +484,7 @@ export const InlineToolCallCard = memo(
               {toolCall.result && (
                 <div className="space-y-1 relative group/result">
                   <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2 text-[10.5px] font-mono tracking-wider text-t-ghost">
+                    <div className="flex items-center gap-2 text-[12px] font-mono tracking-wider text-t-ghost">
                       <span>Result</span>
                       {isError && <span className="text-red-500/70">· Error</span>}
                     </div>
@@ -565,11 +565,11 @@ function LoadSkillDetail({ result, isError }: { result: string; isError: boolean
         </div>
       )}
       {description && (
-        <p className="text-[12px] text-t-dim leading-relaxed line-clamp-2">{description}</p>
+        <p className="text-[13px] text-t-secondary leading-relaxed line-clamp-2">{description}</p>
       )}
       {/* Body: raw markdown content, collapsed if huge */}
       <div className="relative">
-        <pre className="py-2 text-[12px] font-mono leading-relaxed text-t-dim whitespace-pre-wrap break-words overflow-x-auto max-h-[320px] overflow-y-auto">
+        <pre className="py-2 text-[13px] font-mono leading-relaxed text-t-secondary whitespace-pre-wrap break-words overflow-x-auto max-h-[320px] overflow-y-auto">
           {body}
         </pre>
       </div>
@@ -622,8 +622,8 @@ function parseSkillContent(text: string): { name: string; description: string; b
 function RawPre({ result, isError }: { result: string; isError: boolean }) {
   return (
     <pre
-      className={`py-2 text-[12px] font-mono leading-relaxed overflow-x-auto ${
-        isError ? "text-red-500" : "text-t-dim"
+      className={`py-2 text-[13px] font-mono leading-relaxed overflow-x-auto ${
+        isError ? "text-red-500" : "text-t-secondary"
       } ${result.length > 500 ? "max-h-[240px] overflow-y-auto" : ""}`}
     >
       {result}
@@ -686,32 +686,32 @@ function BashDetail({ result, isError }: { result: string; isError: boolean }) {
   return (
     <div className="space-y-2">
       {p.cwd && (
-        <div className="text-[11px] font-mono text-t-ghost">
-          cwd: <span className="text-t-dim">{p.cwd}</span>
+        <div className="text-[12px] font-mono text-t-ghost">
+          cwd: <span className="text-t-secondary">{p.cwd}</span>
         </div>
       )}
       {p.stdout && (
-        <pre className="text-[12px] font-mono leading-relaxed text-t-dim whitespace-pre-wrap break-words overflow-x-auto max-h-[240px] overflow-y-auto">
+        <pre className="text-[13px] font-mono leading-relaxed text-t-secondary whitespace-pre-wrap break-words overflow-x-auto max-h-[240px] overflow-y-auto">
           {p.stdout}
         </pre>
       )}
       {p.stderr && (
         <div className="space-y-0.5">
-          <div className="text-[10.5px] font-mono tracking-wide text-amber-600">
+          <div className="text-[12px] font-mono tracking-wide text-amber-600">
             Stderr
           </div>
-          <pre className="text-[12px] font-mono leading-relaxed text-amber-700 dark:text-amber-400 whitespace-pre-wrap break-words overflow-x-auto max-h-[200px] overflow-y-auto">
+          <pre className="text-[13px] font-mono leading-relaxed text-amber-700 dark:text-amber-400 whitespace-pre-wrap break-words overflow-x-auto max-h-[200px] overflow-y-auto">
             {p.stderr}
           </pre>
         </div>
       )}
       {p.exitCode !== undefined && p.exitCode !== 0 && (
-        <div className="text-[11.5px] font-mono text-red-500">
+        <div className="text-[12px] font-mono text-red-500">
           exit code: {p.exitCode}
         </div>
       )}
       {!p.stdout && !p.stderr && p.exitCode === 0 && (
-        <div className="text-[11.5px] italic text-t-ghost">
+        <div className="text-[12px] italic text-t-ghost">
           (没有输出，进程正常退出)
         </div>
       )}
@@ -742,7 +742,7 @@ function EditDetail({
       {newStr && <DiffSide kind="new" text={newStr} />}
       {result && (
         <div
-          className={`text-[11.5px] font-mono ${
+          className={`text-[12px] font-mono ${
             isError ? "text-red-500" : "text-t-ghost"
           }`}
         >
@@ -761,7 +761,7 @@ function DiffSide({ kind, text }: { kind: "old" | "new"; text: string }) {
     : "bg-emerald-500/[0.06] text-emerald-700 dark:text-emerald-300";
 
   return (
-    <div className={`flex gap-2 px-2 py-1.5 rounded ${colorClass} font-mono text-[12px] leading-relaxed max-h-[200px] overflow-y-auto`}>
+    <div className={`flex gap-2 px-2 py-1.5 rounded ${colorClass} font-mono text-[13px] leading-relaxed max-h-[200px] overflow-y-auto`}>
       <span className="shrink-0 opacity-60 select-none">{sign}</span>
       <pre className="flex-1 whitespace-pre-wrap break-words m-0">{text}</pre>
     </div>
@@ -888,7 +888,7 @@ function CronJobCard({
           >
             {job.title}
           </h4>
-          <p className="text-[11px] font-mono text-t-dim mt-0.5 truncate">
+          <p className="text-[12px] font-mono text-t-secondary mt-0.5 truncate">
             {cronLabel}
             {cronLabel !== job.cron && (
               <span className="text-t-ghost ml-1.5">({job.cron})</span>
@@ -899,8 +899,8 @@ function CronJobCard({
         {/* 右侧元信息 */}
         <div className="shrink-0 flex items-center gap-2">
           {!job.enabled && (
-            <span className="text-[10px] uppercase tracking-wider text-t-ghost bg-surface/60 px-1.5 py-0.5 rounded">
-              off
+            <span className="text-[12px] tracking-wider text-t-ghost bg-surface/60 px-1.5 py-0.5 rounded">
+              Off
             </span>
           )}
           <ChevronRight
@@ -921,15 +921,15 @@ function CronJobCard({
           <div className="px-4 pb-3 space-y-2">
             {job.prompt && (
               <div>
-                <p className="text-[10.5px] uppercase tracking-wider text-t-ghost mb-1">
+                <p className="text-[12px] tracking-wider text-t-ghost mb-1">
                   Prompt
                 </p>
-                <p className="text-[12px] text-t-dim leading-relaxed whitespace-pre-wrap break-words">
+                <p className="text-[13px] text-t-secondary leading-relaxed whitespace-pre-wrap break-words">
                   {job.prompt}
                 </p>
               </div>
             )}
-            <div className="flex items-center gap-3 text-[11px] text-t-ghost font-mono pt-1 border-t border-border/20">
+            <div className="flex items-center gap-3 text-[12px] text-t-ghost font-mono pt-1 border-t border-border/20">
               <span>ID: {job.id}</span>
               {job.lastRun && <span>上次: {job.lastRun}</span>}
               {job.runCount > 0 && <span>运行 {job.runCount} 次</span>}
@@ -947,7 +947,7 @@ function CronListDetail({ result, isError }: { result: string; isError: boolean 
     return (
       <div className="flex flex-col items-center gap-3 py-4 text-center">
         <Clock size={28} className="text-t-ghost/40" />
-        <p className="text-[12px] text-t-ghost italic">当前没有定时任务</p>
+        <p className="text-[13px] text-t-ghost italic">当前没有定时任务</p>
       </div>
     );
   }
@@ -960,7 +960,7 @@ function CronListDetail({ result, isError }: { result: string; isError: boolean 
   return (
     <div className="space-y-3 animate-in fade-in duration-150">
       {/* 小节标题 */}
-      <div className="flex items-center gap-2 text-[11px] text-t-ghost">
+      <div className="flex items-center gap-2 text-[12px] text-t-ghost">
         <Clock size={13} />
         <span>{jobs.length} 个任务</span>
         {enabledCount > 0 && (
@@ -1003,7 +1003,7 @@ function TaskDetail({ result, isError }: { result: string; isError: boolean }) {
         <div className="flex items-center gap-2 text-[11px] font-mono">
           {status && (
             <span
-              className={`px-1.5 py-0.5 rounded tracking-wide text-[10px] ${
+              className={`px-1.5 py-0.5 rounded tracking-wide text-[12px] ${
                 status === "completed"
                   ? "bg-emerald-500/[0.08] text-emerald-700 dark:text-emerald-400"
                   : status.includes("timeout")
@@ -1016,15 +1016,15 @@ function TaskDetail({ result, isError }: { result: string; isError: boolean }) {
           )}
           {sid && (
             <span className="text-t-ghost">
-              session=<span className="text-t-dim">{sid}</span>
+              session=<span className="text-t-secondary">{sid}</span>
             </span>
           )}
         </div>
       )}
       {body && (
         <pre
-          className={`text-[12px] font-mono leading-relaxed whitespace-pre-wrap break-words overflow-x-auto max-h-[240px] overflow-y-auto ${
-            isError ? "text-red-500" : "text-t-dim"
+          className={`text-[13px] font-mono leading-relaxed whitespace-pre-wrap break-words overflow-x-auto max-h-[240px] overflow-y-auto ${
+            isError ? "text-red-500" : "text-t-secondary"
           }`}
         >
           {body}
