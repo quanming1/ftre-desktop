@@ -82,30 +82,21 @@ function SkillCard({
             </span>
           )}
         </div>
-        <div className="flex items-center gap-1 shrink-0">
-          <div onClick={(e) => e.stopPropagation()}>
-            <ToggleSwitch
-              checked={!skill.disabled}
-              onChange={() => onToggleDisabled()}
-              size="sm"
-            />
-          </div>
-          <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-all duration-150">
-            <button
-              onClick={(e) => { e.stopPropagation(); onPreview(); }}
-              title="预览"
-              className="w-7 h-7 rounded-full flex items-center justify-center text-t-ghost hover:text-t-primary hover:bg-white/8 transition-colors"
-            >
-              <Eye size={13} />
-            </button>
-            <button
-              onClick={(e) => { e.stopPropagation(); onDelete(); }}
-              title="删除"
-              className="w-7 h-7 rounded-full flex items-center justify-center text-t-ghost hover:text-red-400 hover:bg-red-400/10 transition-colors"
-            >
-              <Trash2 size={13} />
-            </button>
-          </div>
+        <div className="flex items-center gap-0.5 shrink-0 opacity-0 group-hover:opacity-100 transition-all duration-150">
+          <button
+            onClick={(e) => { e.stopPropagation(); onPreview(); }}
+            title="预览"
+            className="w-7 h-7 rounded-full flex items-center justify-center text-t-ghost hover:text-t-primary hover:bg-white/8 transition-colors"
+          >
+            <Eye size={13} />
+          </button>
+          <button
+            onClick={(e) => { e.stopPropagation(); onDelete(); }}
+            title="删除"
+            className="w-7 h-7 rounded-full flex items-center justify-center text-t-ghost hover:text-red-400 hover:bg-red-400/10 transition-colors"
+          >
+            <Trash2 size={13} />
+          </button>
         </div>
       </div>
 
@@ -115,9 +106,20 @@ function SkillCard({
       </p>
 
       {/* Footer */}
-      {skill.updated_at > 0 && (
-        <div className="text-[11px] text-t-ghost">更新于 {formatDate(skill.updated_at)}</div>
-      )}
+      <div className="flex items-center justify-between">
+        {skill.updated_at > 0 ? (
+          <div className="text-[11px] text-t-ghost">更新于 {formatDate(skill.updated_at)}</div>
+        ) : (
+          <div />
+        )}
+        <div onClick={(e) => e.stopPropagation()}>
+          <ToggleSwitch
+            checked={!skill.disabled}
+            onChange={() => onToggleDisabled()}
+            size="sm"
+          />
+        </div>
+      </div>
     </div>
   );
 }
