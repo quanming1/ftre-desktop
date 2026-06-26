@@ -19,7 +19,6 @@ export function TitleBar() {
   const [hoveredMenu, setHoveredMenu] = useState<string | null>(null);
   const [confirmAction, setConfirmAction] = useState<ConfirmAction | null>(null);
 
-  const activeFile = useEditor((s) => s.activeFile);
   const rootPath = useWorkspace((s) => s.rootPath);
   const terminalOpen = useLayout((s) => s.terminalDropdownOpen);
   const toggleTerminal = useLayout((s) => s.toggleTerminalDropdown);
@@ -30,7 +29,6 @@ export function TitleBar() {
   const gitInfo = useGitService((s) => s.getInfo());
 
   const projectName = rootPath ? rootPath.split("/").pop() || rootPath.split("\\").pop() : "Ftre";
-  const fileName = activeFile ? activeFile.split("/").pop() || activeFile.split("\\").pop() : null;
 
   const menuDefinitions = useMemo(() => buildMenuDefinitions(setConfirmAction), []);
   const menuAreaRef = useRef<HTMLDivElement>(null);
@@ -151,15 +149,9 @@ export function TitleBar() {
         )}
       </div>
 
-      {/* ── 中间: 项目名 + 文件名 ── */}
+      {/* ── 中间: 项目名（Agent 模式无编辑器，不再显示文件名） ── */}
       <div className="flex-1 flex items-center justify-center gap-2 min-w-0">
         <span className="text-[13px] text-t-ghost font-sans truncate">{projectName}</span>
-        {fileName && (
-          <>
-            <span className="text-[13px] text-t-dim shrink-0">—</span>
-            <span className="text-[13px] text-t-secondary font-sans truncate">{fileName}</span>
-          </>
-        )}
       </div>
 
       {/* ── 右侧: 悬浮窗 + 窗口控制 ── */}
