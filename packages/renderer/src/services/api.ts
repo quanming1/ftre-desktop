@@ -8,7 +8,7 @@ import { wsClient } from "./websocket-client";
 import { useChat } from "@/stores/chat";
 
 /** 后端 API 基地址，可通过 VITE_API_BASE 环境变量覆盖 */
-export const API_BASE = import.meta.env.VITE_API_BASE || "http://127.0.0.1:19470";
+export const API_BASE = import.meta.env.VITE_API_BASE || "http://127.0.0.1:48650";
 
 // ─── Connection ─────────────────────────────────────────────────────
 

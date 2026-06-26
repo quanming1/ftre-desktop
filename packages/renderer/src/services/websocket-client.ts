@@ -38,10 +38,12 @@ type StatusHandler = (status: WsConnectionStatus) => void;
 
 // ─── Constants ──────────────────────────────────────────────────────
 
-export const DEFAULT_WS_URL = (import.meta.env.VITE_WS_URL as string) || "ws://127.0.0.1:19470/";
+export const DEFAULT_WS_URL = (import.meta.env.VITE_WS_URL as string) || "ws://127.0.0.1:48650/";
 const LEGACY_DEFAULT_WS_URLS = new Set([
   "ws://127.0.0.1:18790/",
   "ws://localhost:18790/",
+  "ws://127.0.0.1:19470/",
+  "ws://localhost:19470/",
 ]);
 const RECONNECT_DELAYS = [1000, 2000, 4000, 8000, 15000, 30000];
 const MAX_PENDING_SENDS = 100;
