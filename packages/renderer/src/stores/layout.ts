@@ -82,15 +82,16 @@ export interface LayoutState extends PersistedLayoutData {
     setMcpPopoverOpen: (open: boolean) => void;
 }
 
-const DEFAULT_PANEL_ORDER: PanelId[] = ['sessions', 'sidebar', 'editor', 'chat'];
+const DEFAULT_PANEL_ORDER: PanelId[] = ['sessions', 'chat'];
 const DEFAULT_PANEL_VISIBLE: Record<PanelId, boolean> = {
     sessions: true,
-    sidebar: true,
-    editor: true,
+    sidebar: false,
+    editor: false,
     chat: true,
 };
 
-const DEFAULT_LAYOUT_MODE: LayoutMode = 'chat';
+// 写死为 Agent 模式：只显示会话列表 + 聊天，不再有 IDE（文件树/编辑器）。
+const DEFAULT_LAYOUT_MODE: LayoutMode = 'agent';
 
 const MODE_CONFIGS: Record<LayoutMode, {
     panelOrder: PanelId[];
@@ -199,6 +200,10 @@ export const useLayout = create<LayoutState>((set, get) => ({
                         parsed.layoutMode = 'chat';
                     }
                 }
+                // 写死 Agent 模式：忽略历史持久化的 IDE 布局，强制只显示 sessions + chat。
+                parsed.layoutMode = 'agent';
+                parsed.panelOrder = MODE_CONFIGS.agent.panelOrder;
+                parsed.panelVisible = MODE_CONFIGS.agent.panelVisible;
                 set({ ...defaults, ...parsed });
             }
         } catch {
@@ -288,10 +293,11 @@ export const useLayout = create<LayoutState>((set, get) => ({
         get().persist();
     },
 
-    setLayoutMode: (mode) => {
-        const config = MODE_CONFIGS[mode];
+    setLayoutMode: (_mode) => {
+        // 模式已写死为 Agent：忽略任何切回 chat（IDE）的请求，始终保持 agent 布局。
+        const config = MODE_CONFIGS.agent;
         set({
-            layoutMode: mode,
+            layoutMode: 'agent',
             panelOrder: config.panelOrder,
             panelVisible: config.panelVisible,
         });
