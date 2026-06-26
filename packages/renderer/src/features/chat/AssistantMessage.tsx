@@ -187,6 +187,87 @@ function PartsRenderer({
 }
 
 /**
+ * 把文本按 <think>...</think> 切分为普通段与思考段。
+ * 兼容 <think > 带空格、以及流式中尚未闭合（只有 <think> 没有 </think>）的情况。
+ */
+type ThinkSeg = { type: "normal" | "think"; content: string };
+
+function splitThink(text: string): ThinkSeg[] {
+  const openRe = /<think\s*>/i;
+  const closeRe = /<\/think\s*>/i;
+  const segs: ThinkSeg[] = [];
+  let rest = text;
+  let guard = 0;
+  while (rest && guard++ < 1000) {
+    const om = rest.match(openRe);
+    if (!om || om.index === undefined) {
+      segs.push({ type: "normal", content: rest });
+      break;
+    }
+    if (om.index > 0) segs.push({ type: "normal", content: rest.slice(0, om.index) });
+    const afterOpen = rest.slice(om.index + om[0].length);
+    const cm = afterOpen.match(closeRe);
+    if (!cm || cm.index === undefined) {
+      // 未闭合（流式中）：剩余全部当作思考内容
+      segs.push({ type: "think", content: afterOpen });
+      break;
+    }
+    segs.push({ type: "think", content: afterOpen.slice(0, cm.index) });
+    rest = afterOpen.slice(cm.index + cm[0].length);
+  }
+  return segs;
+}
+
+/**
+ * think 感知的内容渲染：普通段走 markdown 分块；<think> 段渲染为
+ * 灰色 + 小字号 + 斜体的思考文本。anchor 挂到最后一个渲染元素（流式滚动锚点）。
+ */
+function ThinkAwareContent({
+  text,
+  anchor,
+}: {
+  text: string;
+  anchor?: React.RefObject<HTMLDivElement | null>;
+}) {
+  const segs = splitThink(text);
+  if (segs.length === 0) {
+    return <div className="markdown-body" ref={anchor} />;
+  }
+
+  const nodes: React.ReactNode[] = [];
+  const lastSegIdx = segs.length - 1;
+
+  segs.forEach((seg, si) => {
+    const isLastSeg = si === lastSegIdx;
+    if (seg.type === "think") {
+      if (!seg.content.trim()) return;
+      nodes.push(
+        <div
+          key={`think-${si}`}
+          ref={isLastSeg ? anchor : undefined}
+          className="my-1 text-[12px] italic text-t-dim whitespace-pre-wrap"
+          style={{ lineHeight: 1.7 }}
+        >
+          {seg.content.trim().replace(/\n{2,}/g, "\n")}
+        </div>,
+      );
+      return;
+    }
+    const blocks = splitBlocks(seg.content);
+    blocks.forEach((b, bi) => {
+      const isTail = isLastSeg && bi === blocks.length - 1;
+      nodes.push(
+        <div key={`b-${si}-${bi}`} ref={isTail ? anchor : undefined}>
+          <MarkdownBlock content={b.content} />
+        </div>,
+      );
+    });
+  });
+
+  return <>{nodes}</>;
+}
+
+/**
  * 单个 text part：split 成块 → 已闭合块走 MarkdownBlock memo；
  * 流式中只对当前组件内最后一块的 content throttle（替换最后一块再切）。
  */
@@ -201,23 +282,7 @@ function TextPart({
 }) {
   const throttled = useThrottledValue(text, 120, live);
   const display = live ? throttled : text;
-  const blocks = splitBlocks(display);
-
-  if (blocks.length === 0) {
-    return <div className="markdown-body" ref={anchor} />;
-  }
-  return (
-    <>
-      {blocks.map((b, i) => {
-        const isTail = i === blocks.length - 1;
-        return (
-          <div key={i} ref={isTail && anchor ? anchor : undefined}>
-            <MarkdownBlock content={b.content} />
-          </div>
-        );
-      })}
-    </>
-  );
+  return <ThinkAwareContent text={display} anchor={anchor} />;
 }
 
 export const AssistantMessage = memo(
@@ -299,11 +364,7 @@ export const AssistantMessage = memo(
                       </div>
                     )}
                     {displayContent && (
-                      <div className="markdown-body" ref={mdRef}>
-                        <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>
-                          {displayContent}
-                        </ReactMarkdown>
-                      </div>
+                      <ThinkAwareContent text={displayContent} anchor={mdRef} />
                     )}
                   </>
                 )}
