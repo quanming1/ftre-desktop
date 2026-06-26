@@ -16,6 +16,7 @@ import { ModelSettings } from "@/features/settings/ModelSettings";
 import { GatewaySettings } from "@/features/settings/GatewaySettings";
 import { AgentDefSettings } from "@/features/settings/AgentDefSettings";
 import { McpSettings } from "@/features/settings/McpSettings";
+import { PromptSettings } from "@/features/settings/PromptSettings";
 import { useTheme, type ThemeMode } from "@/stores/theme";
 import { OPEN_SETTINGS_EVENT, type SettingsSection } from "./settings-events";
 
@@ -187,6 +188,10 @@ function GeneralSettings() {
             );
           })}
         </div>
+      </div>
+
+      <div className="border-t border-border-subtle pt-6">
+        <PromptSettings />
       </div>
     </div>
   );
