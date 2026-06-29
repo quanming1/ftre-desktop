@@ -76,13 +76,11 @@ const saveTabsToStorage = (tabs: string[]) => {
 const FIRST_PAGE_SIZE = 50;
 
 /**
- * 单个 session 内的消息分页大小。
- * - ChatMessageList 默认渲染 PAGE_SIZE=10 条 ChatMessage（约 5 轮对话）
- * - 1 轮 react 平均产生 5-15 个 events（user_message + 多个 tool_call/tool_result + message_complete）
- * - 200 events 足够覆盖 ~20 轮对话，远超首屏可见范围；用户多翻几屏也基本不用第二次请求
+ * 单个 session 内的首屏对话轮数。
+ * - 1 轮 = 一个可见 user_message 到下一个之间的所有事件
+ * - 5 轮足够覆盖首屏可见范围，用户翻到顶部时再加载更早的
  */
-const FIRST_PAGE_EVENTS = 200;
-const NEXT_PAGE_EVENTS = 200;
+const FIRST_PAGE_TURNS = 5;
 
 /** 上一次 switchSession 的 AbortController，新切换时取消旧请求 */
 let _switchAbort: AbortController | null = null;
@@ -283,8 +281,8 @@ export const useSession = create<SessionState>((set, get) => ({
     useChat.getState().switchTo(sessionId);
     try { localStorage.setItem(sessionStorageKey(), sessionId); } catch { }
 
-    // HTTP 先行：拉 DB 历史，loadSessionEvents 重建消息
-    fetchSessionMessagesPage(sessionId, { limit: FIRST_PAGE_EVENTS, signal } as any)
+    // HTTP 先行：拉 DB 历史（最近 5 轮），loadSessionEvents 重建消息
+    fetchSessionMessagesPage(sessionId, { limitTurns: FIRST_PAGE_TURNS, signal } as any)
       .then((page) => {
         if (!page) return;
         useChat.getState().loadSessionEvents(
@@ -314,7 +312,7 @@ export const useSession = create<SessionState>((set, get) => ({
 
     try {
       const page = await fetchSessionMessagesPage(sessionId, {
-        limit: NEXT_PAGE_EVENTS,
+        limitTurns: FIRST_PAGE_TURNS,
         beforeTs: earliestTs,
       });
       chat.prependSessionEvents(
