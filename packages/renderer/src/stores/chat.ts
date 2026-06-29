@@ -13,7 +13,7 @@ import { create } from "zustand";
 import { useShallow } from "zustand/shallow";
 import { wsClient } from "@/services/websocket-client";
 import type { WsConnectionStatus, ServerMessage } from "@/services/websocket-client";
-import { createSessionRemote } from "@/services/api";
+import { createSessionRemote, API_BASE } from "@/services/api";
 
 // ─── Types ──────────────────────────────────────────────────────────
 
@@ -235,16 +235,31 @@ export function applyEvent(b: Bucket, ev: BusEvent): void {
         if (
           a &&
           a.type === "image" &&
-          typeof a.mime_type === "string" &&
-          typeof a.data === "string"
+          typeof a.mime_type === "string"
         ) {
-          localAttachments.push({
-            type: "image",
-            url: `data:${a.mime_type};base64,${a.data}`,
-            mime: a.mime_type,
-            name: typeof a.name === "string" ? a.name : undefined,
-            bytes: Math.floor(a.data.length * 0.75),
-          });
+          // 实时消息：有 base64 data → 拼 data URL
+          // 历史消息：只有 path → 用 HTTP URL 从后端加载
+          let url: string | undefined;
+          let bytes: number | undefined;
+          if (typeof a.data === "string") {
+            url = `data:${a.mime_type};base64,${a.data}`;
+            bytes = Math.floor(a.data.length * 0.75);
+          } else if (typeof a.path === "string") {
+            const filename = a.path.split(/[\\/]/).pop();
+            if (filename) {
+              url = `${API_BASE}/api/images/${encodeURIComponent(filename)}`;
+            }
+            bytes = a.size;
+          }
+          if (url) {
+            localAttachments.push({
+              type: "image",
+              url,
+              mime: a.mime_type,
+              name: typeof a.name === "string" ? a.name : undefined,
+              bytes,
+            });
+          }
         }
       }
       if (!c && !hasPartsContent && localAttachments.length === 0) return;
