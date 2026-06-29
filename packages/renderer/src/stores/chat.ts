@@ -93,6 +93,7 @@ interface Bucket {
   earliestTs: number | null;
   /** 历史是否还有更早的页可以拉（基于后端 has_more） */
   hasMoreHistory: boolean;
+  lastUserInputTs: number | null;
   isBusy: boolean;
   error: string | null;
   retryState: RetryState | null;
@@ -104,6 +105,7 @@ const emptyBucket = (): Bucket => ({
   events: [],
   earliestTs: null,
   hasMoreHistory: false,
+  lastUserInputTs: null,
   isBusy: false,
   error: null,
   retryState: null,
@@ -153,11 +155,35 @@ function sealStreamingPart(parts: MessagePart[]): void {
 }
 
 /** 当 sid === activeId 时，把 bucket 字段镜像到 store 顶层。 */
+function reopenAssistantTail(b: Bucket): void {
+  const tail = last(b.messages);
+  if (!tail || tail.role !== "assistant" || tail.isError) return;
+
+  const parts = [...(tail.parts || [])];
+  for (let i = parts.length - 1; i >= 0; i--) {
+    const part = parts[i];
+    if (part.type === "text" || part.type === "reasoning") {
+      parts[i] = { ...part, streaming: true };
+      break;
+    }
+  }
+
+  const next = b.messages.slice();
+  next[next.length - 1] = { ...tail, parts, streaming: true };
+  b.messages = next;
+}
+
 function mirror(sid: string): void {
   if (useChat.getState().sessionId !== sid) return;
   const b = buckets.get(sid);
   if (!b) return;
-  useChat.setState({ messages: b.messages, isBusy: b.isBusy, error: b.error, retryState: b.retryState });
+  useChat.setState({
+    messages: b.messages,
+    isBusy: b.isBusy,
+    error: b.error,
+    retryState: b.retryState,
+    lastUserInputTs: b.lastUserInputTs,
+  });
 }
 
 // ─── ID gen ─────────────────────────────────────────────────────────
@@ -221,6 +247,7 @@ export function applyEvent(b: Bucket, ev: BusEvent): void {
     case "user_message": {
       if (d.metadata?.hide) return;
       const frameId = (ev.metadata?.frame_id as string | undefined) ?? "";
+      b.lastUserInputTs = ts;
       if (frameId && b.messages.some((m) => m.id === frameId)) return;
       const c = typeof d.content === "string" ? d.content : "";
       const parts: MessagePart[] | undefined = Array.isArray(d.content)
@@ -797,6 +824,7 @@ if (!(globalThis as any)[__wsBoundFlag]) {
 interface ChatState {
   // mirrored from active bucket
   messages: ChatMessage[];
+  lastUserInputTs: number | null;
   isBusy: boolean;
   error: string | null;
   retryState: RetryState | null;
@@ -856,6 +884,7 @@ interface ChatState {
   hasSessionCache: (sessionId: string) => boolean;
   /** 清空指定 session 的本地缓存（消息、事件、状态） */
   clearSessionCache: (sessionId: string) => void;
+  setSessionRunning: (sessionId: string, running: boolean) => void;
   /** 把一组 BusEvent 喂给指定 session（history loader 用） */
   loadSessionEvents: (sessionId: string, events: BusEvent[], mode: "hydrate" | "refresh") => void;
   /**
@@ -890,6 +919,7 @@ interface ChatState {
 
 export const useChat = create<ChatState>((set, get) => ({
   messages: [],
+  lastUserInputTs: null,
   isBusy: false,
   error: null,
   retryState: null,
@@ -951,6 +981,7 @@ export const useChat = create<ChatState>((set, get) => ({
       const b = bucket(sid);
       if (!isCancelCommand) {
         b.messages = [...b.messages, userMsg];
+        b.lastUserInputTs = null;
         b.isBusy = true;
         b.error = null;
         b.retryState = null;
@@ -978,7 +1009,7 @@ export const useChat = create<ChatState>((set, get) => ({
     // 这里先同步把 isBusy 和 userMsg 顶到 store top-level，让 UI 立即切到对话视图。
     // fetch 返回后 send() → bucket.push(userMsg) → mirror() 会再次写回同一份 messages，
     // 内容一致，不会闪烁也不会重复。
-    set({ isBusy: true, messages: [...get().messages, userMsg] });
+    set({ isBusy: true, messages: [...get().messages, userMsg], lastUserInputTs: null });
 
     createSessionRemote({
       channelId: "ws",
@@ -1004,13 +1035,13 @@ export const useChat = create<ChatState>((set, get) => ({
 
   newChat: () => {
     wsClient.subscribeOnly(null);
-    set({ sessionId: null, messages: [], isBusy: false, error: null, retryState: null, contextTokens: 0, tokenUsage: null, pendingWorkspace: _defaultWsCache });
+    set({ sessionId: null, messages: [], lastUserInputTs: null, isBusy: false, error: null, retryState: null, contextTokens: 0, tokenUsage: null, pendingWorkspace: _defaultWsCache });
   },
 
   switchTo: (sessionId, initialMessages) => {
     const b = bucket(sessionId);
     if (initialMessages && b.messages.length === 0) b.messages = initialMessages;
-    set({ sessionId, messages: b.messages, isBusy: b.isBusy, error: b.error, retryState: b.retryState, contextTokens: 0, tokenUsage: null });
+    set({ sessionId, messages: b.messages, lastUserInputTs: b.lastUserInputTs, isBusy: b.isBusy, error: b.error, retryState: b.retryState, contextTokens: 0, tokenUsage: null });
     // WS attach 移到 switchSession 的 HTTP .then() 中，保证 HTTP 先于 WS，
     // 避免 volatile replay 帧和 loadSessionEvents 的清空操作竞争。
     // 异步拉一次最新 token 估算（不阻塞 UI 切换）
@@ -1042,6 +1073,17 @@ export const useChat = create<ChatState>((set, get) => ({
     mirror(sessionId);
   },
 
+  setSessionRunning: (sessionId, running) => {
+    const b = bucket(sessionId);
+    b.isBusy = running;
+    if (running) {
+      reopenAssistantTail(b);
+      b.error = null;
+      b.retryState = null;
+    }
+    mirror(sessionId);
+  },
+
   loadSessionEvents: (sessionId, events, mode) => {
     const b = bucket(sessionId);
     const tail = last(b.messages);
@@ -1052,6 +1094,7 @@ export const useChat = create<ChatState>((set, get) => ({
     b.messages = [];
     b.events = [...events];
     b.earliestTs = events.length > 0 ? events[0].ts ?? null : null;
+    b.lastUserInputTs = null;
     // hasMoreHistory 由调用方在分页响应中告知；这里先不动（loadSessionEvents 只
     // 接收一段 events，不知道更早还有没有）。session.ts 在分页路径里直接调
     // prependSessionEvents 来表达"还有更早"。
@@ -1109,6 +1152,7 @@ export const useChat = create<ChatState>((set, get) => ({
     b.events = merged;
     b.earliestTs = merged[0]?.ts ?? null;
     b.hasMoreHistory = hasMoreHistory;
+    b.lastUserInputTs = null;
     b.messages = [];
     for (const ev of merged) applyEvent(b, ev);
 
