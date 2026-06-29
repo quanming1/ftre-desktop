@@ -8,7 +8,7 @@
  * - 监听外部事件（rollback refill、plan next step）
  */
 import { useCallback, useEffect, useLayoutEffect, useMemo, useState, useRef } from "react";
-import { Slate, Editable } from "slate-react";
+import { Slate, Editable, ReactEditor } from "slate-react";
 import { Range } from "slate";
 import { ArrowUp, Box, ChevronRight, Paperclip, Plus, Puzzle, Search, Terminal, X } from "lucide-react";
 import { useChat } from "@/stores/chat";
@@ -334,6 +334,13 @@ function MenuItem({
 
 export function ChatInput() {
   const inputEditor = useMemo(() => new ChatInputEditor(), []);
+
+  // 模型切换后自动聚焦输入框（如果未聚焦）
+  const handleModelChanged = useCallback(() => {
+    if (!ReactEditor.isFocused(inputEditor.editor as ReactEditor)) {
+      requestAnimationFrame(() => inputEditor.focus());
+    }
+  }, [inputEditor]);
 
   // 细粒度选择器：仅订阅各自需要的字段，避免无关状态变化触发重渲染
   const isBusy = useChat((s) => s.isBusy);
@@ -831,7 +838,7 @@ export function ChatInput() {
 
             {/* 右侧：模型选择 + 上下文用量 + 发送 */}
             <div className="flex items-center gap-1.5">
-              <ModelSelector />
+              <ModelSelector onModelChanged={handleModelChanged} />
               <div className="w-px h-3.5 bg-border-subtle mx-1" />
               <TokenRing />
               {isBusy ? (
