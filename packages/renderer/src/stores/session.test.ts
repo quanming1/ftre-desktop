@@ -6,7 +6,13 @@ import { useChat } from "./chat";
 vi.mock("@/services/api", () => ({
   fetchSessions: vi.fn().mockResolvedValue([]),
   fetchSessionMessages: vi.fn().mockResolvedValue([]),
+  fetchSessionMessagesPage: vi.fn().mockResolvedValue({
+    messages: [],
+    hasMore: false,
+    total: 0,
+  }),
   fetchUsage: vi.fn().mockResolvedValue(0),
+  deleteSessionRemote: vi.fn().mockResolvedValue(undefined),
 }));
 
 // Mock websocket-client (chat.ts uses it directly)
@@ -19,6 +25,9 @@ vi.mock("@/services/websocket-client", () => ({
     chatSend: vi.fn(),
     sessionNew: vi.fn(),
     sessionAttach: vi.fn(),
+    attach: vi.fn(),
+    detach: vi.fn(),
+    subscribeOnly: vi.fn(),
     connect: vi.fn(),
     disconnect: vi.fn(),
     connected: false,
@@ -90,16 +99,18 @@ describe("session store — basic operations", () => {
     expect(useSession.getState().openTabs).toContain("s2");
   });
 
-  it("newSession calls wsClient.sessionNew", async () => {
+  it("newSession resets chat state and calls subscribeOnly(null)", async () => {
     const { wsClient } = await import("@/services/websocket-client");
     useSession.getState().newSession();
-    expect(wsClient.sessionNew).toHaveBeenCalled();
+    expect(wsClient.subscribeOnly).toHaveBeenCalledWith(null);
+    expect(useChat.getState().sessionId).toBeNull();
   });
 
-  it("switchSession calls wsClient.sessionAttach", async () => {
+  it("switchSession calls wsClient.subscribeOnly after HTTP fetch", async () => {
     const { wsClient } = await import("@/services/websocket-client");
     await useSession.getState().switchSession("s1");
-    expect(wsClient.sessionAttach).toHaveBeenCalledWith("s1");
+    // subscribeOnly is called in the .then() after HTTP fetch resolves
+    expect(wsClient.subscribeOnly).toHaveBeenCalledWith("s1");
   });
 
   it("switchSession adds to openTabs", async () => {

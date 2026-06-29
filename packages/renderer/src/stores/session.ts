@@ -16,6 +16,7 @@ import {
 } from "@/services/api";
 import { useWorkspace } from "./workspace";
 import { workspaceHash } from "@/utils/pathUtils";
+import { wsClient } from "@/services/websocket-client";
 
 export type { SessionSummary };
 
@@ -273,29 +274,28 @@ export const useSession = create<SessionState>((set, get) => ({
     _switchAbort = new AbortController();
     const signal = _switchAbort.signal;
 
-    // 先标记 loading，让 UI 立刻展示转圈，消除"卡住"的感觉
-    const isFirstLoad = !useChat.getState().hasSessionCache(sessionId);
+    // 暂时禁用本地缓存：每次切换都清空 bucket，走 HTTP + WS 全量加载
+    useChat.getState().clearSessionCache(sessionId);
+
     set({ loadingSessionId: sessionId });
 
-    // 切到目标 session（bucket 已有缓存则立即展示；无缓存则转圈盖住空白）
+    // 切到目标 session（bucket 已清空，UI 展示 loading 转圈）
     useChat.getState().switchTo(sessionId);
     try { localStorage.setItem(sessionStorageKey(), sessionId); } catch { }
 
-    // 缓存命中：立刻消 loading，后台静默刷新即可，不要空转圈等 HTTP
-    if (useChat.getState().messages.length > 0) {
-      set({ loadingSessionId: null });
-    }
-
-    // 分页拉首屏。流式期间 chat store 自己会用 mode 兜底跳过。
+    // HTTP 先行：拉 DB 历史，loadSessionEvents 重建消息
     fetchSessionMessagesPage(sessionId, { limit: FIRST_PAGE_EVENTS, signal } as any)
       .then((page) => {
         if (!page) return;
         useChat.getState().loadSessionEvents(
           sessionId,
           historyToEvents(page.messages),
-          isFirstLoad ? "hydrate" : "refresh",
+          "hydrate",
         );
         useChat.getState().prependSessionEvents(sessionId, [], page.hasMore);
+        // HTTP 完成后再 WS attach：volatile replay 只会追加到 DB 历史后面，
+        // 不会和 loadSessionEvents 的清空操作竞争。
+        wsClient.subscribeOnly(sessionId);
       })
       .catch((err) => {
         if ((err as Error).name === "AbortError") return;

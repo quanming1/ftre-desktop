@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from "vitest";
+import { beforeEach, describe, it, expect, vi } from "vitest";
 
 // Mock websocket-client (chat.ts wires onMessage etc. at import)
 vi.mock("@/services/websocket-client", () => ({
@@ -11,6 +11,7 @@ vi.mock("@/services/websocket-client", () => ({
         sendCancel: vi.fn(),
         attach: vi.fn(),
         detach: vi.fn(),
+        subscribeOnly: vi.fn(),
         connect: vi.fn(),
         disconnect: vi.fn(),
         connected: false,
@@ -18,7 +19,8 @@ vi.mock("@/services/websocket-client", () => ({
     },
 }));
 
-import { applyEvent, type BusEvent } from "./chat";
+import { wsClient } from "@/services/websocket-client";
+import { applyEvent, useChat, type BusEvent } from "./chat";
 
 interface Bucket {
     messages: any[];
@@ -145,6 +147,47 @@ describe("applyEvent — canonical streaming flow", () => {
             { type: "reasoning", data: { content: "ing..." } },
         ]);
         expect(b.messages[0].reasoning).toBe("thinking...");
+    });
+});
+
+describe("chat websocket volatile replay", () => {
+    beforeEach(() => {
+        vi.mocked(wsClient.attach).mockClear();
+        vi.mocked(wsClient.detach).mockClear();
+        vi.mocked(wsClient.subscribeOnly).mockClear();
+        useChat.setState({
+            sessionId: null,
+            messages: [],
+            isBusy: false,
+            error: null,
+            retryState: null,
+        });
+    });
+
+    it("switchTo does not call subscribeOnly (moved to switchSession)", () => {
+        const subscribeOnly = vi.mocked(wsClient.subscribeOnly);
+        const firstSessionId = `ws::switch-first-${Date.now()}`;
+        const secondSessionId = `ws::switch-second-${Date.now()}`;
+
+        useChat.getState().switchTo(firstSessionId);
+        useChat.getState().switchTo(secondSessionId);
+
+        // subscribeOnly is now called by switchSession after HTTP fetch,
+        // not by switchTo. Verify it was NOT called.
+        expect(subscribeOnly).not.toHaveBeenCalled();
+    });
+
+    it("clears the active websocket subscription when starting a new chat", () => {
+        const subscribeOnly = vi.mocked(wsClient.subscribeOnly);
+        const sessionId = `ws::new-chat-${Date.now()}`;
+
+        useChat.getState().switchTo(sessionId);
+        subscribeOnly.mockClear();
+
+        useChat.getState().newChat();
+
+        expect(subscribeOnly).toHaveBeenCalledWith(null);
+        expect(useChat.getState().sessionId).toBeNull();
     });
 });
 
