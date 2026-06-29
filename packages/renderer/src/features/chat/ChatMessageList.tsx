@@ -17,7 +17,6 @@ import { useChat } from "@/stores/chat";
 import { useSession } from "@/stores/session";
 import { UserMessage } from "./UserMessage";
 import { AssistantMessage } from "./AssistantMessage";
-import { TypingDots } from "./TypingDots";
 import { ContextMenu, type ContextMenuItem } from "@/components/ContextMenu";
 
 // ─── Types ──────────────────────────────────────────────────────────
@@ -35,26 +34,6 @@ export interface ChatMessageListProps {
 }
 
 // ─── Component ──────────────────────────────────────────────────────
-
-/** 重试时显示普通文字；hover 展示错误原因；否则显示正常 TypingDots */
-function RetryOrTyping() {
-  const retryState = useChat((s) => s.retryState);
-  if (retryState) {
-    return (
-      <div className="inline-flex items-center py-2 group/retry cursor-default" title={retryState.message}>
-        <span className="text-xs text-t-primary">
-          重试 {retryState.attempt}/{retryState.maxAttempts}
-        </span>
-        {retryState.message && (
-          <span className="ml-2 text-xs text-t-ghost truncate max-w-[320px] opacity-0 group-hover/retry:opacity-100 transition-opacity duration-150">
-            · {retryState.message}
-          </span>
-        )}
-      </div>
-    );
-  }
-  return <TypingDots className="py-2" />;
-}
 
 const PAGE_SIZE = 10;
 
@@ -315,12 +294,6 @@ export const ChatMessageList = memo(function ChatMessageList({
           );
         })}
 
-        {/* Typing / Retry indicator — 压缩进行中时不显示（compact 气泡已有自己的 loading 提示） */}
-        {isBusy &&
-          !messages.some((m) => m.streaming) &&
-          !messages.some((m) => m.compact?.status === "running") && (
-            <RetryOrTyping />
-          )}
       </div>
 
       {/* 选中文本右键菜单 */}
