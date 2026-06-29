@@ -847,13 +847,15 @@ interface ChatState {
   ) => void;
   cancelStream: () => void;
   newChat: () => void;
-  /** 切到指定 session（不打断进行中的流）。 */
+  /** 切到指定 session（不取消后台生成；离开的 session 靠历史 + volatile replay 恢复）。 */
   switchTo: (sessionId: string, initialMessages?: ChatMessage[]) => void;
   /** 仅当桶为空时填充（首次进入 session 用） */
   hydrateSession: (sessionId: string, messages: ChatMessage[]) => void;
   /** 用最新数据替换桶（streaming 中跳过） */
   refreshSession: (sessionId: string, messages: ChatMessage[]) => void;
   hasSessionCache: (sessionId: string) => boolean;
+  /** 清空指定 session 的本地缓存（消息、事件、状态） */
+  clearSessionCache: (sessionId: string) => void;
   /** 把一组 BusEvent 喂给指定 session（history loader 用） */
   loadSessionEvents: (sessionId: string, events: BusEvent[], mode: "hydrate" | "refresh") => void;
   /**
@@ -987,7 +989,7 @@ export const useChat = create<ChatState>((set, get) => ({
         // 创建成功后清掉 pending —— sessions 表 workspace 已经落库，
         // 后续从 useSession 列表读，不再依赖前端 pending 状态
         set({ sessionId: data.session_id, pendingWorkspace: null });
-        wsClient.attach(data.session_id);
+        wsClient.subscribeOnly(data.session_id);
         send(data.session_id);
       })
       .catch(() => set({ isBusy: false, error: "创建会话失败" }));
@@ -1000,13 +1002,17 @@ export const useChat = create<ChatState>((set, get) => ({
     wsClient.sendCancel(sid);
   },
 
-  newChat: () => set({ sessionId: null, messages: [], isBusy: false, error: null, retryState: null, contextTokens: 0, tokenUsage: null, pendingWorkspace: _defaultWsCache }),
+  newChat: () => {
+    wsClient.subscribeOnly(null);
+    set({ sessionId: null, messages: [], isBusy: false, error: null, retryState: null, contextTokens: 0, tokenUsage: null, pendingWorkspace: _defaultWsCache });
+  },
 
   switchTo: (sessionId, initialMessages) => {
     const b = bucket(sessionId);
     if (initialMessages && b.messages.length === 0) b.messages = initialMessages;
     set({ sessionId, messages: b.messages, isBusy: b.isBusy, error: b.error, retryState: b.retryState, contextTokens: 0, tokenUsage: null });
-    wsClient.attach(sessionId);
+    // WS attach 移到 switchSession 的 HTTP .then() 中，保证 HTTP 先于 WS，
+    // 避免 volatile replay 帧和 loadSessionEvents 的清空操作竞争。
     // 异步拉一次最新 token 估算（不阻塞 UI 切换）
     void get().refreshTokenUsage(sessionId);
   },
@@ -1026,16 +1032,21 @@ export const useChat = create<ChatState>((set, get) => ({
     mirror(sessionId);
   },
 
-  hasSessionCache: (sessionId) => {
-    const b = buckets.get(sessionId);
-    return !!b && b.messages.length > 0;
+  hasSessionCache: (_sessionId) => {
+    // 暂时禁用本地缓存，每次 switchSession 都走 HTTP + WS
+    return false;
+  },
+
+  clearSessionCache: (sessionId) => {
+    buckets.set(sessionId, emptyBucket());
+    mirror(sessionId);
   },
 
   loadSessionEvents: (sessionId, events, mode) => {
     const b = bucket(sessionId);
     const tail = last(b.messages);
     if (mode === "refresh" && tail?.streaming) return;
-    if (mode === "hydrate" && b.messages.length > 0) return;
+    // 禁用缓存后 bucket 已在 switchSession 中清空，不需要 length > 0 保护
     const visibleCompactMessages =
       mode === "refresh" ? b.messages.filter((m) => m.compact && m.compact.status !== "running") : [];
     b.messages = [];
