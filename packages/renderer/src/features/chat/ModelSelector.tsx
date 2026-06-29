@@ -50,7 +50,11 @@ async function writeModelToConfig(
   }
 }
 
-export const ModelSelector = memo(function ModelSelector() {
+export const ModelSelector = memo(function ModelSelector({
+  onModelChanged,
+}: {
+  onModelChanged?: () => void;
+}) {
   const [providers, setProviders] = useState<ProviderInfo[]>([]);
 
   // 从 store 读取当前选中的 model 和 provider
@@ -102,6 +106,7 @@ export const ModelSelector = memo(function ModelSelector() {
     setProvider(providerName);
     setContextWindow(findContextWindow(providerName, modelId, providers));
     await writeModelToConfig(modelId, providerName);
+    onModelChanged?.();
   };
 
   const openModelSettings = useCallback(() => {
