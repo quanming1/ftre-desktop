@@ -311,22 +311,19 @@ export interface SessionMessagesPage {
  * 分页拉 session messages。
  *
  * 典型用法：
- *   - 首屏：fetchSessionMessagesPage(sid, { limit: 200 }) → 末尾 200 条
- *   - 加载更早：fetchSessionMessagesPage(sid, { limit: 200, beforeTs: earliest })
- *   - 流式期间漏掉的增量：fetchSessionMessagesPage(sid, { afterTs: lastSeen })
+ *   - 首屏：fetchSessionMessagesPage(sid, { limitTurns: 5 }) → 最近 5 轮对话
+ *   - 加载更早：fetchSessionMessagesPage(sid, { limitTurns: 5, beforeTs: earliest })
  */
 export async function fetchSessionMessagesPage(
   sessionId: string,
   opts: {
-    limit?: number;
+    limitTurns?: number;
     beforeTs?: number;
-    afterTs?: number;
   } = {},
 ): Promise<SessionMessagesPage> {
   const params = new URLSearchParams();
-  if (opts.limit !== undefined) params.set("limit", String(opts.limit));
+  if (opts.limitTurns !== undefined) params.set("limit_turns", String(opts.limitTurns));
   if (opts.beforeTs !== undefined) params.set("before_ts", String(opts.beforeTs));
-  if (opts.afterTs !== undefined) params.set("after_ts", String(opts.afterTs));
   const qs = params.toString();
   const url =
     `${API_BASE}/api/sessions/${encodeURIComponent(sessionId)}/messages` +
