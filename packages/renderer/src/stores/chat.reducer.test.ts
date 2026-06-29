@@ -388,3 +388,30 @@ describe("applyEvent — context_compact silent 静默（无感）", () => {
         expect(b.messages[0].compact?.summaryPreview).toBe("## subagent 摘要");
     });
 });
+
+describe("clearSessionCache", () => {
+    it("clears bucket so re-hydrate works without stale data", () => {
+        const sid = `ws::test_clear_${Date.now()}`;
+        useChat.getState().loadSessionEvents(sid, [
+            { type: "user_message", data: { metadata: { hide: false }, content: "hello" }, ts: 1000 },
+            { type: "assistant_message_complete", data: { content: "hi" }, ts: 2000 },
+        ], "hydrate");
+
+        // hasSessionCache always returns false (cache disabled)
+        expect(useChat.getState().hasSessionCache(sid)).toBe(false);
+
+        // clearSessionCache empties the bucket
+        useChat.getState().clearSessionCache(sid);
+
+        // re-hydrate with different data — should work cleanly
+        useChat.getState().loadSessionEvents(sid, [
+            { type: "user_message", data: { metadata: { hide: false }, content: "world" }, ts: 3000 },
+        ], "hydrate");
+
+        // Verify only the new message exists
+        useChat.getState().switchTo(sid);
+        const msgs = useChat.getState().messages;
+        expect(msgs.length).toBe(1);
+        expect(msgs[0].content).toBe("world");
+    });
+});
