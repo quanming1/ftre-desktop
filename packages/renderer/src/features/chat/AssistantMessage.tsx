@@ -9,7 +9,6 @@ import { InlineToolCallCard } from "./InlineToolCallCard";
 import { ChevronRight, Copy, Check } from "lucide-react";
 import { Tooltip, TooltipProvider } from "@ftre/ui";
 import { useNotification } from "@/stores/notification";
-import { ThinkingIndicator } from "./ThinkingIndicator";
 
 const markdownComponents = {
   // 围栏代码块（带 language-）的外层 <pre> 透传：把样式控制权交给 <CodeBlock />，
@@ -323,11 +322,6 @@ export const AssistantMessage = memo(
 
     // 流式状态下的"思考中"指示器：取代旧的末尾闪烁光标。
     // 规则：streaming === true 且当前没有 tool 在执行（pending / running）时展示。
-    const hasRunningTool = !!message.toolCalls?.some(
-      (tc) => tc.status === "pending" || tc.status === "running",
-    );
-    const showThinking = isStreaming && !hasRunningTool;
-
     return (
       <div className="flex justify-start">
         <div className="w-full">
@@ -368,8 +362,6 @@ export const AssistantMessage = memo(
                     )}
                   </>
                 )}
-
-                {showThinking && <ThinkingIndicator className="mt-4" />}
 
                 {showActions && !isStreaming && !message.isError && (
                   <div className="mt-2 flex items-center gap-1">

@@ -305,6 +305,7 @@ export interface SessionMessagesPage {
   hasMore: boolean;
   /** session 当前消息总数（不分页时给的全量） */
   total: number;
+  status: "running" | "idle";
 }
 
 /**
@@ -330,16 +331,17 @@ export async function fetchSessionMessagesPage(
     (qs ? `?${qs}` : "");
   try {
     const res = await fetch(url);
-    if (!res.ok) return { messages: [], hasMore: false, total: 0 };
+    if (!res.ok) return { messages: [], hasMore: false, total: 0, status: "idle" };
     const data = await res.json();
     return {
       messages: data.messages || [],
       hasMore: !!data.has_more,
       total: typeof data.total === "number" ? data.total : 0,
+      status: data.status === "running" ? "running" : "idle",
     };
   } catch (e) {
     console.error("[API] fetchSessionMessagesPage error:", e);
-    return { messages: [], hasMore: false, total: 0 };
+    return { messages: [], hasMore: false, total: 0, status: "idle" };
   }
 }
 

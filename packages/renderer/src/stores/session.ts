@@ -291,6 +291,7 @@ export const useSession = create<SessionState>((set, get) => ({
           "hydrate",
         );
         useChat.getState().prependSessionEvents(sessionId, [], page.hasMore);
+        useChat.getState().setSessionRunning(sessionId, page.status === "running");
         // HTTP 完成后再 WS attach：volatile replay 只会追加到 DB 历史后面，
         // 不会和 loadSessionEvents 的清空操作竞争。
         wsClient.subscribeOnly(sessionId);

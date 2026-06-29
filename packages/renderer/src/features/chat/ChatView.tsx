@@ -16,11 +16,25 @@ import { ChatInput } from "./ChatInput";
 import { WelcomeView } from "./WelcomeView";
 import { WsLogPanel, type LogEntry } from "./WsLogPanel";
 
+function formatRunningDuration(ms: number): string {
+  const totalSeconds = Math.max(0, Math.floor(ms / 1000));
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+
+  if (hours > 0) {
+    return `${hours}:${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
+  }
+  return `${minutes}:${String(seconds).padStart(2, "0")}`;
+}
+
 // ─── Component ──────────────────────────────────────────────────────
 
 export function ChatView() {
   const messages = useChat((s) => s.messages);
   const isBusy = useChat((s) => s.isBusy);
+  const lastUserInputTs = useChat((s) => s.lastUserInputTs);
+  const retryState = useChat((s) => s.retryState);
   const connected = useChat((s) => s.connected);
 
   // Auto-connect on mount
@@ -50,6 +64,41 @@ export function ChatView() {
   // Session loading state
   const loadingSessionId = useSession((s) => s.loadingSessionId);
   const isSessionLoading = loadingSessionId != null;
+  const [now, setNow] = useState(() => Date.now());
+  const [runningBannerVisible, setRunningBannerVisible] = useState(false);
+  const [runningBannerExiting, setRunningBannerExiting] = useState(false);
+  const runningDuration = lastUserInputTs
+    ? formatRunningDuration(now - lastUserInputTs)
+    : null;
+  const bannerLabel = retryState
+    ? `Retrying ${retryState.attempt}/${retryState.maxAttempts}`
+    : lastUserInputTs
+      ? "Running"
+      : "Preparing";
+
+  useEffect(() => {
+    if (!isBusy || !canSend) return;
+    setNow(Date.now());
+    const timer = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(timer);
+  }, [isBusy, canSend, lastUserInputTs]);
+
+  useEffect(() => {
+    if (isBusy && canSend) {
+      setRunningBannerVisible(true);
+      setRunningBannerExiting(false);
+      return;
+    }
+
+    if (!runningBannerVisible) return;
+
+    setRunningBannerExiting(true);
+    const timer = window.setTimeout(() => {
+      setRunningBannerVisible(false);
+      setRunningBannerExiting(false);
+    }, 160);
+    return () => window.clearTimeout(timer);
+  }, [isBusy, canSend, runningBannerVisible]);
 
   // Log interceptor (only in storybook)
   useEffect(() => {
@@ -97,9 +146,40 @@ export function ChatView() {
         </div>
       ) : (
         <>
-          <ChatMessageList messages={messages} isBusy={isBusy} className="flex-1 min-h-0 pb-[180px]" />
+          <ChatMessageList
+            messages={messages}
+            isBusy={isBusy}
+            className={`flex-1 min-h-0 ${runningBannerVisible && canSend ? "pb-[225px]" : "pb-[180px]"}`}
+          />
           {canSend ? (
             <div className="absolute bottom-0 left-0 right-0">
+              {runningBannerVisible && (
+                <div className="px-6">
+                  <div className="mx-auto mb-[-12px] w-full max-w-[900px]">
+                    <div
+                      className={`mx-6 overflow-hidden rounded-t-xl rounded-b-none border border-b-0 border-border-subtle bg-[#f6f7f9]/95 shadow-[0_4px_14px_rgba(15,23,42,0.05)] backdrop-blur ${
+                        runningBannerExiting ? "running-banner-exit" : "running-banner-enter"
+                      }`}
+                    >
+                      <div className="flex items-center justify-between gap-4 px-4 py-3 text-[13px] font-medium text-t-secondary">
+                        <span className={`running-ellipsis shrink-0 ${retryState ? "text-[#b7791f]" : ""}`}>
+                          {bannerLabel}
+                        </span>
+                        {retryState ? (
+                          <span
+                            className="min-w-0 flex-1 truncate text-right text-[#b7791f]/80"
+                            title={retryState.message}
+                          >
+                            {retryState.message}
+                          </span>
+                        ) : runningDuration ? (
+                          <span className="shrink-0 tabular-nums text-t-muted">{runningDuration}</span>
+                        ) : null}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
               <ChatInput />
             </div>
           ) : (
