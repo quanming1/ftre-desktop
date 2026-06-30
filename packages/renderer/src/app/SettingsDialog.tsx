@@ -10,13 +10,15 @@
  * 在底部按钮上一键打开）。
  */
 import { useState, useEffect, useCallback } from "react";
-import { X, Sun, Moon, Monitor } from "lucide-react";
+import { Sun, Moon, Monitor } from "lucide-react";
 import { Modal } from "@/components/Modal";
 import { ModelSettings } from "@/features/settings/ModelSettings";
 import { GatewaySettings } from "@/features/settings/GatewaySettings";
 import { AgentDefSettings } from "@/features/settings/AgentDefSettings";
 import { McpSettings } from "@/features/settings/McpSettings";
 import { PromptSettings } from "@/features/settings/PromptSettings";
+import { PerformanceSettings } from "@/features/settings/PerformanceSettings";
+import { ShortcutsSettings } from "@/features/settings/ShortcutsSettings";
 import { useTheme, type ThemeMode } from "@/stores/theme";
 import { OPEN_SETTINGS_EVENT, type SettingsSection } from "./settings-events";
 
@@ -94,6 +96,13 @@ function SettingsDialogBody({
         { id: "gateway", label: "网关连接" },
         { id: "agents", label: "智能体" },
         { id: "mcp", label: "MCP 服务器" },
+        { id: "performance", label: "性能监控" },
+      ] satisfies { id: SettingsSection; label: string }[],
+    },
+    {
+      group: "快捷键",
+      items: [
+        { id: "shortcuts", label: "键盘快捷键" },
       ] satisfies { id: SettingsSection; label: string }[],
     },
   ];
@@ -132,6 +141,8 @@ function SettingsDialogBody({
             {activeSection === "agents" && <AgentDefSettings />}
             {activeSection === "general" && <GeneralSettings />}
             {activeSection === "mcp" && <McpSettings />}
+            {activeSection === "performance" && <PerformanceSettings />}
+            {activeSection === "shortcuts" && <ShortcutsSettings />}
           </div>
         </div>
       </div>
