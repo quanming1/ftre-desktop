@@ -34,6 +34,7 @@ function historyToEvents(records: any[]): BusEvent[] {
     type: String(r.type ?? ""),
     data: r.data ?? {},
     ts: r.timestamp ? r.timestamp * 1000 : undefined,
+    eventId: typeof r.data?.event_id === "string" ? r.data.event_id : r.id,
     id: r.id,
   }));
 }
@@ -291,9 +292,9 @@ export const useSession = create<SessionState>((set, get) => ({
           "hydrate",
         );
         useChat.getState().prependSessionEvents(sessionId, [], page.hasMore);
-        useChat.getState().setSessionRunning(sessionId, page.status === "running");
-        // HTTP 完成后再 WS attach：volatile replay 只会追加到 DB 历史后面，
-        // 不会和 loadSessionEvents 的清空操作竞争。
+        useChat.getState().setSessionStatus(sessionId, page.status);
+        // HTTP 完成后再 WS attach：replay/live 统一追加到 DB 历史后面，
+        // 重叠帧由 chat reducer 按 event_id 去重。
         wsClient.subscribeOnly(sessionId);
       })
       .catch((err) => {

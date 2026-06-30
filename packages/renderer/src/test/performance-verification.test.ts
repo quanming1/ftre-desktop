@@ -32,6 +32,7 @@ function resetStore() {
     sessionId: null,
     activeChatId: null,
     messages: [],
+    sessionStatus: "idle",
     isBusy: false,
     error: null,
     connected: false,

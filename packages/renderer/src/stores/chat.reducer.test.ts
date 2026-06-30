@@ -24,11 +24,12 @@ import { applyEvent, useChat, type BusEvent } from "./chat";
 
 interface Bucket {
     messages: any[];
+    sessionStatus: "idle" | "running" | "compacting";
     isBusy: boolean;
     error: string | null;
     retryState: any;
 }
-const fresh = (): Bucket => ({ messages: [], isBusy: false, error: null, retryState: null });
+const fresh = (): Bucket => ({ messages: [], sessionStatus: "idle", isBusy: false, error: null, retryState: null });
 const feed = (b: Bucket, evs: BusEvent[]) => evs.forEach((e) => applyEvent(b as any, e));
 
 describe("applyEvent — canonical streaming flow", () => {
@@ -150,7 +151,7 @@ describe("applyEvent — canonical streaming flow", () => {
     });
 });
 
-describe("chat websocket volatile replay", () => {
+describe("chat websocket replay", () => {
     beforeEach(() => {
         vi.mocked(wsClient.attach).mockClear();
         vi.mocked(wsClient.detach).mockClear();
