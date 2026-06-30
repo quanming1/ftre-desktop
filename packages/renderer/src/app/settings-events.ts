@@ -1,6 +1,6 @@
 /**
  * 打开全局设置面板的事件名。
- * detail.section 可选: "general" | "models" | "gateway" | "agents"
+ * detail.section 可选: "general" | "models" | "gateway" | "agents" | "mcp" | "performance" | "shortcuts"
  *
  * 任意组件触发：
  *   window.dispatchEvent(
@@ -12,4 +12,11 @@
  */
 export const OPEN_SETTINGS_EVENT = "ftre:open-settings";
 
-export type SettingsSection = "general" | "models" | "gateway" | "agents" | "mcp";
+export type SettingsSection =
+  | "general"
+  | "models"
+  | "gateway"
+  | "agents"
+  | "mcp"
+  | "performance"
+  | "shortcuts";

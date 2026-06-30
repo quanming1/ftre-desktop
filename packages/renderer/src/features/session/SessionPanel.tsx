@@ -330,6 +330,8 @@ export function SessionPanel() {
 
   /**
    * 桶顺序（仅 ws sessions 走分组）：
+  /**
+   * 桶顺序（仅 ws sessions 走分组）：
    * 1. 用户拖动过 → 按 groupOrder（已知组），未在序列里的新组按默认规则追加
    * 2. 默认规则：active workspace 冒顶 → 其余按 latestAt 倒序 → "未设置工作区"压底
    */
@@ -398,6 +400,85 @@ export function SessionPanel() {
     },
     [activeLeftPanel, setActiveLeftPanel, switchSession],
   );
+
+  // Alt+↑ / Alt+↓ → 在"可见会话"列表里上下切换
+  // 可见会话 = 置顶 + 各 workspace 展开的部分（未折叠的） + Other Threads 展开的部分
+  // 用 ref 拿最新值，避免事件 listener 反复重新绑定
+  const navRef = useRef({
+    pinnedList,
+    wsSessions,
+    otherSessions,
+    otherExpanded,
+    buckets,
+    expandCount,
+    collapsedWorkspaces,
+    showAllGroups,
+    currentSessionId,
+    handleSwitchSession,
+  });
+  navRef.current = {
+    pinnedList,
+    wsSessions,
+    otherSessions,
+    otherExpanded,
+    buckets,
+    expandCount,
+    collapsedWorkspaces,
+    showAllGroups,
+    currentSessionId,
+    handleSwitchSession,
+  };
+
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const detail = (e as CustomEvent<{ direction: "up" | "down" }>).detail;
+      const s = navRef.current;
+      if (!detail) return;
+
+      // 1. 收集"可见会话"，DOM 顺序：Pin → Ws (按桶顺序) → Other
+      const visible: SessionSummary[] = [];
+      visible.push(...s.pinnedList);
+
+      const wsVisibleBucketKeys = s.showAllGroups
+        ? s.buckets.map((b) => b.key)
+        : s.buckets.slice(0, 5).map((b) => b.key);
+      const visibleBuckets = s.buckets.filter((b) => wsVisibleBucketKeys.includes(b.key));
+
+      for (const b of visibleBuckets) {
+        if (s.collapsedWorkspaces.has(b.key)) continue;
+        const expand = s.expandCount[b.key] ?? PER_GROUP_DEFAULT;
+        visible.push(...b.sessions.slice(0, expand));
+      }
+
+      if (s.otherSessions.length > 0) {
+        visible.push(...s.otherSessions.slice(0, s.otherExpanded));
+      }
+
+      if (visible.length === 0) return;
+
+      // 2. 找当前 session 的索引（用 stripPrefix 对齐比较方式，跟 SessionRow 内的 active 判断一致）
+      const strip = (id: string) => (id.includes(":") ? id.substring(id.indexOf(":") + 1) : id);
+      const cur = s.currentSessionId || "";
+      const curIdx = visible.findIndex((it) => strip(it.session_id) === strip(cur));
+
+      // 3. 找下一个 / 上一个；如果当前没在列表里，↓ 跳到第一个，↑ 跳到最后一个
+      let next: SessionSummary | undefined;
+      if (curIdx < 0) {
+        next = detail.direction === "down" ? visible[0] : visible[visible.length - 1];
+      } else {
+        const offset = detail.direction === "down" ? 1 : -1;
+        // 到边界时停止（不循环），避免误触把当前会话跳走
+        const idx = curIdx + offset;
+        if (idx < 0 || idx >= visible.length) return;
+        next = visible[idx];
+      }
+
+      if (!next) return;
+      s.handleSwitchSession(next.session_id);
+    };
+    window.addEventListener("ftre:session-nav", handler);
+    return () => window.removeEventListener("ftre:session-nav", handler);
+  }, []);
 
   /**
    * 点击工作区组头：在该工作区下新建会话，并切到 chat 模式。

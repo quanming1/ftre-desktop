@@ -57,6 +57,33 @@ export function registerDefaultShortcuts(): void {
         },
     });
 
+    // Alt+ArrowUp / Alt+ArrowDown → Session 上下导航
+    // 由 SessionPanel 监听事件计算"可见会话"并切换；这里只发出意图。
+    register({
+        id: 'sessionNavUp',
+        keys: 'alt+arrowup',
+        label: '上一个会话',
+        category: '会话',
+        context: 'global',
+        execute: () => {
+            window.dispatchEvent(
+                new CustomEvent('ftre:session-nav', { detail: { direction: 'up' } }),
+            );
+        },
+    });
+    register({
+        id: 'sessionNavDown',
+        keys: 'alt+arrowdown',
+        label: '下一个会话',
+        category: '会话',
+        context: 'global',
+        execute: () => {
+            window.dispatchEvent(
+                new CustomEvent('ftre:session-nav', { detail: { direction: 'down' } }),
+            );
+        },
+    });
+
     // 重启应用（重新加载渲染进程）
     register({
         id: 'reloadApp',

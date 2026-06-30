@@ -1,5 +1,8 @@
 import { ipcMain, app } from 'electron';
 
+/** 应用启动时间戳，模块加载时记录一次 */
+const appStartTime = Date.now();
+
 /**
  * 注册内存/进程指标相关的 IPC handlers
  */
@@ -11,6 +14,7 @@ export function registerMemoryIPC(): void {
 
     return {
       timestamp: Date.now(),
+      startTime: appStartTime,
       main: {
         rss: processMemory.rss,
         heapUsed: processMemory.heapUsed,
