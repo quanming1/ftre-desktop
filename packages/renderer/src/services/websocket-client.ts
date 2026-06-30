@@ -23,6 +23,7 @@ export interface ServerMessage {
 /** Agent 事件（嵌套在 ServerMessage.data 中） */
 export interface AgentEvent {
   type: string; // EventType enum value
+  event_id?: string;
   data: Record<string, unknown>;
 }
 
@@ -47,7 +48,6 @@ const LEGACY_DEFAULT_WS_URLS = new Set([
 ]);
 const RECONNECT_DELAYS = [1000, 2000, 4000, 8000, 15000, 30000];
 const MAX_PENDING_SENDS = 100;
-const VOLATILE_DEDUPE_MAX_KEYS = 2000;
 
 export function normalizeGatewayUrl(url: string): string {
   const trimmed = url.trim();
@@ -70,8 +70,6 @@ class WebSocketClient {
 
   /** 当前已 attach 的 session 集合（重连后自动重发 attach） */
   private attachedSessions = new Set<string>();
-  private seenVolatileKeys = new Set<string>();
-  private volatileKeyOrder: string[] = [];
 
   private messageHandlers: MessageHandler[] = [];
   private connectHandlers: ConnectionHandler[] = [];
@@ -110,10 +108,6 @@ class WebSocketClient {
         this.connected = true;
         this.reconnectAttempt = 0;
         this.setStatus("connected");
-        // 重连后清空 dedup 状态：后端重启后 seq 会从 1 重新开始，
-        // 清空避免旧 key 误判重复。
-        this.seenVolatileKeys.clear();
-        this.volatileKeyOrder.length = 0;
         // 重连后重新 attach 所有之前关注的 session
         for (const sid of this.attachedSessions) {
           this.send({
@@ -129,7 +123,6 @@ class WebSocketClient {
       this.ws.onmessage = (event) => {
         try {
           const msg = JSON.parse(event.data) as ServerMessage;
-          if (this.isDuplicateVolatileMessage(msg)) return;
           this.messageHandlers.forEach((h) => h(msg));
         } catch (e) {
           console.error("[WS] Failed to parse message:", e);
@@ -320,23 +313,6 @@ class WebSocketClient {
     }
   }
 
-  private isDuplicateVolatileMessage(msg: ServerMessage): boolean {
-    const metadata = msg.metadata || {};
-    const seq = metadata.volatile_seq;
-    if (typeof seq !== "number") return false;
-
-    const sessionId = typeof metadata.session_id === "string" ? metadata.session_id : "";
-    const key = `${sessionId}:${seq}`;
-    if (this.seenVolatileKeys.has(key)) return true;
-
-    this.seenVolatileKeys.add(key);
-    this.volatileKeyOrder.push(key);
-    while (this.volatileKeyOrder.length > VOLATILE_DEDUPE_MAX_KEYS) {
-      const stale = this.volatileKeyOrder.shift();
-      if (stale) this.seenVolatileKeys.delete(stale);
-    }
-    return false;
-  }
 }
 
 // ─── Singleton ──────────────────────────────────────────────────────

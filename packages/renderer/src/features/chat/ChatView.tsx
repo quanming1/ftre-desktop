@@ -33,6 +33,7 @@ function formatRunningDuration(ms: number): string {
 export function ChatView() {
   const messages = useChat((s) => s.messages);
   const isBusy = useChat((s) => s.isBusy);
+  const sessionStatus = useChat((s) => s.sessionStatus);
   const lastUserInputTs = useChat((s) => s.lastUserInputTs);
   const retryState = useChat((s) => s.retryState);
   const connected = useChat((s) => s.connected);
@@ -70,6 +71,7 @@ export function ChatView() {
   const runningDuration = lastUserInputTs
     ? formatRunningDuration(now - lastUserInputTs)
     : null;
+  const shouldShowRunningBanner = sessionStatus === "running" && canSend;
   const bannerLabel = retryState
     ? `Retrying ${retryState.attempt}/${retryState.maxAttempts}`
     : lastUserInputTs
@@ -77,14 +79,14 @@ export function ChatView() {
       : "Preparing";
 
   useEffect(() => {
-    if (!isBusy || !canSend) return;
+    if (!shouldShowRunningBanner) return;
     setNow(Date.now());
     const timer = window.setInterval(() => setNow(Date.now()), 1000);
     return () => window.clearInterval(timer);
-  }, [isBusy, canSend, lastUserInputTs]);
+  }, [shouldShowRunningBanner, lastUserInputTs]);
 
   useEffect(() => {
-    if (isBusy && canSend) {
+    if (shouldShowRunningBanner) {
       setRunningBannerVisible(true);
       setRunningBannerExiting(false);
       return;
@@ -98,7 +100,7 @@ export function ChatView() {
       setRunningBannerExiting(false);
     }, 160);
     return () => window.clearTimeout(timer);
-  }, [isBusy, canSend, runningBannerVisible]);
+  }, [shouldShowRunningBanner, runningBannerVisible]);
 
   // Log interceptor (only in storybook)
   useEffect(() => {
