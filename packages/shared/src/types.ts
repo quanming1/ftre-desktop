@@ -129,6 +129,8 @@ export interface DesktopWindow {
 /** 内存使用信息 */
 export interface MemoryUsage {
   timestamp: number;
+  /** 应用启动时间戳（ms），进程级单例，首次调用后固定 */
+  startTime: number;
   main: {
     rss: number;
     heapUsed: number;

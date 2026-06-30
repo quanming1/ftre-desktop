@@ -1,12 +1,13 @@
 import { useState } from "react";
-import { Bot, Cpu, Wifi } from "lucide-react";
+import { Bot, Cpu, Wifi, Gauge } from "lucide-react";
 import { AgentDefSettings } from "./AgentDefSettings";
 import { ModelSettings } from "./ModelSettings";
 import { GatewaySettings } from "./GatewaySettings";
 import { McpSettings } from "./McpSettings";
+import { PerformanceSettings } from "./PerformanceSettings";
 import { ChevronRight, Server } from "lucide-react";
 
-type SettingsView = "home" | "agents" | "models" | "gateway" | "mcp";
+type SettingsView = "home" | "agents" | "models" | "gateway" | "mcp" | "performance";
 
 export function SettingsPanel() {
   const [view, setView] = useState<SettingsView>("home");
@@ -17,6 +18,7 @@ export function SettingsPanel() {
       models: "模型",
       gateway: "网关",
       mcp: "MCP 服务器",
+      performance: "性能监控",
     };
     return (
       <div className="h-full overflow-auto bg-white">
@@ -32,6 +34,7 @@ export function SettingsPanel() {
           {view === "models" && <ModelSettings />}
           {view === "gateway" && <GatewaySettings />}
           {view === "mcp" && <McpSettings />}
+          {view === "performance" && <PerformanceSettings />}
         </div>
       </div>
     );
@@ -51,6 +54,7 @@ export function SettingsPanel() {
             { icon: <Cpu size={18} />, title: "模型", desc: "AI 提供商和模型设置", view: "models" as const },
             { icon: <Server size={18} />, title: "MCP 服务器", desc: "连接外部工具服务器", view: "mcp" as const },
             { icon: <Wifi size={18} />, title: "网关", desc: "ftre gateway 连接地址", view: "gateway" as const },
+            { icon: <Gauge size={18} />, title: "性能监控", desc: "实时内存使用与运行时长", view: "performance" as const },
           ].map(({ icon, title, desc, view: v }) => (
             <button
               key={v}
