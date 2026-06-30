@@ -75,6 +75,33 @@ describe("applyEvent — canonical streaming flow", () => {
         expect(m.parts.filter((p: any) => p.type === "text").map((p: any) => p.text).join("")).toBe("beforeafter");
     });
 
+    it("hidden read image event attaches to the latest read tool call", () => {
+        const b = fresh();
+        feed(b, [
+            { type: "tool_call", data: { id: "read_1", name: "Read", arguments: { path: "C:\\tmp\\shot.png" } } },
+            { type: "tool_result", data: { id: "read_1", name: "Read", result: "[read] 已完成" } },
+            {
+                type: "user_message",
+                data: {
+                    content: [
+                        {
+                            type: "image_file",
+                            path: "C:\\Users\\u\\.ftre\\assets\\images\\img_123.png",
+                            mime_type: "image/png",
+                            size: 1234,
+                        },
+                    ],
+                    metadata: { hide: true, path: "C:\\tmp\\shot.png", mime: "image/png", size: 1234 },
+                },
+            },
+        ]);
+
+        expect(b.messages).toHaveLength(1);
+        expect(b.messages[0].toolCalls[0].status).toBe("ok");
+        expect(b.messages[0].toolCalls[0].result).toContain('"image_file"');
+        expect(b.messages[0].toolCalls[0].result).toContain("img_123.png");
+    });
+
     it("tool_call_streaming accumulates arguments across deltas", () => {
         const b = fresh();
         feed(b, [

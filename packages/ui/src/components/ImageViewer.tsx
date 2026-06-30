@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import { createPortal } from "react-dom";
-import { X, ZoomIn, ZoomOut, RotateCcw, ExternalLink, Loader2, ImageOff } from "lucide-react";
+import { X, ZoomIn, ZoomOut, RotateCcw, ExternalLink, Loader2, ImageOff, Copy, Check } from "lucide-react";
 import { cn } from "../utils/cn";
+import { ContextMenu, type ContextMenuItem } from "./ContextMenu";
 
 export interface ImageViewerProps {
   /** 图片 URL */
@@ -21,13 +22,20 @@ export interface ImageViewerProps {
  * - 滚轮缩放（0.2x ~ 10x）
  * - 缩放后可拖拽平移
  * - Ctrl/Cmd + 点击 → 在默认浏览器打开原图
- * - 底部居中操作栏（放大/缩小/重置/外部链接），右上角圆形关闭按钮
+ * - 底部居中操作栏（放大/缩小/重置/外部链接/复制图片），右上角圆形关闭按钮
+ * - 右键图片 → 弹出菜单可复制图片
  */
 export function ImageViewer({ src, alt, onClose, className }: ImageViewerProps) {
   const [scale, setScale] = useState(1);
   const [position, setPosition] = useState({ x: 0, y: 0 });
   const [isDragging, setIsDragging] = useState(false);
   const [loadState, setLoadState] = useState<"loading" | "loaded" | "error">("loading");
+  const [copied, setCopied] = useState(false);
+  const copyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [contextMenu, setContextMenu] = useState<{
+    position: { x: number; y: number };
+    items: ContextMenuItem[];
+  } | null>(null);
   const dragStart = useRef({ x: 0, y: 0, posX: 0, posY: 0 });
   const imgRef = useRef<HTMLImageElement>(null);
   // 用 ref 实时跟踪 scale / position，避免闭包和重渲染问题
@@ -43,14 +51,20 @@ export function ImageViewer({ src, alt, onClose, className }: ImageViewerProps) 
     posRef.current = { x: 0, y: 0 };
   }, [src]);
 
-  // Esc 关闭
+  // Esc 关闭（优先关右键菜单，再关预览）
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
+      if (e.key === "Escape") {
+        if (contextMenu) {
+          setContextMenu(null);
+        } else {
+          onClose();
+        }
+      }
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, [onClose]);
+  }, [onClose, contextMenu]);
 
   // 打开时锁住 body 滚动
   useEffect(() => {
@@ -58,6 +72,7 @@ export function ImageViewer({ src, alt, onClose, className }: ImageViewerProps) 
     document.body.style.overflow = "hidden";
     return () => {
       document.body.style.overflow = prev;
+      if (copyTimerRef.current) clearTimeout(copyTimerRef.current);
     };
   }, []);
 
@@ -122,6 +137,66 @@ export function ImageViewer({ src, alt, onClose, className }: ImageViewerProps) 
       window.open(src, "_blank");
     }
   }, [src]);
+
+  // 复制图片到剪贴板
+  const handleCopy = useCallback(async () => {
+    const img = imgRef.current;
+    if (!img || loadState !== "loaded") return;
+    try {
+      // 优先用已加载的图片元素绘制到 canvas 再导出 blob
+      const canvas = document.createElement("canvas");
+      canvas.width = img.naturalWidth;
+      canvas.height = img.naturalHeight;
+      const ctx = canvas.getContext("2d");
+      if (!ctx) return;
+      ctx.drawImage(img, 0, 0);
+      const blob = await new Promise<Blob | null>((resolve) =>
+        canvas.toBlob(resolve, "image/png"),
+      );
+      if (blob) {
+        await navigator.clipboard.write([new ClipboardItem({ "image/png": blob })]);
+        setCopied(true);
+        if (copyTimerRef.current) clearTimeout(copyTimerRef.current);
+        copyTimerRef.current = setTimeout(() => setCopied(false), 2000);
+      }
+    } catch {
+      // canvas 失败时尝试 fetch（可能跨域等场景）
+      try {
+        const response = await fetch(src);
+        const blob = await response.blob();
+        await navigator.clipboard.write([
+          new ClipboardItem({ [blob.type || "image/png"]: blob }),
+        ]);
+        setCopied(true);
+        if (copyTimerRef.current) clearTimeout(copyTimerRef.current);
+        copyTimerRef.current = setTimeout(() => setCopied(false), 2000);
+      } catch {
+        // 静默失败
+      }
+    }
+  }, [src, loadState]);
+
+  // 构建右键菜单项
+  const contextMenuItems: ContextMenuItem[] = [
+    {
+      id: "copy",
+      label: "复制图片",
+      icon: Copy,
+      action: handleCopy,
+    },
+  ];
+
+  // 右键菜单
+  const handleContextMenu = useCallback(
+    (e: React.MouseEvent) => {
+      e.preventDefault();
+      setContextMenu({
+        position: { x: e.clientX, y: e.clientY },
+        items: contextMenuItems,
+      });
+    },
+    [contextMenuItems],
+  );
 
   const handleImageClick = useCallback(
     (e: React.MouseEvent) => {
@@ -190,6 +265,7 @@ export function ImageViewer({ src, alt, onClose, className }: ImageViewerProps) 
           alt={alt || ""}
           draggable={false}
           onClick={handleImageClick}
+          onContextMenu={handleContextMenu}
           onLoad={() => setLoadState("loaded")}
           onError={() => setLoadState("error")}
           className={cn(
@@ -246,7 +322,30 @@ export function ImageViewer({ src, alt, onClose, className }: ImageViewerProps) 
           >
             <ExternalLink size={22} />
           </button>
+          <div className="w-px h-7 bg-white/15 mx-1" />
+          <button
+            onClick={handleCopy}
+            disabled={copied}
+            className={cn(
+              "p-3 rounded-xl transition-colors",
+              copied
+                ? "text-green-400 bg-green-400/10"
+                : "text-white/70 hover:text-white hover:bg-white/15",
+            )}
+            title="复制图片"
+          >
+            {copied ? <Check size={22} /> : <Copy size={22} />}
+          </button>
         </div>
+      )}
+
+      {/* 右键菜单 */}
+      {contextMenu && (
+        <ContextMenu
+          position={contextMenu.position}
+          items={contextMenu.items}
+          onClose={() => setContextMenu(null)}
+        />
       )}
     </div>
   );
