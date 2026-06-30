@@ -52,7 +52,7 @@ describe("websocket-client protocol handling", () => {
     expect(frames.map((frame) => frame.data.session_id)).toEqual(["ws::a", "ws::a", "ws::b"]);
   });
 
-  it("deduplicates volatile replay and live frames before dispatching", async () => {
+  it("forwards agent events without metadata-level deduplication", async () => {
     const { wsClient } = await loadClient();
     const received: unknown[] = [];
     wsClient.onMessage((msg) => received.push(msg));
@@ -62,10 +62,9 @@ describe("websocket-client protocol handling", () => {
     const frame = {
       id: "msg_volatile",
       type: "agent_event",
-      data: { type: "assistant_message", data: { content: "hello" } },
+      data: { type: "assistant_message", event_id: "evt_1", data: { content: "hello" } },
       metadata: {
         session_id: "ws::a",
-        volatile_seq: 1,
       },
     };
 
@@ -81,34 +80,7 @@ describe("websocket-client protocol handling", () => {
       }),
     });
 
-    expect(received).toHaveLength(2);
+    expect(received).toHaveLength(3);
   });
 
-  it("clears dedup state on reconnect", async () => {
-    const { wsClient } = await loadClient();
-    const received: unknown[] = [];
-    wsClient.onMessage((msg) => received.push(msg));
-    wsClient.connect();
-    const ws = FakeWebSocket.instances[0];
-    ws.onopen?.();
-
-    const frame = {
-      id: "msg_volatile",
-      type: "agent_event",
-      data: { type: "assistant_message", data: { content: "hello" } },
-      metadata: {
-        session_id: "ws::a",
-        volatile_seq: 1,
-      },
-    };
-
-    // First time: received
-    ws.onmessage?.({ data: JSON.stringify(frame) });
-    expect(received).toHaveLength(1);
-
-    // Simulate reconnect: onopen clears dedup, same frame should be received again
-    ws.onopen?.();
-    ws.onmessage?.({ data: JSON.stringify(frame) });
-    expect(received).toHaveLength(2);
-  });
 });
