@@ -723,14 +723,54 @@ if (!(globalThis as any)[__wsBoundFlag]) {
     document.addEventListener("visibilitychange", () => {
       const wasHidden = pageHidden;
       pageHidden = document.hidden;
-      // 从后台切回前台：把当前活跃 session 的最新状态一次性 mirror
       if (wasHidden && !pageHidden) {
+        // 切回前台：flush 所有未完成的批处理，避免残留
+        for (const sid of _wsBatches.keys()) {
+          _flushWsBatch(sid);
+        }
         const sid = useChat.getState().sessionId;
         if (sid) mirror(sid);
       }
     });
   }
 
+  // ── WS 事件微批处理：同一 session 的连续流式事件在窗口内收集，
+  //    一把 apply + 一次 mirror，避免 replay 打字机回放 ──
+  const STREAM_TYPES = new Set(["assistant_message", "reasoning", "tool_call_streaming"]);
+  const _wsFlushTimers = new Map<string, ReturnType<typeof setTimeout>>();
+  const _wsBatches = new Map<string, BusEvent[]>();
+  const WS_BATCH_WINDOW_MS = 30;
+
+  function _flushWsBatch(sid: string) {
+    const timer = _wsFlushTimers.get(sid);
+    if (timer) { clearTimeout(timer); _wsFlushTimers.delete(sid); }
+    const events = _wsBatches.get(sid);
+    if (!events || events.length === 0) return;
+    _wsBatches.delete(sid);
+    const b = bucket(sid);
+    for (const ev of events) {
+      applyEvent(b, ev);
+    }
+    mirror(sid);
+  }
+
+  function _enqueueWsEvent(sid: string, b: ReturnType<typeof bucket>, busEvent: BusEvent) {
+    const evType = busEvent.type;
+    if (STREAM_TYPES.has(evType)) {
+      let batch = _wsBatches.get(sid);
+      if (!batch) { batch = []; _wsBatches.set(sid, batch); }
+      batch.push(busEvent);
+      const existing = _wsFlushTimers.get(sid);
+      if (existing) clearTimeout(existing);
+      _wsFlushTimers.set(sid, setTimeout(() => _flushWsBatch(sid), WS_BATCH_WINDOW_MS));
+      return;
+    }
+    _flushWsBatch(sid);
+    applyEvent(b, busEvent);
+    mirror(sid);
+  }
+
+  wsClient.onMessage((msg: ServerMessage) => {
   wsClient.onMessage((msg: ServerMessage) => {
     // 后端拒绝（附件违规等）：顶层 type="error"，不是 agent_event
     if (msg.type === "error") {
@@ -815,9 +855,11 @@ if (!(globalThis as any)[__wsBoundFlag]) {
     if (hasSeenEvent(b, busEvent)) return;
     // 入桶事件缓存：分页 / refresh 重放时要回到这条事件流
     b.events.push(busEvent);
-    applyEvent(b, busEvent);
-    // 后台时跳过 mirror()，避免攒积 React setState；回前台时 visibilitychange 会一次性刷新
-    if (!pageHidden) mirror(sid);
+    if (pageHidden) {
+      applyEvent(b, busEvent);
+    } else {
+      _enqueueWsEvent(sid, b, busEvent);
+    }
 
     // ── 实时刷新上下文用量 ──
     // usage_update：事件自带 usage 数据，就地更新 store，无需再调 API
@@ -1121,11 +1163,14 @@ export const useChat = create<ChatState>((set, get) => ({
 
   hasSessionCache: (_sessionId) => {
     // 暂时禁用本地缓存，每次 switchSession 都走 HTTP + WS
-    return false;
-  },
-
   clearSessionCache: (sessionId) => {
+    // 丢弃该 session 未 flush 的批处理（bucket 即将被替换，旧事件无意义）
+    const timer = _wsFlushTimers.get(sessionId);
+    if (timer) { clearTimeout(timer); _wsFlushTimers.delete(sessionId); }
+    _wsBatches.delete(sessionId);
     buckets.set(sessionId, emptyBucket());
+    mirror(sessionId);
+  },
     mirror(sessionId);
   },
 
