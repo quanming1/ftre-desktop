@@ -278,9 +278,14 @@ export function SessionPanel() {
     y: number;
   } | null>(null);
 
-  const handleSetSessionColor = useCallback((sessionId: string, color: string) => {
+  const handleSetSessionColor = useCallback((sessionId: string, color: string | null) => {
     setPinnedColors((prev) => {
-      const next = { ...prev, [sessionId]: color };
+      const next = { ...prev };
+      if (color === null) {
+        delete next[sessionId];
+      } else {
+        next[sessionId] = color;
+      }
       savePinnedSessionColors(next);
       return next;
     });
@@ -1049,6 +1054,25 @@ export function SessionPanel() {
                 onClick={() => handleSetSessionColor(colorPicker.sessionId, color)}
               />
             ))}
+            {/* 禁用 / 清除自定义色点：回到文件夹默认色 */}
+            <button
+              title="禁用色点（恢复默认）"
+              aria-label="禁用色点"
+              className="relative w-7 h-7 rounded-full cursor-pointer transition-transform hover:scale-110 active:scale-90 bg-white/95 dark:bg-white/90 border border-black/10"
+              onClick={() => handleSetSessionColor(colorPicker.sessionId, null)}
+            >
+              <svg
+                viewBox="0 0 24 24"
+                className="absolute inset-0 m-auto w-5 h-5 text-black/55"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2.2"
+                strokeLinecap="round"
+              >
+                <circle cx="12" cy="12" r="9" />
+                <line x1="6" y1="6" x2="18" y2="18" />
+              </svg>
+            </button>
           </div>
         </div>
       )}
