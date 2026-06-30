@@ -23,7 +23,9 @@ import {
   Copy,
   Box,
 } from "lucide-react";
-import { Tooltip, TooltipProvider } from "@ftre/ui";
+import { ImageViewer, Tooltip, TooltipProvider } from "@ftre/ui";
+
+const API_BASE = import.meta.env.VITE_API_BASE || "http://127.0.0.1:48650";
 
 // ─── 摘要生成（一行描述） ───────────────────────────────────────────
 
@@ -528,24 +530,210 @@ interface DetailProps {
 
 function ExpandedDetail({ toolCall, args, isError }: DetailProps) {
   const name = toolCall.name;
+  const lname = typeof name === "string" ? name.toLowerCase() : "";
   const result = toolCall.result ?? "";
 
   if (name === "loadSkill") {
     return <LoadSkillDetail result={result} isError={isError} />;
   }
-  if (name === "bash" || name === "exec" || name === "shell") {
+  if (lname === "bash" || lname === "exec" || lname === "shell") {
     return <BashDetail result={result} isError={isError} />;
   }
-  if (name === "edit" || name === "edit_file") {
+  if (lname === "edit" || lname === "edit_file") {
     return <EditDetail args={args} result={result} isError={isError} />;
   }
-  if (name === "cron" && (args.action as string) === "list") {
+  if (lname === "cron" && (args.action as string) === "list") {
     return <CronListDetail result={result} isError={isError} />;
   }
   if (name === "task") {
     return <TaskDetail result={result} isError={isError} />;
   }
+  // read / Read / read_file 都走图片分支
+  if (lname === "read" || lname === "read_file") {
+    return <ReadDetail args={args} result={result} isError={isError} />;
+  }
   return <RawPre result={result} isError={isError} />;
+}
+
+// ─── read / read_file ──────────────────────────────────────────────
+
+const IMAGE_EXTS = new Set([
+  "png", "jpg", "jpeg", "gif", "webp", "bmp", "svg", "avif",
+]);
+
+function getExt(path: string): string {
+  const m = path.toLowerCase().match(/\.([a-z0-9]+)$/);
+  return m?.[1] ?? "";
+}
+
+function isImagePath(path: string): boolean {
+  return IMAGE_EXTS.has(getExt(path));
+}
+
+/** read 工具：由参数 path 判断图片；result 只是可选的缓存图片引用 */
+function ReadDetail({
+  args,
+  result,
+  isError,
+}: {
+  args: Record<string, unknown>;
+  result: string;
+  isError: boolean;
+}) {
+  const filePath = (args.path as string) ?? "";
+  const imageRef = !isError && isImagePath(filePath)
+    ? extractImageRef(result, filePath) ?? imageRefFromPath(filePath)
+    : null;
+  if (!imageRef) {
+    return <RawPre result={result} isError={isError} />;
+  }
+  return (
+    <div className="space-y-2">
+      <ImagePreview image={imageRef} result={result} />
+    </div>
+  );
+}
+
+interface ReadImageRef {
+  url: string;
+  fileName: string;
+  sourcePath: string;
+  mime?: string;
+  bytes?: number;
+}
+
+function ImagePreview({ image, result }: { image: ReadImageRef; result: string }) {
+  const [previewSrc, setPreviewSrc] = useState<string | null>(null);
+  const [failed, setFailed] = useState(false);
+  const ext = getExt(image.fileName || image.sourcePath);
+
+  if (failed) return <RawPre result={result} isError={false} />;
+
+  const openExternal = () => {
+    const api = (window as any).desktop;
+    if (api?.openExternal) api.openExternal(image.url);
+    else window.open(image.url, "_blank");
+  };
+
+  return (
+    <>
+      <button
+        type="button"
+        onClick={(e) => {
+          if (e.ctrlKey || e.metaKey) {
+            e.preventDefault();
+            openExternal();
+            return;
+          }
+          setPreviewSrc(image.url);
+        }}
+        title={`${image.fileName} - 点击预览，Ctrl/Cmd+点击外部打开`}
+        className="block w-full text-left space-y-2"
+      >
+        <div className="relative overflow-hidden rounded-lg bg-[var(--ftre-bg-base)] hover:ring-1 hover:ring-neon/40 transition-shadow">
+          <img
+            src={image.url}
+            alt={image.fileName}
+            className="block max-w-full max-h-[420px] mx-auto object-contain"
+            loading="lazy"
+            onError={() => setFailed(true)}
+          />
+        </div>
+        <div className="flex items-center gap-2 text-[11px] text-t-ghost font-mono">
+          <span className="uppercase tracking-wider">{image.mime || ext}</span>
+          {typeof image.bytes === "number" && (
+            <>
+              <span className="text-t-faint">·</span>
+              <span>{formatBytes(image.bytes)}</span>
+            </>
+          )}
+          <span className="text-t-faint">·</span>
+          <span className="truncate flex-1" title={image.sourcePath}>{image.fileName}</span>
+        </div>
+      </button>
+      {previewSrc && (
+        <ImageViewer
+          src={previewSrc}
+          alt={image.fileName}
+          onClose={() => setPreviewSrc(null)}
+        />
+      )}
+    </>
+  );
+}
+
+function extractImageRef(result: string, requestedPath: string): ReadImageRef | null {
+  const payload = parseJsonLike(result);
+  const part = findImageFilePart(payload);
+  if (!part?.path) return null;
+  const fileName = basename(part.path);
+  if (!fileName) return null;
+  return {
+    url: `${API_BASE}/api/images/${encodeURIComponent(fileName)}`,
+    fileName: basename(requestedPath) || fileName,
+    sourcePath: typeof part.path === "string" ? part.path : requestedPath,
+    mime: typeof part.mime_type === "string" ? part.mime_type : undefined,
+    bytes: typeof part.size === "number" ? part.size : undefined,
+  };
+}
+
+function imageRefFromPath(path: string): ReadImageRef {
+  const fileName = basename(path) || path;
+  return {
+    url: `${API_BASE}/api/image-file?path=${encodeURIComponent(path)}`,
+    fileName,
+    sourcePath: path,
+    mime: mimeFromImagePath(path),
+  };
+}
+
+function mimeFromImagePath(path: string): string | undefined {
+  switch (getExt(path)) {
+    case "png": return "image/png";
+    case "jpg":
+    case "jpeg": return "image/jpeg";
+    case "gif": return "image/gif";
+    case "webp": return "image/webp";
+    case "bmp": return "image/bmp";
+    case "svg": return "image/svg+xml";
+    case "avif": return "image/avif";
+    default: return undefined;
+  }
+}
+
+function parseJsonLike(text: string): unknown {
+  try {
+    return JSON.parse(text);
+  } catch {
+    return null;
+  }
+}
+
+function findImageFilePart(value: unknown): { path?: unknown; mime_type?: unknown; size?: unknown } | null {
+  if (!value || typeof value !== "object") return null;
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      const found = findImageFilePart(item);
+      if (found) return found;
+    }
+    return null;
+  }
+
+  const obj = value as Record<string, unknown>;
+  if (obj.type === "image_file" && typeof obj.path === "string") {
+    return obj;
+  }
+  for (const child of Object.values(obj)) {
+    const found = findImageFilePart(child);
+    if (found) return found;
+  }
+  return null;
+}
+
+function formatBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
 }
 
 /** loadSkill 工具结果 → 提取 frontmatter 并渲染为参考卡片 */

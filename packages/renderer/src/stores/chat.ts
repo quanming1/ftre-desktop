@@ -1,21 +1,14 @@
-/**
- * Chat Store — 消费 ftre gateway WebSocket 事件流。
- *
- * 多 session 模型：
- *   每个 session 有独立 bucket（messages/isBusy/error/retryState）。
- *   store 顶层字段是 active bucket 的镜像（保留旧消费 API: useChat((s)=>s.messages) 等）。
- *   切 session 时直接 hydrate；进行中的流不被打断。
- *
- * 事件源统一：
- *   ws 实时事件 和 history 回放都走同一个 `applyEvent` reducer。
- */
+﻿/**
+ * Chat Store 鈥?娑堣垂 ftre gateway WebSocket 浜嬩欢娴併€? *
+ * 澶?session 妯″瀷锛? *   姣忎釜 session 鏈夌嫭绔?bucket锛坢essages/isBusy/error/retryState锛夈€? *   store 椤跺眰瀛楁鏄?active bucket 鐨勯暅鍍忥紙淇濈暀鏃ф秷璐?API: useChat((s)=>s.messages) 绛夛級銆? *   鍒?session 鏃剁洿鎺?hydrate锛涜繘琛屼腑鐨勬祦涓嶈鎵撴柇銆? *
+ * 浜嬩欢婧愮粺涓€锛? *   ws 瀹炴椂浜嬩欢 鍜?history 鍥炴斁閮借蛋鍚屼竴涓?`applyEvent` reducer銆? */
 import { create } from "zustand";
 import { useShallow } from "zustand/shallow";
 import { wsClient } from "@/services/websocket-client";
 import type { WsConnectionStatus, ServerMessage } from "@/services/websocket-client";
 import { createSessionRemote, API_BASE } from "@/services/api";
 
-// ─── Types ──────────────────────────────────────────────────────────
+// 鈹€鈹€鈹€ Types 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
 
 export type Role = "assistant" | "user" | "system";
 export type SessionStatus = "idle" | "running" | "compacting";
@@ -34,7 +27,7 @@ export type MessagePart =
   | { type: "tool_call"; toolCallId: string }
   | { type: "skill"; data: string };
 
-/** 用户消息附件（与后端 attachments 协议同形，base64 已转成 data URL） */
+/** 鐢ㄦ埛娑堟伅闄勪欢锛堜笌鍚庣 attachments 鍗忚鍚屽舰锛宐ase64 宸茶浆鎴?data URL锛?*/
 export interface MessageAttachment {
   type: "image";
   /** data:<mime>;base64,<...> */
@@ -53,14 +46,14 @@ export interface ChatMessage {
   toolCalls?: ToolCall[];
   reasoning?: string;
   parts?: MessagePart[];
-  /** 用户消息携带的附件（如图片）。仅在 role === "user" 时使用。 */
+  /** 鐢ㄦ埛娑堟伅鎼哄甫鐨勯檮浠讹紙濡傚浘鐗囷級銆備粎鍦?role === "user" 鏃朵娇鐢ㄣ€?*/
   attachments?: MessageAttachment[];
   isError?: boolean;
-  /** 外部 session 通过 send_message 注入的消息 */
+  /** 澶栭儴 session 閫氳繃 send_message 娉ㄥ叆鐨勬秷鎭?*/
   external?: boolean;
-  /** 外部消息来源标识（channel::session） */
+  /** 澶栭儴娑堟伅鏉ユ簮鏍囪瘑锛坈hannel::session锛?*/
   externalFrom?: string;
-  /** 上下文压缩状态消息：标记 + 状态 + 元信息 */
+  /** 涓婁笅鏂囧帇缂╃姸鎬佹秷鎭細鏍囪 + 鐘舵€?+ 鍏冧俊鎭?*/
   compact?: {
     status: "running" | "done" | "failed";
     tokensBefore?: number;
@@ -75,7 +68,7 @@ export interface ChatMessage {
   };
 }
 
-/** 启动时从后端 config 预加载的默认工作区缓存，newChat() 时直接恢复 */
+/** 鍚姩鏃朵粠鍚庣 config 棰勫姞杞界殑榛樿宸ヤ綔鍖虹紦瀛橈紝newChat() 鏃剁洿鎺ユ仮澶?*/
 let _defaultWsCache: string | null = null;
 
 export interface RetryState {
@@ -84,16 +77,16 @@ export interface RetryState {
   message: string;
 }
 
-// ─── Per-session buckets (module-private) ───────────────────────────
+// 鈹€鈹€鈹€ Per-session buckets (module-private) 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
 
 interface Bucket {
   messages: ChatMessage[];
-  /** 原始事件流（按 timestamp ASC）。reducer 的输入源，用于增量加载更早消息时的可重入回放。 */
+  /** 鍘熷浜嬩欢娴侊紙鎸?timestamp ASC锛夈€俽educer 鐨勮緭鍏ユ簮锛岀敤浜庡閲忓姞杞芥洿鏃╂秷鎭椂鐨勫彲閲嶅叆鍥炴斁銆?*/
   events: BusEvent[];
   seenEventIds: Set<string>;
-  /** 已知最早事件的 timestamp（events[0].ts）；用于"加载更早"分页时作为 before_ts。null = 还没拉过 / 没消息 */
+  /** 宸茬煡鏈€鏃╀簨浠剁殑 timestamp锛坋vents[0].ts锛夛紱鐢ㄤ簬"鍔犺浇鏇存棭"鍒嗛〉鏃朵綔涓?before_ts銆俷ull = 杩樻病鎷夎繃 / 娌℃秷鎭?*/
   earliestTs: number | null;
-  /** 历史是否还有更早的页可以拉（基于后端 has_more） */
+  /** 鍘嗗彶鏄惁杩樻湁鏇存棭鐨勯〉鍙互鎷夛紙鍩轰簬鍚庣 has_more锛?*/
   hasMoreHistory: boolean;
   lastUserInputTs: number | null;
   sessionStatus: SessionStatus;
@@ -103,6 +96,11 @@ interface Bucket {
 }
 
 const buckets = new Map<string, Bucket>();
+const STREAM_TYPES = new Set(["assistant_message", "reasoning", "tool_call_streaming"]);
+const _wsFlushTimers = new Map<string, ReturnType<typeof setTimeout>>();
+const _wsBatches = new Map<string, BusEvent[]>();
+const WS_BATCH_WINDOW_MS = 30;
+
 const emptyBucket = (): Bucket => ({
   messages: [],
   events: [],
@@ -124,16 +122,12 @@ function bucket(sid: string): Bucket {
 const last = <T>(arr: T[]): T | undefined => arr[arr.length - 1];
 
 /**
- * 从末尾向前找最近一个仍在流式填充的 text/reasoning part 索引。找不到返回 -1。
- *
- * 用于 assistant_message_complete / reasoning_complete 收尾：
- * 流式 chunk 期间会在 parts 里保留 streaming=true 的占位段，complete 事件
- * 到达时把它替换成权威总和。tool_call / tool_call_streaming 可能在 complete
- * 之前先把 tool part 推到末尾，因此不能只看 parts[-1]，要往前扫到 streaming 段。
- *
- * 严格匹配 streaming=true：已封口的段属于"上一轮已完成"或"回放路径下不存在
- * streaming"，complete 事件不能去覆盖它们。
- */
+ * 浠庢湯灏惧悜鍓嶆壘鏈€杩戜竴涓粛鍦ㄦ祦寮忓～鍏呯殑 text/reasoning part 绱㈠紩銆傛壘涓嶅埌杩斿洖 -1銆? *
+ * 鐢ㄤ簬 assistant_message_complete / reasoning_complete 鏀跺熬锛? * 娴佸紡 chunk 鏈熼棿浼氬湪 parts 閲屼繚鐣?streaming=true 鐨勫崰浣嶆锛宑omplete 浜嬩欢
+ * 鍒拌揪鏃舵妸瀹冩浛鎹㈡垚鏉冨▉鎬诲拰銆倀ool_call / tool_call_streaming 鍙兘鍦?complete
+ * 涔嬪墠鍏堟妸 tool part 鎺ㄥ埌鏈熬锛屽洜姝や笉鑳藉彧鐪?parts[-1]锛岃寰€鍓嶆壂鍒?streaming 娈点€? *
+ * 涓ユ牸鍖归厤 streaming=true锛氬凡灏佸彛鐨勬灞炰簬"涓婁竴杞凡瀹屾垚"鎴?鍥炴斁璺緞涓嬩笉瀛樺湪
+ * streaming"锛宑omplete 浜嬩欢涓嶈兘鍘昏鐩栧畠浠€? */
 function findStreamingIdx(
   parts: MessagePart[],
   type: "text" | "reasoning",
@@ -146,11 +140,8 @@ function findStreamingIdx(
 }
 
 /**
- * 把末尾正在流式填充的 text / reasoning part 封口（streaming=false）。
- *
- * 现在只在兜底场景使用：done 事件 / 回放结束后。日常的 *_complete 走
- * findStreamingIdx 自己找位置。
- */
+ * 鎶婃湯灏炬鍦ㄦ祦寮忓～鍏呯殑 text / reasoning part 灏佸彛锛坰treaming=false锛夈€? *
+ * 鐜板湪鍙湪鍏滃簳鍦烘櫙浣跨敤锛歞one 浜嬩欢 / 鍥炴斁缁撴潫鍚庛€傛棩甯哥殑 *_complete 璧? * findStreamingIdx 鑷繁鎵句綅缃€? */
 function sealStreamingPart(parts: MessagePart[]): void {
   const tail = parts[parts.length - 1];
   if (!tail) return;
@@ -159,7 +150,7 @@ function sealStreamingPart(parts: MessagePart[]): void {
   }
 }
 
-/** 当 sid === activeId 时，把 bucket 字段镜像到 store 顶层。 */
+/** 褰?sid === activeId 鏃讹紝鎶?bucket 瀛楁闀滃儚鍒?store 椤跺眰銆?*/
 function reopenAssistantTail(b: Bucket): void {
   const tail = last(b.messages);
   if (!tail || tail.role !== "assistant" || tail.isError) return;
@@ -192,24 +183,22 @@ function mirror(sid: string): void {
   });
 }
 
-// ─── ID gen ─────────────────────────────────────────────────────────
+// 鈹€鈹€鈹€ ID gen 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
 
 let _idc = 0;
 const nextId = (p = "msg") => `${p}_${Date.now()}_${++_idc}`;
 
-// ─── Event Reducer ──────────────────────────────────────────────────
+// 鈹€鈹€鈹€ Event Reducer 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
 //
-// 同时服务于 ws 实时事件 和 history 回放。
-// 调用方约束：每次只处理一个 event；调用后 bucket 字段是新引用（数组级 immutable）。
-
+// 鍚屾椂鏈嶅姟浜?ws 瀹炴椂浜嬩欢 鍜?history 鍥炴斁銆?// 璋冪敤鏂圭害鏉燂細姣忔鍙鐞嗕竴涓?event锛涜皟鐢ㄥ悗 bucket 瀛楁鏄柊寮曠敤锛堟暟缁勭骇 immutable锛夈€?
 export interface BusEvent {
   type: string;
   data?: any;
   ts?: number;
   eventId?: string;
-  /** 历史回放时可指定消息 id（保留原 id），ws 走 nextId */
+  /** 鍘嗗彶鍥炴斁鏃跺彲鎸囧畾娑堟伅 id锛堜繚鐣欏師 id锛夛紝ws 璧?nextId */
   id?: string;
-  /** ws 实时下行帧的 metadata（含 frame_id 等用于占位去重的字段） */
+  /** ws 瀹炴椂涓嬭甯х殑 metadata锛堝惈 frame_id 绛夌敤浜庡崰浣嶅幓閲嶇殑瀛楁锛?*/
   metadata?: Record<string, any>;
 }
 
@@ -245,13 +234,13 @@ export function applyEvent(b: Bucket, ev: BusEvent): void {
   const d = ev.data || {};
   const ts = ev.ts ?? Date.now();
 
-  /** 当前 streaming 尾部 assistant（若存在） */
+  /** 褰撳墠 streaming 灏鹃儴 assistant锛堣嫢瀛樺湪锛?*/
   const tail = (): ChatMessage | null => {
     const m = last(b.messages);
     return m && m.role === "assistant" && m.streaming && !m.isError ? m : null;
   };
 
-  /** 替换 tail（保留引用语义：mutator 拿到的是新对象，复制原字段） */
+  /** 鏇挎崲 tail锛堜繚鐣欏紩鐢ㄨ涔夛細mutator 鎷垮埌鐨勬槸鏂板璞★紝澶嶅埗鍘熷瓧娈碉級 */
   const replaceTail = (mut: (m: ChatMessage) => ChatMessage): void => {
     const i = b.messages.length - 1;
     if (i < 0) return;
@@ -260,7 +249,7 @@ export function applyEvent(b: Bucket, ev: BusEvent): void {
     b.messages = next;
   };
 
-  /** 确保有一条 streaming assistant；没有就 push 一条空的。 */
+  /** 纭繚鏈変竴鏉?streaming assistant锛涙病鏈夊氨 push 涓€鏉＄┖鐨勩€?*/
   const ensure = (): void => {
     if (tail()) return;
     b.messages = [
@@ -277,10 +266,44 @@ export function applyEvent(b: Bucket, ev: BusEvent): void {
     ];
   };
 
+  const attachHiddenImageToLatestReadTool = (): void => {
+    if (!d.metadata?.hide || !Array.isArray(d.content)) return;
+    if (!d.content.some((p: any) => p?.type === "image_file" && typeof p.path === "string")) return;
+
+    const hasImagePayload = (value: unknown): boolean => {
+      if (typeof value !== "string" || !value) return false;
+      try {
+        return JSON.stringify(JSON.parse(value)).includes('"image_file"');
+      } catch {
+        return false;
+      }
+    };
+
+    for (let i = b.messages.length - 1; i >= 0; i--) {
+      const toolCalls = b.messages[i].toolCalls;
+      if (!toolCalls?.length) continue;
+      for (let j = toolCalls.length - 1; j >= 0; j--) {
+        const tc = toolCalls[j];
+        const name = typeof tc.name === "string" ? tc.name.toLowerCase() : "";
+        if ((name === "read" || name === "read_file") && !hasImagePayload(tc.result)) {
+          const nextMessages = b.messages.slice();
+          const nextToolCalls = toolCalls.slice();
+          nextToolCalls[j] = { ...tc, status: "ok", result: JSON.stringify(d) };
+          nextMessages[i] = { ...nextMessages[i], toolCalls: nextToolCalls };
+          b.messages = nextMessages;
+          return;
+        }
+      }
+    }
+  };
+
   switch (ev.type) {
-    // ─── 历史回放专用：用户消息 ───
+    // 鈹€鈹€鈹€ 鍘嗗彶鍥炴斁涓撶敤锛氱敤鎴锋秷鎭?鈹€鈹€鈹€
     case "user_message": {
-      if (d.metadata?.hide) return;
+      if (d.metadata?.hide) {
+        attachHiddenImageToLatestReadTool();
+        return;
+      }
       const frameId = (ev.metadata?.frame_id as string | undefined) ?? "";
       b.lastUserInputTs = ts;
       if (frameId && b.messages.some((m) => m.id === frameId)) return;
@@ -299,8 +322,8 @@ export function applyEvent(b: Bucket, ev: BusEvent): void {
           a.type === "image" &&
           typeof a.mime_type === "string"
         ) {
-          // 实时消息：有 base64 data → 拼 data URL
-          // 历史消息：只有 path → 用 HTTP URL 从后端加载
+          // 瀹炴椂娑堟伅锛氭湁 base64 data 鈫?鎷?data URL
+          // 鍘嗗彶娑堟伅锛氬彧鏈?path 鈫?鐢?HTTP URL 浠庡悗绔姞杞?
           let url: string | undefined;
           let bytes: number | undefined;
           if (typeof a.data === "string") {
@@ -339,19 +362,18 @@ export function applyEvent(b: Bucket, ev: BusEvent): void {
       return;
     }
 
-    // ─── 流式文本片段 ───
+    // 鈹€鈹€鈹€ 娴佸紡鏂囨湰鐗囨 鈹€鈹€鈹€
     case "assistant_message": {
       ensure();
       const chunk = d.content || "";
       if (!chunk) return;
-      // 收到新的流式内容说明重试成功，清除重试横幅
+      // 鏀跺埌鏂扮殑娴佸紡鍐呭璇存槑閲嶈瘯鎴愬姛锛屾竻闄ら噸璇曟í骞?
       if (b.retryState) b.retryState = null;
       replaceTail((m) => {
         const parts = [...(m.parts || [])];
         const lastPart = parts[parts.length - 1];
-        // 末尾如果是个还在填的 text part 就追加；否则开新段。
-        // 任何"非 text chunk 的事件"到达时都会调 sealStreamingPart 把这段封口，
-        // 之后再来 chunk 就不会误并到上一段。
+        // 鏈熬濡傛灉鏄釜杩樺湪濉殑 text part 灏辫拷鍔狅紱鍚﹀垯寮€鏂版銆?        // 浠讳綍"闈?text chunk 鐨勪簨浠?鍒拌揪鏃堕兘浼氳皟 sealStreamingPart 鎶婅繖娈靛皝鍙ｏ紝
+        // 涔嬪悗鍐嶆潵 chunk 灏变笉浼氳骞跺埌涓婁竴娈点€?
         if (lastPart?.type === "text" && lastPart.streaming) {
           parts[parts.length - 1] = { type: "text", text: lastPart.text + chunk, streaming: true };
         } else {
@@ -362,17 +384,17 @@ export function applyEvent(b: Bucket, ev: BusEvent): void {
       return;
     }
 
-    // ─── 流式文本最终化（ws）/ 历史回放完整文本 ───
-    // 不在此处置 message.streaming=false；由 done 事件统一收尾。
+    // 鈹€鈹€鈹€ 娴佸紡鏂囨湰鏈€缁堝寲锛坵s锛? 鍘嗗彶鍥炴斁瀹屾暣鏂囨湰 鈹€鈹€鈹€
+    // 涓嶅湪姝ゅ缃?message.streaming=false锛涚敱 done 浜嬩欢缁熶竴鏀跺熬銆?
     case "assistant_message_complete": {
       ensure();
       const final = d.content || "";
       replaceTail((m) => {
         const parts = [...(m.parts || [])];
-        // 找一个还在流式填充的 text part（即便末尾是 tool_call 也能找到）：
-        // - 实时路径：先 message chunk 累积出 streaming text → 中间可能插入
-        //   tool_call_streaming 推到末尾 → 此 complete 仍能锁定到流式段并封口
-        // - 回放路径：DB 没有 chunk，找不到流式段 → push 一个已封口的新段
+        // 鎵句竴涓繕鍦ㄦ祦寮忓～鍏呯殑 text part锛堝嵆渚挎湯灏炬槸 tool_call 涔熻兘鎵惧埌锛夛細
+        // - 瀹炴椂璺緞锛氬厛 message chunk 绱Н鍑?streaming text 鈫?涓棿鍙兘鎻掑叆
+        //   tool_call_streaming 鎺ㄥ埌鏈熬 鈫?姝?complete 浠嶈兘閿佸畾鍒版祦寮忔骞跺皝鍙?
+        // - 鍥炴斁璺緞锛欴B 娌℃湁 chunk锛屾壘涓嶅埌娴佸紡娈?鈫?push 涓€涓凡灏佸彛鐨勬柊娈?
         const streamingIdx = findStreamingIdx(parts, "text");
         if (streamingIdx >= 0) {
           parts[streamingIdx] = { type: "text", text: final, streaming: false };
@@ -388,9 +410,9 @@ export function applyEvent(b: Bucket, ev: BusEvent): void {
       return;
     }
 
-    // ─── 外部 session 通过 send_message 注入的完整消息 ───
-    // 与目标 session 自己的流式输出无关，独立成消息。
-    // 若当前正有 streaming tail，则插在它之前，避免视觉错位。
+    // 鈹€鈹€鈹€ 澶栭儴 session 閫氳繃 send_message 娉ㄥ叆鐨勫畬鏁存秷鎭?鈹€鈹€鈹€
+    // 涓庣洰鏍?session 鑷繁鐨勬祦寮忚緭鍑烘棤鍏筹紝鐙珛鎴愭秷鎭€?
+    // 鑻ュ綋鍓嶆鏈?streaming tail锛屽垯鎻掑湪瀹冧箣鍓嶏紝閬垮厤瑙嗚閿欎綅銆?
     case "external_message": {
       const text = typeof d.content === "string" ? d.content : "";
       const fromCh = typeof d.from_channel === "string" ? d.from_channel : "";
@@ -403,7 +425,7 @@ export function applyEvent(b: Bucket, ev: BusEvent): void {
         parts: text ? [{ type: "text", text }] : [],
         external: true,
         externalFrom: fromCh || fromSid ? `${fromCh}::${fromSid}` : undefined,
-        // 不设 streaming：这是外部完整插入消息
+        // 涓嶈 streaming锛氳繖鏄閮ㄥ畬鏁存彃鍏ユ秷鎭?
       };
       const i = b.messages.length - 1;
       const tailMsg = i >= 0 ? b.messages[i] : null;
@@ -421,7 +443,7 @@ export function applyEvent(b: Bucket, ev: BusEvent): void {
       replaceTail((m) => {
         const parts = [...(m.parts || [])];
         const lastPart = parts[parts.length - 1];
-        // 跟 message chunk 同思路：末尾是流式 reasoning 就追加，否则开新段
+        // 璺?message chunk 鍚屾€濊矾锛氭湯灏炬槸娴佸紡 reasoning 灏辫拷鍔狅紝鍚﹀垯寮€鏂版
         if (lastPart?.type === "reasoning" && lastPart.streaming) {
           parts[parts.length - 1] = { type: "reasoning", text: lastPart.text + chunk, streaming: true };
         } else {
@@ -432,9 +454,9 @@ export function applyEvent(b: Bucket, ev: BusEvent): void {
       return;
     }
 
-    // ─── 一轮思考的完整文本（对应 assistant_message_complete 的 reasoning 版） ───
-    // 实时：reasoning chunks 后到达，原地覆盖封口
-    // 回放：DB 只有 reasoning_complete 没有 chunk，直接 push
+    // 鈹€鈹€鈹€ 涓€杞€濊€冪殑瀹屾暣鏂囨湰锛堝搴?assistant_message_complete 鐨?reasoning 鐗堬級 鈹€鈹€鈹€
+    // 瀹炴椂锛歳easoning chunks 鍚庡埌杈撅紝鍘熷湴瑕嗙洊灏佸彛
+    // 鍥炴斁锛欴B 鍙湁 reasoning_complete 娌℃湁 chunk锛岀洿鎺?push
     case "reasoning_complete": {
       ensure();
       const final = d.content || "";
@@ -447,7 +469,7 @@ export function applyEvent(b: Bucket, ev: BusEvent): void {
         } else {
           parts.push({ type: "reasoning", text: final, streaming: false });
         }
-        // 兼容旧字段：把所有 reasoning part 文本拼起来
+        // 鍏煎鏃у瓧娈碉細鎶婃墍鏈?reasoning part 鏂囨湰鎷艰捣鏉?
         const reasoning = parts
           .filter((p): p is { type: "reasoning"; text: string; streaming?: boolean } => p.type === "reasoning")
           .map((p) => p.text)
@@ -457,7 +479,7 @@ export function applyEvent(b: Bucket, ev: BusEvent): void {
       return;
     }
 
-    // ─── 工具调用（一次性，含完整 args） ───
+    // 鈹€鈹€鈹€ 宸ュ叿璋冪敤锛堜竴娆℃€э紝鍚畬鏁?args锛?鈹€鈹€鈹€
     case "tool_call": {
       ensure();
       const id: string = d.id ?? "";
@@ -466,9 +488,9 @@ export function applyEvent(b: Bucket, ev: BusEvent): void {
       replaceTail((m) => {
         const toolCalls = [...(m.toolCalls || [])];
         const parts = [...(m.parts || [])];
-        // 不在这里 seal 当前流式 text/reasoning：稍后 *_complete 会用
-        // findStreamingIdx 自己找到那段做最终覆盖。如果先 seal 了，complete
-        // 就找不到流式段，会另起一段，造成同一段文字渲染两次。
+        // 涓嶅湪杩欓噷 seal 褰撳墠娴佸紡 text/reasoning锛氱◢鍚?*_complete 浼氱敤
+        // findStreamingIdx 鑷繁鎵惧埌閭ｆ鍋氭渶缁堣鐩栥€傚鏋滃厛 seal 浜嗭紝complete
+        // 灏辨壘涓嶅埌娴佸紡娈碉紝浼氬彟璧蜂竴娈碉紝閫犳垚鍚屼竴娈垫枃瀛楁覆鏌撲袱娆°€?
         const i = toolCalls.findIndex((t) => t.id === id);
         if (i >= 0) toolCalls[i] = { ...toolCalls[i], name, arguments: args, status: "running" };
         else {
@@ -480,7 +502,7 @@ export function applyEvent(b: Bucket, ev: BusEvent): void {
       return;
     }
 
-    // ─── 工具调用流式增量（args 分片） ───
+    // 鈹€鈹€鈹€ 宸ュ叿璋冪敤娴佸紡澧為噺锛坅rgs 鍒嗙墖锛?鈹€鈹€鈹€
     case "tool_call_streaming": {
       ensure();
       if (b.retryState) b.retryState = null;
@@ -488,7 +510,7 @@ export function applyEvent(b: Bucket, ev: BusEvent): void {
       replaceTail((m) => {
         const toolCalls = [...(m.toolCalls || [])];
         const parts = [...(m.parts || [])];
-        // 同 tool_call：不 seal，让 *_complete 自己找流式段覆盖
+        // 鍚?tool_call锛氫笉 seal锛岃 *_complete 鑷繁鎵炬祦寮忔瑕嗙洊
         for (const c of chunks) {
           if (!c.id) continue;
           const i = toolCalls.findIndex((t) => t.id === c.id);
@@ -514,7 +536,7 @@ export function applyEvent(b: Bucket, ev: BusEvent): void {
       return;
     }
 
-    // ─── 工具结果：从尾部往前找到对应 tc 写入 ───
+    // 鈹€鈹€鈹€ 宸ュ叿缁撴灉锛氫粠灏鹃儴寰€鍓嶆壘鍒板搴?tc 鍐欏叆 鈹€鈹€鈹€
     case "tool_result": {
       const id = d.id;
       const isErr = !!d.error;
@@ -561,9 +583,9 @@ export function applyEvent(b: Bucket, ev: BusEvent): void {
     }
 
     case "error": {
-      const msg: string = d.message ?? "未知错误";
+      const msg: string = d.message ?? "鏈煡閿欒";
       const code = d.code;
-      // 先关掉前一条 streaming 消息（如果有）
+      // 鍏堝叧鎺夊墠涓€鏉?streaming 娑堟伅锛堝鏋滄湁锛?
       replaceTail((m) => ({ ...m, streaming: false }));
       b.messages = [
         ...b.messages,
@@ -576,12 +598,12 @@ export function applyEvent(b: Bucket, ev: BusEvent): void {
     }
 
     case "retry": {
-      // 重试时只清除当前 streaming assistant 尾部正在流式拼接的残片 parts，
-      // 保留之前已完成的 tool_call / tool_result 等 parts 不受影响。
+      // 閲嶈瘯鏃跺彧娓呴櫎褰撳墠 streaming assistant 灏鹃儴姝ｅ湪娴佸紡鎷兼帴鐨勬畫鐗?parts锛?
+      // 淇濈暀涔嬪墠宸插畬鎴愮殑 tool_call / tool_result 绛?parts 涓嶅彈褰卞搷銆?
       const retryTail = tail();
       if (retryTail) {
         replaceTail((m) => {
-          // 从末尾移除所有还在 streaming 的 text/reasoning parts（未封口的残片）
+          // 浠庢湯灏剧Щ闄ゆ墍鏈夎繕鍦?streaming 鐨?text/reasoning parts锛堟湭灏佸彛鐨勬畫鐗囷級
           const parts = [...(m.parts || [])];
           while (parts.length > 0) {
             const last = parts[parts.length - 1];
@@ -591,7 +613,7 @@ export function applyEvent(b: Bucket, ev: BusEvent): void {
               break;
             }
           }
-          // 重新拼接 content 和 reasoning（只保留已封口的）
+          // 閲嶆柊鎷兼帴 content 鍜?reasoning锛堝彧淇濈暀宸插皝鍙ｇ殑锛?
           const content = parts
             .filter((p): p is { type: "text"; text: string; streaming?: boolean } => p.type === "text")
             .map((p) => p.text)
@@ -607,9 +629,9 @@ export function applyEvent(b: Bucket, ev: BusEvent): void {
       return;
     }
 
-    // ─── 上下文压缩事件 ───
+    // 鈹€鈹€鈹€ 涓婁笅鏂囧帇缂╀簨浠?鈹€鈹€鈹€
     case "context_compact_start": {
-      // 后台空闲压缩 / 关键路径 raw 兜底带 silent=true，前端不渲染气泡（无感）
+      // 鍚庡彴绌洪棽鍘嬬缉 / 鍏抽敭璺緞 raw 鍏滃簳甯?silent=true锛屽墠绔笉娓叉煋姘旀场锛堟棤鎰燂級
       if (d.silent === true) return;
       b.messages = [
         ...b.messages,
@@ -629,7 +651,7 @@ export function applyEvent(b: Bucket, ev: BusEvent): void {
 
     case "context_compact_done": {
       if (d.silent === true) return;
-      // 找最后一条 running 的压缩消息，标记为 done
+      // 鎵炬渶鍚庝竴鏉?running 鐨勫帇缂╂秷鎭紝鏍囪涓?done
       for (let i = b.messages.length - 1; i >= 0; i--) {
         const m = b.messages[i];
         if (m.compact?.status === "running") {
@@ -662,7 +684,7 @@ export function applyEvent(b: Bucket, ev: BusEvent): void {
               ...m,
               compact: {
                 status: "failed",
-                reason: typeof d.reason === "string" ? d.reason : "未知原因",
+                reason: typeof d.reason === "string" ? d.reason : "鏈煡鍘熷洜",
               },
             },
             ...b.messages.slice(i + 1),
@@ -674,17 +696,17 @@ export function applyEvent(b: Bucket, ev: BusEvent): void {
     }
 
     case "context_compact_enabled": {
-      // 自动启用 pending 摘要只影响后端上下文视图；UI 不额外渲染气泡。
+      // 鑷姩鍚敤 pending 鎽樿鍙奖鍝嶅悗绔笂涓嬫枃瑙嗗浘锛沀I 涓嶉澶栨覆鏌撴皵娉°€?
       return;
     }
 
-    // ─── 历史回放：context_compact 事件 ───
+    // 鈹€鈹€鈹€ 鍘嗗彶鍥炴斁锛歝ontext_compact 浜嬩欢 鈹€鈹€鈹€
     case "context_compact": {
-      // 历史回放时遇到压缩事件：silent 标记的压缩（后台/raw 兜底）不在历史里
-      // 显式渲染气泡——后端 silent 已经落到 payload 上，前端这里直接跳过。
-      // 用户主动 /compact 才会留下可见气泡。
+      // 鍘嗗彶鍥炴斁鏃堕亣鍒板帇缂╀簨浠讹細silent 鏍囪鐨勫帇缂╋紙鍚庡彴/raw 鍏滃簳锛変笉鍦ㄥ巻鍙查噷
+      // 鏄惧紡娓叉煋姘旀场鈥斺€斿悗绔?silent 宸茬粡钀藉埌 payload 涓婏紝鍓嶇杩欓噷鐩存帴璺宠繃銆?
+      // 鐢ㄦ埛涓诲姩 /compact 鎵嶄細鐣欎笅鍙姘旀场銆?
       if (d.silent === true) return;
-      // 之前的历史消息保留可见（前端只做"提示这里压缩过了"，不做实际折叠）
+      // 涔嬪墠鐨勫巻鍙叉秷鎭繚鐣欏彲瑙侊紙鍓嶇鍙仛"鎻愮ず杩欓噷鍘嬬缉杩囦簡"锛屼笉鍋氬疄闄呮姌鍙狅級
       const summary = typeof d.summary === "string" ? d.summary : "";
       b.messages = [
         ...b.messages,
@@ -704,15 +726,12 @@ export function applyEvent(b: Bucket, ev: BusEvent): void {
   }
 }
 
-// ─── WS Wiring ──────────────────────────────────────────────────────
+// 鈹€鈹€鈹€ WS Wiring 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
 //
-// 模块级注册的 handler 在 dev hmr 重新执行模块时会被重复 push。
-// 用 guard 保证全生命周期只注册一次，避免每条 ws 事件被处理多次（典型症状：
-// 流式文本看起来"重复输出"，实际是 reducer 跑了两遍）。
-//
-// 后台节流：Windows 下切到后台时 Chromium 会节流 timer，
-// 但 WebSocket 消息不受影响持续涌入 → mirror() 攒积大量 React setState。
-// 用 Page Visibility API：后台时只入桶不 mirror，回前台一把刷新。
+// 妯″潡绾ф敞鍐岀殑 handler 鍦?dev hmr 閲嶆柊鎵ц妯″潡鏃朵細琚噸澶?push銆?// 鐢?guard 淇濊瘉鍏ㄧ敓鍛藉懆鏈熷彧娉ㄥ唽涓€娆★紝閬垮厤姣忔潯 ws 浜嬩欢琚鐞嗗娆★紙鍏稿瀷鐥囩姸锛?// 娴佸紡鏂囨湰鐪嬭捣鏉?閲嶅杈撳嚭"锛屽疄闄呮槸 reducer 璺戜簡涓ら亶锛夈€?//
+// 鍚庡彴鑺傛祦锛歐indows 涓嬪垏鍒板悗鍙版椂 Chromium 浼氳妭娴?timer锛?
+// 浣?WebSocket 娑堟伅涓嶅彈褰卞搷鎸佺画娑屽叆 鈫?mirror() 鏀掔Н澶ч噺 React setState銆?
+// 鐢?Page Visibility API锛氬悗鍙版椂鍙叆妗朵笉 mirror锛屽洖鍓嶅彴涓€鎶婂埛鏂般€?
 const __wsBoundFlag = "__ftreChatWsBound__";
 if (!(globalThis as any)[__wsBoundFlag]) {
   (globalThis as any)[__wsBoundFlag] = true;
@@ -724,7 +743,7 @@ if (!(globalThis as any)[__wsBoundFlag]) {
       const wasHidden = pageHidden;
       pageHidden = document.hidden;
       if (wasHidden && !pageHidden) {
-        // 切回前台：flush 所有未完成的批处理，避免残留
+        // 鍒囧洖鍓嶅彴锛歠lush 鎵€鏈夋湭瀹屾垚鐨勬壒澶勭悊锛岄伩鍏嶆畫鐣?
         for (const sid of _wsBatches.keys()) {
           _flushWsBatch(sid);
         }
@@ -734,13 +753,8 @@ if (!(globalThis as any)[__wsBoundFlag]) {
     });
   }
 
-  // ── WS 事件微批处理：同一 session 的连续流式事件在窗口内收集，
-  //    一把 apply + 一次 mirror，避免 replay 打字机回放 ──
-  const STREAM_TYPES = new Set(["assistant_message", "reasoning", "tool_call_streaming"]);
-  const _wsFlushTimers = new Map<string, ReturnType<typeof setTimeout>>();
-  const _wsBatches = new Map<string, BusEvent[]>();
-  const WS_BATCH_WINDOW_MS = 30;
-
+  // 鈹€鈹€ WS 浜嬩欢寰壒澶勭悊锛氬悓涓€ session 鐨勮繛缁祦寮忎簨浠跺湪绐楀彛鍐呮敹闆嗭紝
+  //    涓€鎶?apply + 涓€娆?mirror锛岄伩鍏?replay 鎵撳瓧鏈哄洖鏀?鈹€鈹€
   function _flushWsBatch(sid: string) {
     const timer = _wsFlushTimers.get(sid);
     if (timer) { clearTimeout(timer); _wsFlushTimers.delete(sid); }
@@ -771,14 +785,13 @@ if (!(globalThis as any)[__wsBoundFlag]) {
   }
 
   wsClient.onMessage((msg: ServerMessage) => {
-  wsClient.onMessage((msg: ServerMessage) => {
-    // 后端拒绝（附件违规等）：顶层 type="error"，不是 agent_event
+    // 鍚庣鎷掔粷锛堥檮浠惰繚瑙勭瓑锛夛細椤跺眰 type="error"锛屼笉鏄?agent_event
     if (msg.type === "error") {
       const reason =
         (msg.data as any)?.message ||
         (msg.data as any)?.code ||
-        "请求被拒绝";
-      // 关掉对应 session 的 busy 状态
+        "Request rejected";
+      // 鍏虫帀瀵瑰簲 session 鐨?busy 鐘舵€?
       const sid = (msg.data as any)?.session_id || msg.metadata?.session_id;
       if (typeof sid === "string" && sid) {
         const b = bucket(sid);
@@ -786,7 +799,7 @@ if (!(globalThis as any)[__wsBoundFlag]) {
         b.sessionStatus = "idle";
         mirror(sid);
       }
-      // 异步引入避免循环依赖（notification → chat 不应该被绑死）
+      // 寮傛寮曞叆閬垮厤寰幆渚濊禆锛坣otification 鈫?chat 涓嶅簲璇ヨ缁戞锛?
       import("./notification")
         .then(({ useNotification }) => {
           useNotification.getState().addNotification({
@@ -798,10 +811,9 @@ if (!(globalThis as any)[__wsBoundFlag]) {
       return;
     }
 
-    // 后端在首条用户消息后异步生成标题；前端有自己的会话列表轮询，
-    // 拿到新 title 是迟早的事，不需要专门的 push 通知。
-
-    // global_event：全局控制信号（session 运行态等），不进 agent 事件流
+    // 鍚庣鍦ㄩ鏉＄敤鎴锋秷鎭悗寮傛鐢熸垚鏍囬锛涘墠绔湁鑷繁鐨勪細璇濆垪琛ㄨ疆璇紝
+    // 鎷垮埌鏂?title 鏄繜鏃╃殑浜嬶紝涓嶉渶瑕佷笓闂ㄧ殑 push 閫氱煡銆?
+    // global_event锛氬叏灞€鎺у埗淇″彿锛坰ession 杩愯鎬佺瓑锛夛紝涓嶈繘 agent 浜嬩欢娴?
     if (msg.type === "global_event") {
       const ev = msg.data as any;
       if (ev?.type === "session_status") {
@@ -813,7 +825,7 @@ if (!(globalThis as any)[__wsBoundFlag]) {
             b.sessionStatus = status;
           }
           if (status === "running") {
-            // 一轮开始：进入 busy，清空上一轮残留的错误/重试状态
+            // 涓€杞紑濮嬶細杩涘叆 busy锛屾竻绌轰笂涓€杞畫鐣欑殑閿欒/閲嶈瘯鐘舵€?
             b.isBusy = true;
             b.error = null;
             b.retryState = null;
@@ -826,7 +838,7 @@ if (!(globalThis as any)[__wsBoundFlag]) {
           }
           mirror(d.session_id);
         }
-        // 异步刷新会话列表（running 字段）
+        // 寮傛鍒锋柊浼氳瘽鍒楄〃锛坮unning 瀛楁锛?
         import("../stores/session")
           .then(({ useSession }) => useSession.getState().loadAllSessions())
           .catch(() => void 0);
@@ -838,8 +850,6 @@ if (!(globalThis as any)[__wsBoundFlag]) {
     const ev = msg.data;
     if (!ev?.type) return;
 
-    // user_message 且 hide=true → 不渲染（工具内部注入的消息，仅 LLM 可见）
-    if (ev.type === "user_message" && ev.data?.metadata?.hide) return;
 
     const sid = msg.metadata?.session_id as string | undefined;
     if (!sid) return;
@@ -853,7 +863,7 @@ if (!(globalThis as any)[__wsBoundFlag]) {
       metadata: msg.metadata,
     };
     if (hasSeenEvent(b, busEvent)) return;
-    // 入桶事件缓存：分页 / refresh 重放时要回到这条事件流
+    // 鍏ユ《浜嬩欢缂撳瓨锛氬垎椤?/ refresh 閲嶆斁鏃惰鍥炲埌杩欐潯浜嬩欢娴?
     b.events.push(busEvent);
     if (pageHidden) {
       applyEvent(b, busEvent);
@@ -861,13 +871,13 @@ if (!(globalThis as any)[__wsBoundFlag]) {
       _enqueueWsEvent(sid, b, busEvent);
     }
 
-    // ── 实时刷新上下文用量 ──
-    // usage_update：事件自带 usage 数据，就地更新 store，无需再调 API
+    // 鈹€鈹€ 瀹炴椂鍒锋柊涓婁笅鏂囩敤閲?鈹€鈹€
+    // usage_update锛氫簨浠惰嚜甯?usage 鏁版嵁锛屽氨鍦版洿鏂?store锛屾棤闇€鍐嶈皟 API
     if (ev.type === "usage_update" && useChat.getState().sessionId === sid) {
       const u = (ev.data as any)?.usage;
       if (u && typeof u.total_tokens === "number") {
         const current = useChat.getState().tokenUsage;
-        // anchor 是这次实算的 usage；pending_estimated 从上次的值减去本次实算覆盖的部分
+        // anchor 鏄繖娆″疄绠楃殑 usage锛沺ending_estimated 浠庝笂娆＄殑鍊煎噺鍘绘湰娆″疄绠楄鐩栫殑閮ㄥ垎
         const prevAnchorTotal = current?.anchor?.total_tokens ?? 0;
         const newAnchor = {
           prompt_tokens: u.prompt_tokens ?? 0,
@@ -876,7 +886,7 @@ if (!(globalThis as any)[__wsBoundFlag]) {
           at: Date.now() / 1000,
           source: "usage_update",
         };
-        // 新 anchor 之后的事件估算暂时为 0（因为还没产生新事件）
+        // 鏂?anchor 涔嬪悗鐨勪簨浠朵及绠楁殏鏃朵负 0锛堝洜涓鸿繕娌′骇鐢熸柊浜嬩欢锛?
         const pending_estimated = 0;
         const total = newAnchor.total_tokens + pending_estimated;
         useChat.setState({
@@ -889,7 +899,7 @@ if (!(globalThis as any)[__wsBoundFlag]) {
         });
       }
     }
-    // 其他事件：需要重算 pending_estimated 等，调 API
+    // 鍏朵粬浜嬩欢锛氶渶瑕侀噸绠?pending_estimated 绛夛紝璋?API
     if ((ev.type === "done" || ev.type === "external_message" || ev.type === "context_compact_done" || ev.type === "context_compact_enabled") && useChat.getState().sessionId === sid) {
       useChat.getState().refreshTokenUsage(sid);
     }
@@ -898,7 +908,7 @@ if (!(globalThis as any)[__wsBoundFlag]) {
   wsClient.onConnect(() => useChat.setState({ connected: true, wsStatus: "connected" }));
   wsClient.onStatusChange((s) => useChat.setState({ wsStatus: s, connected: s === "connected" }));
   wsClient.onDisconnect(() => {
-    // 断线：关掉所有 bucket 的 streaming 状态，保留消息
+    // 鏂嚎锛氬叧鎺夋墍鏈?bucket 鐨?streaming 鐘舵€侊紝淇濈暀娑堟伅
     for (const [sid, b] of buckets) {
       b.isBusy = false;
       b.sessionStatus = "idle";
@@ -914,7 +924,7 @@ if (!(globalThis as any)[__wsBoundFlag]) {
   });
 }
 
-// ─── Store ──────────────────────────────────────────────────────────
+// 鈹€鈹€鈹€ Store 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
 
 interface ChatState {
   // mirrored from active bucket
@@ -932,11 +942,8 @@ interface ChatState {
   model: string | null;
   provider: string | null;
   agentId: string;
-  /** 当前会话的总 token 用量明细。
-   *  由后端 GET /api/sessions/{id}/token_usage 提供，在切换 session、流式 done
-   *  和 external_message 到达时刷新。
-   *  - anchor: 最近一次 LLM 实算的 usage（无则 null）
-   *  - pending_estimated: 锚点之后未实算的事件估算
+  /** 褰撳墠浼氳瘽鐨勬€?token 鐢ㄩ噺鏄庣粏銆?   *  鐢卞悗绔?GET /api/sessions/{id}/token_usage 鎻愪緵锛屽湪鍒囨崲 session銆佹祦寮?done
+   *  鍜?external_message 鍒拌揪鏃跺埛鏂般€?   *  - anchor: 鏈€杩戜竴娆?LLM 瀹炵畻鐨?usage锛堟棤鍒?null锛?   *  - pending_estimated: 閿氱偣涔嬪悗鏈疄绠楃殑浜嬩欢浼扮畻
    *  - total: anchor.total_tokens + pending_estimated */
   tokenUsage: {
     anchor: {
@@ -949,15 +956,12 @@ interface ChatState {
     pending_estimated: number;
     total: number;
   } | null;
-  /** @deprecated 保留 contextTokens 兼容旧 selector，等价于 tokenUsage?.total ?? 0 */
+  /** @deprecated 淇濈暀 contextTokens 鍏煎鏃?selector锛岀瓑浠蜂簬 tokenUsage?.total ?? 0 */
   contextTokens: number;
-  /** 当前选中模型的上下文窗口大小（token 数）。
-   *  由 ModelSelector 在选择模型 / 加载默认值时同步进来；用于 TokenRing 计算用量比例。
-   *  null 表示尚未选择或模型未配置 context_window。 */
+  /** 褰撳墠閫変腑妯″瀷鐨勪笂涓嬫枃绐楀彛澶у皬锛坱oken 鏁帮級銆?   *  鐢?ModelSelector 鍦ㄩ€夋嫨妯″瀷 / 鍔犺浇榛樿鍊兼椂鍚屾杩涙潵锛涚敤浜?TokenRing 璁＄畻鐢ㄩ噺姣斾緥銆?   *  null 琛ㄧず灏氭湭閫夋嫨鎴栨ā鍨嬫湭閰嶇疆 context_window銆?*/
   contextWindow: number | null;
-  /** 还没有 sessionId 时（欢迎页 / 新对话）用户预设的工作区。
-   *  发出第一条消息创建 session 时会作为 query param 一起传给后端，
-   *  落到 sessions.workspace 字段；此后 sessionId 就成了真值，pending 不再使用。 */
+  /** 杩樻病鏈?sessionId 鏃讹紙娆㈣繋椤?/ 鏂板璇濓級鐢ㄦ埛棰勮鐨勫伐浣滃尯銆?   *  鍙戝嚭绗竴鏉℃秷鎭垱寤?session 鏃朵細浣滀负 query param 涓€璧蜂紶缁欏悗绔紝
+   *  钀藉埌 sessions.workspace 瀛楁锛涙鍚?sessionId 灏辨垚浜嗙湡鍊硷紝pending 涓嶅啀浣跨敤銆?*/
   pendingWorkspace: string | null;
 
   sendMessage: (
@@ -971,45 +975,42 @@ interface ChatState {
   ) => void;
   cancelStream: () => void;
   newChat: () => void;
-  /** 切到指定 session（不取消后台生成；离开的 session 靠历史 + WS replay 恢复）。 */
+  /** 鍒囧埌鎸囧畾 session锛堜笉鍙栨秷鍚庡彴鐢熸垚锛涚寮€鐨?session 闈犲巻鍙?+ WS replay 鎭㈠锛夈€?*/
   switchTo: (sessionId: string, initialMessages?: ChatMessage[]) => void;
-  /** 仅当桶为空时填充（首次进入 session 用） */
+  /** 浠呭綋妗朵负绌烘椂濉厖锛堥娆¤繘鍏?session 鐢級 */
   hydrateSession: (sessionId: string, messages: ChatMessage[]) => void;
-  /** 用最新数据替换桶（streaming 中跳过） */
+  /** 鐢ㄦ渶鏂版暟鎹浛鎹㈡《锛坰treaming 涓烦杩囷級 */
   refreshSession: (sessionId: string, messages: ChatMessage[]) => void;
   hasSessionCache: (sessionId: string) => boolean;
-  /** 清空指定 session 的本地缓存（消息、事件、状态） */
+  /** 娓呯┖鎸囧畾 session 鐨勬湰鍦扮紦瀛橈紙娑堟伅銆佷簨浠躲€佺姸鎬侊級 */
   clearSessionCache: (sessionId: string) => void;
   setSessionStatus: (sessionId: string, status: SessionStatus) => void;
-  /** 把一组 BusEvent 喂给指定 session（history loader 用） */
+  /** 鎶婁竴缁?BusEvent 鍠傜粰鎸囧畾 session锛坔istory loader 鐢級 */
   loadSessionEvents: (sessionId: string, events: BusEvent[], mode: "hydrate" | "refresh") => void;
   /**
-   * 把一段更早的 BusEvent prepend 到 session 的事件流，重新走一遍 reducer 重建 messages。
-   * 用于"加载更早消息"分页：events 是分页拉到的更早一段（按 timestamp ASC 排好）。
-   *
-   * mode 与 loadSessionEvents 一致：
-   *   - hydrate：仅当桶非空且与现有 events 不重叠时插入（首次拉早期分页）
-   *   - refresh：流式中跳过；非流式时合并去重再重放
+   * 鎶婁竴娈垫洿鏃╃殑 BusEvent prepend 鍒?session 鐨勪簨浠舵祦锛岄噸鏂拌蛋涓€閬?reducer 閲嶅缓 messages銆?   * 鐢ㄤ簬"鍔犺浇鏇存棭娑堟伅"鍒嗛〉锛歟vents 鏄垎椤垫媺鍒扮殑鏇存棭涓€娈碉紙鎸?timestamp ASC 鎺掑ソ锛夈€?   *
+   * mode 涓?loadSessionEvents 涓€鑷达細
+   *   - hydrate锛氫粎褰撴《闈炵┖涓斾笌鐜版湁 events 涓嶉噸鍙犳椂鎻掑叆锛堥娆℃媺鏃╂湡鍒嗛〉锛?   *   - refresh锛氭祦寮忎腑璺宠繃锛涢潪娴佸紡鏃跺悎骞跺幓閲嶅啀閲嶆斁
    */
   prependSessionEvents: (
     sessionId: string,
     events: BusEvent[],
     hasMoreHistory: boolean,
   ) => void;
-  /** 取该 session 已知最早事件的 timestamp（用作"加载更早"的 before_ts） */
+  /** 鍙栬 session 宸茬煡鏈€鏃╀簨浠剁殑 timestamp锛堢敤浣?鍔犺浇鏇存棭"鐨?before_ts锛?*/
   getEarliestEventTs: (sessionId: string) => number | null;
-  /** 该 session 的历史是否还有更早的页可拉 */
+  /** 璇?session 鐨勫巻鍙叉槸鍚﹁繕鏈夋洿鏃╃殑椤靛彲鎷?*/
   hasMoreHistory: (sessionId: string) => boolean;
   setModel: (model: string | null) => void;
   setProvider: (provider: string | null) => void;
   setAgentId: (id: string) => void;
-  /** 同步当前模型的上下文窗口大小（由 ModelSelector 写入） */
+  /** 鍚屾褰撳墠妯″瀷鐨勪笂涓嬫枃绐楀彛澶у皬锛堢敱 ModelSelector 鍐欏叆锛?*/
   setContextWindow: (n: number | null) => void;
-  /** 设置欢迎页/新对话的待用工作区。会在创建 session 时透传给后端。 */
+  /** 璁剧疆娆㈣繋椤?鏂板璇濈殑寰呯敤宸ヤ綔鍖恒€備細鍦ㄥ垱寤?session 鏃堕€忎紶缁欏悗绔€?*/
   setPendingWorkspace: (path: string | null) => void;
-  /** 从后端 config 预加载默认工作区（启动时调用一次） */
+  /** 浠庡悗绔?config 棰勫姞杞介粯璁ゅ伐浣滃尯锛堝惎鍔ㄦ椂璋冪敤涓€娆★級 */
   initDefaultWorkspace: () => Promise<void>;
-  /** 主动刷新当前 session 的 token 估算（异步，失败静默） */
+  /** 涓诲姩鍒锋柊褰撳墠 session 鐨?token 浼扮畻锛堝紓姝ワ紝澶辫触闈欓粯锛?*/
   refreshTokenUsage: (sessionId?: string) => Promise<void>;
 }
 
@@ -1032,7 +1033,7 @@ export const useChat = create<ChatState>((set, get) => ({
   pendingWorkspace: null,
 
   sendMessage: (content, attachments) => {
-    // 归一化：string 或 parts 数组
+    // 褰掍竴鍖栵細string 鎴?parts 鏁扮粍
     const parts: Array<{ type: string; text?: string; data?: unknown }> =
       typeof content === "string"
         ? content.trim()
@@ -1040,7 +1041,7 @@ export const useChat = create<ChatState>((set, get) => ({
           : []
         : content;
 
-    // 提取纯文本用于 empt check + local 回显
+    // 鎻愬彇绾枃鏈敤浜?empt check + local 鍥炴樉
     const displayText = parts
       .filter((p) => p.type === "text")
       .map((p) => String(p.text ?? p.data ?? "").trim())
@@ -1050,10 +1051,10 @@ export const useChat = create<ChatState>((set, get) => ({
     const hasAttachments = !!attachments && attachments.length > 0;
     if (!displayText && !hasSkill && !hasAttachments) return;
 
-    // /cancel 是 ephemeral 控制指令，不创建本地假消息，也不主动改 busy 状态
+    // /cancel 鏄?ephemeral 鎺у埗鎸囦护锛屼笉鍒涘缓鏈湴鍋囨秷鎭紝涔熶笉涓诲姩鏀?busy 鐘舵€?
     const isCancelCommand = displayText === "/cancel" && !hasSkill && !hasAttachments;
 
-    // 本地回显用：把后端协议形态的 attachments 转成带 data URL 的形态
+    // 鏈湴鍥炴樉鐢細鎶婂悗绔崗璁舰鎬佺殑 attachments 杞垚甯?data URL 鐨勫舰鎬?
     const localAttachments: MessageAttachment[] | undefined = hasAttachments
       ? attachments!.map((a) => ({
         type: "image",
@@ -1101,12 +1102,12 @@ export const useChat = create<ChatState>((set, get) => ({
     const sid = get().sessionId;
     if (sid) return send(sid);
 
-    // 首次发消息：fetch 创建 session 期间会有 100~500ms 网络往返，
-    // 这段时间如果什么都不做，ChatView 会因为 (!sessionId && !isBusy) 仍停留在 WelcomeView，
-    // 用户看不到自己刚发的消息，也看不到"ftre..."占位。
-    // 这里先同步把 isBusy 和 userMsg 顶到 store top-level，让 UI 立即切到对话视图。
-    // fetch 返回后 send() → bucket.push(userMsg) → mirror() 会再次写回同一份 messages，
-    // 内容一致，不会闪烁也不会重复。
+    // 棣栨鍙戞秷鎭細fetch 鍒涘缓 session 鏈熼棿浼氭湁 100~500ms 缃戠粶寰€杩旓紝
+    // 杩欐鏃堕棿濡傛灉浠€涔堥兘涓嶅仛锛孋hatView 浼氬洜涓?(!sessionId && !isBusy) 浠嶅仠鐣欏湪 WelcomeView锛?
+    // 鐢ㄦ埛鐪嬩笉鍒拌嚜宸卞垰鍙戠殑娑堟伅锛屼篃鐪嬩笉鍒?ftre..."鍗犱綅銆?
+    // 杩欓噷鍏堝悓姝ユ妸 isBusy 鍜?userMsg 椤跺埌 store top-level锛岃 UI 绔嬪嵆鍒囧埌瀵硅瘽瑙嗗浘銆?
+    // fetch 杩斿洖鍚?send() 鈫?bucket.push(userMsg) 鈫?mirror() 浼氬啀娆″啓鍥炲悓涓€浠?messages锛?
+    // 鍐呭涓€鑷达紝涓嶄細闂儊涔熶笉浼氶噸澶嶃€?
     set({ isBusy: true, sessionStatus: "running", messages: [...get().messages, userMsg], lastUserInputTs: null });
 
     createSessionRemote({
@@ -1114,20 +1115,20 @@ export const useChat = create<ChatState>((set, get) => ({
       workspace: get().pendingWorkspace,
     })
       .then((data) => {
-        if (!data?.session_id) throw new Error("创建会话失败");
-        // 创建成功后清掉 pending —— sessions 表 workspace 已经落库，
-        // 后续从 useSession 列表读，不再依赖前端 pending 状态
+        if (!data?.session_id) throw new Error("鍒涘缓浼氳瘽澶辫触");
+        // 鍒涘缓鎴愬姛鍚庢竻鎺?pending 鈥斺€?sessions 琛?workspace 宸茬粡钀藉簱锛?
+        // 鍚庣画浠?useSession 鍒楄〃璇伙紝涓嶅啀渚濊禆鍓嶇 pending 鐘舵€?
         set({ sessionId: data.session_id, pendingWorkspace: null });
         wsClient.subscribeOnly(data.session_id);
         send(data.session_id);
       })
-      .catch(() => set({ isBusy: false, sessionStatus: "idle", error: "创建会话失败" }));
+      .catch(() => set({ isBusy: false, sessionStatus: "idle", error: "鍒涘缓浼氳瘽澶辫触" }));
   },
 
   cancelStream: () => {
     const sid = get().sessionId;
     if (!sid) return set({ isBusy: false, sessionStatus: "idle" });
-    // 发 /cancel 的 user_message 帧，后端系统级指令在 session lock 外处理
+    // 鍙?/cancel 鐨?user_message 甯э紝鍚庣绯荤粺绾ф寚浠ゅ湪 session lock 澶栧鐞?
     wsClient.sendCancel(sid);
   },
 
@@ -1140,9 +1141,9 @@ export const useChat = create<ChatState>((set, get) => ({
     const b = bucket(sessionId);
     if (initialMessages && b.messages.length === 0) b.messages = initialMessages;
     set({ sessionId, messages: b.messages, lastUserInputTs: b.lastUserInputTs, sessionStatus: b.sessionStatus, isBusy: b.isBusy, error: b.error, retryState: b.retryState, contextTokens: 0, tokenUsage: null });
-    // WS attach 移到 switchSession 的 HTTP .then() 中，保证 HTTP 先于 WS，
-    // 避免 replay/live 帧和 loadSessionEvents 的清空操作竞争。
-    // 异步拉一次最新 token 估算（不阻塞 UI 切换）
+    // WS attach 绉诲埌 switchSession 鐨?HTTP .then() 涓紝淇濊瘉 HTTP 鍏堜簬 WS锛?
+    // 閬垮厤 replay/live 甯у拰 loadSessionEvents 鐨勬竻绌烘搷浣滅珵浜夈€?
+    // 寮傛鎷変竴娆℃渶鏂?token 浼扮畻锛堜笉闃诲 UI 鍒囨崲锛?
     void get().refreshTokenUsage(sessionId);
   },
 
@@ -1162,15 +1163,16 @@ export const useChat = create<ChatState>((set, get) => ({
   },
 
   hasSessionCache: (_sessionId) => {
-    // 暂时禁用本地缓存，每次 switchSession 都走 HTTP + WS
+    // 鏆傛椂绂佺敤鏈湴缂撳瓨锛屾瘡娆?switchSession 閮借蛋 HTTP + WS
+    return false;
+  },
+
   clearSessionCache: (sessionId) => {
-    // 丢弃该 session 未 flush 的批处理（bucket 即将被替换，旧事件无意义）
+    // 涓㈠純璇?session 鏈?flush 鐨勬壒澶勭悊锛坆ucket 鍗冲皢琚浛鎹紝鏃т簨浠舵棤鎰忎箟锛?
     const timer = _wsFlushTimers.get(sessionId);
     if (timer) { clearTimeout(timer); _wsFlushTimers.delete(sessionId); }
     _wsBatches.delete(sessionId);
     buckets.set(sessionId, emptyBucket());
-    mirror(sessionId);
-  },
     mirror(sessionId);
   },
 
@@ -1192,7 +1194,7 @@ export const useChat = create<ChatState>((set, get) => ({
     const b = bucket(sessionId);
     const tail = last(b.messages);
     if (mode === "refresh" && tail?.streaming) return;
-    // 禁用缓存后 bucket 已在 switchSession 中清空，不需要 length > 0 保护
+    // 绂佺敤缂撳瓨鍚?bucket 宸插湪 switchSession 涓竻绌猴紝涓嶉渶瑕?length > 0 淇濇姢
     const visibleCompactMessages =
       mode === "refresh" ? b.messages.filter((m) => m.compact && m.compact.status !== "running") : [];
     b.messages = [];
@@ -1200,16 +1202,16 @@ export const useChat = create<ChatState>((set, get) => ({
     b.seenEventIds = new Set<string>();
     b.earliestTs = events.length > 0 ? events[0].ts ?? null : null;
     b.lastUserInputTs = null;
-    // hasMoreHistory 由调用方在分页响应中告知；这里先不动（loadSessionEvents 只
-    // 接收一段 events，不知道更早还有没有）。session.ts 在分页路径里直接调
-    // prependSessionEvents 来表达"还有更早"。
+    // hasMoreHistory 鐢辫皟鐢ㄦ柟鍦ㄥ垎椤靛搷搴斾腑鍛婄煡锛涜繖閲屽厛涓嶅姩锛坙oadSessionEvents 鍙?
+    // 鎺ユ敹涓€娈?events锛屼笉鐭ラ亾鏇存棭杩樻湁娌℃湁锛夈€俿ession.ts 鍦ㄥ垎椤佃矾寰勯噷鐩存帴璋?
+    // prependSessionEvents 鏉ヨ〃杈?杩樻湁鏇存棭"銆?
     for (const ev of events) {
       if (hasSeenEvent(b, ev)) continue;
       b.events.push(ev);
       applyEvent(b, ev);
     }
-    // history 回放完毕：若尾部仍标记 streaming（无显式 done），收尾。
-    // 同步把末尾还在"流式填充"的 part 也封口，避免遗留状态影响后续判断。
+    // history 鍥炴斁瀹屾瘯锛氳嫢灏鹃儴浠嶆爣璁?streaming锛堟棤鏄惧紡 done锛夛紝鏀跺熬銆?
+    // 鍚屾鎶婃湯灏捐繕鍦?娴佸紡濉厖"鐨?part 涔熷皝鍙ｏ紝閬垮厤閬楃暀鐘舵€佸奖鍝嶅悗缁垽鏂€?
     const t = last(b.messages);
     if (t?.streaming) {
       const parts = [...(t.parts || [])];
@@ -1218,12 +1220,12 @@ export const useChat = create<ChatState>((set, get) => ({
       next[next.length - 1] = { ...t, parts, streaming: false };
       b.messages = next;
     }
-    // context_compact 会按历史边界 timestamp 回插，刷新最新页时可能拿不到这条
-    // 持久化事件。保留实时路径已经显示的手动 /compact 气泡，避免 idle 后刷新把它抹掉。
+    // context_compact 浼氭寜鍘嗗彶杈圭晫 timestamp 鍥炴彃锛屽埛鏂版渶鏂伴〉鏃跺彲鑳芥嬁涓嶅埌杩欐潯
+    // 鎸佷箙鍖栦簨浠躲€備繚鐣欏疄鏃惰矾寰勫凡缁忔樉绀虹殑鎵嬪姩 /compact 姘旀场锛岄伩鍏?idle 鍚庡埛鏂版妸瀹冩姽鎺夈€?
     if (visibleCompactMessages.length > 0 && !b.messages.some((m) => m.compact)) {
       b.messages = [...b.messages, ...visibleCompactMessages];
     }
-    // 历史回放来自 DB，尾部无 streaming 则不应残留 stale isBusy
+    // 鍘嗗彶鍥炴斁鏉ヨ嚜 DB锛屽熬閮ㄦ棤 streaming 鍒欎笉搴旀畫鐣?stale isBusy
     if (!last(b.messages)?.streaming) {
       b.isBusy = false;
       if (b.sessionStatus === "running") b.sessionStatus = "idle";
@@ -1233,17 +1235,17 @@ export const useChat = create<ChatState>((set, get) => ({
 
   prependSessionEvents: (sessionId, earlierEvents, hasMoreHistory) => {
     if (earlierEvents.length === 0) {
-      // 没有更早的，但要更新 hasMoreHistory 状态
+      // 娌℃湁鏇存棭鐨勶紝浣嗚鏇存柊 hasMoreHistory 鐘舵€?
       const b = bucket(sessionId);
       b.hasMoreHistory = hasMoreHistory;
       return;
     }
     const b = bucket(sessionId);
     const tail = last(b.messages);
-    // 流式中跳过，避免重排打断（与 loadSessionEvents 'refresh' 同语义）
+    // 娴佸紡涓烦杩囷紝閬垮厤閲嶆帓鎵撴柇锛堜笌 loadSessionEvents 'refresh' 鍚岃涔夛級
     if (tail?.streaming) return;
 
-    // 按 message id 去重合并（earlier 在前；旧 events 在后）
+    // 鎸?message id 鍘婚噸鍚堝苟锛坋arlier 鍦ㄥ墠锛涙棫 events 鍦ㄥ悗锛?
     const seen = new Set<string>();
     const merged: BusEvent[] = [];
     for (const ev of earlierEvents) {
@@ -1258,7 +1260,7 @@ export const useChat = create<ChatState>((set, get) => ({
       if (key) seen.add(key);
       merged.push(ev);
     }
-    // 按 timestamp 升序兜底排序（一般 earlier 已经升序、merged 后仍升序，但保险）
+    // 鎸?timestamp 鍗囧簭鍏滃簳鎺掑簭锛堜竴鑸?earlier 宸茬粡鍗囧簭銆乵erged 鍚庝粛鍗囧簭锛屼絾淇濋櫓锛?
     merged.sort((a, b2) => (a.ts ?? 0) - (b2.ts ?? 0));
 
     b.events = merged;
@@ -1301,7 +1303,7 @@ export const useChat = create<ChatState>((set, get) => ({
         _defaultWsCache = def.trim();
         set({ pendingWorkspace: def.trim() });
       }
-    } catch { /* 静默失败 */ }
+    } catch { /* 闈欓粯澶辫触 */ }
   },
 
   refreshTokenUsage: async (sessionId) => {
@@ -1311,20 +1313,20 @@ export const useChat = create<ChatState>((set, get) => ({
       return;
     }
     try {
-      // 动态 import 打破 chat ↔ api 之间的循环（api 也会 import chat store）
+      // 鍔ㄦ€?import 鎵撶牬 chat 鈫?api 涔嬮棿鐨勫惊鐜紙api 涔熶細 import chat store锛?
       const { fetchTokenUsage } = await import("@/services/api");
       const usage = await fetchTokenUsage(sid);
-      // 刷新过程中如果用户已经切走了 session，丢弃这次结果
+      // 鍒锋柊杩囩▼涓鏋滅敤鎴峰凡缁忓垏璧颁簡 session锛屼涪寮冭繖娆＄粨鏋?
       if (get().sessionId !== sid) return;
       set({ contextTokens: usage.total, tokenUsage: usage });
     } catch (e) {
-      // HTTP/网络失败：保留上一次值，避免 UI 闪到 0
+      // HTTP/缃戠粶澶辫触锛氫繚鐣欎笂涓€娆″€硷紝閬垮厤 UI 闂埌 0
       console.error("[chat] refreshTokenUsage failed:", e);
     }
   },
 }));
 
-// ─── Selectors ──────────────────────────────────────────────────────
+// 鈹€鈹€鈹€ Selectors 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
 
 export const useMessageIds = () => useChat(useShallow((s) => s.messages.map((m) => m.id)));
 export const useMessageById = (id: string) => useChat((s) => s.messages.find((m) => m.id === id));
