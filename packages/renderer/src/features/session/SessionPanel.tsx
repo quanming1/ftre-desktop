@@ -40,6 +40,7 @@ import {
   PanelLeftClose,
   PanelLeftOpen,
   Activity,
+  Palette,
 } from "lucide-react";
 import {
   DndContext,
@@ -293,7 +294,7 @@ export function SessionPanel() {
   }, []);
 
   const getSessionColor = useCallback(
-    (sessionId: string) => pinnedColors[sessionId] || folderColor(sessionId),
+    (sessionId: string) => pinnedColors[sessionId],
     [pinnedColors],
   );
 
@@ -545,6 +546,19 @@ export function SessionPanel() {
             label: isPinned ? "取消置顶" : "置顶",
             icon: Pin,
             action: () => handleTogglePin(session.session_id),
+          },
+          {
+            id: "set-session-color",
+            label: "设置色块",
+            icon: Palette,
+            action: () => {
+              setContextMenu(null);
+              setColorPicker({
+                sessionId: session.session_id,
+                x: e.clientX,
+                y: e.clientY,
+              });
+            },
           },
           {
             id: "copy-session-id",
@@ -1054,16 +1068,16 @@ export function SessionPanel() {
                 onClick={() => handleSetSessionColor(colorPicker.sessionId, color)}
               />
             ))}
-            {/* 禁用 / 清除自定义色点：回到文件夹默认色 */}
+            {/* 禁用 / 清除色点 */}
             <button
-              title="禁用色点（恢复默认）"
-              aria-label="禁用色点"
+              title="取消色点"
+              aria-label="取消色点"
               className="relative w-7 h-7 rounded-full cursor-pointer transition-transform hover:scale-110 active:scale-90 bg-white/95 dark:bg-white/90 border border-black/10"
               onClick={() => handleSetSessionColor(colorPicker.sessionId, null)}
             >
               <svg
                 viewBox="0 0 24 24"
-                className="absolute inset-0 m-auto w-5 h-5 text-black/55"
+                className="pointer-events-none absolute inset-0 m-auto w-5 h-5 text-black/55"
                 fill="none"
                 stroke="currentColor"
                 strokeWidth="2.2"
@@ -1330,7 +1344,7 @@ function SessionRow({
         />
       )}
       <span
-        className={`flex-1 truncate text-[13.5px] ${isActive ? "text-t-primary font-medium" : "text-t-secondary"
+        className={`flex-1 truncate text-[13.5px] ${isActive ? "text-black font-normal" : "text-t-secondary"
           }`}
       >
         {session.title || "新会话"}
