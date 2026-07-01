@@ -73,13 +73,24 @@ const MarkdownBlock = memo(
   (a, b) => a.content === b.content,
 );
 
-/** 思考过程块：默认展开，用户可手动折叠 */
-function ReasoningBlock({ text, isActive }: { text: string; isActive: boolean }) {
-  const [expanded, setExpanded] = useState(true);
+/** 统一的 Thought / Thoughted 折叠块 UI */
+function ThoughtBlock({
+  label,
+  text,
+  isActive = false,
+  anchor,
+}: {
+  label: string;
+  text: string;
+  isActive?: boolean;
+  anchor?: React.RefObject<HTMLDivElement | null>;
+}) {
+  const [expanded, setExpanded] = useState(false);
   const contentRef = useRef<HTMLDivElement>(null);
   const prevTextLen = useRef(text.length);
+  const content = text.trim().replace(/\n{2,}/g, "\n");
+  const previewLine = content.split("\n").find((line) => line.trim()) || content || "...";
 
-  // 内容增长 → 自动滚到底部（仅在活跃流式时）
   useEffect(() => {
     if (isActive && expanded && contentRef.current && text.length > prevTextLen.current) {
       contentRef.current.scrollTop = contentRef.current.scrollHeight;
@@ -87,21 +98,18 @@ function ReasoningBlock({ text, isActive }: { text: string; isActive: boolean })
     prevTextLen.current = text.length;
   }, [text.length, isActive, expanded]);
 
-  const handleToggle = useCallback(() => {
-    setExpanded((p) => !p);
-  }, []);
-
   return (
     <div className="mb-2">
       <button
-        onClick={handleToggle}
-        className="flex items-center gap-1.5 text-[12px] text-t-dim hover:text-t-secondary transition-colors"
+        onClick={() => setExpanded((p) => !p)}
+        className="flex items-center gap-1.5 w-full text-[13px] font-mono text-left group py-1"
       >
-        <span>思考过程</span>
         <ChevronRight
-          size={12}
-          className={`transition-transform duration-200 ${expanded ? "rotate-90" : ""}`}
+          size={13}
+          className={`shrink-0 text-t-ghost transition-transform duration-200 ${expanded ? "rotate-90" : ""}`}
         />
+        <span className="shrink-0 text-t-secondary font-medium">{label}</span>
+        {!expanded && <span className="flex-1 truncate text-t-dim group-hover:text-t-secondary transition-colors">{previewLine}</span>}
       </button>
       <div
         className="grid transition-[grid-template-rows] duration-200 ease-out"
@@ -110,14 +118,20 @@ function ReasoningBlock({ text, isActive }: { text: string; isActive: boolean })
         <div className="overflow-hidden">
           <div
             ref={contentRef}
-            className="mt-1.5 text-[12px] text-t-dim leading-relaxed whitespace-pre-wrap max-h-[300px] overflow-y-auto"
+            className="pl-5 pb-1 text-[13px] font-mono text-t-dim leading-relaxed whitespace-pre-wrap max-h-[300px] overflow-y-auto scrollbar-thin"
           >
-            {text}
+            {content}
           </div>
         </div>
       </div>
+      {!expanded && anchor && <div ref={anchor} />}
     </div>
   );
+}
+
+/** 推理块：与 think 统一 UI，仅文案不同 */
+function ReasoningBlock({ text, isActive }: { text: string; isActive: boolean }) {
+  return <ThoughtBlock label="Reasoning" text={text} isActive={isActive} />;
 }
 
 /**
@@ -216,16 +230,17 @@ function splitThink(text: string): ThinkSeg[] {
   }
   return segs;
 }
-
 /**
- * think 感知的内容渲染：普通段走 markdown 分块；<think> 段渲染为
- * 灰色 + 小字号 + 斜体的思考文本。anchor 挂到最后一个渲染元素（流式滚动锚点）。
+ * think 感知的内容渲染：普通段走 markdown 分块；think 段用 ThoughtedBlock
+ * 折叠展示（默认一行，可展开）。anchor 挂到最后一个渲染元素（流式滚动锚点）。
  */
 function ThinkAwareContent({
   text,
+  live,
   anchor,
 }: {
   text: string;
+  live: boolean;
   anchor?: React.RefObject<HTMLDivElement | null>;
 }) {
   const segs = splitThink(text);
@@ -241,14 +256,13 @@ function ThinkAwareContent({
     if (seg.type === "think") {
       if (!seg.content.trim()) return;
       nodes.push(
-        <div
+        <ThoughtBlock
           key={`think-${si}`}
-          ref={isLastSeg ? anchor : undefined}
-          className="my-1 text-[12px] italic text-t-dim whitespace-pre-wrap"
-          style={{ lineHeight: 1.7 }}
-        >
-          {seg.content.trim().replace(/\n{2,}/g, "\n")}
-        </div>,
+          label="Thought"
+          text={seg.content}
+          isActive={live}
+          anchor={isLastSeg ? anchor : undefined}
+        />,
       );
       return;
     }
@@ -281,7 +295,7 @@ function TextPart({
 }) {
   const throttled = useThrottledValue(text, 120, live);
   const display = live ? throttled : text;
-  return <ThinkAwareContent text={display} anchor={anchor} />;
+  return <ThinkAwareContent text={display} live={live} anchor={anchor} />;
 }
 
 export const AssistantMessage = memo(
@@ -358,7 +372,7 @@ export const AssistantMessage = memo(
                       </div>
                     )}
                     {displayContent && (
-                      <ThinkAwareContent text={displayContent} anchor={mdRef} />
+                      <ThinkAwareContent text={displayContent} live={isStreaming} anchor={mdRef} />
                     )}
                   </>
                 )}
