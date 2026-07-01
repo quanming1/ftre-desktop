@@ -622,7 +622,7 @@ export function applyEvent(b: Bucket, ev: BusEvent): void {
             .filter((p): p is { type: "reasoning"; text: string; streaming?: boolean } => p.type === "reasoning")
             .map((p) => p.text)
             .join("") || undefined;
-          return { ...m, parts, content, reasoning, streaming: false };
+          return { ...m, parts, content, reasoning, streaming: true };
         });
       }
       b.retryState = { attempt: d.attempt, maxAttempts: d.max_attempts, message: d.message };

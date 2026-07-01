@@ -147,15 +147,15 @@ describe("applyEvent — canonical streaming flow", () => {
         expect(b.retryState).toEqual({ attempt: 2, maxAttempts: 3, message: "rate limit" });
     });
 
-    it("retry event seals streaming tail so retry indicator can render", () => {
+    it("retry event keeps the assistant turn streaming while retry indicator renders", () => {
         const b = fresh();
         feed(b, [
             { type: "assistant_message", data: { content: "partial" } },
             { type: "retry", data: { attempt: 1, max_attempts: 5, message: "api error" } },
         ]);
         expect(b.retryState).toEqual({ attempt: 1, maxAttempts: 5, message: "api error" });
-        expect(b.messages[0].streaming).toBe(false);
-        expect(b.messages.some((m) => m.streaming)).toBe(false);
+        expect(b.messages[0].streaming).toBe(true);
+        expect(b.messages.some((m) => m.streaming)).toBe(true);
     });
 
     it("usage_update attaches usage to current streaming msg", () => {
