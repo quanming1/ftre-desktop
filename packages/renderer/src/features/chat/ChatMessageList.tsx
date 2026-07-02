@@ -10,7 +10,6 @@
 import { memo, useRef, useEffect, useState, useCallback } from "react";
 import { ChevronUp, Loader2, Archive, AlertCircle, ChevronRight, Copy } from "lucide-react";
 import ReactMarkdown from "react-markdown";
-import remarkGfm from "remark-gfm";
 import type { ChatMessage } from "@/stores/chat";
 import { useAutoScrollToBottom } from "@/hooks/auto-scroll";
 import { useChat } from "@/stores/chat";
@@ -18,6 +17,7 @@ import { useSession } from "@/stores/session";
 import { UserMessage } from "./UserMessage";
 import { AssistantMessage } from "./AssistantMessage";
 import { ContextMenu, type ContextMenuItem } from "@/components/ContextMenu";
+import { remarkPlugins, rehypePlugins } from "@/lib/markdown-plugins";
 
 // ─── Types ──────────────────────────────────────────────────────────
 
@@ -405,7 +405,7 @@ const CompactBubble = memo(function CompactBubble({
       </button>
       {open && summaryPreview ? (
         <div className="markdown-body mt-2 mx-auto max-w-[680px] text-[12px] opacity-80">
-          <ReactMarkdown remarkPlugins={[remarkGfm]}>{summaryPreview}</ReactMarkdown>
+          <ReactMarkdown remarkPlugins={[...remarkPlugins]} rehypePlugins={[...rehypePlugins]}>{summaryPreview}</ReactMarkdown>
         </div>
       ) : null}
     </div>

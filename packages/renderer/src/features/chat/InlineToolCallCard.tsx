@@ -65,7 +65,8 @@ function buildSummary(
       const rawCmd = args.command;
       const cmd = typeof rawCmd === "string" ? rawCmd : "";
       const oneLine = cmd.replace(/\s+/g, " ").trim();
-      const display = oneLine.length > 70 ? oneLine.slice(0, 70) + "…" : oneLine;
+      // 仅做一个安全上限防超长命令撑爆 DOM；视觉截断交给 CSS truncate（按容器宽度）
+      const display = oneLine.length > 500 ? oneLine.slice(0, 500) + "…" : oneLine;
       if (display) return `Ran ${display}`;
       return isDone ? "Ran command" : "Running...";
     }
