@@ -1,6 +1,5 @@
 import { memo, useCallback, useEffect, useRef, useState, isValidElement, Children } from "react";
 import ReactMarkdown from "react-markdown";
-import remarkGfm from "remark-gfm";
 import type { ChatMessage, MessagePart, ToolCall } from "@/stores/chat";
 import { CodeBlock, StreamingContext } from "./CodeBlock";
 import { useThrottledValue } from "@/hooks/useThrottledValue";
@@ -9,6 +8,7 @@ import { InlineToolCallCard } from "./InlineToolCallCard";
 import { ChevronRight, Copy, Check } from "lucide-react";
 import { Tooltip, TooltipProvider } from "@ftre/ui";
 import { useNotification } from "@/stores/notification";
+import { remarkPlugins, rehypePlugins } from "@/lib/markdown-plugins";
 
 const markdownComponents = {
   // 围栏代码块（带 language-）的外层 <pre> 透传：把样式控制权交给 <CodeBlock />，
@@ -65,7 +65,7 @@ const markdownComponents = {
 const MarkdownBlock = memo(
   ({ content }: { content: string }) => (
     <div className="markdown-body">
-      <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>
+      <ReactMarkdown remarkPlugins={[...remarkPlugins]} rehypePlugins={[...rehypePlugins]} components={markdownComponents}>
         {content}
       </ReactMarkdown>
     </div>
