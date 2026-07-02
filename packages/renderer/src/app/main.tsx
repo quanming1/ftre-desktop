@@ -50,6 +50,7 @@ import "../styles/markdown.css";
 import "@ftre/ui/styles.css";
 import "overlayscrollbars/styles/overlayscrollbars.css";
 import "sonner/dist/styles.css";
+import "katex/dist/katex.min.css";
 
 // 初始化编辑器 host bridge
 initEditorHostBridge();

@@ -13,7 +13,6 @@
  */
 import { useCallback, useEffect, useMemo, useState } from "react";
 import ReactMarkdown from "react-markdown";
-import remarkGfm from "remark-gfm";
 import {
   Search,
   RefreshCw,
@@ -34,6 +33,7 @@ import {
   type SkillSummary,
 } from "@/services/api";
 import { useNotification } from "@/stores/notification";
+import { remarkPlugins, rehypePlugins } from "@/lib/markdown-plugins";
 import { Modal } from "@/components/Modal";
 
 // ─── Helpers ────────────────────────────────────────────────────────
@@ -143,7 +143,7 @@ function SkillPreview({
 
   return (
     <div className="markdown-body">
-      <ReactMarkdown remarkPlugins={[remarkGfm]}>
+      <ReactMarkdown remarkPlugins={[...remarkPlugins]} rehypePlugins={[...rehypePlugins]}>
         {content || "（空内容）"}
       </ReactMarkdown>
     </div>
