@@ -480,13 +480,13 @@ export function ChatInput() {
   const handleSend = useCallback(() => {
     const state = useChat.getState();
     const { text, parts } = inputEditor.serialize();
-    // /cancel 允许在 running 时发送，其他指令/消息需要等 idle
     const firstText =
       parts.length === 1 && parts[0].type === "text"
         ? String(parts[0].text ?? (parts[0] as any).data ?? "").trim()
         : "";
-    const isCancelOnly = firstText === "/cancel";
-    if (state.isBusy && !isCancelOnly) return;
+    // 系统级指令（如 /cancel）允许在 running 时发送，其他指令/消息需要等 idle
+    const isSystemCommand = commandList.some((c) => c.system && firstText === c.command);
+    if (state.isBusy && !isSystemCommand) return;
     const hasAttachments = attachments.length > 0;
     const hasContent = parts.length > 0;
     if (!hasContent && !hasAttachments) return;
@@ -509,8 +509,9 @@ export function ChatInput() {
     state.sendMessage(
       parts.length > 0 ? parts : [{ type: "text", text }],
       dto.length > 0 ? dto : undefined,
+      isSystemCommand,
     );
-  }, [inputEditor, attachments]);
+  }, [inputEditor, attachments, commandList]);
 
   // 选中指令：无参数直接发送，有参数填入等用户补全
   const handleSelectCommand = useCallback(
@@ -527,7 +528,7 @@ export function ChatInput() {
         setSkillIndex(0);
         // 先把 /xxx 从编辑器删掉，避免残留
         inputEditor.replaceRange(range, "");
-        useChat.getState().sendMessage([{ type: "text", text: cmd.command }]);
+        useChat.getState().sendMessage([{ type: "text", text: cmd.command }], undefined, cmd.system);
         return;
       }
       setSkillSearch(null);

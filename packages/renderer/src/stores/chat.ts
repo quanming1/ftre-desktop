@@ -972,6 +972,7 @@ interface ChatState {
       data: string;
       name?: string;
     }>,
+    system?: boolean,
   ) => void;
   cancelStream: () => void;
   newChat: () => void;
@@ -1032,7 +1033,7 @@ export const useChat = create<ChatState>((set, get) => ({
   contextWindow: null,
   pendingWorkspace: null,
 
-  sendMessage: (content, attachments) => {
+  sendMessage: (content, attachments, system) => {
     // 褰掍竴鍖栵細string 鎴?parts 鏁扮粍
     const parts: Array<{ type: string; text?: string; data?: unknown }> =
       typeof content === "string"
@@ -1041,7 +1042,7 @@ export const useChat = create<ChatState>((set, get) => ({
           : []
         : content;
 
-    // 鎻愬彇绾枃鏈敤浜?empt check + local 鍥炴樉
+    // 鎻愬彇绾枃鏈敤浜?empt check + local 鍥炴樉
     const displayText = parts
       .filter((p) => p.type === "text")
       .map((p) => String(p.text ?? p.data ?? "").trim())
@@ -1051,8 +1052,8 @@ export const useChat = create<ChatState>((set, get) => ({
     const hasAttachments = !!attachments && attachments.length > 0;
     if (!displayText && !hasSkill && !hasAttachments) return;
 
-    // /cancel 鏄?ephemeral 鎺у埗鎸囦护锛屼笉鍒涘缓鏈湴鍋囨秷鎭紝涔熶笉涓诲姩鏀?busy 鐘舵€?
-    const isCancelCommand = displayText === "/cancel" && !hasSkill && !hasAttachments;
+    // 绯荤粺绾ф寚浠わ紙濡?/cancel锛変负 ephemeral 鎺у埗锛屼笉鍒涘缓鏈湴鍋囨秷鎭紝涔熶笉涓诲姩鏀?busy 鐘舵€
+    const isSystemCommand = !!system && !hasSkill && !hasAttachments;
 
     // 鏈湴鍥炴樉鐢細鎶婂悗绔崗璁舰鎬佺殑 attachments 杞垚甯?data URL 鐨勫舰鎬?
     const localAttachments: MessageAttachment[] | undefined = hasAttachments
@@ -1077,7 +1078,7 @@ export const useChat = create<ChatState>((set, get) => ({
     };
     const send = (sid: string) => {
       const b = bucket(sid);
-      if (!isCancelCommand) {
+      if (!isSystemCommand) {
         b.messages = [...b.messages, userMsg];
         b.lastUserInputTs = null;
         b.isBusy = true;

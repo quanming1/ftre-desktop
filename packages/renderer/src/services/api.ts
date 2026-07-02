@@ -744,6 +744,7 @@ export interface CommandDef {
   command: string;        // "/cancel"
   description: string;    // "取消当前会话执行"
   args_hint: string;      // "[preset]" 或 ""
+  system: boolean;        // 系统级指令（锁外执行，ephemeral，不持久化）
 }
 
 /** 获取后端注册的斜杠指令列表，供输入框 / 面板渲染。 */
