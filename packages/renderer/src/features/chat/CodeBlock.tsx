@@ -1,5 +1,5 @@
 import { useState, useMemo, memo, useCallback, createContext, useContext } from "react";
-import { Copy, Check, Download } from "lucide-react";
+import { Copy, Check } from "lucide-react";
 import hljs from "highlight.js/lib/common";
 
 /**
@@ -75,34 +75,6 @@ function displayName(lang: string): string {
   return LANG_DISPLAY[key] ?? lang.charAt(0).toUpperCase() + lang.slice(1);
 }
 
-/** 文件扩展名映射（下载用） */
-const LANG_EXT: Record<string, string> = {
-  typescript: "ts",
-  tsx: "tsx",
-  javascript: "js",
-  jsx: "jsx",
-  python: "py",
-  ruby: "rb",
-  rust: "rs",
-  bash: "sh",
-  shell: "sh",
-  powershell: "ps1",
-  pwsh: "ps1",
-  cmd: "bat",
-  batch: "bat",
-  markdown: "md",
-  dockerfile: "Dockerfile",
-  makefile: "Makefile",
-  plaintext: "txt",
-  text: "txt",
-};
-
-function inferExt(lang: string): string {
-  if (!lang) return "txt";
-  const key = lang.toLowerCase();
-  return LANG_EXT[key] ?? key;
-}
-
 export const CodeBlock = memo(
   function CodeBlock({ language, code }: CodeBlockProps) {
     const [copied, setCopied] = useState(false);
@@ -131,18 +103,6 @@ export const CodeBlock = memo(
       }
     }, [code]);
 
-    const handleDownload = useCallback(() => {
-      const blob = new Blob([code], { type: "text/plain;charset=utf-8" });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = `snippet.${inferExt(language)}`;
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      setTimeout(() => URL.revokeObjectURL(url), 0);
-    }, [code, language]);
-
     const langSlug = (language || "text").toLowerCase();
     const langLabel = displayName(language);
 
@@ -157,13 +117,6 @@ export const CodeBlock = memo(
             {langLabel}
           </span>
           <div className="flex items-center gap-1">
-            <IconButton
-              label="Download"
-              onClick={handleDownload}
-              data-testid="download-btn"
-            >
-              <Download size={16} strokeWidth={1.75} />
-            </IconButton>
             <IconButton
               label={copied ? "Copied" : "Copy"}
               onClick={handleCopy}
