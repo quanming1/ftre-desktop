@@ -5,7 +5,7 @@
  * 展开面板: 名称、ID、模型、工具权限、MCP连接、工作区
  */
 import { useState, useEffect, useRef, useCallback } from "react";
-import { Check, ChevronDown, Folder, Wrench, Plug, Cpu } from "lucide-react";
+import { Check, ChevronDown } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useChat } from "@/stores/chat";
 import { useSession } from "@/stores/session";
@@ -131,7 +131,7 @@ export function AgentBar() {
         : "text-t-secondary hover:text-t-primary hover:bg-hover"
     }`;
 
-  const sectionLabel = "text-[11px] text-t-ghost uppercase tracking-wider font-medium flex items-center gap-1.5";
+  const sectionLabel = "text-[11px] text-t-ghost uppercase tracking-wider font-medium";
   const sectionValue = "text-[12.5px] text-t-secondary font-mono mt-1 leading-relaxed";
 
   return (
@@ -143,7 +143,7 @@ export function AgentBar() {
       >
         <span className="truncate max-w-[100px]">{current?.name || agentId}</span>
         <span className="text-t-ghost">/</span>
-        <span className="truncate max-w-[100px]">{modelDisplayName}</span>
+        <span className="truncate max-w-[100px] text-[12px] text-t-ghost">{modelDisplayName}</span>
         <ChevronDown size={12} className="shrink-0 opacity-60" />
       </button>
 
@@ -154,16 +154,13 @@ export function AgentBar() {
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: 4 }}
             transition={{ duration: 0.12, ease: "easeOut" }}
-            className="absolute bottom-full right-0 mb-1.5 w-[300px] bg-elevated border border-border-subtle rounded-xl overflow-hidden shadow-2xl z-[100]"
+            className="absolute bottom-full right-0 mb-1.5 w-[300px] bg-elevated border border-border-subtle rounded-xl shadow-2xl z-[100]"
           >
             {/* ── 身份区 ── */}
             <button
               onClick={() => setAgentListOpen(!agentListOpen)}
-              className="w-full px-4 py-3.5 flex items-center gap-3 hover:bg-hover transition-colors duration-150"
+              className="w-full px-4 py-3.5 flex items-center justify-between hover:bg-hover transition-colors duration-150"
             >
-              <div className="w-8 h-8 rounded-lg bg-[#e2e2e3] flex items-center justify-center shrink-0">
-                <Cpu size={16} className="text-t-secondary" />
-              </div>
               <div className="min-w-0 flex-1 text-left">
                 <div className="text-[14px] font-semibold text-t-primary truncate">
                   {current?.name || agentId}
@@ -232,10 +229,7 @@ export function AgentBar() {
               {/* 模型 */}
               <div className="flex items-start justify-between gap-2">
                 <div className="min-w-0 flex-1">
-                  <div className={sectionLabel}>
-                    <Cpu size={11} />
-                    模型
-                  </div>
+                  <div className={sectionLabel}>模型</div>
                   <div className={sectionValue}>{modelDisplayName}</div>
                   {provider && (
                     <div className="text-[11px] text-t-ghost mt-0.5">{provider}</div>
@@ -268,12 +262,9 @@ export function AgentBar() {
 
               {/* 工具权限 */}
               <div>
-                <div className={sectionLabel}>
-                  <Wrench size={11} />
-                  工具权限
-                </div>
+                <div className={sectionLabel}>工具权限</div>
                 <div className={sectionValue}>
-                  {current?.tools_allow ? (
+                  {current?.tools_allow && current.tools_allow.length > 0 ? (
                     <span className="text-t-primary">{current.tools_allow.join(", ")}</span>
                   ) : (
                     <span>全部可用</span>
@@ -289,10 +280,7 @@ export function AgentBar() {
               {/* MCP 连接 */}
               {current?.mcp_servers && current.mcp_servers.length > 0 && (
                 <div>
-                  <div className={sectionLabel}>
-                    <Plug size={11} />
-                    MCP 连接
-                  </div>
+                  <div className={sectionLabel}>MCP 连接</div>
                   <div className="flex flex-wrap gap-1.5 mt-1">
                     {current.mcp_servers.map((s) => (
                       <span
@@ -309,10 +297,7 @@ export function AgentBar() {
               {/* 工作区 */}
               {current?.workspace && (
                 <div>
-                  <div className={sectionLabel}>
-                    <Folder size={11} />
-                    工作区
-                  </div>
+                  <div className={sectionLabel}>工作区</div>
                   <div className={`${sectionValue} truncate`} title={current.workspace}>
                     {current.workspace}
                   </div>
