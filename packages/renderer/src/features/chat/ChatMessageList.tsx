@@ -201,7 +201,7 @@ export const ChatMessageList = memo(function ChatMessageList({
         maxHeight,
       }}
     >
-      <div className="mx-auto w-full max-w-[900px] space-y-12 break-words">
+      <div className="mx-auto w-full max-w-[800px] space-y-12 break-words">
         {/* Load more */}
         {hasMore && (
           <div className="text-center py-2">
