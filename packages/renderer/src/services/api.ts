@@ -883,7 +883,7 @@ export async function fetchChatAgents(
 
 export async function updateAgent(
   agentId: string,
-  patch: { llm: { provider: string; model: string } },
+  patch: { llm?: { provider: string; model: string }; name?: string; workspace?: string },
 ): Promise<boolean> {
   try {
     const res = await fetch(`${API_BASE}/api/agents/${encodeURIComponent(agentId)}`, {
@@ -894,6 +894,37 @@ export async function updateAgent(
     return res.ok;
   } catch (e) {
     console.error("[api] updateAgent failed:", e);
+    return false;
+  }
+}
+
+export async function createAgent(body: {
+  id: string;
+  name?: string;
+  provider?: string;
+  model?: string;
+  workspace?: string;
+}): Promise<{ ok: boolean; config?: Record<string, any> }> {
+  try {
+    const res = await fetch(`${API_BASE}/api/agents`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    const data = await res.json();
+    return { ok: res.ok, config: data.config };
+  } catch {
+    return { ok: false };
+  }
+}
+
+export async function deleteAgent(agentId: string): Promise<boolean> {
+  try {
+    const res = await fetch(`${API_BASE}/api/agents/${encodeURIComponent(agentId)}`, {
+      method: "DELETE",
+    });
+    return res.ok;
+  } catch {
     return false;
   }
 }
@@ -931,20 +962,6 @@ export async function updateAgentPrompt(
   } catch {
     return false;
   }
-}
-
-export interface AgentDef {
-  id: string;
-  name: string;
-  description?: string;
-  system_prompt?: string;
-  tools?: string[];
-}
-
-export async function fetchAgentDefs(
-  _workspace?: string | null,
-): Promise<AgentDef[]> {
-  return [];
 }
 
 // ─── Diff / Rollback ────────────────────────────────────────────────
