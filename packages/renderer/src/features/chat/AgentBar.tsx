@@ -3,8 +3,7 @@
  *
  * 点击展开面板：
  * - Header: Agent 名称（点击展开 Agent 列表切换）
- * - 工作区路径
- * - 当前模型 + [切换] 按钮（点击展开模型列表）
+ * - 当前模型 + [切换] 按钮（点击展开 ModelPicker）
  */
 import { useState, useEffect, useRef, useCallback } from "react";
 import { Check, ChevronDown } from "lucide-react";
@@ -12,8 +11,9 @@ import { motion, AnimatePresence } from "framer-motion";
 import { useChat } from "@/stores/chat";
 import { useSession } from "@/stores/session";
 import { fetchAppConfig } from "@/services/api";
+import { ModelPicker, type ProviderInfo } from "./ModelPicker";
 import { buildProviderInfos } from "./providerInfo";
-import type { ProviderInfo } from "./ModelPicker";
+import { OPEN_SETTINGS_EVENT } from "@/app/settings-events";
 
 export function AgentBar() {
   const agentId = useChat((s) => s.agentId);
@@ -32,7 +32,6 @@ export function AgentBar() {
 
   const [panelOpen, setPanelOpen] = useState(false);
   const [agentListOpen, setAgentListOpen] = useState(false);
-  const [modelListOpen, setModelListOpen] = useState(false);
   const [providers, setProviders] = useState<ProviderInfo[]>([]);
   const panelRef = useRef<HTMLDivElement>(null);
 
@@ -50,7 +49,7 @@ export function AgentBar() {
     }
   }, []);
 
-  // 拉取 providers（用于模型列表）
+  // 拉取 providers（用于 ModelPicker）
   const loadProviders = useCallback(async () => {
     const config = await fetchAppConfig();
     if (config && Object.keys(config).length > 0) {
@@ -76,7 +75,6 @@ export function AgentBar() {
       if (panelRef.current && !panelRef.current.contains(e.target as Node)) {
         setPanelOpen(false);
         setAgentListOpen(false);
-        setModelListOpen(false);
       }
     };
     document.addEventListener("mousedown", handler);
@@ -104,7 +102,6 @@ export function AgentBar() {
     setProvider(providerName);
     setContextWindow(findContextWindow(providerName, modelId));
     await updateAgentLlm(providerName, modelId);
-    setModelListOpen(false);
   };
 
   const handleSelectAgent = (id: string) => {
@@ -157,7 +154,7 @@ export function AgentBar() {
           >
             {/* Header: Agent 名称（点击展开 Agent 列表） */}
             <button
-              onClick={() => { setAgentListOpen(!agentListOpen); setModelListOpen(false); }}
+              onClick={() => setAgentListOpen(!agentListOpen)}
               className="w-full px-4 py-3 flex items-center justify-between hover:bg-hover transition-colors duration-150"
             >
               <span className="text-[14px] font-semibold text-t-primary">{current?.name || agentId}</span>
@@ -218,7 +215,7 @@ export function AgentBar() {
               )}
             </AnimatePresence>
 
-            {/* 模型行 */}
+            {/* 模型行 — 用 ModelPicker 渲染切换按钮 + 浮层 */}
             <div className="border-t border-border-subtle">
               <div className="px-4 py-2.5 flex items-center justify-between">
                 <div className="min-w-0 flex-1">
@@ -227,51 +224,34 @@ export function AgentBar() {
                     {modelDisplayName}
                   </div>
                 </div>
-                <button
-                  onClick={() => { setModelListOpen(!modelListOpen); setAgentListOpen(false); }}
-                  className="shrink-0 ml-3 text-[12px] px-2.5 py-1 rounded-md text-t-secondary hover:text-t-primary hover:bg-hover transition-colors duration-150"
-                >
-                  切换
-                </button>
+                <ModelPicker
+                  providers={providers}
+                  selected={
+                    model && provider
+                      ? { provider, modelId: model }
+                      : null
+                  }
+                  onSelect={handleSelectModel}
+                  onOpenSettings={() => {
+                    window.dispatchEvent(
+                      new CustomEvent(OPEN_SETTINGS_EVENT, { detail: { section: "models" } }),
+                    );
+                  }}
+                  placement="top"
+                  panelWidthClass="w-[280px]"
+                  renderTrigger={({ toggle }) => (
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        toggle();
+                      }}
+                      className="shrink-0 ml-3 text-[12px] px-2.5 py-1 rounded-md text-t-secondary hover:text-t-primary hover:bg-hover transition-colors duration-150"
+                    >
+                      切换
+                    </button>
+                  )}
+                />
               </div>
-
-              <AnimatePresence>
-                {modelListOpen && (
-                  <motion.div
-                    initial={{ height: 0, opacity: 0 }}
-                    animate={{ height: "auto", opacity: 1 }}
-                    exit={{ height: 0, opacity: 0 }}
-                    transition={{ duration: 0.15, ease: "easeOut" }}
-                    className="overflow-hidden"
-                  >
-                    <div className="px-1.5 pb-1.5 max-h-[280px] overflow-y-auto">
-                      {providers.map((p) => (
-                        <div key={p.name}>
-                          <div className="px-2 py-1 text-[11px] text-t-ghost uppercase tracking-wider font-medium">
-                            {p.label}
-                          </div>
-                          {p.models.map((m) => {
-                            const isActive = model === m.id && provider === p.name;
-                            return (
-                              <button
-                                key={m.id}
-                                onClick={() => handleSelectModel(p.name, m.id)}
-                                className={itemClass(isActive)}
-                              >
-                                <span className="truncate">{m.name || m.id}</span>
-                                {isActive && <Check size={14} className="shrink-0" />}
-                              </button>
-                            );
-                          })}
-                        </div>
-                      ))}
-                      {providers.length === 0 && (
-                        <div className="px-3 py-2 text-[12px] text-t-ghost">加载中…</div>
-                      )}
-                    </div>
-                  </motion.div>
-                )}
-              </AnimatePresence>
             </div>
           </motion.div>
         )}
