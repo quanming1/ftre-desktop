@@ -751,7 +751,7 @@ export function ChatInput() {
 
   return (
     <div className="px-6 pb-4 pt-3">
-      <div className="mx-auto w-full max-w-[900px]">
+      <div className="mx-auto w-full max-w-[800px]">
 
         <div
           onDragOver={handleDragOver}
@@ -859,9 +859,9 @@ export function ChatInput() {
               {isBusy ? (
                 <button
                   onClick={handleCancel}
-                  className="h-10 w-10 flex items-center justify-center rounded-full bg-t-primary/10 text-t-primary hover:bg-t-primary/20 transition-colors"
+                  className="h-9 w-9 flex items-center justify-center rounded-full bg-t-primary/10 text-t-primary hover:bg-t-primary/20 transition-colors"
                 >
-                  <div className="w-3.5 h-3.5 bg-current rounded-sm" />
+                  <div className="w-3 h-3 bg-current rounded-sm" />
                 </button>
               ) : (
                 <button
@@ -869,9 +869,9 @@ export function ChatInput() {
                     triggerRipple(e);
                     handleSend();
                   }}
-                  className={`relative overflow-hidden h-10 w-10 flex items-center justify-center rounded-full transition-all ${
+                  className={`relative overflow-hidden h-9 w-9 flex items-center justify-center rounded-full transition-all ${
                     canSend
-                      ? "bg-neon text-base hover:bg-neon/80 shadow-[0_0_10px_rgba(var(--neon-rgb,56,189,248),0.25)]"
+                      ? "bg-neon text-base hover:bg-neon/80 shadow-[0_0_9px_rgba(var(--neon-rgb,56,189,248),0.23)]"
                       : "bg-surface text-t-ghost"
                   }`}
                 >
@@ -885,7 +885,7 @@ export function ChatInput() {
                       }
                     />
                   ))}
-                  <ArrowUp size={19} className="relative" />
+                  <ArrowUp size={17} className="relative" />
                 </button>
               )}
             </div>
