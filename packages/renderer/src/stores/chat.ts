@@ -1339,7 +1339,7 @@ export const useChat = create<ChatState>((set, get) => ({
     try {
       const { fetchAppConfig } = await import("@/services/api");
       const cfg = await fetchAppConfig();
-      const def = cfg?.agents?.defaults?.workspace;
+      const def = cfg?.default_workspace;
       if (typeof def === "string" && def.trim() && !get().pendingWorkspace) {
         _defaultWsCache = def.trim();
         set({ pendingWorkspace: def.trim() });

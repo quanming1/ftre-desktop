@@ -159,7 +159,7 @@ export function WorkspaceBadge() {
     fetchAppConfig()
       .then((cfg) => {
         if (cancelled) return;
-        const def = cfg?.agents?.defaults?.workspace;
+        const def = cfg?.default_workspace;
         if (typeof def === "string" && def.trim()) {
           setPendingWorkspace(def);
         }
