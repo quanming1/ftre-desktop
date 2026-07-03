@@ -1,13 +1,16 @@
 /**
- * PromptSettings — 用户自定义提示词
+ * PromptSettings — 用户偏好提示词（USER.md）
  *
- * 写入 ~/.ftre/config.json 的 agents.defaults.user_prompt。
- * 后端 context_govern 插件会在每轮构建消息时把它注入到 system prompt，
- * 并用 <USER_CUSTOM_PROMPT> 标签包裹说明来源。
+ * 读写 ~/.ftre/agents/default/USER.md。
+ * 后端 AgentManager._compose_system_prompt 会将其内容追加到系统提示词，
+ * 用 <USER_PROFILE> 标签包裹。
  */
 import { useState, useEffect, useCallback } from "react";
 import { Save } from "lucide-react";
-import { fetchAppConfig, saveAppConfig } from "@/services/api";
+import { fetchAgentPrompts, updateAgentPrompt } from "@/services/api";
+
+const AGENT_ID = "default";
+const FILENAME = "USER.md";
 
 export function PromptSettings() {
   const [value, setValue] = useState("");
@@ -19,9 +22,8 @@ export function PromptSettings() {
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const cfg = await fetchAppConfig();
-      const prompt = cfg?.agents?.defaults?.user_prompt ?? "";
-      const text = typeof prompt === "string" ? prompt : "";
+      const prompts = await fetchAgentPrompts(AGENT_ID);
+      const text = prompts[FILENAME] ?? "";
       setValue(text);
       setInitial(text);
     } finally {
@@ -38,15 +40,7 @@ export function PromptSettings() {
   const handleSave = async () => {
     setSaving(true);
     try {
-      // read-modify-write：只改 user_prompt，保留其余配置
-      const cfg = await fetchAppConfig();
-      const agents = (cfg.agents && typeof cfg.agents === "object") ? cfg.agents : {};
-      const defaults = (agents.defaults && typeof agents.defaults === "object") ? agents.defaults : {};
-      const next = {
-        ...cfg,
-        agents: { ...agents, defaults: { ...defaults, user_prompt: value } },
-      };
-      const ok = await saveAppConfig(next);
+      const ok = await updateAgentPrompt(AGENT_ID, FILENAME, value);
       if (ok) {
         setInitial(value);
         setSavedAt(Date.now());
@@ -59,9 +53,9 @@ export function PromptSettings() {
   return (
     <div className="space-y-6">
       <div>
-        <h2 className="text-[15px] font-semibold text-black">自定义提示词</h2>
+        <h2 className="text-[15px] font-semibold text-black">用户偏好提示词</h2>
         <p className="text-[12px] text-black/40 mt-1">
-          这段提示词会附加到系统提示词后面，对所有会话生效，用于声明你的个人偏好与额外要求。
+          此内容写入 USER.md，会追加到系统提示词中，对所有会话生效。用于声明你的个人偏好与额外要求。
         </p>
       </div>
 

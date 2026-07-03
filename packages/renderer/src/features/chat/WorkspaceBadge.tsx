@@ -7,8 +7,8 @@
  * - 无 sessionId（欢迎页 / 刚 newChat）：useChat.pendingWorkspace（内存）。
  *   发出第一条消息创建 session 时通过 query param 一起带给后端，落到 DB。
  *
- * 首次挂载时，如果 pendingWorkspace 还没值，从 ~/.ftre/config.json 读
- * agents.defaults.workspace 作为预设值。
+ * 首次挂载时，如果 pendingWorkspace 还没值，从 ~/.ftre/agents/default/agent.config.json
+ * 读 workspace 作为预设值。
  */
 import {
   useCallback,
