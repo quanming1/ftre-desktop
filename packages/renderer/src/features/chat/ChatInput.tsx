@@ -743,7 +743,7 @@ export function ChatInput() {
           onDragOver={handleDragOver}
           onDragLeave={handleDragLeave}
           onDrop={handleDrop}
-          className={`relative bg-[#f6f7f9] border border-border-subtle focus-within:border-neon/30 transition-colors rounded-3xl ${
+          className={`relative bg-[#f6f7f9]/65 border border-black/10 focus-within:border-neon/30 transition-colors rounded-3xl backdrop-blur-md backdrop-saturate-150 shadow-[inset_0_1px_0_rgba(255,255,255,0.6)] ${
             isDragging ? "border-neon/50 ring-1 ring-neon/30" : ""
           }`}
         >
@@ -845,20 +845,20 @@ export function ChatInput() {
               {isBusy ? (
                 <button
                   onClick={handleCancel}
-                  className="h-8 w-8 flex items-center justify-center rounded-full bg-t-primary/10 text-t-primary hover:bg-t-primary/20 transition-colors"
+                  className="h-10 w-10 flex items-center justify-center rounded-full bg-t-primary/10 text-t-primary hover:bg-t-primary/20 transition-colors"
                 >
-                  <div className="w-3 h-3 bg-current rounded-sm" />
+                  <div className="w-3.5 h-3.5 bg-current rounded-sm" />
                 </button>
               ) : (
                 <button
                   onClick={handleSend}
-                  className={`h-8 w-8 flex items-center justify-center rounded-full transition-all ${
+                  className={`h-10 w-10 flex items-center justify-center rounded-full transition-all ${
                     canSend
-                      ? "bg-neon text-base hover:bg-neon/80 shadow-[0_0_8px_rgba(var(--neon-rgb,56,189,248),0.22)]"
+                      ? "bg-neon text-base hover:bg-neon/80 shadow-[0_0_10px_rgba(var(--neon-rgb,56,189,248),0.25)]"
                       : "bg-surface text-t-ghost"
                   }`}
                 >
-                  <ArrowUp size={15} />
+                  <ArrowUp size={19} />
                 </button>
               )}
             </div>
