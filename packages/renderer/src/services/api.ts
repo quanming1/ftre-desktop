@@ -843,6 +843,10 @@ export interface ChatAgent {
   name: string;
   model?: string;
   provider?: string;
+  workspace?: string;
+  tools_allow?: string[] | null;
+  tools_deny?: string[] | null;
+  mcp_servers?: string[];
   has_soul?: boolean;
   has_agents_md?: boolean;
   has_user_md?: boolean;
@@ -862,6 +866,10 @@ export async function fetchChatAgents(
       name: a.name || a.id,
       model: a.model,
       provider: a.provider,
+      workspace: a.workspace,
+      tools_allow: a.tools_allow,
+      tools_deny: a.tools_deny,
+      mcp_servers: a.mcp_servers || [],
       has_soul: a.has_soul,
       has_agents_md: a.has_agents_md,
       has_user_md: a.has_user_md,
