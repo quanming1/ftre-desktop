@@ -97,7 +97,7 @@ class WebSocketClient {
   // ─── Connection ─────────────────────────────────────────────────
 
   connect(): void {
-    if (this.ws?.readyState === WebSocket.OPEN) return;
+    if (this.ws && this.ws.readyState !== WebSocket.CLOSED) return; // OPEN or CONNECTING → 不重连
     this.intentionalClose = false;
     this.setStatus(this.reconnectAttempt > 0 ? "reconnecting" : "connecting");
 
