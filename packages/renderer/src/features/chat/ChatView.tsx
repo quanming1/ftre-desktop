@@ -159,7 +159,7 @@ export function ChatView() {
                 <div className="px-6">
                   <div className="mx-auto mb-[-12px] w-full max-w-[900px]">
                     <div
-                      className={`mx-6 overflow-hidden rounded-t-xl rounded-b-none border border-b-0 border-border-subtle bg-[#f6f7f9]/95 shadow-[0_4px_14px_rgba(15,23,42,0.05)] backdrop-blur ${
+                      className={`mx-6 overflow-hidden rounded-t-xl rounded-b-none border border-b-0 border-black/10 bg-[#f6f7f9]/65 shadow-[0_4px_14px_rgba(15,23,42,0.05),inset_0_1px_0_rgba(255,255,255,0.6)] backdrop-blur-md backdrop-saturate-150 ${
                         runningBannerExiting ? "running-banner-exit" : "running-banner-enter"
                       }`}
                     >
