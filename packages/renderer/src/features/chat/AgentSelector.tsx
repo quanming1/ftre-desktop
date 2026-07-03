@@ -1,47 +1,41 @@
 /**
  * AgentSelector — Agent 选择器
  *
- * 显示在 ChatInput 工具栏中，允许用户选择使用哪个 Agent。
- * 列表内容：内置 agent（code_agent、plan_agent）+ 当前 workspace 下的自定义 agent。
- *
- * 当 session.source === "scheduled"（定时任务创建的会话）时，
- * 禁用下拉切换，固定展示该任务使用的 agent。
+ * agent 列表存在 chat store 中全局共享，组件只读 store，不维护 local state。
  */
-import { useState, useEffect, useRef, memo } from "react";
-import { Lock } from "lucide-react";
+import { useState, useEffect, useRef } from "react";
+import { Check, ChevronDown } from "lucide-react";
+import { motion, AnimatePresence } from "framer-motion";
 import { useChat } from "@/stores/chat";
 import { useSession } from "@/stores/session";
-import { useWorkspace } from "@/stores/workspace";
-import { fetchChatAgents } from "@/services/api";
-import type { ChatAgent } from "@/services/api";
 
-export const AgentSelector = memo(function AgentSelector() {
+export function AgentSelector() {
   const agentId = useChat((s) => s.agentId);
+  const agents = useChat((s) => s.agents);
   const setAgentId = useChat((s) => s.setAgentId);
+  const fetchAgents = useChat((s) => s.fetchAgents);
   const sessionId = useChat((s) => s.sessionId);
-  const workspace = useWorkspace((s) => s.rootPath);
   const sessions = useSession((s) => s.sessions);
   const [open, setOpen] = useState(false);
-  const [agents, setAgents] = useState<ChatAgent[]>([]);
   const panelRef = useRef<HTMLDivElement>(null);
 
-  // 判断当前 session 是否是定时任务创建的
   const currentSession = sessions.find((s) => s.session_id === sessionId);
   const isScheduled = currentSession?.source === "scheduled";
 
-  // workspace 变化时重置选中
+  // 首次挂载时拉取一次
   useEffect(() => {
-    setAgentId("code_agent");
-  }, [workspace, setAgentId]);
-
-  // 每次展开时重新请求 agent 列表
-  useEffect(() => {
-    if (open && workspace) {
-      fetchChatAgents(workspace).then(setAgents);
+    if (agents.length === 0) {
+      fetchAgents();
     }
-  }, [open, workspace]);
+  }, []);
 
-  // 点击外部关闭
+  // 每次展开时刷新
+  useEffect(() => {
+    if (open) {
+      fetchAgents();
+    }
+  }, [open]);
+
   useEffect(() => {
     if (!open) return;
     const handler = (e: MouseEvent) => {
@@ -53,22 +47,29 @@ export const AgentSelector = memo(function AgentSelector() {
     return () => document.removeEventListener("mousedown", handler);
   }, [open]);
 
-  // 从全量 agents 列表中查找当前 agent（不做 send_email 过滤）
   const current = agents.find((a) => a.id === agentId) || agents[0];
   const builtinAgents = agents.filter((a) => a.is_builtin);
-  const customAgents = agents.filter(
-    (a) => !a.is_builtin && a.tools?.includes("send_email")
-  );
+  const customAgents = agents.filter((a) => !a.is_builtin);
 
-  // scheduled session：锁定展示，不可切换
+  const handleSelect = (id: string) => {
+    setAgentId(id);
+    setOpen(false);
+  };
+
   if (isScheduled) {
     return (
-      <div className="flex items-center gap-1.5 text-[13px] h-8 px-3 rounded-full font-mono text-t-dim cursor-default" title="任务会话，不可切换 Agent">
+      <div className="flex items-center gap-1.5 text-[13px] h-8 px-3 rounded-full font-mono text-t-dim cursor-default opacity-60">
         {current?.name || agentId}
-        <Lock size={10} className="shrink-0 text-t-ghost" />
       </div>
     );
   }
+
+  const itemClass = (isActive: boolean) =>
+    `w-full px-3 py-1.5 text-left text-[13px] font-mono flex items-center justify-between rounded-lg transition-all duration-150 ${
+      isActive
+        ? "text-[#1a1a1a] bg-[#e2e2e3]"
+        : "text-t-secondary hover:text-t-primary hover:bg-hover"
+    }`;
 
   return (
     <div className="relative" ref={panelRef}>
@@ -76,57 +77,61 @@ export const AgentSelector = memo(function AgentSelector() {
         onClick={() => setOpen(!open)}
         className="flex items-center gap-1.5 text-[13px] h-8 px-3 rounded-full font-mono transition-colors duration-150 text-t-secondary hover:text-t-primary hover:bg-[#e7e7e8]"
       >
-        {current?.name || "Code Agent"}
-        <svg width="6" height="4" viewBox="0 0 6 4" className="shrink-0">
-          <path d="M0.5 0.5L3 3.5L5.5 0.5" fill="none" stroke="currentColor" strokeWidth="1" strokeLinecap="round" strokeLinejoin="round" />
-        </svg>
+        <span className="truncate max-w-[120px]">{current?.name || agentId}</span>
+        <ChevronDown size={12} className="shrink-0 opacity-60" />
       </button>
 
-      {open && (
-        <div
-          className="absolute bottom-full left-0 mb-1 w-[180px] max-h-[320px] bg-elevated border border-border-subtle rounded-xl overflow-hidden flex flex-col shadow-2xl z-[100]"
-          style={{ animation: "fadeIn 0.1s ease-out" }}
-        >
-          <div className="flex-1 overflow-y-auto py-1">
-            {/* 内置 Agent */}
-            {builtinAgents.map((agent) => {
-              const isActive = agentId === agent.id;
-              return (
-                <button
-                  key={agent.id}
-                  onClick={() => { setAgentId(agent.id); setOpen(false); }}
-                  className={`w-full text-left px-3 py-2 text-[13px] font-mono transition-colors duration-150 truncate ${
-                    isActive ? "text-neon bg-neon-ghost" : "text-t-primary hover:bg-white/[0.04]"
-                  }`}
-                >
-                  {agent.name}
-                </button>
-              );
-            })}
+      <AnimatePresence>
+        {open && (
+          <motion.div
+            initial={{ opacity: 0, y: 4 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 4 }}
+            transition={{ duration: 0.12, ease: "easeOut" }}
+            className="absolute bottom-full left-0 mb-1.5 w-[200px] bg-elevated border border-border-subtle rounded-xl overflow-hidden shadow-2xl z-[100] p-1.5"
+          >
+            <div className="max-h-[320px] overflow-y-auto">
+              {builtinAgents.map((agent) => {
+                const isActive = agentId === agent.id;
+                return (
+                  <button
+                    key={agent.id}
+                    onClick={() => handleSelect(agent.id)}
+                    className={itemClass(isActive)}
+                  >
+                    <span className="truncate">{agent.name}</span>
+                    {isActive && <Check size={14} className="shrink-0" />}
+                  </button>
+                );
+              })}
 
-            {/* 分隔线 + 自定义 Agent */}
-            {customAgents.length > 0 && (
-              <>
-                <div className="mx-3 my-1 border-t border-white/[0.06]" />
-                {customAgents.map((agent) => {
-                  const isActive = agentId === agent.id;
-                  return (
-                    <button
-                      key={agent.id}
-                      onClick={() => { setAgentId(agent.id); setOpen(false); }}
-                      className={`w-full text-left px-3 py-2 text-[13px] font-mono transition-colors duration-150 truncate ${
-                        isActive ? "text-neon bg-neon-ghost" : "text-t-primary hover:bg-white/[0.04]"
-                      }`}
-                    >
-                      {agent.name}
-                    </button>
-                  );
-                })}
-              </>
-            )}
-          </div>
-        </div>
-      )}
+              {customAgents.length > 0 && (
+                <>
+                  {builtinAgents.length > 0 && (
+                    <div className="mx-1.5 my-1 border-t border-border-subtle" />
+                  )}
+                  <div className="px-2 pt-1.5 pb-1 text-[11px] text-t-ghost uppercase tracking-wider font-medium">
+                    自定义
+                  </div>
+                  {customAgents.map((agent) => {
+                    const isActive = agentId === agent.id;
+                    return (
+                      <button
+                        key={agent.id}
+                        onClick={() => handleSelect(agent.id)}
+                        className={itemClass(isActive)}
+                      >
+                        <span className="truncate">{agent.name}</span>
+                        {isActive && <Check size={14} className="shrink-0" />}
+                      </button>
+                    );
+                  })}
+                </>
+              )}
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
-});
+}

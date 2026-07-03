@@ -6,7 +6,8 @@ import { create } from "zustand";
 import { useShallow } from "zustand/shallow";
 import { wsClient } from "@/services/websocket-client";
 import type { WsConnectionStatus, ServerMessage } from "@/services/websocket-client";
-import { createSessionRemote, API_BASE } from "@/services/api";
+import { createSessionRemote, API_BASE, fetchChatAgents } from "@/services/api";
+import type { ChatAgent } from "@/services/api";
 
 // 鈹€鈹€鈹€ Types 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
 
@@ -942,6 +943,8 @@ interface ChatState {
   model: string | null;
   provider: string | null;
   agentId: string;
+  agents: ChatAgent[];
+  fetchAgents: () => Promise<void>;
   /** 褰撳墠浼氳瘽鐨勬€?token 鐢ㄩ噺鏄庣粏銆?   *  鐢卞悗绔?GET /api/sessions/{id}/token_usage 鎻愪緵锛屽湪鍒囨崲 session銆佹祦寮?done
    *  鍜?external_message 鍒拌揪鏃跺埛鏂般€?   *  - anchor: 鏈€杩戜竴娆?LLM 瀹炵畻鐨?usage锛堟棤鍒?null锛?   *  - pending_estimated: 閿氱偣涔嬪悗鏈疄绠楃殑浜嬩欢浼扮畻
    *  - total: anchor.total_tokens + pending_estimated */
@@ -1027,7 +1030,10 @@ export const useChat = create<ChatState>((set, get) => ({
   wsStatus: "disconnected" as WsConnectionStatus,
   model: null,
   provider: null,
-  agentId: "code_agent",
+  agentId: typeof localStorage !== "undefined"
+    ? localStorage.getItem("ftre_agent_id") || "default"
+    : "default",
+  agents: [] as ChatAgent[],
   contextTokens: 0,
   tokenUsage: null,
   contextWindow: null,
@@ -1289,7 +1295,29 @@ export const useChat = create<ChatState>((set, get) => ({
 
   setModel: (model) => set({ model }),
   setProvider: (provider) => set({ provider }),
-  setAgentId: (id) => set({ agentId: id }),
+  setAgentId: (id) => {
+    if (typeof localStorage !== "undefined") {
+      localStorage.setItem("ftre_agent_id", id);
+    }
+    set({ agentId: id });
+  },
+
+  fetchAgents: async () => {
+    const list = await fetchChatAgents();
+    const currentId = get().agentId;
+    // 如果当前 agentId 不在列表中，回退到 default
+    if (list.length > 0 && !list.find((a) => a.id === currentId)) {
+      const def = list.find((a) => a.id === "default") || list[0];
+      if (def && def.id !== currentId) {
+        if (typeof localStorage !== "undefined") {
+          localStorage.setItem("ftre_agent_id", def.id);
+        }
+        set({ agents: list, agentId: def.id });
+        return;
+      }
+    }
+    set({ agents: list });
+  },
   setContextWindow: (n) => set({ contextWindow: n }),
   setPendingWorkspace: (path) => set({ pendingWorkspace: path }),
 
