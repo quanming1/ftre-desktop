@@ -43,13 +43,22 @@ export function AgentBar() {
 
   useEffect(() => {
     if (agents.length === 0) {
-      fetchAgents().then(() => {
+      fetchAgents().then(async () => {
         const state = useChat.getState();
         if (!state.model) {
           const cur = state.agents.find((a) => a.id === state.agentId) || state.agents[0];
           if (cur?.model) {
             state.setModel(cur.model);
             state.setProvider(cur.provider || "");
+            // 确保 providers 已加载，再查 contextWindow
+            const config = await fetchAppConfig();
+            if (config && Object.keys(config).length > 0) {
+              const provs = buildProviderInfos(config.providers);
+              setProviders(provs);
+              const p = provs.find((x) => x.name === (cur.provider || ""));
+              const m = p?.models.find((mm) => mm.id === cur.model);
+              state.setContextWindow(typeof m?.context_window === "number" ? m.context_window : null);
+            }
           }
         }
       });
@@ -66,6 +75,19 @@ export function AgentBar() {
   useEffect(() => {
     loadProviders();
   }, [loadProviders]);
+
+  // ─── 补充：当 providers 加载完成但 contextWindow 还没设置时，从当前 model 推导 ───
+  useEffect(() => {
+    if (providers.length === 0) return;
+    const state = useChat.getState();
+    if (state.contextWindow === null && state.model && state.provider) {
+      const p = providers.find((x) => x.name === state.provider);
+      const m = p?.models.find((mm) => mm.id === state.model);
+      if (typeof m?.context_window === "number") {
+        state.setContextWindow(m.context_window);
+      }
+    }
+  }, [providers]);
 
   useEffect(() => {
     if (panelOpen) fetchAgents();
