@@ -873,6 +873,23 @@ export async function fetchChatAgents(
   }
 }
 
+export async function updateAgent(
+  agentId: string,
+  patch: { llm: { provider: string; model: string } },
+): Promise<boolean> {
+  try {
+    const res = await fetch(`${API_BASE}/api/agents/${encodeURIComponent(agentId)}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(patch),
+    });
+    return res.ok;
+  } catch (e) {
+    console.error("[api] updateAgent failed:", e);
+    return false;
+  }
+}
+
 export interface AgentDef {
   id: string;
   name: string;

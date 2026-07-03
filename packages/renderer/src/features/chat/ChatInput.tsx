@@ -17,8 +17,7 @@ import { useWorkspace } from "@/stores/workspace";
 import { useNotification } from "@/stores/notification";
 import { fetchSkills, fetchCommands, type SkillDef, type CommandDef } from "@/services/api";
 import { saveSessionDraft, getSessionDraft, deleteSessionDraft as removeDraft } from "./sessionDrafts";
-import { AgentSelector } from "./AgentSelector";
-import { ModelSelector } from "./ModelSelector";
+import { AgentBar } from "./AgentBar";
 import { TokenRing } from "./TokenRing";
 import { WorkspaceBadge } from "./WorkspaceBadge";
 import {
@@ -336,12 +335,6 @@ export function ChatInput() {
   const inputEditor = useMemo(() => new ChatInputEditor(), []);
 
   // 模型切换后自动聚焦输入框（如果未聚焦）
-  const handleModelChanged = useCallback(() => {
-    if (!ReactEditor.isFocused(inputEditor.editor as ReactEditor)) {
-      requestAnimationFrame(() => inputEditor.focus());
-    }
-  }, [inputEditor]);
-
   // ── 发送按钮水波纹 ──
   const [sendRipples, setSendRipples] = useState<
     { id: number; x: number; y: number; size: number }[]
@@ -858,10 +851,9 @@ export function ChatInput() {
               <WorkspaceBadge />
             </div>
 
-            {/* 右侧：模型选择 + 上下文用量 + 发送 */}
+            {/* 右侧：Agent/模型 + 上下文用量 + 发送 */}
             <div className="flex items-center gap-1.5">
-              <AgentSelector />
-              <ModelSelector onModelChanged={handleModelChanged} />
+              <AgentBar />
               <div className="w-px h-3.5 bg-border-subtle mx-1" />
               <TokenRing />
               {isBusy ? (
