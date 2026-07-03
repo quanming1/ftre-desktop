@@ -473,7 +473,7 @@ export async function triggerCompaction(
 
 const CONFIG_API = `${API_BASE}/api/config`;
 
-/** 读取应用配置（providers / agents.defaults 等）。失败返回空对象。 */
+/** 读取应用配置（providers / agents 等）。失败返回空对象。 */
 export async function fetchAppConfig(): Promise<Record<string, any>> {
   try {
     const res = await fetch(CONFIG_API);
@@ -894,6 +894,41 @@ export async function updateAgent(
     return res.ok;
   } catch (e) {
     console.error("[api] updateAgent failed:", e);
+    return false;
+  }
+}
+
+export async function fetchAgentPrompts(
+  agentId: string,
+): Promise<Record<string, string>> {
+  try {
+    const res = await fetch(
+      `${API_BASE}/api/agents/${encodeURIComponent(agentId)}/prompts`,
+    );
+    if (!res.ok) return {};
+    const data = await res.json();
+    return data.prompts || {};
+  } catch {
+    return {};
+  }
+}
+
+export async function updateAgentPrompt(
+  agentId: string,
+  filename: string,
+  content: string,
+): Promise<boolean> {
+  try {
+    const res = await fetch(
+      `${API_BASE}/api/agents/${encodeURIComponent(agentId)}/prompts/${encodeURIComponent(filename)}`,
+      {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ content }),
+      },
+    );
+    return res.ok;
+  } catch {
     return false;
   }
 }

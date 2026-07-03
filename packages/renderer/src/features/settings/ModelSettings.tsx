@@ -27,12 +27,8 @@ interface ProviderConfig {
 
 interface AiBaseConfig {
   agents?: {
-    defaults?: {
-      model?: string;
-      provider?: string;
-      title_generation?: { provider?: string; model?: string } | null;
-      compact_generation?: { provider?: string; model?: string } | null;
-    };
+    title_generation?: { provider?: string; model?: string } | null;
+    compact_generation?: { provider?: string; model?: string } | null;
   };
   providers?: Record<string, ProviderConfig>;
   [key: string]: unknown;
@@ -512,7 +508,7 @@ function TitleGenerationPicker({
   onChange: (next: AiBaseConfig) => void;
 }) {
   const providers = useMemo(() => buildProviderInfos(config.providers), [config.providers]);
-  const tg = config.agents?.defaults?.title_generation || null;
+  const tg = config.agents?.title_generation || null;
   const selected = tg?.provider && tg?.model ? { provider: tg.provider, modelId: tg.model } : null;
 
   const currentLabel = (() => {
@@ -530,16 +526,15 @@ function TitleGenerationPicker({
 
   const handleSelectModel = async (providerName: string, modelId: string) => {
     const updated = JSON.parse(JSON.stringify(config));
-    if (!updated.agents) updated.agents = { defaults: {} };
-    if (!updated.agents.defaults) updated.agents.defaults = {};
-    updated.agents.defaults.title_generation = { provider: providerName, model: modelId };
+    if (!updated.agents) updated.agents = {};
+    updated.agents.title_generation = { provider: providerName, model: modelId };
     await persist(updated);
   };
 
   const handleClear = async () => {
     const updated = JSON.parse(JSON.stringify(config));
-    if (updated.agents?.defaults?.title_generation !== undefined)
-      delete updated.agents.defaults.title_generation;
+    if (updated.agents?.title_generation !== undefined)
+      delete updated.agents.title_generation;
     await persist(updated);
   };
 
@@ -580,7 +575,7 @@ function CompactGenerationPicker({
   onChange: (next: AiBaseConfig) => void;
 }) {
   const providers = useMemo(() => buildProviderInfos(config.providers), [config.providers]);
-  const cg = config.agents?.defaults?.compact_generation || null;
+  const cg = config.agents?.compact_generation || null;
   const selected = cg?.provider && cg?.model ? { provider: cg.provider, modelId: cg.model } : null;
 
   const currentLabel = (() => {
@@ -598,16 +593,15 @@ function CompactGenerationPicker({
 
   const handleSelectModel = async (providerName: string, modelId: string) => {
     const updated = JSON.parse(JSON.stringify(config));
-    if (!updated.agents) updated.agents = { defaults: {} };
-    if (!updated.agents.defaults) updated.agents.defaults = {};
-    updated.agents.defaults.compact_generation = { provider: providerName, model: modelId };
+    if (!updated.agents) updated.agents = {};
+    updated.agents.compact_generation = { provider: providerName, model: modelId };
     await persist(updated);
   };
 
   const handleClear = async () => {
     const updated = JSON.parse(JSON.stringify(config));
-    if (updated.agents?.defaults?.compact_generation !== undefined)
-      delete updated.agents.defaults.compact_generation;
+    if (updated.agents?.compact_generation !== undefined)
+      delete updated.agents.compact_generation;
     await persist(updated);
   };
 
