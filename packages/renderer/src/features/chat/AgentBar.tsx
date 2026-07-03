@@ -42,10 +42,20 @@ export function AgentBar() {
   const builtinAgents = agents.filter((a) => a.is_builtin);
   const customAgents = agents.filter((a) => !a.is_builtin);
 
-  // 首次挂载拉取 agents
+  // 首次挂载拉取 agents + 初始化 model/provider
   useEffect(() => {
     if (agents.length === 0) {
-      fetchAgents();
+      fetchAgents().then(() => {
+        // fetchAgents 完成后，如果 model 还是 null，从当前 agent 读
+        const state = useChat.getState();
+        if (!state.model) {
+          const current = state.agents.find((a) => a.id === state.agentId) || state.agents[0];
+          if (current?.model) {
+            state.setModel(current.model);
+            state.setProvider(current.provider || "");
+          }
+        }
+      });
     }
   }, []);
 
@@ -126,7 +136,7 @@ export function AgentBar() {
   const itemClass = (isActive: boolean) =>
     `w-full px-3 py-1.5 text-left text-[13px] font-mono flex items-center justify-between rounded-lg transition-all duration-150 ${
       isActive
-        ? "text-[#1a1a1a] bg-[#e2e2e3]"
+        ? "text-t-primary font-medium"
         : "text-t-secondary hover:text-t-primary hover:bg-hover"
     }`;
 
@@ -146,23 +156,25 @@ export function AgentBar() {
       <AnimatePresence>
         {panelOpen && (
           <motion.div
-            initial={{ opacity: 0, y: 4 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: 4 }}
-            transition={{ duration: 0.12, ease: "easeOut" }}
-            className="absolute bottom-full right-0 mb-1.5 w-[280px] bg-elevated border border-border-subtle rounded-xl overflow-hidden shadow-2xl z-[100]"
+            initial={{ opacity: 0, y: 4, scale: 0.98 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: 4, scale: 0.98 }}
+            transition={{ duration: 0.15, ease: [0.16, 1, 0.3, 1] }}
+            className="absolute bottom-full right-0 mb-1.5 w-[280px] bg-elevated border border-border-subtle rounded-2xl shadow-2xl z-[100]"
           >
             {/* Header: Agent 名称（点击展开 Agent 列表） */}
-            <button
-              onClick={() => setAgentListOpen(!agentListOpen)}
-              className="w-full px-4 py-3 flex items-center justify-between hover:bg-hover transition-colors duration-150"
-            >
-              <span className="text-[14px] font-semibold text-t-primary">{current?.name || agentId}</span>
-              <ChevronDown
-                size={14}
-                className={`shrink-0 opacity-60 transition-transform duration-150 ${agentListOpen ? "rotate-180" : ""}`}
-              />
-            </button>
+            <div className="px-2 pt-2">
+              <button
+                onClick={() => setAgentListOpen(!agentListOpen)}
+                className="w-full px-3 py-2.5 flex items-center justify-between rounded-xl hover:bg-hover transition-colors duration-150 group"
+              >
+                <span className="text-[14px] font-semibold text-t-primary truncate">{current?.name || agentId}</span>
+                <ChevronDown
+                  size={14}
+                  className={`shrink-0 text-t-ghost group-hover:text-t-secondary transition-all duration-150 ${agentListOpen ? "rotate-180" : ""}`}
+                />
+              </button>
+            </div>
 
             <AnimatePresence>
               {agentListOpen && (
@@ -173,7 +185,7 @@ export function AgentBar() {
                   transition={{ duration: 0.15, ease: "easeOut" }}
                   className="overflow-hidden"
                 >
-                  <div className="px-1.5 pb-1.5 max-h-[200px] overflow-y-auto">
+                  <div className="px-1.5 pb-2 max-h-[200px] overflow-y-auto">
                     {builtinAgents.map((agent) => {
                       const isActive = agentId === agent.id;
                       return (
@@ -183,16 +195,16 @@ export function AgentBar() {
                           className={itemClass(isActive)}
                         >
                           <span className="truncate">{agent.name}</span>
-                          {isActive && <Check size={14} className="shrink-0" />}
+                          {isActive && <Check size={14} className="shrink-0 text-[var(--ftre-accent-default)]" />}
                         </button>
                       );
                     })}
                     {customAgents.length > 0 && (
                       <>
                         {builtinAgents.length > 0 && (
-                          <div className="mx-1.5 my-1 border-t border-border-subtle" />
+                          <div className="mx-2.5 my-1.5 border-t border-border-subtle/60" />
                         )}
-                        <div className="px-2 pt-1.5 pb-1 text-[11px] text-t-ghost uppercase tracking-wider font-medium">
+                        <div className="px-3 pt-2 pb-1 text-[11px] text-t-ghost uppercase tracking-wider font-medium">
                           自定义
                         </div>
                         {customAgents.map((agent) => {
@@ -204,7 +216,7 @@ export function AgentBar() {
                               className={itemClass(isActive)}
                             >
                               <span className="truncate">{agent.name}</span>
-                              {isActive && <Check size={14} className="shrink-0" />}
+                              {isActive && <Check size={14} className="shrink-0 text-[var(--ftre-accent-default)]" />}
                             </button>
                           );
                         })}
@@ -215,11 +227,11 @@ export function AgentBar() {
               )}
             </AnimatePresence>
 
-            {/* 模型行 — 用 ModelPicker 渲染切换按钮 + 浮层 */}
-            <div className="border-t border-border-subtle">
-              <div className="px-4 py-2.5 flex items-center justify-between">
+            {/* 模型行 — 卡片式底栏 */}
+            <div className="mx-2 mb-2 mt-0.5 rounded-xl bg-hover/60 border border-border-subtle/40">
+              <div className="px-3.5 py-3 flex items-center justify-between">
                 <div className="min-w-0 flex-1">
-                  <div className="text-[11px] text-t-ghost">模型</div>
+                  <div className="text-[11px] text-t-ghost font-medium tracking-wide">模型</div>
                   <div className="text-[13px] text-t-primary font-mono truncate mt-0.5">
                     {modelDisplayName}
                   </div>
@@ -245,7 +257,7 @@ export function AgentBar() {
                         e.stopPropagation();
                         toggle();
                       }}
-                      className="shrink-0 ml-3 text-[12px] px-2.5 py-1 rounded-md text-t-secondary hover:text-t-primary hover:bg-hover transition-colors duration-150"
+                      className="shrink-0 ml-3 text-[12px] px-3 py-1.5 rounded-lg font-medium text-t-secondary hover:text-t-primary bg-elevated hover:bg-active border border-border-subtle/60 hover:border-border-subtle transition-all duration-150"
                     >
                       切换
                     </button>
