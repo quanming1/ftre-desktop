@@ -69,6 +69,56 @@ import { normalizePathForCompare } from "@/utils/pathUtils";
 import { OPEN_SETTINGS_EVENT } from "@/app/settings-events";
 import type { SessionSummary } from "@/services/api";
 
+// ─── 水波纹 hook + 渲染组件（通用） ─────────────────────────────────
+
+interface RippleItem {
+  id: number;
+  x: number;
+  y: number;
+  size: number;
+}
+
+function useRipple() {
+  const [ripples, setRipples] = useState<RippleItem[]>([]);
+  const idRef = useRef(0);
+  const trigger = useCallback((e: React.MouseEvent<Element>) => {
+    const el = e.currentTarget;
+    const rect = el.getBoundingClientRect();
+    const size = Math.max(rect.width, rect.height);
+    const id = ++idRef.current;
+    setRipples((prev) => [
+      ...prev,
+      { id, x: e.clientX - rect.left - size / 2, y: e.clientY - rect.top - size / 2, size },
+    ]);
+  }, []);
+  const remove = useCallback(
+    (id: number) => setRipples((prev) => prev.filter((p) => p.id !== id)),
+    [],
+  );
+  return { ripples, trigger, remove };
+}
+
+function RippleLayer({
+  items,
+  onEnd,
+}: {
+  items: RippleItem[];
+  onEnd: (id: number) => void;
+}) {
+  return (
+    <>
+      {items.map((r) => (
+        <span
+          key={r.id}
+          className="ftre-ripple"
+          style={{ left: r.x, top: r.y, width: r.size, height: r.size }}
+          onAnimationEnd={() => onEnd(r.id)}
+        />
+      ))}
+    </>
+  );
+}
+
 // ─── 工具 ──────────────────────────────────────────────────────────
 
 function timeAgo(ts: number): { text: string; opacity: number } {
@@ -683,88 +733,61 @@ export function SessionPanel() {
     <TooltipProvider>
       {sessionsCollapsed ? (
         <div className="h-full flex flex-col items-center bg-[#f6f7f9] py-3 text-[14px]">
-          <button
-            type="button"
-            onClick={toggleSessionsCollapsed}
+          <SideIconButton
             title="展开会话列表"
-            aria-label="展开会话列表"
-            className="flex items-center justify-center w-9 h-9 rounded-full text-t-muted hover:text-t-primary hover:bg-hover transition-colors"
+            onClick={toggleSessionsCollapsed}
           >
             <PanelLeftOpen size={18} />
-          </button>
+          </SideIconButton>
 
           <div className="mt-2 flex flex-col items-center gap-1">
-            <button
-              type="button"
-              onClick={handleNewThread}
-              title="新会话"
-              aria-label="新会话"
-              className="flex items-center justify-center w-9 h-9 rounded-full text-t-muted hover:text-t-primary hover:bg-hover transition-colors"
-            >
+            <SideIconButton title="新会话" onClick={handleNewThread}>
               <SquarePen size={17} />
-            </button>
-            <button
-              type="button"
-              onClick={() => setActiveLeftPanel("cron")}
+            </SideIconButton>
+            <SideIconButton
               title="定时任务"
-              aria-label="定时任务"
-              className={`flex items-center justify-center w-9 h-9 rounded-full transition-colors ${activeLeftPanel === "cron" ? "bg-active text-t-primary" : "text-t-muted hover:text-t-primary hover:bg-hover"}`}
+              active={activeLeftPanel === "cron"}
+              onClick={() => setActiveLeftPanel("cron")}
             >
               <Clock size={17} />
-            </button>
-            <button
-              type="button"
-              onClick={() => setActiveLeftPanel("skills")}
+            </SideIconButton>
+            <SideIconButton
               title="技能"
-              aria-label="技能"
-              className={`flex items-center justify-center w-9 h-9 rounded-full transition-colors ${activeLeftPanel === "skills" ? "bg-active text-t-primary" : "text-t-muted hover:text-t-primary hover:bg-hover"}`}
+              active={activeLeftPanel === "skills"}
+              onClick={() => setActiveLeftPanel("skills")}
             >
               <Zap size={17} />
-            </button>
-            <button
-              type="button"
-              onClick={() => setActiveLeftPanel("traces")}
+            </SideIconButton>
+            <SideIconButton
               title="Agent Traces"
-              aria-label="Agent Traces"
-              className={`flex items-center justify-center w-9 h-9 rounded-full transition-colors ${activeLeftPanel === "traces" ? "bg-active text-t-primary" : "text-t-muted hover:text-t-primary hover:bg-hover"}`}
+              active={activeLeftPanel === "traces"}
+              onClick={() => setActiveLeftPanel("traces")}
             >
               <Activity size={17} />
-            </button>
+            </SideIconButton>
           </div>
 
-          <button
-            type="button"
-            onClick={handleOpenSettings}
+          <SideIconButton
             title="Settings"
-            aria-label="Settings"
-            className="mt-auto flex items-center justify-center w-9 h-9 rounded-full text-t-muted hover:text-t-primary hover:bg-hover transition-colors"
+            className="mt-auto"
+            onClick={handleOpenSettings}
           >
             <Settings size={17} />
-          </button>
+          </SideIconButton>
         </div>
       ) : (
       <div className="h-full flex flex-col bg-[#f6f7f9] text-[14px]">
         {/* ── 顶层动作区（New thread / Cron / Skills）── */}
         <div className="shrink-0 px-2 pt-3 pb-1">
           <div className="flex items-center gap-1">
-            <button
-              type="button"
-              onClick={handleNewThread}
-              className="flex-1 flex items-center gap-2 h-10 px-3 rounded-full text-t-muted hover:text-t-primary hover:bg-hover transition-colors min-w-0"
-              title="新会话"
-            >
-              <SquarePen size={16} strokeWidth={1.7} className="shrink-0" />
-              <span className="text-[14px] truncate">新会话</span>
-            </button>
-            <button
-              type="button"
-              onClick={toggleSessionsCollapsed}
-              className="shrink-0 flex items-center justify-center w-10 h-10 rounded-full text-t-muted hover:text-t-primary hover:bg-hover transition-colors"
+            <ExpandedNewThreadButton onClick={handleNewThread} />
+            <SideIconButton
               title="收起会话列表"
-              aria-label="收起会话列表"
+              className="shrink-0 w-10 h-10"
+              onClick={toggleSessionsCollapsed}
             >
               <PanelLeftClose size={18} strokeWidth={1.8} />
-            </button>
+            </SideIconButton>
           </div>
           <ActionRow
             icon={Clock}
@@ -1272,18 +1295,83 @@ interface ActionRowProps {
 }
 
 function ActionRow({ icon: Icon, label, active, onClick }: ActionRowProps) {
+  const { ripples, trigger, remove } = useRipple();
   return (
     <button
       type="button"
-      onClick={onClick}
-      className={`w-full flex items-center gap-2.5 px-3 py-1.5 rounded-full transition-colors text-left
+      onClick={(e) => {
+        trigger(e);
+        onClick();
+      }}
+      className={`relative overflow-hidden w-full flex items-center gap-2.5 px-3 py-1.5 rounded-full transition-colors text-left
         ${active
           ? "bg-active text-t-primary font-medium"
           : "text-t-secondary hover:text-t-primary hover:bg-hover"}
       `}
     >
-      <Icon size={16} strokeWidth={1.7} className="shrink-0" />
-      <span className="text-[14px] truncate">{label}</span>
+      <RippleLayer items={ripples} onEnd={remove} />
+      <Icon size={16} strokeWidth={1.7} className="relative shrink-0" />
+      <span className="relative text-[14px] truncate">{label}</span>
+    </button>
+  );
+}
+
+// ─── 侧边图标按钮（折叠态 / 收起按钮，带水波纹） ──────────────────
+
+interface SideIconButtonProps {
+  title: string;
+  active?: boolean;
+  className?: string;
+  onClick: () => void;
+  children: React.ReactNode;
+}
+
+function SideIconButton({
+  title,
+  active,
+  className,
+  onClick,
+  children,
+}: SideIconButtonProps) {
+  const { ripples, trigger, remove } = useRipple();
+  return (
+    <button
+      type="button"
+      onClick={(e) => {
+        trigger(e);
+        onClick();
+      }}
+      title={title}
+      aria-label={title}
+      className={`relative overflow-hidden flex items-center justify-center w-9 h-9 rounded-full transition-colors ${
+        active
+          ? "bg-active text-t-primary"
+          : "text-t-muted hover:text-t-primary hover:bg-hover"
+      } ${className ?? ""}`}
+    >
+      <RippleLayer items={ripples} onEnd={remove} />
+      <span className="relative">{children}</span>
+    </button>
+  );
+}
+
+// ─── 展开态「新会话」按钮（带水波纹） ──────────────────────────────
+
+function ExpandedNewThreadButton({ onClick }: { onClick: () => void }) {
+  const { ripples, trigger, remove } = useRipple();
+  return (
+    <button
+      type="button"
+      onClick={(e) => {
+        trigger(e);
+        onClick();
+      }}
+      className="relative overflow-hidden flex-1 flex items-center gap-2 h-10 px-3 rounded-full text-t-muted hover:text-t-primary hover:bg-hover transition-colors min-w-0"
+      title="新会话"
+    >
+      <RippleLayer items={ripples} onEnd={remove} />
+      <SquarePen size={16} strokeWidth={1.7} className="relative shrink-0" />
+      <span className="relative text-[14px] truncate">新会话</span>
     </button>
   );
 }
@@ -1322,17 +1410,28 @@ function SessionRow({
   const time = timeAgo(session.updated_at ?? 0);
   const suffix = channelSuffix(session.channel);
 
+  const { ripples, trigger, remove } = useRipple();
+
+  const handleClick = useCallback(
+    (e: React.MouseEvent) => {
+      trigger(e);
+      onClick();
+    },
+    [trigger, onClick],
+  );
+
   return (
     <div
-      onClick={onClick}
+      onClick={handleClick}
       onContextMenu={onMenu}
       onMouseEnter={onEnter}
       onMouseLeave={onLeave}
-      className={`relative flex items-center gap-2 h-10 pr-3 rounded-full cursor-pointer select-none transition-colors ${alignWithSectionLabel ? "pl-[45px]" : "pl-3"} ${isActive
+      className={`relative overflow-hidden flex items-center gap-2 h-10 pr-3 rounded-full cursor-pointer select-none transition-colors ${alignWithSectionLabel ? "pl-[45px]" : "pl-3"} ${isActive
         ? "bg-[#e7e7e8] hover:bg-[#e7e7e8]"
         : "hover:bg-hover"
         }`}
     >
+      <RippleLayer items={ripples} onEnd={remove} />
       {/* 置顶色点：绝对定位，不占 flex 空间，保持文字左对齐 */}
       {isPinned && dotColor && (
         <button
