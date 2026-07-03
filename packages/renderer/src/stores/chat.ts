@@ -6,7 +6,7 @@ import { create } from "zustand";
 import { useShallow } from "zustand/shallow";
 import { wsClient } from "@/services/websocket-client";
 import type { WsConnectionStatus, ServerMessage } from "@/services/websocket-client";
-import { createSessionRemote, API_BASE, fetchChatAgents } from "@/services/api";
+import { createSessionRemote, API_BASE, fetchChatAgents, updateAgent } from "@/services/api";
 import type { ChatAgent } from "@/services/api";
 
 // 鈹€鈹€鈹€ Types 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
@@ -945,6 +945,7 @@ interface ChatState {
   agentId: string;
   agents: ChatAgent[];
   fetchAgents: () => Promise<void>;
+  updateAgentLlm: (provider: string, model: string) => Promise<void>;
   /** 褰撳墠浼氳瘽鐨勬€?token 鐢ㄩ噺鏄庣粏銆?   *  鐢卞悗绔?GET /api/sessions/{id}/token_usage 鎻愪緵锛屽湪鍒囨崲 session銆佹祦寮?done
    *  鍜?external_message 鍒拌揪鏃跺埛鏂般€?   *  - anchor: 鏈€杩戜竴娆?LLM 瀹炵畻鐨?usage锛堟棤鍒?null锛?   *  - pending_estimated: 閿氱偣涔嬪悗鏈疄绠楃殑浜嬩欢浼扮畻
    *  - total: anchor.total_tokens + pending_estimated */
@@ -1318,6 +1319,17 @@ export const useChat = create<ChatState>((set, get) => ({
     }
     set({ agents: list });
   },
+
+  updateAgentLlm: async (provider, model) => {
+    const { agentId } = get();
+    if (!agentId) return;
+    const ok = await updateAgent(agentId, { llm: { provider, model } });
+    if (ok) {
+      set({ model, provider });
+      await get().fetchAgents();
+    }
+  },
+
   setContextWindow: (n) => set({ contextWindow: n }),
   setPendingWorkspace: (path) => set({ pendingWorkspace: path }),
 
