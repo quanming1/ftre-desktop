@@ -61,7 +61,7 @@ function resetStores() {
     model: null,
     contextTokens: 0,
     mode: "chat",
-    agentId: "code_agent",
+    agentId: "default",
     retryState: null,
     toolCalls: [],
     progress: null,
@@ -136,7 +136,7 @@ describe("session store — basic operations", () => {
   it("patchSession updates session meta", () => {
     useSession.setState({
       sessions: [
-        { session_id: "s1", title: "Test", agent_id: "code_agent", meta: {} },
+        { session_id: "s1", title: "Test", agent_id: "default", meta: {} },
       ],
     });
     useSession

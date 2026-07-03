@@ -30,7 +30,7 @@ function resetStore() {
     model: null,
     contextTokens: 0,
     mode: "chat",
-    agentId: "code_agent",
+    agentId: "default",
     retryState: null,
     toolCalls: [],
     progress: null,

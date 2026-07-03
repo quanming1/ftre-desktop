@@ -384,11 +384,8 @@ export const useSession = create<SessionState>((set, get) => ({
   newSession: (workspace) => {
     const chat = useChat.getState();
     chat.newChat();
-    chat.setAgentId("code_agent");
-    // 不重置 model/provider —— 用户当前选择的模型是粘性偏好，
-    // 跨会话保留体验更自然；首次打开时仍由 ModelSelector 从 config 读取默认值。
-    // 传入 workspace（可选）：把它写到 chat 的 pendingWorkspace，发首条消息
-    // 创建 session 时会作为 query param 落到 sessions.workspace 字段。
+    // 不重置 agentId / model / provider —— 用户当前选择是粘性偏好，
+    // 跨会话保留体验更自然
     if (workspace !== undefined) {
       chat.setPendingWorkspace(workspace || null);
     }
