@@ -83,6 +83,31 @@
   animation: runningBannerEnter 180ms ease-out both;
 }
 
+/* ===== 水波纹效果（通用） ===== */
+@keyframes ftreRipple {
+  from {
+    transform: scale(0);
+    opacity: 0.65;
+  }
+  to {
+    transform: scale(3.5);
+    opacity: 0;
+  }
+}
+
+.ftre-ripple {
+  position: absolute;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.18);
+  transform: scale(0);
+  animation: ftreRipple 800ms ease-out forwards;
+  pointer-events: none;
+}
+
+.ftre-ripple--light {
+  background: rgba(255, 255, 255, 0.5);
+}
+
 .running-banner-exit {
   animation: runningBannerExit 160ms ease-in both;
 }
