@@ -1,12 +1,11 @@
 /**
- * AgentBar — 合并 Agent + Model 选择的单个胶囊按钮
+ * AgentBar — Agent 信息看板 + 模型/Agent 切换
  *
- * 点击展开面板：
- * - Header: Agent 名称（点击展开 Agent 列表切换）
- * - 当前模型 + [切换] 按钮（点击展开 ModelPicker）
+ * 胶囊按钮: AgentName / ModelName ▾
+ * 展开面板: 名称、ID、模型、工具权限、MCP连接、工作区
  */
 import { useState, useEffect, useRef, useCallback } from "react";
-import { Check, ChevronDown } from "lucide-react";
+import { Check, ChevronDown, Folder, Wrench, Plug, Cpu } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useChat } from "@/stores/chat";
 import { useSession } from "@/stores/session";
@@ -42,24 +41,21 @@ export function AgentBar() {
   const builtinAgents = agents.filter((a) => a.is_builtin);
   const customAgents = agents.filter((a) => !a.is_builtin);
 
-  // 首次挂载拉取 agents + 初始化 model/provider
   useEffect(() => {
     if (agents.length === 0) {
       fetchAgents().then(() => {
-        // fetchAgents 完成后，如果 model 还是 null，从当前 agent 读
         const state = useChat.getState();
         if (!state.model) {
-          const current = state.agents.find((a) => a.id === state.agentId) || state.agents[0];
-          if (current?.model) {
-            state.setModel(current.model);
-            state.setProvider(current.provider || "");
+          const cur = state.agents.find((a) => a.id === state.agentId) || state.agents[0];
+          if (cur?.model) {
+            state.setModel(cur.model);
+            state.setProvider(cur.provider || "");
           }
         }
       });
     }
   }, []);
 
-  // 拉取 providers（用于 ModelPicker）
   const loadProviders = useCallback(async () => {
     const config = await fetchAppConfig();
     if (config && Object.keys(config).length > 0) {
@@ -71,14 +67,10 @@ export function AgentBar() {
     loadProviders();
   }, [loadProviders]);
 
-  // 面板展开时刷新 agents
   useEffect(() => {
-    if (panelOpen) {
-      fetchAgents();
-    }
+    if (panelOpen) fetchAgents();
   }, [panelOpen]);
 
-  // 点击外部关闭
   useEffect(() => {
     if (!panelOpen) return;
     const handler = (e: MouseEvent) => {
@@ -91,7 +83,6 @@ export function AgentBar() {
     return () => document.removeEventListener("mousedown", handler);
   }, [panelOpen]);
 
-  // 模型显示名
   const modelDisplayName = (() => {
     if (!model) return "选择模型";
     for (const p of providers) {
@@ -133,12 +124,15 @@ export function AgentBar() {
     );
   }
 
-  const itemClass = (isActive: boolean) =>
+  const agentItemClass = (isActive: boolean) =>
     `w-full px-3 py-1.5 text-left text-[13px] font-mono flex items-center justify-between rounded-lg transition-all duration-150 ${
       isActive
-        ? "text-t-primary font-medium"
+        ? "text-[#1a1a1a] bg-[#e2e2e3]"
         : "text-t-secondary hover:text-t-primary hover:bg-hover"
     }`;
+
+  const sectionLabel = "text-[11px] text-t-ghost uppercase tracking-wider font-medium flex items-center gap-1.5";
+  const sectionValue = "text-[12.5px] text-t-secondary font-mono mt-1 leading-relaxed";
 
   return (
     <div className="relative" ref={panelRef}>
@@ -156,25 +150,31 @@ export function AgentBar() {
       <AnimatePresence>
         {panelOpen && (
           <motion.div
-            initial={{ opacity: 0, y: 4, scale: 0.98 }}
-            animate={{ opacity: 1, y: 0, scale: 1 }}
-            exit={{ opacity: 0, y: 4, scale: 0.98 }}
-            transition={{ duration: 0.15, ease: [0.16, 1, 0.3, 1] }}
-            className="absolute bottom-full right-0 mb-1.5 w-[280px] bg-elevated border border-border-subtle rounded-2xl shadow-2xl z-[100]"
+            initial={{ opacity: 0, y: 4 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 4 }}
+            transition={{ duration: 0.12, ease: "easeOut" }}
+            className="absolute bottom-full right-0 mb-1.5 w-[300px] bg-elevated border border-border-subtle rounded-xl overflow-hidden shadow-2xl z-[100]"
           >
-            {/* Header: Agent 名称（点击展开 Agent 列表） */}
-            <div className="px-2 pt-2">
-              <button
-                onClick={() => setAgentListOpen(!agentListOpen)}
-                className="w-full px-3 py-2.5 flex items-center justify-between rounded-xl hover:bg-hover transition-colors duration-150 group"
-              >
-                <span className="text-[14px] font-semibold text-t-primary truncate">{current?.name || agentId}</span>
-                <ChevronDown
-                  size={14}
-                  className={`shrink-0 text-t-ghost group-hover:text-t-secondary transition-all duration-150 ${agentListOpen ? "rotate-180" : ""}`}
-                />
-              </button>
-            </div>
+            {/* ── 身份区 ── */}
+            <button
+              onClick={() => setAgentListOpen(!agentListOpen)}
+              className="w-full px-4 py-3.5 flex items-center gap-3 hover:bg-hover transition-colors duration-150"
+            >
+              <div className="w-8 h-8 rounded-lg bg-[#e2e2e3] flex items-center justify-center shrink-0">
+                <Cpu size={16} className="text-t-secondary" />
+              </div>
+              <div className="min-w-0 flex-1 text-left">
+                <div className="text-[14px] font-semibold text-t-primary truncate">
+                  {current?.name || agentId}
+                </div>
+                <div className="text-[11px] text-t-ghost font-mono truncate">{current?.id || agentId}</div>
+              </div>
+              <ChevronDown
+                size={14}
+                className={`shrink-0 opacity-60 transition-transform duration-150 ${agentListOpen ? "rotate-180" : ""}`}
+              />
+            </button>
 
             <AnimatePresence>
               {agentListOpen && (
@@ -185,26 +185,26 @@ export function AgentBar() {
                   transition={{ duration: 0.15, ease: "easeOut" }}
                   className="overflow-hidden"
                 >
-                  <div className="px-1.5 pb-2 max-h-[200px] overflow-y-auto">
+                  <div className="px-1.5 pb-1.5 max-h-[200px] overflow-y-auto">
                     {builtinAgents.map((agent) => {
                       const isActive = agentId === agent.id;
                       return (
                         <button
                           key={agent.id}
                           onClick={() => handleSelectAgent(agent.id)}
-                          className={itemClass(isActive)}
+                          className={agentItemClass(isActive)}
                         >
                           <span className="truncate">{agent.name}</span>
-                          {isActive && <Check size={14} className="shrink-0 text-[var(--ftre-accent-default)]" />}
+                          {isActive && <Check size={14} className="shrink-0" />}
                         </button>
                       );
                     })}
                     {customAgents.length > 0 && (
                       <>
                         {builtinAgents.length > 0 && (
-                          <div className="mx-2.5 my-1.5 border-t border-border-subtle/60" />
+                          <div className="mx-1.5 my-1 border-t border-border-subtle" />
                         )}
-                        <div className="px-3 pt-2 pb-1 text-[11px] text-t-ghost uppercase tracking-wider font-medium">
+                        <div className="px-2 pt-1.5 pb-1 text-[11px] text-t-ghost uppercase tracking-wider font-medium">
                           自定义
                         </div>
                         {customAgents.map((agent) => {
@@ -213,10 +213,10 @@ export function AgentBar() {
                             <button
                               key={agent.id}
                               onClick={() => handleSelectAgent(agent.id)}
-                              className={itemClass(isActive)}
+                              className={agentItemClass(isActive)}
                             >
                               <span className="truncate">{agent.name}</span>
-                              {isActive && <Check size={14} className="shrink-0 text-[var(--ftre-accent-default)]" />}
+                              {isActive && <Check size={14} className="shrink-0" />}
                             </button>
                           );
                         })}
@@ -227,22 +227,23 @@ export function AgentBar() {
               )}
             </AnimatePresence>
 
-            {/* 模型行 — 卡片式底栏 */}
-            <div className="mx-2 mb-2 mt-0.5 rounded-xl bg-hover/60 border border-border-subtle/40">
-              <div className="px-3.5 py-3 flex items-center justify-between">
+            {/* ── 信息区 ── */}
+            <div className="px-4 py-3 space-y-3 border-t border-border-subtle">
+              {/* 模型 */}
+              <div className="flex items-start justify-between gap-2">
                 <div className="min-w-0 flex-1">
-                  <div className="text-[11px] text-t-ghost font-medium tracking-wide">模型</div>
-                  <div className="text-[13px] text-t-primary font-mono truncate mt-0.5">
-                    {modelDisplayName}
+                  <div className={sectionLabel}>
+                    <Cpu size={11} />
+                    模型
                   </div>
+                  <div className={sectionValue}>{modelDisplayName}</div>
+                  {provider && (
+                    <div className="text-[11px] text-t-ghost mt-0.5">{provider}</div>
+                  )}
                 </div>
                 <ModelPicker
                   providers={providers}
-                  selected={
-                    model && provider
-                      ? { provider, modelId: model }
-                      : null
-                  }
+                  selected={model && provider ? { provider, modelId: model } : null}
                   onSelect={handleSelectModel}
                   onOpenSettings={() => {
                     window.dispatchEvent(
@@ -250,20 +251,73 @@ export function AgentBar() {
                     );
                   }}
                   placement="top"
-                  panelWidthClass="w-[280px]"
+                  panelWidthClass="w-[300px]"
                   renderTrigger={({ toggle }) => (
                     <button
                       onClick={(e) => {
                         e.stopPropagation();
                         toggle();
                       }}
-                      className="shrink-0 ml-3 text-[12px] px-3 py-1.5 rounded-lg font-medium text-t-secondary hover:text-t-primary bg-elevated hover:bg-active border border-border-subtle/60 hover:border-border-subtle transition-all duration-150"
+                      className="shrink-0 text-[12px] px-2.5 py-1 rounded-md text-t-secondary hover:text-t-primary hover:bg-hover transition-colors duration-150"
                     >
                       切换
                     </button>
                   )}
                 />
               </div>
+
+              {/* 工具权限 */}
+              <div>
+                <div className={sectionLabel}>
+                  <Wrench size={11} />
+                  工具权限
+                </div>
+                <div className={sectionValue}>
+                  {current?.tools_allow ? (
+                    <span className="text-t-primary">{current.tools_allow.join(", ")}</span>
+                  ) : (
+                    <span>全部可用</span>
+                  )}
+                  {current?.tools_deny && current.tools_deny.length > 0 && (
+                    <div className="text-[11px] text-t-ghost mt-0.5">
+                      禁用: {current.tools_deny.join(", ")}
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* MCP 连接 */}
+              {current?.mcp_servers && current.mcp_servers.length > 0 && (
+                <div>
+                  <div className={sectionLabel}>
+                    <Plug size={11} />
+                    MCP 连接
+                  </div>
+                  <div className="flex flex-wrap gap-1.5 mt-1">
+                    {current.mcp_servers.map((s) => (
+                      <span
+                        key={s}
+                        className="inline-flex items-center px-2 py-0.5 rounded text-[11px] font-mono bg-[#e8e8ea] text-t-secondary"
+                      >
+                        {s}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* 工作区 */}
+              {current?.workspace && (
+                <div>
+                  <div className={sectionLabel}>
+                    <Folder size={11} />
+                    工作区
+                  </div>
+                  <div className={`${sectionValue} truncate`} title={current.workspace}>
+                    {current.workspace}
+                  </div>
+                </div>
+              )}
             </div>
           </motion.div>
         )}
