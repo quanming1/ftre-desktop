@@ -841,8 +841,11 @@ export async function toggleSkillDisabled(
 export interface ChatAgent {
   id: string;
   name: string;
-  description?: string;
-  icon?: string;
+  model?: string;
+  provider?: string;
+  has_soul?: boolean;
+  has_agents_md?: boolean;
+  has_user_md?: boolean;
   is_builtin?: boolean;
   tools?: string[];
 }
@@ -850,14 +853,24 @@ export interface ChatAgent {
 export async function fetchChatAgents(
   _workspace?: string | null,
 ): Promise<ChatAgent[]> {
-  return [
-    {
-      id: "code_agent",
-      name: "Ftre",
-      description: "Default coding agent",
-      is_builtin: true,
-    },
-  ];
+  try {
+    const res = await fetch(`${API_BASE}/api/agents`);
+    if (!res.ok) return [{ id: "default", name: "Default", is_builtin: true }];
+    const data = await res.json();
+    const agents: ChatAgent[] = (data.agents || []).map((a: any) => ({
+      id: a.id,
+      name: a.name || a.id,
+      model: a.model,
+      provider: a.provider,
+      has_soul: a.has_soul,
+      has_agents_md: a.has_agents_md,
+      has_user_md: a.has_user_md,
+      is_builtin: a.id === "default",
+    }));
+    return agents.length > 0 ? agents : [{ id: "default", name: "Default", is_builtin: true }];
+  } catch {
+    return [{ id: "default", name: "Default", is_builtin: true }];
+  }
 }
 
 export interface AgentDef {

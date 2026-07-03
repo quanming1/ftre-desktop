@@ -342,6 +342,27 @@ export function ChatInput() {
     }
   }, [inputEditor]);
 
+  // ── 发送按钮水波纹 ──
+  const [sendRipples, setSendRipples] = useState<
+    { id: number; x: number; y: number; size: number }[]
+  >([]);
+  const sendRippleIdRef = useRef(0);
+  const triggerRipple = useCallback((e: React.MouseEvent) => {
+    const target = e.currentTarget as HTMLElement;
+    const rect = target.getBoundingClientRect();
+    const size = Math.max(rect.width, rect.height);
+    const id = ++sendRippleIdRef.current;
+    setSendRipples((prev) => [
+      ...prev,
+      {
+        id,
+        x: e.clientX - rect.left - size / 2,
+        y: e.clientY - rect.top - size / 2,
+        size,
+      },
+    ]);
+  }, []);
+
   // 细粒度选择器：仅订阅各自需要的字段，避免无关状态变化触发重渲染
   const isBusy = useChat((s) => s.isBusy);
   const sessionId = useChat((s) => s.sessionId);
@@ -839,6 +860,7 @@ export function ChatInput() {
 
             {/* 右侧：模型选择 + 上下文用量 + 发送 */}
             <div className="flex items-center gap-1.5">
+              <AgentSelector />
               <ModelSelector onModelChanged={handleModelChanged} />
               <div className="w-px h-3.5 bg-border-subtle mx-1" />
               <TokenRing />
@@ -851,14 +873,27 @@ export function ChatInput() {
                 </button>
               ) : (
                 <button
-                  onClick={handleSend}
-                  className={`h-10 w-10 flex items-center justify-center rounded-full transition-all ${
+                  onClick={(e) => {
+                    triggerRipple(e);
+                    handleSend();
+                  }}
+                  className={`relative overflow-hidden h-10 w-10 flex items-center justify-center rounded-full transition-all ${
                     canSend
                       ? "bg-neon text-base hover:bg-neon/80 shadow-[0_0_10px_rgba(var(--neon-rgb,56,189,248),0.25)]"
                       : "bg-surface text-t-ghost"
                   }`}
                 >
-                  <ArrowUp size={19} />
+                  {sendRipples.map((r) => (
+                    <span
+                      key={r.id}
+                      className="ftre-ripple ftre-ripple--light"
+                      style={{ left: r.x, top: r.y, width: r.size, height: r.size }}
+                      onAnimationEnd={() =>
+                        setSendRipples((prev) => prev.filter((p) => p.id !== r.id))
+                      }
+                    />
+                  ))}
+                  <ArrowUp size={19} className="relative" />
                 </button>
               )}
             </div>
