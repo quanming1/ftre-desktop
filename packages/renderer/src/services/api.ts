@@ -680,6 +680,8 @@ export interface SkillSummary {
   updated_at: number;
   /** 是否被禁用（config.json 的 disabled_skills 数组） */
   disabled?: boolean;
+  /** 来源范围：global（~/.ftre/skills）或 private（~/.ftre/agents/<id>/skills） */
+  scope?: "global" | "private";
 }
 
 /**
@@ -718,15 +720,19 @@ function mapSkillRow(s: any): SkillSummary {
     kind: s?.kind === "file" ? "file" : "dir",
     updated_at: typeof s?.updated_at === "number" ? s.updated_at : 0,
     disabled: s?.disabled === true,
+    scope: s?.scope === "private" ? "private" : "global",
   };
 }
 
-/** workspace 参数仅为兼容旧调用（Skill 是全局的，与工作区无关），已忽略。 */
+/** 获取 Skill 列表。传 agentId 时返回全局 + 该 agent 私有 skill（私有覆盖同名全局）。 */
 export async function fetchSkills(
-  _workspace?: string | null,
+  agentId?: string | null,
 ): Promise<SkillSummary[]> {
   try {
-    const res = await fetch(SKILLS_API);
+    const url = agentId
+      ? `${SKILLS_API}?agent_id=${encodeURIComponent(agentId)}`
+      : SKILLS_API;
+    const res = await fetch(url);
     if (!res.ok) return [];
     const data = await res.json();
     return Array.isArray(data?.skills) ? data.skills.map(mapSkillRow) : [];
