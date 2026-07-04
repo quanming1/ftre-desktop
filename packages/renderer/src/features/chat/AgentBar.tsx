@@ -114,6 +114,14 @@ export function AgentBar() {
     return model.length > 20 ? model.slice(0, 18) + "…" : model;
   })();
 
+  const resolveModelName = (providerName: string | undefined, modelId: string | undefined): string => {
+    if (!modelId) return "";
+    const pName = providerName || "";
+    const p = providers.find((x) => x.name === pName);
+    const m = p?.models.find((mm) => mm.id === modelId);
+    return m?.name || (modelId.length > 20 ? modelId.slice(0, 18) + "…" : modelId);
+  };
+
   const findContextWindow = (providerName: string, modelId: string): number | null => {
     const p = providers.find((x) => x.name === providerName);
     const m = p?.models.find((mm) => mm.id === modelId);
@@ -213,7 +221,14 @@ export function AgentBar() {
                           onClick={() => handleSelectAgent(agent.id)}
                           className={agentItemClass(isActive)}
                         >
-                          <span className="truncate">{agent.name}</span>
+                          <span className="flex items-center gap-2 min-w-0 flex-1">
+                            <span className="truncate">{agent.name}</span>
+                            {agent.model && (
+                              <span className="text-[11px] text-t-ghost truncate shrink-0 max-w-[140px]">
+                                {resolveModelName(agent.provider, agent.model)}
+                              </span>
+                            )}
+                          </span>
                           {isActive && <Check size={14} className="shrink-0" />}
                         </button>
                       );
@@ -234,7 +249,14 @@ export function AgentBar() {
                               onClick={() => handleSelectAgent(agent.id)}
                               className={agentItemClass(isActive)}
                             >
-                              <span className="truncate">{agent.name}</span>
+                              <span className="flex items-center gap-2 min-w-0 flex-1">
+                                <span className="truncate">{agent.name}</span>
+                                {agent.model && (
+                                  <span className="text-[11px] text-t-ghost truncate shrink-0 max-w-[140px]">
+                                    {resolveModelName(agent.provider, agent.model)}
+                                  </span>
+                                )}
+                              </span>
                               {isActive && <Check size={14} className="shrink-0" />}
                             </button>
                           );
