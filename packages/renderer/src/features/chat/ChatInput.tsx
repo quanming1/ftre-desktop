@@ -13,7 +13,6 @@ import { Range } from "slate";
 import { ArrowUp, Box, ChevronRight, Paperclip, Plus, Puzzle, Search, Terminal, X } from "lucide-react";
 import { useChat } from "@/stores/chat";
 import { useLayout } from "@/stores/layout";
-import { useWorkspace } from "@/stores/workspace";
 import { useNotification } from "@/stores/notification";
 import { fetchSkills, fetchCommands, type SkillDef, type CommandDef } from "@/services/api";
 import { saveSessionDraft, getSessionDraft, deleteSessionDraft as removeDraft } from "./sessionDrafts";
@@ -359,7 +358,7 @@ export function ChatInput() {
   // 细粒度选择器：仅订阅各自需要的字段，避免无关状态变化触发重渲染
   const isBusy = useChat((s) => s.isBusy);
   const sessionId = useChat((s) => s.sessionId);
-  const workspace = useWorkspace((s) => s.rootPath);
+  const agentId = useChat((s) => s.agentId);
   const autoFollow = useLayout((s) => s.autoFollowFiles);
   const toggleAutoFollow = useLayout((s) => s.toggleAutoFollowFiles);
 
@@ -405,14 +404,10 @@ export function ChatInput() {
   const [skillList, setSkillList] = useState<SkillDef[]>([]);
   const [commandList, setCommandList] = useState<CommandDef[]>([]);
 
-  // 加载 skill 列表
+  // 加载 skill 列表（全局 + 当前 agent 私有）
   useEffect(() => {
-    if (!workspace) {
-      setSkillList([]);
-      return;
-    }
-    fetchSkills(workspace).then(setSkillList);
-  }, [workspace]);
+    fetchSkills(agentId).then(setSkillList);
+  }, [agentId]);
 
   // 加载指令列表（全局，与工作区无关）
   useEffect(() => {
