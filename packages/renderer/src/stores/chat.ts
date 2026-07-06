@@ -330,7 +330,10 @@ export function applyEvent(b: Bucket, ev: BusEvent): void {
 
       replaceTail((m) => ({
         ...m,
-        id: ev.id ?? m.id,
+        // 流式阶段不更新 id：每次 assistant_message 的 ev.id 不同，
+        // 会导致 React key 变化、组件销毁重建、useState 状态丢失。
+        // 只在 complete 时设置最终 id。
+        ...(isComplete ? { id: ev.id ?? m.id } : {}),
         blocks,
         content: text || null,
         streaming: !isComplete,
