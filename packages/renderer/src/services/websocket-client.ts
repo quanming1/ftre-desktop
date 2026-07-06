@@ -64,6 +64,9 @@ class WebSocketClient {
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private intentionalClose = false;
   private pendingSends: string[] = [];
+  /** stableTimer: delay-reset reconnectAttempt to avoid fast reconnect loop */
+  private stableTimer: ReturnType<typeof setTimeout> | null = null;
+  private static readonly STABLE_THRESHOLD = 5000;
 
   public connected = false;
   public status: WsConnectionStatus = "disconnected";
@@ -106,8 +109,12 @@ class WebSocketClient {
 
       this.ws.onopen = () => {
         this.connected = true;
-        this.reconnectAttempt = 0;
         this.setStatus("connected");
+        if (this.stableTimer) clearTimeout(this.stableTimer);
+        this.stableTimer = setTimeout(() => {
+          this.reconnectAttempt = 0;
+          this.stableTimer = null;
+        }, WebSocketClient.STABLE_THRESHOLD);
         // 重连后重新 attach 所有之前关注的 session
         for (const sid of this.attachedSessions) {
           this.send({
@@ -131,6 +138,10 @@ class WebSocketClient {
 
       this.ws.onclose = () => {
         this.connected = false;
+        if (this.stableTimer) {
+          clearTimeout(this.stableTimer);
+          this.stableTimer = null;
+        }
         this.disconnectHandlers.forEach((h) => h());
         if (!this.intentionalClose) {
           this.setStatus("reconnecting");
@@ -155,6 +166,10 @@ class WebSocketClient {
     if (this.reconnectTimer) {
       clearTimeout(this.reconnectTimer);
       this.reconnectTimer = null;
+    }
+    if (this.stableTimer) {
+      clearTimeout(this.stableTimer);
+      this.stableTimer = null;
     }
     if (this.ws) {
       this.ws.close();

@@ -434,6 +434,13 @@ html[data-theme="dark"] .tool-highlight .hljs-params {
 html[data-theme="dark"] .tool-highlight .hljs-type {
   color: #9ca0aa;
 }
+
+/* 连续 assistant 消息之间减小间距
+   space-y-4 给非最后子元素 margin-block-end: 14px，
+   ReAct 多轮 tool call 场景下连续 assistant 消息之间显得过大 */
+[data-assistantmessage]:has(+ [data-assistantmessage]) {
+  margin-block-end: 2px;
+}
 ""  
 "/* ===== Sonner Toast ��ʽ���� (�޸���) ===== */"  
 "[data-sonner-toaster] {"  

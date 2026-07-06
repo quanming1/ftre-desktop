@@ -74,71 +74,79 @@ const MarkdownBlock = memo(
 );
 
 /** 统一的 Thought / Thoughted 折叠块 UI */
-function ThoughtBlock({
-  label,
-  text,
-  isActive = false,
-  anchor,
-}: {
-  label: string;
-  text: string;
-  isActive?: boolean;
-  anchor?: React.RefObject<HTMLDivElement | null>;
-}) {
-  const [expanded, setExpanded] = useState(false);
-  const contentRef = useRef<HTMLDivElement>(null);
-  const prevTextLen = useRef(text.length);
-  const content = text.trim().replace(/\n{2,}/g, "\n");
-  const previewLine = content.split("\n").find((line) => line.trim()) || content || "...";
+const ThoughtBlock = memo(
+  function ThoughtBlock({
+    label,
+    text,
+    isActive = false,
+    anchor,
+  }: {
+    label: string;
+    text: string;
+    isActive?: boolean;
+    anchor?: React.RefObject<HTMLDivElement | null>;
+  }) {
+    const [expanded, setExpanded] = useState(false);
+    const contentRef = useRef<HTMLDivElement>(null);
+    const prevTextLen = useRef(text.length);
+    const content = text.trim().replace(/\n{2,}/g, "\n");
+    const previewLine = content.split("\n").find((line) => line.trim()) || content || "...";
 
-  useEffect(() => {
-    if (isActive && expanded && contentRef.current && text.length > prevTextLen.current) {
-      contentRef.current.scrollTop = contentRef.current.scrollHeight;
-    }
-    prevTextLen.current = text.length;
-  }, [text.length, isActive, expanded]);
+    useEffect(() => {
+      if (isActive && expanded && contentRef.current && text.length > prevTextLen.current) {
+        contentRef.current.scrollTop = contentRef.current.scrollHeight;
+      }
+      prevTextLen.current = text.length;
+    }, [text.length, isActive, expanded]);
 
-  return (
-    <div className="mb-2">
-      <button
-        onClick={() => setExpanded((p) => !p)}
-        className="flex items-center gap-1.5 w-full text-[13px] font-mono text-left group py-1"
-      >
-        <ChevronRight
-          size={13}
-          className={`shrink-0 text-t-ghost transition-transform duration-200 ${expanded ? "rotate-90" : ""}`}
-        />
-        <span className="shrink-0 text-t-secondary font-medium">{label}</span>
-        {!expanded && <span className="flex-1 truncate text-t-dim group-hover:text-t-secondary transition-colors">{previewLine}</span>}
-      </button>
-      <div
-        className="grid transition-[grid-template-rows] duration-200 ease-out"
-        style={{ gridTemplateRows: expanded ? "1fr" : "0fr" }}
-      >
-        <div className="overflow-hidden">
-          <div
-            ref={contentRef}
-            className="pl-5 pb-1 text-[13px] font-mono text-t-dim leading-relaxed whitespace-pre-wrap max-h-[300px] overflow-y-auto scrollbar-thin"
-          >
-            {content}
+    return (
+      <div>
+        <button
+          onClick={() => setExpanded((p) => !p)}
+          className="flex items-center gap-1.5 w-full text-[13px] font-mono text-left group py-1"
+        >
+          <ChevronRight
+            size={13}
+            className={`shrink-0 text-t-ghost transition-transform duration-200 ${expanded ? "rotate-90" : ""}`}
+          />
+          <span className="shrink-0 text-t-secondary font-medium">{label}</span>
+          {!expanded && <span className="flex-1 truncate text-t-dim group-hover:text-t-secondary transition-colors">{previewLine}</span>}
+        </button>
+        <div
+          className="grid transition-[grid-template-rows] duration-200 ease-out"
+          style={{ gridTemplateRows: expanded ? "1fr" : "0fr" }}
+        >
+          <div className="overflow-hidden">
+            <div
+              ref={contentRef}
+              className="pl-5 pb-1 text-[13px] font-mono text-t-dim leading-relaxed whitespace-pre-wrap max-h-[300px] overflow-y-auto scrollbar-thin"
+            >
+              {content}
+            </div>
           </div>
         </div>
+        {!expanded && anchor && <div ref={anchor} />}
       </div>
-      {!expanded && anchor && <div ref={anchor} />}
-    </div>
-  );
-}
+    );
+  },
+  (a, b) => a.text === b.text && a.isActive === b.isActive && a.label === b.label && a.anchor === b.anchor,
+);
 
-/** 推理块：与 think 统一 UI，仅文案不同 */
-function ReasoningBlock({ text, isActive }: { text: string; isActive: boolean }) {
-  return <ThoughtBlock label="Reasoning" text={text} isActive={isActive} />;
-}
+/** 推理块：与 think 统一 UI，仅文案不同。流式时 throttle 文本避免高频重渲染打断交互。 */
+const ReasoningBlock = memo(
+  function ReasoningBlock({ text, isActive }: { text: string; isActive: boolean }) {
+    const throttled = useThrottledValue(text, 150, isActive);
+    const display = isActive ? throttled : text;
+    return <ThoughtBlock label="Reasoning" text={display} isActive={isActive} />;
+  },
+  (a, b) => a.text === b.text && a.isActive === b.isActive,
+);
 
 /**
  * 按 parts 顺序行内渲染：每个 tool_call 独立渲染；text 段切块（已闭合块走 memo）；
  * reasoning 段用折叠 ReasoningBlock。流式且为最后一段 text 时对内容做 throttle。
  */
-function PartsRenderer({
+const PartsRenderer = memo(function PartsRenderer({
   parts,
   toolCalls,
   streaming,
@@ -197,7 +205,27 @@ function PartsRenderer({
   }
 
   return <>{rendered}</>;
-}
+},
+(prev, next) => {
+  if (prev.streaming !== next.streaming) return false;
+  if (prev.parts === next.parts && prev.toolCalls === next.toolCalls) return true;
+  if (prev.parts.length !== next.parts.length) return false;
+  for (let i = 0; i < prev.parts.length; i++) {
+    const a = prev.parts[i], b = next.parts[i];
+    if (a.type !== b.type) return false;
+    if (a.type === "text" && b.type === "text" && a.text !== b.text) return false;
+    if (a.type === "reasoning" && b.type === "reasoning" && a.text !== b.text) return false;
+    if (a.type === "tool_call" && b.type === "tool_call" && a.toolCallId !== b.toolCallId) return false;
+  }
+  const at = prev.toolCalls, bt = next.toolCalls;
+  if (at === bt) return true;
+  if (!at || !bt || at.length !== bt.length) return false;
+  for (let i = 0; i < at.length; i++) {
+    const x = at[i], y = bt[i];
+    if (x.id !== y.id || x.status !== y.status || x.arguments !== y.arguments || x.result !== y.result) return false;
+  }
+  return true;
+});
 
 /**
  * 把文本按 <think>...</think> 切分为普通段与思考段。
@@ -337,7 +365,7 @@ export const AssistantMessage = memo(
     // 流式状态下的"思考中"指示器：取代旧的末尾闪烁光标。
     // 规则：streaming === true 且当前没有 tool 在执行（pending / running）时展示。
     return (
-      <div className="flex justify-start">
+      <div data-AssistantMessage="true" className="flex justify-start">
         <div className="w-full">
           {message.isError ? (
             <div className="px-3 py-2 rounded-lg text-[13px] text-t-dim italic leading-relaxed">
@@ -347,7 +375,7 @@ export const AssistantMessage = memo(
             <StreamingContext.Provider value={isStreaming}>
               <div className="text-[var(--text-md)] leading-relaxed text-t-primary font-sans break-words">
                 {message.parts && message.parts.length > 0 ? (
-                  <div className="space-y-2">
+                  <div className="flex flex-col gap-2">
                     <PartsRenderer
                       parts={message.parts}
                       toolCalls={message.toolCalls || []}
@@ -356,7 +384,7 @@ export const AssistantMessage = memo(
                     />
                   </div>
                 ) : (
-                  <>
+                  <div className="flex flex-col gap-2">
                     {/* fallback：parts 为空但有 reasoning（如老历史只有 m.reasoning 字段） */}
                     {message.reasoning && (
                       <ReasoningBlock
@@ -365,7 +393,7 @@ export const AssistantMessage = memo(
                       />
                     )}
                     {message.toolCalls && message.toolCalls.length > 0 && (
-                      <div className="mb-2 space-y-2">
+                      <div className="flex flex-col gap-2">
                         {message.toolCalls.map((tc, i) => (
                           <InlineToolCallCard key={tc.id ?? `tc-${i}`} toolCall={tc} />
                         ))}
@@ -374,7 +402,7 @@ export const AssistantMessage = memo(
                     {displayContent && (
                       <ThinkAwareContent text={displayContent} live={isStreaming} anchor={mdRef} />
                     )}
-                  </>
+                  </div>
                 )}
 
                 {showActions && !isStreaming && !message.isError && (
@@ -422,7 +450,6 @@ export const AssistantMessage = memo(
     );
   },
   (prev, next) => {
-    if (prev.message.parts !== next.message.parts) return false;
     if (prev.message.content !== next.message.content) return false;
     if (prev.message.streaming !== next.message.streaming) return false;
     if (prev.message.reasoning !== next.message.reasoning) return false;

@@ -5,14 +5,14 @@
  * （applyEvent），不再维护一份与 dispatcher 同构的转换器。
  */
 import { create } from "zustand";
-import { useChat, type BusEvent } from "./chat";
+import { useChat, type ChatMessage, type MessageAttachment, type Role } from "./chat";
 import type { SessionSummary } from "@/services/api";
 import {
   fetchSessionPage,
   fetchWorkspaces,
-  fetchSessionMessages,
   fetchSessionMessagesPage,
   deleteSessionRemote,
+  API_BASE,
 } from "@/services/api";
 import { useWorkspace } from "./workspace";
 import { workspaceHash } from "@/utils/pathUtils";
@@ -29,14 +29,192 @@ export type { SessionSummary };
  * 直接映射成 BusEvent 序列，由 chat store 的 applyEvent 同款消化。
  * 不在此做语义合并 / 拆分（与 ws 实时事件保持同一份逻辑）。
  */
-function historyToEvents(records: any[]): BusEvent[] {
-  return records.map((r) => ({
-    type: String(r.type ?? ""),
-    data: r.data ?? {},
-    ts: r.timestamp ? r.timestamp * 1000 : undefined,
-    eventId: typeof r.data?.event_id === "string" ? r.data.event_id : r.id,
-    id: r.id,
-  }));
+function historyToMessages(records: any[]): ChatMessage[] {
+  const messages: ChatMessage[] = [];
+
+  /** 当前 turn 的 assistant 消息（每轮 amc 先 seal 再新建） */
+  let currentAssistant: ChatMessage | null = null;
+
+  /** 创建一条新的 assistant 消息（对应 live 的 ensure()） */
+  const ensureAssistant = (id: string, ts: number): ChatMessage => {
+    currentAssistant = {
+      id,
+      role: "assistant",
+      content: null,
+      timestamp: ts,
+      parts: [],
+      toolCalls: [],
+      streaming: false,
+    };
+    messages.push(currentAssistant);
+    return currentAssistant;
+  };
+
+  /** 结束当前 assistant turn（对应 live 的 done 封口） */
+  const sealAssistant = (): void => {
+    if (!currentAssistant) return;
+    // 清理空字段
+    if (currentAssistant.toolCalls && currentAssistant.toolCalls.length === 0) {
+      delete currentAssistant.toolCalls;
+    }
+    if (currentAssistant.parts && currentAssistant.parts.length === 0) {
+      delete currentAssistant.parts;
+    }
+    currentAssistant = null;
+  };
+
+  for (const r of records) {
+    const ts = r.timestamp ? r.timestamp * 1000 : Date.now();
+    const data = r.data ?? {};
+
+    switch (r.type) {
+      case "user_message": {
+        // user_message 开始新 turn → 先封口上一条 assistant
+        sealAssistant();
+        if (data.metadata?.hide) break;
+        const content = typeof data.content === "string" ? data.content : "";
+        const parts = Array.isArray(data.content) ? data.content : undefined;
+        const rawAtts: any[] = Array.isArray(data.attachments) ? data.attachments : [];
+        const localAttachments: MessageAttachment[] = [];
+        for (const a of rawAtts) {
+          if (a && a.type === "image" && typeof a.mime_type === "string") {
+            let url: string | undefined;
+            let bytes: number | undefined;
+            if (typeof a.data === "string") {
+              url = `data:${a.mime_type};base64,${a.data}`;
+              bytes = Math.floor(a.data.length * 0.75);
+            } else if (typeof a.path === "string") {
+              const filename = a.path.split(/[\\/]/).pop();
+              if (filename) {
+                url = `${API_BASE}/api/images/${encodeURIComponent(filename)}`;
+              }
+              bytes = a.size;
+            }
+            if (url) {
+              localAttachments.push({ type: "image", url, mime: a.mime_type, name: a.name, bytes });
+            }
+          }
+        }
+        if (!content && !parts && localAttachments.length === 0) break;
+        messages.push({
+          id: r.id,
+          role: "user",
+          content,
+          parts,
+          timestamp: ts,
+          ...(localAttachments.length > 0 ? { attachments: localAttachments } : {}),
+        });
+        break;
+      }
+      case "assistant_message_complete": {
+        // 每个 assistant_message_complete 代表一轮独立的 LLM 响应，
+        // 先封口上一条 assistant（如果有），再创建新的。
+        sealAssistant();
+        const blocks = Array.isArray(data.content) ? data.content : [];
+        const meta = data.metadata ?? {};
+        const m = ensureAssistant(r.id, ts);
+
+        // Build fresh parts/toolCalls from content blocks (full replace)
+        const parts: import("./chat").MessagePart[] = [];
+        const toolCalls: import("./chat").ToolCall[] = [];
+        let textContent = "";
+        let reasoningContent = "";
+        const eventIds: string[] = [];
+
+        for (const block of blocks) {
+          if (block.type === "thinking" && (block.thinking || block.text)) {
+            const text = block.thinking || block.text;
+            parts.push({ type: "reasoning", text });
+            reasoningContent += (reasoningContent ? "\n\n" : "") + text;
+          } else if (block.type === "text" && block.text) {
+            parts.push({ type: "text", text: block.text });
+            textContent += block.text;
+          } else if (block.type === "toolCall") {
+            const id = block.id || "";
+            const name = block.name || "unknown";
+            const args = typeof block.arguments === "object"
+              ? JSON.stringify(block.arguments)
+              : String(block.arguments ?? "{}");
+            toolCalls.push({ id, name, arguments: args, status: "running" });
+            parts.push({ type: "tool_call", toolCallId: id });
+          }
+          if (block.event_id) eventIds.push(block.event_id);
+        }
+
+        m.parts = parts;
+        m.toolCalls = toolCalls;
+        m.content = textContent || null;
+        m.reasoning = reasoningContent || undefined;
+        if (meta.usage) m.usage = meta.usage;
+        if (eventIds.length > 0) (m as any).eventIds = eventIds;
+        break;
+      }
+      case "tool_result": {
+        // 写入当前 assistant 消息中匹配的 toolCall
+        const id = data.id;
+        for (let i = messages.length - 1; i >= 0; i--) {
+          if (messages[i].role !== "assistant" || !messages[i].toolCalls) continue;
+          const tc = messages[i].toolCalls!.find((t) => t.id === id);
+          if (tc) {
+            tc.status = data.error ? "error" : "ok";
+            tc.result = data.error ?? data.result ?? "";
+            tc.name = data.name || tc.name;
+            break;
+          }
+        }
+        break;
+      }
+      case "done": {
+        sealAssistant();
+        break;
+      }
+      case "error": {
+        sealAssistant();
+        messages.push({
+          id: r.id,
+          role: "assistant",
+          content: data.message ?? "Unknown error",
+          timestamp: ts,
+          isError: true,
+        });
+        break;
+      }
+      case "external_message": {
+        sealAssistant();
+        const text = typeof data.content === "string" ? data.content : "";
+        const fromCh = typeof data.from_channel === "string" ? data.from_channel : "";
+        const fromSid = typeof data.from_session === "string" ? data.from_session : "";
+        messages.push({
+          id: r.id,
+          role: "assistant",
+          content: text,
+          timestamp: ts,
+          parts: text ? [{ type: "text", text }] : undefined,
+          external: true,
+          externalFrom: fromCh || fromSid ? `${fromCh}::${fromSid}` : undefined,
+        });
+        break;
+      }
+      case "context_compact": {
+        sealAssistant();
+        if (data.silent === true) break;
+        messages.push({
+          id: r.id,
+          role: "system" as Role,
+          content: null,
+          timestamp: ts,
+          compact: {
+            status: "done",
+            summaryPreview: typeof data.summary === "string" ? data.summary : undefined,
+          },
+        });
+        break;
+      }
+    }
+  }
+  // 兜底封口
+  sealAssistant();
+  return messages;
 }
 
 // ─── Storage Keys ───────────────────────────────────────────────────
@@ -282,16 +460,16 @@ export const useSession = create<SessionState>((set, get) => ({
     useChat.getState().switchTo(sessionId);
     try { localStorage.setItem(sessionStorageKey(), sessionId); } catch { }
 
-    // HTTP 先行：拉 DB 历史（最近 5 轮），loadSessionEvents 重建消息
+    // HTTP 先行：拉 DB 历史（最近 5 轮），loadSessionMessages 重建消息
     fetchSessionMessagesPage(sessionId, { limitTurns: FIRST_PAGE_TURNS, signal } as any)
       .then((page) => {
         if (!page) return;
-        useChat.getState().loadSessionEvents(
+        useChat.getState().loadSessionMessages(
           sessionId,
-          historyToEvents(page.messages),
-          "hydrate",
+          historyToMessages(page.messages),
+          page.hasMore,
+          page.status,
         );
-        useChat.getState().prependSessionEvents(sessionId, [], page.hasMore);
         useChat.getState().setSessionStatus(sessionId, page.status);
         // HTTP 完成后再 WS attach：replay/live 统一追加到 DB 历史后面，
         // 重叠帧由 chat reducer 按 event_id 去重。
@@ -317,9 +495,9 @@ export const useSession = create<SessionState>((set, get) => ({
         limitTurns: FIRST_PAGE_TURNS,
         beforeTs: earliestTs,
       });
-      chat.prependSessionEvents(
+      chat.prependSessionMessages(
         sessionId,
-        historyToEvents(page.messages),
+        historyToMessages(page.messages),
         page.hasMore,
       );
       return page.messages.length > 0;
