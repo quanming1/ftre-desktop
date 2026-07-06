@@ -43,7 +43,7 @@
     /* 字体 */
     --font-mono:
         "JetBrains Mono", "Cascadia Code", "Fira Code", "Consolas", monospace;
-    --font-sans: "Inter", -apple-system, "Segoe UI", sans-serif;
+    --font-sans: "Microsoft YaHei", "Inter", -apple-system, "Segoe UI", sans-serif;
 
     /* 字号 — 语义化 */
     --text-xs: 11px;
