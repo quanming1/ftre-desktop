@@ -9,29 +9,28 @@ import type { WsConnectionStatus, ServerMessage } from "@/services/websocket-cli
 import { createSessionRemote, API_BASE, fetchChatAgents, updateAgent } from "@/services/api";
 import type { ChatAgent } from "@/services/api";
 
-// 鈹€鈹€鈹€ Types 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
+// ─── Types ───────────────────────────────────────────────────────────
 
 export type Role = "assistant" | "user" | "system";
 export type SessionStatus = "idle" | "running" | "compacting";
 
-export interface ToolCall {
+/** 协议级 content block（assistant 消息的最小内容单元） */
+export type ContentBlock =
+  | { type: "thinking"; thinking: string; event_id?: string }
+  | { type: "text"; text: string; event_id?: string }
+  | { type: "toolCall"; id: string; name: string; arguments: Record<string, any>; event_id?: string };
+
+/** 工具执行结果（与 toolCall block 的 id 配对） */
+export interface ToolResult {
   id: string;
   name: string;
-  arguments: string;
-  status: "pending" | "running" | "ok" | "error";
-  result?: string;
+  result: string | null;
+  error: string | null;
+  status: "completed" | "error" | "cancelled";
 }
 
-export type MessagePart =
-  | { type: "text"; text: string; data?: string; streaming?: boolean }
-  | { type: "reasoning"; text: string; streaming?: boolean }
-  | { type: "tool_call"; toolCallId: string }
-  | { type: "skill"; data: string };
-
-/** 鐢ㄦ埛娑堟伅闄勪欢锛堜笌鍚庣 attachments 鍗忚鍚屽舰锛宐ase64 宸茶浆鎴?data URL锛?*/
 export interface MessageAttachment {
   type: "image";
-  /** data:<mime>;base64,<...> */
   url: string;
   mime?: string;
   name?: string;
@@ -41,37 +40,34 @@ export interface MessageAttachment {
 export interface ChatMessage {
   id: string;
   role: Role;
+  /** user: 文本; assistant: 拼接文本(便利字段); system: null */
   content: string | null;
   timestamp: number;
+  /** assistant: 协议 content blocks（直接存储，不做二次转换） */
+  blocks?: ContentBlock[];
+  /** assistant: tool 结果，按 toolCall.id 索引 */
+  toolResults?: Record<string, ToolResult>;
   streaming?: boolean;
-  toolCalls?: ToolCall[];
-  reasoning?: string;
-  parts?: MessagePart[];
-  /** 鐢ㄦ埛娑堟伅鎼哄甫鐨勯檮浠讹紙濡傚浘鐗囷級銆備粎鍦?role === "user" 鏃朵娇鐢ㄣ€?*/
   attachments?: MessageAttachment[];
-  isError?: boolean;
-  /** 澶栭儴 session 閫氳繃 send_message 娉ㄥ叆鐨勬秷鎭?*/
-  external?: boolean;
-  /** 澶栭儴娑堟伅鏉ユ簮鏍囪瘑锛坈hannel::session锛?*/
-  externalFrom?: string;
-  /** 涓婁笅鏂囧帇缂╃姸鎬佹秷鎭細鏍囪 + 鐘舵€?+ 鍏冧俊鎭?*/
-  compact?: {
-    status: "running" | "done" | "failed";
-    tokensBefore?: number;
-    summaryPreview?: string;
-    reason?: string;
-  };
   usage?: {
     prompt_tokens?: number;
     completion_tokens?: number;
     total_tokens?: number;
     [k: string]: any;
   };
-  /** Event IDs associated with this message (for WS live dedup) */
+  metadata?: { kind?: "block" | "final"; [k: string]: any };
+  isError?: boolean;
+  external?: boolean;
+  externalFrom?: string;
+  compact?: {
+    status: "running" | "done" | "failed";
+    tokensBefore?: number;
+    summaryPreview?: string;
+    reason?: string;
+  };
   eventIds?: string[];
 }
 
-/** 鍚姩鏃朵粠鍚庣 config 棰勫姞杞界殑榛樿宸ヤ綔鍖虹紦瀛橈紝newChat() 鏃剁洿鎺ユ仮澶?*/
 let _defaultWsCache: string | null = null;
 
 export interface RetryState {
@@ -96,8 +92,6 @@ interface Bucket {
   isBusy: boolean;
   error: string | null;
   retryState: RetryState | null;
-  /** 最后一次 assistant_message 的 content[]，供 done/error 在取消场景下补封 */
-  lastStreamingContent?: any[];
 }
 
 const buckets = new Map<string, Bucket>();
@@ -117,7 +111,6 @@ const emptyBucket = (): Bucket => ({
   isBusy: false,
   error: null,
   retryState: null,
-  lastStreamingContent: undefined,
 });
 function bucket(sid: string): Bucket {
   let b = buckets.get(sid);
@@ -127,53 +120,18 @@ function bucket(sid: string): Bucket {
 
 const last = <T>(arr: T[]): T | undefined => arr[arr.length - 1];
 
-/**
- * Build parts + toolCalls + textContent + reasoning from content[].
- *
- * content[] mixes thinking / text / toolCall blocks.
- * Used by assistant_message and assistant_message_complete to do full replacement.
- */
-function buildFromContent(content: any[]): {
-  parts: MessagePart[];
-  toolCalls: ToolCall[];
-  textContent: string | null;
-  reasoning: string | undefined;
-  eventIds: string[];
-} {
-  const parts: MessagePart[] = [];
-  const toolCalls: ToolCall[] = [];
-  let textContent = "";
-  let reasoning = "";
+/** Extract text + eventIds from content blocks (no transformation) */
+function extractFromBlocks(blocks: ContentBlock[]): { text: string; eventIds: string[] } {
+  let text = "";
   const eventIds: string[] = [];
-
-  for (const block of content) {
-    if (block.type === "thinking" && (block.thinking || block.text)) {
-      const text = block.thinking || block.text;
-      parts.push({ type: "reasoning", text, streaming: false });
-      reasoning += (reasoning ? "\n\n" : "") + text;
-    } else if (block.type === "text" && block.text) {
-      parts.push({ type: "text", text: block.text, streaming: false });
-      textContent += block.text;
-    } else if (block.type === "toolCall") {
-      const id = block.id || "";
-      const name = block.name || "unknown";
-      const args = typeof block.arguments === "object"
-        ? JSON.stringify(block.arguments)
-        : String(block.arguments ?? "{}");
-      toolCalls.push({ id, name, arguments: args, status: "running" });
-      parts.push({ type: "tool_call", toolCallId: id });
-    }
-    if (block.event_id) eventIds.push(block.event_id);
+  for (const b of blocks) {
+    if (b.type === "text") text += b.text;
+    if (b.event_id) eventIds.push(b.event_id);
   }
-
-  return {
-    parts,
-    toolCalls,
-    textContent: textContent || null,
-    reasoning: reasoning || undefined,
-    eventIds,
-  };
+  return { text, eventIds };
 }
+
+
 
 /** 褰?sid === activeId 鏃讹紝鎶?bucket 瀛楁闀滃儚鍒?store 椤跺眰銆?*/
 function mirror(sid: string): void {
@@ -268,8 +226,8 @@ export function applyEvent(b: Bucket, ev: BusEvent): void {
         content: null,
         timestamp: ts,
         streaming: true,
-        parts: [],
-        toolCalls: [],
+        blocks: [],
+        toolResults: {},
       },
     ];
   };
@@ -278,30 +236,32 @@ export function applyEvent(b: Bucket, ev: BusEvent): void {
     if (!d.metadata?.hide || !Array.isArray(d.content)) return;
     if (!d.content.some((p: any) => p?.type === "image_file" && typeof p.path === "string")) return;
 
-    const hasImagePayload = (value: unknown): boolean => {
-      if (typeof value !== "string" || !value) return false;
-      try {
-        return JSON.stringify(JSON.parse(value)).includes('"image_file"');
-      } catch {
-        return false;
-      }
-    };
-
     for (let i = b.messages.length - 1; i >= 0; i--) {
-      const toolCalls = b.messages[i].toolCalls;
-      if (!toolCalls?.length) continue;
-      for (let j = toolCalls.length - 1; j >= 0; j--) {
-        const tc = toolCalls[j];
-        const name = typeof tc.name === "string" ? tc.name.toLowerCase() : "";
-        if ((name === "read" || name === "read_file") && !hasImagePayload(tc.result)) {
-          const nextMessages = b.messages.slice();
-          const nextToolCalls = toolCalls.slice();
-          nextToolCalls[j] = { ...tc, status: "ok", result: JSON.stringify(d) };
-          nextMessages[i] = { ...nextMessages[i], toolCalls: nextToolCalls };
-          b.messages = nextMessages;
-          return;
-        }
-      }
+      const msg = b.messages[i];
+      if (!msg.blocks) continue;
+      const toolCallBlock = msg.blocks.find(
+        (bl) => bl.type === "toolCall" && (bl.name === "read" || bl.name === "read_file")
+      );
+      if (!toolCallBlock || toolCallBlock.type !== "toolCall") continue;
+      const tcId = toolCallBlock.id;
+      const existingResult = msg.toolResults?.[tcId];
+      if (existingResult?.result?.includes("image_file")) continue;
+      const nextMessages = b.messages.slice();
+      nextMessages[i] = {
+        ...msg,
+        toolResults: {
+          ...(msg.toolResults || {}),
+          [tcId]: {
+            id: tcId,
+            name: toolCallBlock.name,
+            result: JSON.stringify(d),
+            error: null,
+            status: "completed" as const,
+          },
+        },
+      };
+      b.messages = nextMessages;
+      return;
     }
   };
 
@@ -315,23 +275,19 @@ export function applyEvent(b: Bucket, ev: BusEvent): void {
       const frameId = (ev.metadata?.frame_id as string | undefined) ?? "";
       b.lastUserInputTs = ts;
       if (frameId && b.messages.some((m) => m.id === frameId)) return;
-      const c = typeof d.content === "string" ? d.content : "";
-      const parts: MessagePart[] | undefined = Array.isArray(d.content)
-        ? (d.content as MessagePart[])
-        : undefined;
+      const c = typeof d.content === "string"
+        ? d.content
+        : Array.isArray(d.content)
+          ? d.content
+              .filter((p: any) => p?.type === "text" || p?.type === "skill")
+              .map((p: any) => String(p.text ?? p.data ?? "").trim())
+              .join("\n")
+              .trim()
+          : "";
       const rawAtts: any[] = Array.isArray(d.attachments) ? d.attachments : [];
       const localAttachments: MessageAttachment[] = [];
-      const hasPartsContent = parts && parts.some(
-        (p) => p.type === "text" || p.type === "skill",
-      );
       for (const a of rawAtts) {
-        if (
-          a &&
-          a.type === "image" &&
-          typeof a.mime_type === "string"
-        ) {
-          // 瀹炴椂娑堟伅锛氭湁 base64 data 鈫?鎷?data URL
-          // 鍘嗗彶娑堟伅锛氬彧鏈?path 鈫?鐢?HTTP URL 浠庡悗绔姞杞?
+        if (a && a.type === "image" && typeof a.mime_type === "string") {
           let url: string | undefined;
           let bytes: number | undefined;
           if (typeof a.data === "string") {
@@ -339,30 +295,21 @@ export function applyEvent(b: Bucket, ev: BusEvent): void {
             bytes = Math.floor(a.data.length * 0.75);
           } else if (typeof a.path === "string") {
             const filename = a.path.split(/[\\/]/).pop();
-            if (filename) {
-              url = `${API_BASE}/api/images/${encodeURIComponent(filename)}`;
-            }
+            if (filename) url = `${API_BASE}/api/images/${encodeURIComponent(filename)}`;
             bytes = a.size;
           }
           if (url) {
-            localAttachments.push({
-              type: "image",
-              url,
-              mime: a.mime_type,
-              name: typeof a.name === "string" ? a.name : undefined,
-              bytes,
-            });
+            localAttachments.push({ type: "image", url, mime: a.mime_type, name: a.name, bytes });
           }
         }
       }
-      if (!c && !hasPartsContent && localAttachments.length === 0) return;
+      if (!c && localAttachments.length === 0) return;
       b.messages = [
         ...b.messages,
         {
           id: frameId || ev.id || nextId("user"),
           role: "user",
           content: c,
-          parts,
           timestamp: ts,
           ...(localAttachments.length > 0 ? { attachments: localAttachments } : {}),
         },
@@ -377,31 +324,18 @@ export function applyEvent(b: Bucket, ev: BusEvent): void {
       ensure();
       if (!isComplete && b.retryState) b.retryState = null;
 
-      const contentBlocks: any[] = Array.isArray(d.content) ? d.content : [];
-      const { parts, toolCalls, textContent, reasoning, eventIds } = buildFromContent(contentBlocks);
-
-      // Preserve tool results from existing toolCalls (cross-turn in ReAct loop)
-      const existingTCs = last(b.messages)?.toolCalls || [];
-      for (const newTc of toolCalls) {
-        const existing = existingTCs.find((t) => t.id === newTc.id);
-        if (existing && (existing.status === "ok" || existing.status === "error")) {
-          newTc.status = existing.status;
-          if (existing.result !== undefined) (newTc as any).result = existing.result;
-        }
-      }
-
-      if (!isComplete) b.lastStreamingContent = contentBlocks;
-
+      const blocks: ContentBlock[] = (Array.isArray(d.content) ? d.content : []) as ContentBlock[];
+      const { text, eventIds } = extractFromBlocks(blocks);
       const metadata = isComplete ? (d.metadata || {}) : {};
+
       replaceTail((m) => ({
         ...m,
         id: ev.id ?? m.id,
-        parts,
-        toolCalls,
-        content: textContent,
-        reasoning,
+        blocks,
+        content: text || null,
         streaming: !isComplete,
         ...(metadata.usage ? { usage: metadata.usage } : {}),
+        ...(metadata.kind ? { metadata } : {}),
         ...(eventIds.length > 0 ? { eventIds } : {}),
       }));
       return;
@@ -416,7 +350,8 @@ export function applyEvent(b: Bucket, ev: BusEvent): void {
         role: "assistant",
         content: text,
         timestamp: ts,
-        parts: text ? [{ type: "text", text }] : [],
+        blocks: text ? [{ type: "text", text }] : [],
+        toolResults: {},
         external: true,
         externalFrom: fromCh || fromSid ? `${fromCh}::${fromSid}` : undefined,
       };
@@ -433,16 +368,23 @@ export function applyEvent(b: Bucket, ev: BusEvent): void {
     case "tool_result": {
       const id = d.id;
       const isErr = !!d.error;
+      const result: ToolResult = {
+        id,
+        name: d.name || "",
+        result: isErr ? null : (d.result ?? ""),
+        error: isErr ? d.error : null,
+        status: isErr ? "error" : "completed",
+      };
       for (let i = b.messages.length - 1; i >= 0; i--) {
-        const tc = b.messages[i].toolCalls?.find((t) => t.id === id);
-        if (!tc) continue;
+        const msg = b.messages[i];
+        if (!msg.blocks) continue;
+        const hasBlock = msg.blocks.some((bl) => bl.type === "toolCall" && bl.id === id);
+        if (!hasBlock) continue;
         const next = b.messages.slice();
-        const updTc = next[i].toolCalls!.map((t) =>
-          t.id === id
-            ? { ...t, status: isErr ? ("error" as const) : ("ok" as const), result: isErr ? d.error : (d.result ?? ""), name: d.name || t.name }
-            : t,
-        );
-        next[i] = { ...next[i], toolCalls: updTc };
+        next[i] = {
+          ...msg,
+          toolResults: { ...(msg.toolResults || {}), [id]: result },
+        };
         b.messages = next;
         return;
       }
@@ -450,70 +392,20 @@ export function applyEvent(b: Bucket, ev: BusEvent): void {
     }
 
     case "done": {
-      replaceTail((m) => {
-        if (!m.streaming) return m;
-        // Cancel scenario: no assistant_message_complete received.
-        // Use lastStreamingContent to build final parts.
-        const lastContent = b.lastStreamingContent;
-        if (lastContent && lastContent.length > 0) {
-          const { parts, toolCalls, textContent, reasoning } = buildFromContent(lastContent);
-          // Preserve tool results from existing toolCalls
-          const existingTCs = m.toolCalls || [];
-          for (const newTc of toolCalls) {
-            const existing = existingTCs.find((t) => t.id === newTc.id);
-            if (existing && (existing.status === "ok" || existing.status === "error")) {
-              newTc.status = existing.status;
-              if (existing.result !== undefined) (newTc as any).result = existing.result;
-            }
-          }
-          return {
-            ...m,
-            parts,
-            toolCalls: toolCalls.map((tc) =>
-              tc.status === "running" || tc.status === "pending" ? { ...tc, status: "ok" as const } : tc,
-            ),
-            content: textContent,
-            reasoning,
-            streaming: false,
-          };
-        }
-        // No streaming content, just seal
-        return {
-          ...m,
-          streaming: false,
-          toolCalls: m.toolCalls?.map((tc) =>
-            tc.status === "running" || tc.status === "pending" ? { ...tc, status: "ok" as const } : tc,
-          ),
-        };
-      });
+      // content is already on the message (from assistant_message snapshots);
+      // just seal streaming.
+      replaceTail((m) => m.streaming ? { ...m, streaming: false } : m);
       b.isBusy = false;
       b.sessionStatus = "idle";
       b.retryState = null;
-      b.lastStreamingContent = undefined;
       return;
     }
 
     case "error": {
       const msg: string = d.message ?? "Unknown error";
       const code = d.code;
-      // Seal streaming message if exists (preserve generated content)
-      replaceTail((m) => {
-        if (!m.streaming) return m;
-        const lastContent = b.lastStreamingContent;
-        if (lastContent && lastContent.length > 0) {
-          const { parts, toolCalls, textContent, reasoning } = buildFromContent(lastContent);
-          const existingTCs = m.toolCalls || [];
-          for (const newTc of toolCalls) {
-            const existing = existingTCs.find((t) => t.id === newTc.id);
-            if (existing && (existing.status === "ok" || existing.status === "error")) {
-              newTc.status = existing.status;
-              if (existing.result !== undefined) (newTc as any).result = existing.result;
-            }
-          }
-          return { ...m, parts, toolCalls, content: textContent, reasoning, streaming: false };
-        }
-        return { ...m, streaming: false };
-      });
+      // Seal streaming message if exists (content already on message)
+      replaceTail((m) => m.streaming ? { ...m, streaming: false } : m);
       b.messages = [
         ...b.messages,
         { id: ev.id ?? nextId("err"), role: "assistant", content: msg, timestamp: ts, isError: true },
@@ -521,13 +413,10 @@ export function applyEvent(b: Bucket, ev: BusEvent): void {
       b.isBusy = false;
       b.sessionStatus = "idle";
       b.error = code ? `[${code}] ${msg}` : msg;
-      b.lastStreamingContent = undefined;
       return;
     }
 
     case "retry": {
-      // Next assistant_message will create a new streaming message via ensure().
-      b.lastStreamingContent = undefined;
       b.retryState = { attempt: d.attempt, maxAttempts: d.max_attempts, message: d.message };
       return;
     }
@@ -979,7 +868,6 @@ export const useChat = create<ChatState>((set, get) => ({
       id: frameId,
       role: "user",
       content: displayText,
-      parts: parts.length > 0 ? (parts as any) : undefined,
       timestamp: Date.now(),
       ...(localAttachments ? { attachments: localAttachments } : {}),
     };

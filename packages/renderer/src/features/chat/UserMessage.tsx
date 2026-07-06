@@ -3,7 +3,7 @@ import type { MessagePart } from "@/types/chat";
 import type { ChatMessage as WsChatMessage } from "@/stores/chat";
 
 /** Extended message type for UserMessage — supports both WS messages and legacy rich messages */
-interface ChatMessage extends Omit<WsChatMessage, "parts"> {
+interface ChatMessage extends WsChatMessage {
   parts?: MessagePart[];
   diffMeta?: { base_hash: string; final_hash: string; workspace: string };
   metadata?: Record<string, unknown>;

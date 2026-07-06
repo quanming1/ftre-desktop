@@ -107,21 +107,22 @@ export const ChatMessageList = memo(function ChatMessageList({
   const tailFingerprint =
     !lastMsg
       ? ""
-      : `${lastMsg.id}:${(lastMsg.content ?? "").length}:${(lastMsg.reasoning ?? "").length}:${
-          lastMsg.parts
-            ?.map((p) =>
-              p.type === "tool_call"
-                ? `t${p.toolCallId}`
-                : `${p.type[0]}${String(p.type === "text" ? p.text ?? p.data ?? "" : "").length}`,
+      : `${lastMsg.id}:${(lastMsg.content ?? "").length}:${
+          lastMsg.blocks
+            ?.map((b) =>
+              b.type === "toolCall"
+                ? `t${b.id}`
+                : b.type === "thinking"
+                  ? `r${b.thinking.length}`
+                  : `x${b.text.length}`,
             )
             .join("|") ?? ""
         }:${
-          lastMsg.toolCalls
-            ?.map(
-              (t) =>
-                `${t.id}${t.status}${t.arguments?.length ?? 0}${(t.result ?? "").length}`,
-            )
-            .join("|") ?? ""
+          lastMsg.toolResults
+            ? Object.entries(lastMsg.toolResults)
+                .map(([id, r]) => `${id}${r.status}${(r.result ?? "").length}`)
+                .join("|")
+            : ""
         }`;
 
   useEffect(() => {
@@ -259,8 +260,7 @@ export const ChatMessageList = memo(function ChatMessageList({
             for (let j = turnStart; j <= i; j++) {
               const m = visibleMessages[j];
               if (m.role !== "assistant") continue;
-              const parts = m.parts?.filter((p): p is { type: "text"; text: string } => p.type === "text" && Boolean(p.text));
-              const text = parts?.length ? parts.map((p) => p.text).join("\n") : m.content ?? "";
+              const text = m.content ?? "";
               if (text) turnTexts.push(text);
             }
           }
