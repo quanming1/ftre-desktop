@@ -1,6 +1,6 @@
 import { memo, useCallback, useEffect, useRef, useState, isValidElement, Children } from "react";
 import ReactMarkdown from "react-markdown";
-import type { ChatMessage, MessagePart, ToolCall } from "@/stores/chat";
+import type { ChatMessage, ContentBlock, ToolResult } from "@/stores/chat";
 import { CodeBlock, StreamingContext } from "./CodeBlock";
 import { useThrottledValue } from "@/hooks/useThrottledValue";
 import { splitBlocks } from "./streamingMarkdown";
@@ -143,64 +143,58 @@ const ReasoningBlock = memo(
 );
 
 /**
- * 按 parts 顺序行内渲染：每个 tool_call 独立渲染；text 段切块（已闭合块走 memo）；
- * reasoning 段用折叠 ReasoningBlock。流式且为最后一段 text 时对内容做 throttle。
+ * 按 blocks 顺序行内渲染：thinking → ReasoningBlock；text → TextPart（已闭合块走 memo）；
+ * toolCall → InlineToolCallCard（带配对的 toolResult）。流式且为最后一段 text 时对内容做 throttle。
  */
-const PartsRenderer = memo(function PartsRenderer({
-  parts,
-  toolCalls,
+const BlocksRenderer = memo(function BlocksRenderer({
+  blocks,
+  toolResults,
   streaming,
   mdRef,
 }: {
-  parts: MessagePart[];
-  toolCalls: ToolCall[];
+  blocks: ContentBlock[];
+  toolResults: Record<string, ToolResult>;
   streaming: boolean;
   mdRef: React.RefObject<HTMLDivElement | null>;
 }) {
-  // 找到最后一个 text part 的索引（光标 / throttle 锚点）
+  // 找到最后一个 text block 的索引（光标 / throttle 锚点）
   let lastTextIdx = -1;
-  for (let i = parts.length - 1; i >= 0; i--) {
-    if (parts[i].type === "text") { lastTextIdx = i; break; }
+  for (let i = blocks.length - 1; i >= 0; i--) {
+    if (blocks[i].type === "text") { lastTextIdx = i; break; }
   }
 
   const rendered: React.ReactNode[] = [];
 
-  for (let i = 0; i < parts.length; i++) {
-    const p = parts[i];
+  for (let i = 0; i < blocks.length; i++) {
+    const block = blocks[i];
 
-    if (p.type === "tool_call") {
-      const groupedIds: string[] = [];
-      while (i < parts.length && parts[i].type === "tool_call") {
-        groupedIds.push(parts[i].toolCallId);
-        i++;
-      }
-      i -= 1;
-
-      const groupedToolCalls = groupedIds
-        .map((id) => toolCalls.find((toolCall) => toolCall.id === id))
-        .filter((toolCall): toolCall is ToolCall => Boolean(toolCall));
-
-      for (const toolCall of groupedToolCalls) {
-        rendered.push(
-          <InlineToolCallCard key={`tc-${toolCall.id}`} toolCall={toolCall} />,
-        );
-      }
+    if (block.type === "thinking") {
+      const text = block.thinking || "";
+      if (!text) continue;
+      rendered.push(<ReasoningBlock key={`r-${i}`} text={text} isActive={streaming} />);
       continue;
     }
 
-    if (p.type === "reasoning") {
-      const isReasoningLive = streaming && p.streaming !== false;
-      rendered.push(<ReasoningBlock key={`r-${i}`} text={p.text} isActive={isReasoningLive} />);
+    if (block.type === "toolCall") {
+      rendered.push(
+        <InlineToolCallCard
+          key={`tc-${block.id || i}`}
+          block={block}
+          result={toolResults[block.id]}
+          streaming={streaming}
+        />
+      );
       continue;
     }
 
+    // text block
     rendered.push(
       <TextPart
         key={`tx-${i}`}
-        text={p.text}
+        text={block.text}
         live={streaming && i === lastTextIdx}
         anchor={i === lastTextIdx ? mdRef : undefined}
-      />,
+      />
     );
   }
 
@@ -208,21 +202,23 @@ const PartsRenderer = memo(function PartsRenderer({
 },
 (prev, next) => {
   if (prev.streaming !== next.streaming) return false;
-  if (prev.parts === next.parts && prev.toolCalls === next.toolCalls) return true;
-  if (prev.parts.length !== next.parts.length) return false;
-  for (let i = 0; i < prev.parts.length; i++) {
-    const a = prev.parts[i], b = next.parts[i];
+  if (prev.blocks === next.blocks && prev.toolResults === next.toolResults) return true;
+  if (prev.blocks.length !== next.blocks.length) return false;
+  for (let i = 0; i < prev.blocks.length; i++) {
+    const a = prev.blocks[i], b = next.blocks[i];
     if (a.type !== b.type) return false;
     if (a.type === "text" && b.type === "text" && a.text !== b.text) return false;
-    if (a.type === "reasoning" && b.type === "reasoning" && a.text !== b.text) return false;
-    if (a.type === "tool_call" && b.type === "tool_call" && a.toolCallId !== b.toolCallId) return false;
+    if (a.type === "thinking" && b.type === "thinking" && a.thinking !== b.thinking) return false;
+    if (a.type === "toolCall" && b.type === "toolCall" && a.id !== b.id) return false;
   }
-  const at = prev.toolCalls, bt = next.toolCalls;
-  if (at === bt) return true;
-  if (!at || !bt || at.length !== bt.length) return false;
-  for (let i = 0; i < at.length; i++) {
-    const x = at[i], y = bt[i];
-    if (x.id !== y.id || x.status !== y.status || x.arguments !== y.arguments || x.result !== y.result) return false;
+  // Compare toolResults
+  const ar = prev.toolResults, br = next.toolResults;
+  if (ar === br) return true;
+  const aKeys = Object.keys(ar), bKeys = Object.keys(br);
+  if (aKeys.length !== bKeys.length) return false;
+  for (const k of aKeys) {
+    const x = ar[k], y = br[k];
+    if (!y || x.status !== y.status || x.result !== y.result || x.error !== y.error) return false;
   }
   return true;
 });
@@ -336,23 +332,17 @@ export const AssistantMessage = memo(
     message: ChatMessage;
     showActions?: boolean;
     turnUsage?: ChatMessage["usage"];
-    /** 本轮所有 assistant 消息的纯文本列表 */
     turnTexts?: string[];
   }) {
     const isStreaming = message.streaming ?? false;
-    const throttledContent = useThrottledValue(message.content, 150, isStreaming);
-    const displayContent = isStreaming ? throttledContent : message.content;
     const mdRef = useRef<HTMLDivElement>(null);
 
     // 复制
     const [copied, setCopied] = useState(false);
     const handleCopy = useCallback(async () => {
-      // 优先复制本轮所有 AI 消息；fallback 到本条消息
       const text = (turnTexts && turnTexts.length > 0)
         ? turnTexts.join("\n\n")
-        : (message.parts && message.parts.length > 0)
-          ? message.parts.filter((p): p is { type: "text"; text: string } => p.type === "text").map((p) => p.text).join("\n")
-          : (message.content ?? "");
+        : (message.content ?? "");
       try {
         await navigator.clipboard.writeText(text);
         setCopied(true);
@@ -360,10 +350,8 @@ export const AssistantMessage = memo(
       } catch {
         useNotification.getState().addNotification({ level: "error", message: "复制失败" });
       }
-    }, [turnTexts, message.parts, message.content]);
+    }, [turnTexts, message.content]);
 
-    // 流式状态下的"思考中"指示器：取代旧的末尾闪烁光标。
-    // 规则：streaming === true 且当前没有 tool 在执行（pending / running）时展示。
     return (
       <div data-AssistantMessage="true" className="flex justify-start">
         <div className="w-full">
@@ -374,36 +362,20 @@ export const AssistantMessage = memo(
           ) : (
             <StreamingContext.Provider value={isStreaming}>
               <div className="text-[var(--text-md)] leading-relaxed text-t-primary font-sans break-words">
-                {message.parts && message.parts.length > 0 ? (
+                {message.blocks && message.blocks.length > 0 ? (
                   <div className="flex flex-col gap-2">
-                    <PartsRenderer
-                      parts={message.parts}
-                      toolCalls={message.toolCalls || []}
+                    <BlocksRenderer
+                      blocks={message.blocks}
+                      toolResults={message.toolResults || {}}
                       streaming={isStreaming}
                       mdRef={mdRef}
                     />
                   </div>
-                ) : (
+                ) : message.content ? (
                   <div className="flex flex-col gap-2">
-                    {/* fallback：parts 为空但有 reasoning（如老历史只有 m.reasoning 字段） */}
-                    {message.reasoning && (
-                      <ReasoningBlock
-                        text={message.reasoning}
-                        isActive={isStreaming && !(message.content?.length) && !(message.toolCalls?.length)}
-                      />
-                    )}
-                    {message.toolCalls && message.toolCalls.length > 0 && (
-                      <div className="flex flex-col gap-2">
-                        {message.toolCalls.map((tc, i) => (
-                          <InlineToolCallCard key={tc.id ?? `tc-${i}`} toolCall={tc} />
-                        ))}
-                      </div>
-                    )}
-                    {displayContent && (
-                      <ThinkAwareContent text={displayContent} live={isStreaming} anchor={mdRef} />
-                    )}
+                    <ThinkAwareContent text={message.content} live={isStreaming} anchor={mdRef} />
                   </div>
-                )}
+                ) : null}
 
                 {showActions && !isStreaming && !message.isError && (
                   <div className="mt-2 flex items-center gap-1">
@@ -431,7 +403,6 @@ export const AssistantMessage = memo(
                             {(() => {
                               const u = turnUsage ?? message.usage;
                               if (!u) return null;
-                              // 外显本轮输出 token 数
                               if (u.completion_tokens != null) return `${u.completion_tokens} tok`;
                               if (u.total_tokens != null) return `${u.total_tokens} tok`;
                               return `${u.prompt_tokens ?? 0}+${u.completion_tokens ?? 0} tok`;
@@ -452,18 +423,31 @@ export const AssistantMessage = memo(
   (prev, next) => {
     if (prev.message.content !== next.message.content) return false;
     if (prev.message.streaming !== next.message.streaming) return false;
-    if (prev.message.reasoning !== next.message.reasoning) return false;
     if (prev.message.usage !== next.message.usage) return false;
     if (prev.showActions !== next.showActions) return false;
     if (prev.turnUsage !== next.turnUsage) return false;
     if (prev.turnTexts !== next.turnTexts) return false;
 
-    const a = prev.message.toolCalls, b = next.message.toolCalls;
-    if (a === b) return true;
-    if (!a || !b || a.length !== b.length) return false;
-    for (let i = 0; i < a.length; i++) {
-      const x = a[i], y = b[i];
-      if (x.id !== y.id || x.status !== y.status || x.arguments !== y.arguments || x.result !== y.result) return false;
+    // Compare blocks
+    const ab = prev.message.blocks, bb = next.message.blocks;
+    if (ab === bb) return true;
+    if (!ab || !bb || ab.length !== bb.length) return false;
+    for (let i = 0; i < ab.length; i++) {
+      const x = ab[i], y = bb[i];
+      if (x.type !== y.type) return false;
+      if (x.type === "text" && y.type === "text" && x.text !== y.text) return false;
+      if (x.type === "thinking" && y.type === "thinking" && x.thinking !== y.thinking) return false;
+      if (x.type === "toolCall" && y.type === "toolCall" && x.id !== y.id) return false;
+    }
+    // Compare toolResults
+    const ar = prev.message.toolResults, br = next.message.toolResults;
+    if (ar === br) return true;
+    if (!ar || !br) return false;
+    const ak = Object.keys(ar), bk = Object.keys(br);
+    if (ak.length !== bk.length) return false;
+    for (const k of ak) {
+      const x = ar[k], y = br[k];
+      if (!y || x.status !== y.status || x.result !== y.result) return false;
     }
     return true;
   },

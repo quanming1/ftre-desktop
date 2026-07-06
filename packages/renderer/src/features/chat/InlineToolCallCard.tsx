@@ -10,7 +10,7 @@
  * 视觉上跟正文段落平级，不用边框/圆角/背景色包裹。
  */
 import { memo, useState, useCallback, useEffect, useRef, useMemo } from "react";
-import type { ToolCall } from "@/stores/chat";
+import type { ContentBlock, ToolResult } from "@/stores/chat";
 import hljs from "highlight.js/lib/common";
 import {
   ChevronRight,
@@ -49,11 +49,11 @@ const API_BASE = import.meta.env.VITE_API_BASE || "http://127.0.0.1:48650";
 function buildSummary(
   name: string | undefined,
   args: Record<string, unknown>,
-  status: ToolCall["status"],
+  status: string,
 ): string {
   const n = name ?? "unknown";
   // 完成态（含失败）一律给过去式 fallback，避免错误时摘要还停在 "...ing"
-  const isDone = status === "ok" || status === "error";
+  const isDone = status === "completed" || status === "error";
 
   switch (n) {
     case "think":
@@ -160,7 +160,7 @@ function basename(path: string): string {
 
 // ─── 参数解析 ───────────────────────────────────────────────────────
 
-function parseArgs(raw: ToolCall["arguments"]): Record<string, unknown> {
+function parseArgs(raw: unknown): Record<string, unknown> {
   if (typeof raw === "object" && raw !== null) return raw as Record<string, unknown>;
   if (typeof raw === "string") {
     if (!raw.trim() || raw === "{}") return {};
@@ -305,27 +305,38 @@ function ArgsView({ args, toolName }: { args: Record<string, unknown>; toolName?
 // ─── 主组件 ─────────────────────────────────────────────────────────
 
 export const InlineToolCallCard = memo(
-  function InlineToolCallCard({ toolCall }: { toolCall: ToolCall }) {
-    const isLoadSkill = toolCall.name === "loadSkill";
-    const isSetWorkspace = toolCall.name === "set_workspace";
+  function InlineToolCallCard({
+    block,
+    result,
+    streaming,
+  }: {
+    block: Extract<ContentBlock, { type: "toolCall" }>;
+    result?: ToolResult;
+    streaming?: boolean;
+  }) {
+    const name = block.name;
+    const isLoadSkill = name === "loadSkill";
+    const isSetWorkspace = name === "set_workspace";
     const [expanded, setExpanded] = useState(false);
     const [copied, setCopied] = useState(false);
 
-    const status = toolCall.status || "ok";
+    // Derive status from result
+    const status = result?.status ?? (streaming ? "running" : "pending");
     const isPending = status === "pending";
     const isRunning = status === "running";
     const isError = status === "error";
-    const isComplete = status === "ok" || status === "error";
+    const isComplete = status === "completed" || status === "error";
+    const resultText = result ? (result.error ?? result.result ?? "") : "";
 
-    const args = parseArgs(toolCall.arguments);
-    const summary = buildSummary(toolCall.name, args, status);
-    const hasResult = !!toolCall.result;
+    const args = parseArgs(block.arguments);
+    const summary = buildSummary(name, args, status);
+    const hasResult = !!result;
     const hasArgs = Object.keys(args).length > 0;
-    const isThink = toolCall.name === "think";
+    const isThink = name === "think";
 
     // think 工具：直接展示 thought 内容；点击切换展开/折叠
     if (isThink) {
-      const thought = (args.thought as string) ?? toolCall.result ?? "";
+      const thought = (args.thought as string) ?? resultText;
       return (
         <ThinkBlock
           thought={thought}
@@ -343,15 +354,14 @@ export const InlineToolCallCard = memo(
 
     // loadSkill: 从 result 提取 name + description 用于 tooltip
     const loadSkillMeta = useMemo(() => {
-      if (!isLoadSkill || !toolCall.result) return { name: "", description: "" };
-      const { name, description } = parseSkillContent(toolCall.result);
-      // 把多行描述压成一行，避免 tooltip 里出现 \n 视觉断行
+      if (!isLoadSkill || !resultText) return { name: "", description: "" };
+      const { name, description } = parseSkillContent(resultText);
       const desc = (description || "").replace(/\s+/g, " ").trim();
       return {
         name: name || (args.skill as string) || "",
         description: desc,
       };
-    }, [isLoadSkill, toolCall.result, args.skill]);
+    }, [isLoadSkill, resultText, args.skill]);
 
     // loadSkill：仅显示一行 title，hover 展示 skill 描述
     if (isLoadSkill) {
@@ -360,14 +370,12 @@ export const InlineToolCallCard = memo(
           <Tooltip
             content={
               <div className="flex flex-col gap-1.5 max-w-[320px]">
-                {/* Skill name */}
                 <div className="flex items-center gap-1.5">
                   <Box size={12} strokeWidth={2} className="text-[#1a7f37] shrink-0" />
                   <span className="text-[13px] font-semibold text-[#1a7f37]">
                     {loadSkillMeta.name || (args.skill as string) || ""}
                   </span>
                 </div>
-                {/* Description */}
                 {loadSkillMeta.description && (
                   <p className="text-[12px] text-t-secondary leading-relaxed">
                     {loadSkillMeta.description}
@@ -385,7 +393,7 @@ export const InlineToolCallCard = memo(
                 <span className="text-t-secondary font-medium">Loaded Skill</span>
                 {args.skill ? ` «${args.skill}»` : ""}
               </span>
-              {status === "ok" && <Check size={12} className="text-green-600 shrink-0" />}
+              {status === "completed" && <Check size={12} className="text-green-600 shrink-0" />}
               {isError && <X size={12} className="text-red-500 shrink-0" />}
             </div>
           </Tooltip>
@@ -396,8 +404,6 @@ export const InlineToolCallCard = memo(
     // set_workspace：仅显示一行，hover 展示完整路径
     if (isSetWorkspace) {
       const wsPath = (args.path as string) || "";
-      // 从 tool result 解析路径变更信息
-      const resultText = toolCall.result ?? "";
       const switched = resultText.match(/工作区已切换:\s*(.+?)\s*→\s*(.+)/);
       const changed = resultText.match(/工作区已变更:\s*(.+)/);
       const unchanged = resultText.match(/工作区未变化:\s*(.+)/);
@@ -430,7 +436,7 @@ export const InlineToolCallCard = memo(
                 <span className="text-t-secondary font-medium">set_workspace</span>
                 {displayPath ? ` ${displayPath}` : ""}
               </span>
-              {status === "ok" && <Check size={12} className="text-green-600 shrink-0" />}
+              {status === "completed" && <Check size={12} className="text-green-600 shrink-0" />}
               {isError && <X size={12} className="text-red-500 shrink-0" />}
             </div>
           </Tooltip>
@@ -439,22 +445,20 @@ export const InlineToolCallCard = memo(
     }
 
     const handleCopy = useCallback(() => {
-      if (!toolCall.result) return;
-      navigator.clipboard.writeText(toolCall.result).then(() => {
+      if (!resultText) return;
+      navigator.clipboard.writeText(resultText).then(() => {
         setCopied(true);
         setTimeout(() => setCopied(false), 2000);
       });
-    }, [toolCall.result]);
+    }, [resultText]);
 
     return (
       <div className="py-0.5">
-        {/* 摘要行 */}
         <button
           onClick={toggleExpand}
           disabled={!hasResult && !isError && !hasArgs}
           className="flex items-center gap-2 text-left w-full group py-1 disabled:cursor-default"
         >
-          {/* 展开箭头（有结果或有入参时才显示） */}
           {hasResult || isError || hasArgs ? (
             <span className="text-t-ghost shrink-0 w-3.5">
               <ChevronRight size={13} className={`transition-transform duration-200 ${expanded ? "rotate-90" : ""}`} />
@@ -462,29 +466,22 @@ export const InlineToolCallCard = memo(
           ) : (
             <span className="w-3.5 shrink-0" />
           )}
-
-          {/* 摘要 */}
           <SummaryLine summary={summary} className="flex-1" />
-
-          {/* 状态 */}
           {isPending && <Loader2 size={12} className="text-t-ghost animate-spin shrink-0" />}
           {isRunning && <Loader2 size={12} className="text-neon animate-spin shrink-0" />}
-          {status === "ok" && <Check size={12} className="text-green-600 shrink-0" />}
+          {status === "completed" && <Check size={12} className="text-green-600 shrink-0" />}
           {isError && <X size={12} className="text-red-500 shrink-0" />}
         </button>
 
-        {/* 展开详情：上面完整入参，下面完整出参 */}
         <div
           className="grid transition-[grid-template-rows] duration-200 ease-out"
           style={{ gridTemplateRows: expanded ? "1fr" : "0fr" }}
         >
           <div className="overflow-hidden">
             <div className="ml-[22px] mt-1 mb-2 space-y-3 rounded-xl p-3 bg-[#f6f7f9] dark:bg-white/[0.03]">
-              {/* 入参区域 */}
-              <ArgsView args={args} toolName={toolCall.name} />
+              <ArgsView args={args} toolName={name} />
 
-              {/* 出参区域（如果有结果） */}
-              {toolCall.result && (
+              {resultText && (
                 <div className="space-y-1 relative group/result">
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2 text-[12px] font-mono tracking-wider text-t-ghost">
@@ -502,8 +499,9 @@ export const InlineToolCallCard = memo(
                     </button>
                   </div>
                   <ExpandedDetail
-                    toolCall={toolCall}
+                    name={name}
                     args={args}
+                    result={resultText}
                     isError={isError}
                   />
                 </div>
@@ -515,24 +513,26 @@ export const InlineToolCallCard = memo(
     );
   },
   (prev, next) =>
-    prev.toolCall.id === next.toolCall.id &&
-    prev.toolCall.status === next.toolCall.status &&
-    prev.toolCall.arguments === next.toolCall.arguments &&
-    prev.toolCall.result === next.toolCall.result,
+    prev.block.id === next.block.id &&
+    prev.block.name === next.block.name &&
+    prev.block.arguments === next.block.arguments &&
+    prev.result?.status === next.result?.status &&
+    prev.result?.result === next.result?.result &&
+    prev.result?.error === next.result?.error &&
+    prev.streaming === next.streaming,
 );
 
 // ─── 展开详情：按工具类型分发 ──────────────────────────────────────
 
 interface DetailProps {
-  toolCall: ToolCall;
+  name: string;
   args: Record<string, unknown>;
+  result: string;
   isError: boolean;
 }
 
-function ExpandedDetail({ toolCall, args, isError }: DetailProps) {
-  const name = toolCall.name;
+function ExpandedDetail({ name, args, result, isError }: DetailProps) {
   const lname = typeof name === "string" ? name.toLowerCase() : "";
-  const result = toolCall.result ?? "";
 
   if (name === "loadSkill") {
     return <LoadSkillDetail result={result} isError={isError} />;
@@ -667,7 +667,7 @@ function extractImageRef(result: string, requestedPath: string): ReadImageRef | 
   const payload = parseJsonLike(result);
   const part = findImageFilePart(payload);
   if (!part?.path) return null;
-  const fileName = basename(part.path);
+  const fileName = basename(part.path as string);
   if (!fileName) return null;
   return {
     url: `${API_BASE}/api/images/${encodeURIComponent(fileName)}`,

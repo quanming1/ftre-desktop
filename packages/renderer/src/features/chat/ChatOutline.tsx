@@ -27,18 +27,6 @@ interface ChatOutlineProps {
 
 /** 把 user 消息平铺成一行简短文字，给目录显示用 */
 function summarize(message: ChatMessage): string {
-  if (message.parts && message.parts.length > 0) {
-    const text = message.parts
-      .map((p: any) => {
-        if (p.type === "text") return p.text ?? p.data ?? "";
-        if (p.type === "skill") return `[Skill]`;
-        if (p.type === "email") return `[Email]`;
-        return "";
-      })
-      .join("")
-      .trim();
-    if (text) return text;
-  }
   return (message.content ?? "").trim();
 }
 

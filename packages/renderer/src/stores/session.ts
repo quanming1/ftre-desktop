@@ -5,7 +5,7 @@
  * （applyEvent），不再维护一份与 dispatcher 同构的转换器。
  */
 import { create } from "zustand";
-import { useChat, type ChatMessage, type MessageAttachment, type Role } from "./chat";
+import { useChat, type ChatMessage, type ContentBlock, type ToolResult, type MessageAttachment, type Role } from "./chat";
 import type { SessionSummary } from "@/services/api";
 import {
   fetchSessionPage,
@@ -32,34 +32,23 @@ export type { SessionSummary };
 function historyToMessages(records: any[]): ChatMessage[] {
   const messages: ChatMessage[] = [];
 
-  /** 当前 turn 的 assistant 消息（每轮 amc 先 seal 再新建） */
   let currentAssistant: ChatMessage | null = null;
 
-  /** 创建一条新的 assistant 消息（对应 live 的 ensure()） */
   const ensureAssistant = (id: string, ts: number): ChatMessage => {
     currentAssistant = {
       id,
       role: "assistant",
       content: null,
       timestamp: ts,
-      parts: [],
-      toolCalls: [],
+      blocks: [],
+      toolResults: {},
       streaming: false,
     };
     messages.push(currentAssistant);
     return currentAssistant;
   };
 
-  /** 结束当前 assistant turn（对应 live 的 done 封口） */
   const sealAssistant = (): void => {
-    if (!currentAssistant) return;
-    // 清理空字段
-    if (currentAssistant.toolCalls && currentAssistant.toolCalls.length === 0) {
-      delete currentAssistant.toolCalls;
-    }
-    if (currentAssistant.parts && currentAssistant.parts.length === 0) {
-      delete currentAssistant.parts;
-    }
     currentAssistant = null;
   };
 
@@ -69,11 +58,17 @@ function historyToMessages(records: any[]): ChatMessage[] {
 
     switch (r.type) {
       case "user_message": {
-        // user_message 开始新 turn → 先封口上一条 assistant
         sealAssistant();
         if (data.metadata?.hide) break;
-        const content = typeof data.content === "string" ? data.content : "";
-        const parts = Array.isArray(data.content) ? data.content : undefined;
+        const content = typeof data.content === "string"
+          ? data.content
+          : Array.isArray(data.content)
+            ? data.content
+                .filter((p: any) => p?.type === "text" || p?.type === "skill")
+                .map((p: any) => String(p.text ?? p.data ?? "").trim())
+                .join("\n")
+                .trim()
+            : "";
         const rawAtts: any[] = Array.isArray(data.attachments) ? data.attachments : [];
         const localAttachments: MessageAttachment[] = [];
         for (const a of rawAtts) {
@@ -85,80 +80,58 @@ function historyToMessages(records: any[]): ChatMessage[] {
               bytes = Math.floor(a.data.length * 0.75);
             } else if (typeof a.path === "string") {
               const filename = a.path.split(/[\\/]/).pop();
-              if (filename) {
-                url = `${API_BASE}/api/images/${encodeURIComponent(filename)}`;
-              }
+              if (filename) url = `${API_BASE}/api/images/${encodeURIComponent(filename)}`;
               bytes = a.size;
             }
-            if (url) {
-              localAttachments.push({ type: "image", url, mime: a.mime_type, name: a.name, bytes });
-            }
+            if (url) localAttachments.push({ type: "image", url, mime: a.mime_type, name: a.name, bytes });
           }
         }
-        if (!content && !parts && localAttachments.length === 0) break;
+        if (!content && localAttachments.length === 0) break;
         messages.push({
           id: r.id,
           role: "user",
           content,
-          parts,
           timestamp: ts,
           ...(localAttachments.length > 0 ? { attachments: localAttachments } : {}),
         });
         break;
       }
       case "assistant_message_complete": {
-        // 每个 assistant_message_complete 代表一轮独立的 LLM 响应，
-        // 先封口上一条 assistant（如果有），再创建新的。
         sealAssistant();
-        const blocks = Array.isArray(data.content) ? data.content : [];
+        const blocks: ContentBlock[] = (Array.isArray(data.content) ? data.content : []) as ContentBlock[];
         const meta = data.metadata ?? {};
         const m = ensureAssistant(r.id, ts);
-
-        // Build fresh parts/toolCalls from content blocks (full replace)
-        const parts: import("./chat").MessagePart[] = [];
-        const toolCalls: import("./chat").ToolCall[] = [];
-        let textContent = "";
-        let reasoningContent = "";
+        // Extract text + eventIds from blocks
+        let text = "";
         const eventIds: string[] = [];
-
-        for (const block of blocks) {
-          if (block.type === "thinking" && (block.thinking || block.text)) {
-            const text = block.thinking || block.text;
-            parts.push({ type: "reasoning", text });
-            reasoningContent += (reasoningContent ? "\n\n" : "") + text;
-          } else if (block.type === "text" && block.text) {
-            parts.push({ type: "text", text: block.text });
-            textContent += block.text;
-          } else if (block.type === "toolCall") {
-            const id = block.id || "";
-            const name = block.name || "unknown";
-            const args = typeof block.arguments === "object"
-              ? JSON.stringify(block.arguments)
-              : String(block.arguments ?? "{}");
-            toolCalls.push({ id, name, arguments: args, status: "running" });
-            parts.push({ type: "tool_call", toolCallId: id });
-          }
-          if (block.event_id) eventIds.push(block.event_id);
+        for (const b of blocks) {
+          if (b.type === "text") text += b.text;
+          if (b.event_id) eventIds.push(b.event_id);
         }
-
-        m.parts = parts;
-        m.toolCalls = toolCalls;
-        m.content = textContent || null;
-        m.reasoning = reasoningContent || undefined;
+        m.blocks = blocks;
+        m.content = text || null;
         if (meta.usage) m.usage = meta.usage;
-        if (eventIds.length > 0) (m as any).eventIds = eventIds;
+        if (meta.kind) m.metadata = meta;
+        if (eventIds.length > 0) m.eventIds = eventIds;
         break;
       }
       case "tool_result": {
-        // 写入当前 assistant 消息中匹配的 toolCall
         const id = data.id;
+        const isErr = !!data.error;
+        const result: ToolResult = {
+          id,
+          name: data.name || "",
+          result: isErr ? null : (data.result ?? ""),
+          error: isErr ? data.error : null,
+          status: isErr ? "error" : "completed",
+        };
+        // Find the assistant message that has this toolCall block
         for (let i = messages.length - 1; i >= 0; i--) {
-          if (messages[i].role !== "assistant" || !messages[i].toolCalls) continue;
-          const tc = messages[i].toolCalls!.find((t) => t.id === id);
-          if (tc) {
-            tc.status = data.error ? "error" : "ok";
-            tc.result = data.error ?? data.result ?? "";
-            tc.name = data.name || tc.name;
+          const msg = messages[i];
+          if (!msg.blocks) continue;
+          if (msg.blocks.some((b) => b.type === "toolCall" && b.id === id)) {
+            if (!msg.toolResults) msg.toolResults = {};
+            msg.toolResults[id] = result;
             break;
           }
         }
@@ -189,7 +162,8 @@ function historyToMessages(records: any[]): ChatMessage[] {
           role: "assistant",
           content: text,
           timestamp: ts,
-          parts: text ? [{ type: "text", text }] : undefined,
+          blocks: text ? [{ type: "text", text }] : [],
+          toolResults: {},
           external: true,
           externalFrom: fromCh || fromSid ? `${fromCh}::${fromSid}` : undefined,
         });
@@ -212,7 +186,6 @@ function historyToMessages(records: any[]): ChatMessage[] {
       }
     }
   }
-  // 兜底封口
   sealAssistant();
   return messages;
 }
