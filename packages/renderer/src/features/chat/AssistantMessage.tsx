@@ -9,6 +9,7 @@ import { ChevronRight, Copy, Check } from "lucide-react";
 import { Tooltip, TooltipProvider } from "@ftre/ui";
 import { useNotification } from "@/stores/notification";
 import { remarkPlugins, rehypePlugins } from "@/lib/markdown-plugins";
+import { useAutoScrollToBottom } from "@/hooks/auto-scroll";
 
 const markdownComponents = {
   // 围栏代码块（带 language-）的外层 <pre> 透传：把样式控制权交给 <CodeBlock />，
@@ -87,17 +88,28 @@ const ThoughtBlock = memo(
     anchor?: React.RefObject<HTMLDivElement | null>;
   }) {
     const [expanded, setExpanded] = useState(false);
-    const contentRef = useRef<HTMLDivElement>(null);
     const prevTextLen = useRef(text.length);
     const content = text.trim().replace(/\n{2,}/g, "\n");
     const previewLine = content.split("\n").find((line) => line.trim()) || content || "...";
 
+    // 自动滚动到底部：用户向上滚时不跟随，滚回底部附近时恢复
+    const { ref: autoScrollRef, scrollToBottom, resetLock } = useAutoScrollToBottom(
+      undefined,
+      { autoScrollLockDefault: true },
+    );
+
     useEffect(() => {
-      if (isActive && expanded && contentRef.current && text.length > prevTextLen.current) {
-        contentRef.current.scrollTop = contentRef.current.scrollHeight;
+      if (isActive && expanded && text.length > prevTextLen.current) {
+        // 新内容到达：如果锁着就滚到底，否则尊重用户位置
+        scrollToBottom();
       }
       prevTextLen.current = text.length;
-    }, [text.length, isActive, expanded]);
+    }, [text.length, isActive, expanded, scrollToBottom]);
+
+    // 展开 / 激活时重置锁，跟随到底部
+    useEffect(() => {
+      if (expanded && isActive) resetLock();
+    }, [expanded, isActive, resetLock]);
 
     return (
       <div>
@@ -118,7 +130,7 @@ const ThoughtBlock = memo(
         >
           <div className="overflow-hidden">
             <div
-              ref={contentRef}
+              ref={autoScrollRef}
               className="pl-5 pb-1 text-[13px] font-mono text-t-dim leading-relaxed whitespace-pre-wrap max-h-[300px] overflow-y-auto scrollbar-thin"
             >
               {content}
