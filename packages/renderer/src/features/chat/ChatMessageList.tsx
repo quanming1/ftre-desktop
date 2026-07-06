@@ -79,10 +79,12 @@ export const ChatMessageList = memo(function ChatMessageList({
   ];
 
   // ─── Auto-scroll hook ───────────────────────────────────────────
-  // deps: 最后一条消息 id 变化 → 切 session 时重置锁
-  const lastMsgId = messages[messages.length - 1]?.id;
+  // deps: sessionId 变化 → 切 session 时重置锁
+  // 不用 lastMsgId：ReAct 循环每轮新增消息会让 lastMsgId 变化，
+  // 触发锁重置 → 把用户滚上去的位置强制拉回底部。
+  const sessionId = useChat((s) => s.sessionId);
   const { ref: autoScrollRef, scrollToBottom, resetLock } = useAutoScrollToBottom(
-    [lastMsgId],
+    [sessionId],
     { autoScrollLockDefault: true },
   );
   const mergedRef = useCallback(
@@ -147,7 +149,6 @@ export const ChatMessageList = memo(function ChatMessageList({
   // 本地 hidden（前端已加载但被 visibleCount 截掉的）
   const localHidden = startIndex;
   // 后端是否还有更早的页可拉
-  const sessionId = useChat((s) => s.sessionId);
   const hasMoreHistory = useChat((s) =>
     sessionId ? s.hasMoreHistory(sessionId) : false,
   );
