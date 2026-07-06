@@ -67,6 +67,8 @@ export interface ChatMessage {
     total_tokens?: number;
     [k: string]: any;
   };
+  /** Event IDs associated with this message (for WS live dedup) */
+  eventIds?: string[];
 }
 
 /** 鍚姩鏃朵粠鍚庣 config 棰勫姞杞界殑榛樿宸ヤ綔鍖虹紦瀛橈紝newChat() 鏃剁洿鎺ユ仮澶?*/
@@ -94,10 +96,12 @@ interface Bucket {
   isBusy: boolean;
   error: string | null;
   retryState: RetryState | null;
+  /** 最后一次 assistant_message 的 content[]，供 done/error 在取消场景下补封 */
+  lastStreamingContent?: any[];
 }
 
 const buckets = new Map<string, Bucket>();
-const STREAM_TYPES = new Set(["assistant_message", "reasoning", "tool_call_streaming"]);
+const STREAM_TYPES = new Set(["assistant_message"]);
 const _wsFlushTimers = new Map<string, ReturnType<typeof setTimeout>>();
 const _wsBatches = new Map<string, BusEvent[]>();
 const WS_BATCH_WINDOW_MS = 30;
@@ -113,6 +117,7 @@ const emptyBucket = (): Bucket => ({
   isBusy: false,
   error: null,
   retryState: null,
+  lastStreamingContent: undefined,
 });
 function bucket(sid: string): Bucket {
   let b = buckets.get(sid);
@@ -123,53 +128,54 @@ function bucket(sid: string): Bucket {
 const last = <T>(arr: T[]): T | undefined => arr[arr.length - 1];
 
 /**
- * 浠庢湯灏惧悜鍓嶆壘鏈€杩戜竴涓粛鍦ㄦ祦寮忓～鍏呯殑 text/reasoning part 绱㈠紩銆傛壘涓嶅埌杩斿洖 -1銆? *
- * 鐢ㄤ簬 assistant_message_complete / reasoning_complete 鏀跺熬锛? * 娴佸紡 chunk 鏈熼棿浼氬湪 parts 閲屼繚鐣?streaming=true 鐨勫崰浣嶆锛宑omplete 浜嬩欢
- * 鍒拌揪鏃舵妸瀹冩浛鎹㈡垚鏉冨▉鎬诲拰銆倀ool_call / tool_call_streaming 鍙兘鍦?complete
- * 涔嬪墠鍏堟妸 tool part 鎺ㄥ埌鏈熬锛屽洜姝や笉鑳藉彧鐪?parts[-1]锛岃寰€鍓嶆壂鍒?streaming 娈点€? *
- * 涓ユ牸鍖归厤 streaming=true锛氬凡灏佸彛鐨勬灞炰簬"涓婁竴杞凡瀹屾垚"鎴?鍥炴斁璺緞涓嬩笉瀛樺湪
- * streaming"锛宑omplete 浜嬩欢涓嶈兘鍘昏鐩栧畠浠€? */
-function findStreamingIdx(
-  parts: MessagePart[],
-  type: "text" | "reasoning",
-): number {
-  for (let i = parts.length - 1; i >= 0; i--) {
-    const p = parts[i];
-    if (p.type === type && p.streaming) return i;
-  }
-  return -1;
-}
+ * Build parts + toolCalls + textContent + reasoning from content[].
+ *
+ * content[] mixes thinking / text / toolCall blocks.
+ * Used by assistant_message and assistant_message_complete to do full replacement.
+ */
+function buildFromContent(content: any[]): {
+  parts: MessagePart[];
+  toolCalls: ToolCall[];
+  textContent: string | null;
+  reasoning: string | undefined;
+  eventIds: string[];
+} {
+  const parts: MessagePart[] = [];
+  const toolCalls: ToolCall[] = [];
+  let textContent = "";
+  let reasoning = "";
+  const eventIds: string[] = [];
 
-/**
- * 鎶婃湯灏炬鍦ㄦ祦寮忓～鍏呯殑 text / reasoning part 灏佸彛锛坰treaming=false锛夈€? *
- * 鐜板湪鍙湪鍏滃簳鍦烘櫙浣跨敤锛歞one 浜嬩欢 / 鍥炴斁缁撴潫鍚庛€傛棩甯哥殑 *_complete 璧? * findStreamingIdx 鑷繁鎵句綅缃€? */
-function sealStreamingPart(parts: MessagePart[]): void {
-  const tail = parts[parts.length - 1];
-  if (!tail) return;
-  if ((tail.type === "text" || tail.type === "reasoning") && tail.streaming) {
-    parts[parts.length - 1] = { ...tail, streaming: false };
+  for (const block of content) {
+    if (block.type === "thinking" && (block.thinking || block.text)) {
+      const text = block.thinking || block.text;
+      parts.push({ type: "reasoning", text, streaming: false });
+      reasoning += (reasoning ? "\n\n" : "") + text;
+    } else if (block.type === "text" && block.text) {
+      parts.push({ type: "text", text: block.text, streaming: false });
+      textContent += block.text;
+    } else if (block.type === "toolCall") {
+      const id = block.id || "";
+      const name = block.name || "unknown";
+      const args = typeof block.arguments === "object"
+        ? JSON.stringify(block.arguments)
+        : String(block.arguments ?? "{}");
+      toolCalls.push({ id, name, arguments: args, status: "running" });
+      parts.push({ type: "tool_call", toolCallId: id });
+    }
+    if (block.event_id) eventIds.push(block.event_id);
   }
+
+  return {
+    parts,
+    toolCalls,
+    textContent: textContent || null,
+    reasoning: reasoning || undefined,
+    eventIds,
+  };
 }
 
 /** 褰?sid === activeId 鏃讹紝鎶?bucket 瀛楁闀滃儚鍒?store 椤跺眰銆?*/
-function reopenAssistantTail(b: Bucket): void {
-  const tail = last(b.messages);
-  if (!tail || tail.role !== "assistant" || tail.isError) return;
-
-  const parts = [...(tail.parts || [])];
-  for (let i = parts.length - 1; i >= 0; i--) {
-    const part = parts[i];
-    if (part.type === "text" || part.type === "reasoning") {
-      parts[i] = { ...part, streaming: true };
-      break;
-    }
-  }
-
-  const next = b.messages.slice();
-  next[next.length - 1] = { ...tail, parts, streaming: true };
-  b.messages = next;
-}
-
 function mirror(sid: string): void {
   if (useChat.getState().sessionId !== sid) return;
   const b = buckets.get(sid);
@@ -250,9 +256,10 @@ export function applyEvent(b: Bucket, ev: BusEvent): void {
     b.messages = next;
   };
 
-  /** 纭繚鏈変竴鏉?streaming assistant锛涙病鏈夊氨 push 涓€鏉＄┖鐨勩€?*/
+  /** Ensure tail has a streaming assistant; create one if missing or sealed. */
   const ensure = (): void => {
-    if (tail()) return;
+    const t = tail();
+    if (t) return;
     b.messages = [
       ...b.messages,
       {
@@ -364,56 +371,42 @@ export function applyEvent(b: Bucket, ev: BusEvent): void {
     }
 
     // 鈹€鈹€鈹€ 娴佸紡鏂囨湰鐗囨 鈹€鈹€鈹€
-    case "assistant_message": {
-      ensure();
-      const chunk = d.content || "";
-      if (!chunk) return;
-      // 鏀跺埌鏂扮殑娴佸紡鍐呭璇存槑閲嶈瘯鎴愬姛锛屾竻闄ら噸璇曟í骞?
-      if (b.retryState) b.retryState = null;
-      replaceTail((m) => {
-        const parts = [...(m.parts || [])];
-        const lastPart = parts[parts.length - 1];
-        // 鏈熬濡傛灉鏄釜杩樺湪濉殑 text part 灏辫拷鍔狅紱鍚﹀垯寮€鏂版銆?        // 浠讳綍"闈?text chunk 鐨勪簨浠?鍒拌揪鏃堕兘浼氳皟 sealStreamingPart 鎶婅繖娈靛皝鍙ｏ紝
-        // 涔嬪悗鍐嶆潵 chunk 灏变笉浼氳骞跺埌涓婁竴娈点€?
-        if (lastPart?.type === "text" && lastPart.streaming) {
-          parts[parts.length - 1] = { type: "text", text: lastPart.text + chunk, streaming: true };
-        } else {
-          parts.push({ type: "text", text: chunk, streaming: true });
-        }
-        return { ...m, parts, content: (m.content ?? "") + chunk, streaming: true };
-      });
-      return;
-    }
-
-    // 鈹€鈹€鈹€ 娴佸紡鏂囨湰鏈€缁堝寲锛坵s锛? 鍘嗗彶鍥炴斁瀹屾暣鏂囨湰 鈹€鈹€鈹€
-    // 涓嶅湪姝ゅ缃?message.streaming=false锛涚敱 done 浜嬩欢缁熶竴鏀跺熬銆?
+    case "assistant_message":
     case "assistant_message_complete": {
+      const isComplete = ev.type === "assistant_message_complete";
       ensure();
-      const final = d.content || "";
-      replaceTail((m) => {
-        const parts = [...(m.parts || [])];
-        // 鎵句竴涓繕鍦ㄦ祦寮忓～鍏呯殑 text part锛堝嵆渚挎湯灏炬槸 tool_call 涔熻兘鎵惧埌锛夛細
-        // - 瀹炴椂璺緞锛氬厛 message chunk 绱Н鍑?streaming text 鈫?涓棿鍙兘鎻掑叆
-        //   tool_call_streaming 鎺ㄥ埌鏈熬 鈫?姝?complete 浠嶈兘閿佸畾鍒版祦寮忔骞跺皝鍙?
-        // - 鍥炴斁璺緞锛欴B 娌℃湁 chunk锛屾壘涓嶅埌娴佸紡娈?鈫?push 涓€涓凡灏佸彛鐨勬柊娈?
-        const streamingIdx = findStreamingIdx(parts, "text");
-        if (streamingIdx >= 0) {
-          parts[streamingIdx] = { type: "text", text: final, streaming: false };
-        } else if (final) {
-          parts.push({ type: "text", text: final, streaming: false });
+      if (!isComplete && b.retryState) b.retryState = null;
+
+      const contentBlocks: any[] = Array.isArray(d.content) ? d.content : [];
+      const { parts, toolCalls, textContent, reasoning, eventIds } = buildFromContent(contentBlocks);
+
+      // Preserve tool results from existing toolCalls (cross-turn in ReAct loop)
+      const existingTCs = last(b.messages)?.toolCalls || [];
+      for (const newTc of toolCalls) {
+        const existing = existingTCs.find((t) => t.id === newTc.id);
+        if (existing && (existing.status === "ok" || existing.status === "error")) {
+          newTc.status = existing.status;
+          if (existing.result !== undefined) (newTc as any).result = existing.result;
         }
-        const content = parts
-          .filter((p): p is { type: "text"; text: string; streaming?: boolean } => p.type === "text")
-          .map((p) => p.text)
-          .join("");
-        return { ...m, id: ev.id ?? m.id, parts, content };
-      });
+      }
+
+      if (!isComplete) b.lastStreamingContent = contentBlocks;
+
+      const metadata = isComplete ? (d.metadata || {}) : {};
+      replaceTail((m) => ({
+        ...m,
+        id: ev.id ?? m.id,
+        parts,
+        toolCalls,
+        content: textContent,
+        reasoning,
+        streaming: !isComplete,
+        ...(metadata.usage ? { usage: metadata.usage } : {}),
+        ...(eventIds.length > 0 ? { eventIds } : {}),
+      }));
       return;
     }
 
-    // 鈹€鈹€鈹€ 澶栭儴 session 閫氳繃 send_message 娉ㄥ叆鐨勫畬鏁存秷鎭?鈹€鈹€鈹€
-    // 涓庣洰鏍?session 鑷繁鐨勬祦寮忚緭鍑烘棤鍏筹紝鐙珛鎴愭秷鎭€?
-    // 鑻ュ綋鍓嶆鏈?streaming tail锛屽垯鎻掑湪瀹冧箣鍓嶏紝閬垮厤瑙嗚閿欎綅銆?
     case "external_message": {
       const text = typeof d.content === "string" ? d.content : "";
       const fromCh = typeof d.from_channel === "string" ? d.from_channel : "";
@@ -426,7 +419,6 @@ export function applyEvent(b: Bucket, ev: BusEvent): void {
         parts: text ? [{ type: "text", text }] : [],
         external: true,
         externalFrom: fromCh || fromSid ? `${fromCh}::${fromSid}` : undefined,
-        // 涓嶈 streaming锛氳繖鏄閮ㄥ畬鏁存彃鍏ユ秷鎭?
       };
       const i = b.messages.length - 1;
       const tailMsg = i >= 0 ? b.messages[i] : null;
@@ -436,106 +428,6 @@ export function applyEvent(b: Bucket, ev: BusEvent): void {
       return;
     }
 
-    case "reasoning": {
-      ensure();
-      const chunk = d.content || "";
-      if (!chunk) return;
-      if (b.retryState) b.retryState = null;
-      replaceTail((m) => {
-        const parts = [...(m.parts || [])];
-        const lastPart = parts[parts.length - 1];
-        // 璺?message chunk 鍚屾€濊矾锛氭湯灏炬槸娴佸紡 reasoning 灏辫拷鍔狅紝鍚﹀垯寮€鏂版
-        if (lastPart?.type === "reasoning" && lastPart.streaming) {
-          parts[parts.length - 1] = { type: "reasoning", text: lastPart.text + chunk, streaming: true };
-        } else {
-          parts.push({ type: "reasoning", text: chunk, streaming: true });
-        }
-        return { ...m, parts, reasoning: (m.reasoning ?? "") + chunk };
-      });
-      return;
-    }
-
-    // 鈹€鈹€鈹€ 涓€杞€濊€冪殑瀹屾暣鏂囨湰锛堝搴?assistant_message_complete 鐨?reasoning 鐗堬級 鈹€鈹€鈹€
-    // 瀹炴椂锛歳easoning chunks 鍚庡埌杈撅紝鍘熷湴瑕嗙洊灏佸彛
-    // 鍥炴斁锛欴B 鍙湁 reasoning_complete 娌℃湁 chunk锛岀洿鎺?push
-    case "reasoning_complete": {
-      ensure();
-      const final = d.content || "";
-      if (!final) return;
-      replaceTail((m) => {
-        const parts = [...(m.parts || [])];
-        const streamingIdx = findStreamingIdx(parts, "reasoning");
-        if (streamingIdx >= 0) {
-          parts[streamingIdx] = { type: "reasoning", text: final, streaming: false };
-        } else {
-          parts.push({ type: "reasoning", text: final, streaming: false });
-        }
-        // 鍏煎鏃у瓧娈碉細鎶婃墍鏈?reasoning part 鏂囨湰鎷艰捣鏉?
-        const reasoning = parts
-          .filter((p): p is { type: "reasoning"; text: string; streaming?: boolean } => p.type === "reasoning")
-          .map((p) => p.text)
-          .join("\n\n");
-        return { ...m, parts, reasoning };
-      });
-      return;
-    }
-
-    // 鈹€鈹€鈹€ 宸ュ叿璋冪敤锛堜竴娆℃€э紝鍚畬鏁?args锛?鈹€鈹€鈹€
-    case "tool_call": {
-      ensure();
-      const id: string = d.id ?? "";
-      const name: string = d.name ?? "unknown";
-      const args = typeof d.arguments === "object" ? JSON.stringify(d.arguments) : String(d.arguments ?? "{}");
-      replaceTail((m) => {
-        const toolCalls = [...(m.toolCalls || [])];
-        const parts = [...(m.parts || [])];
-        // 涓嶅湪杩欓噷 seal 褰撳墠娴佸紡 text/reasoning锛氱◢鍚?*_complete 浼氱敤
-        // findStreamingIdx 鑷繁鎵惧埌閭ｆ鍋氭渶缁堣鐩栥€傚鏋滃厛 seal 浜嗭紝complete
-        // 灏辨壘涓嶅埌娴佸紡娈碉紝浼氬彟璧蜂竴娈碉紝閫犳垚鍚屼竴娈垫枃瀛楁覆鏌撲袱娆°€?
-        const i = toolCalls.findIndex((t) => t.id === id);
-        if (i >= 0) toolCalls[i] = { ...toolCalls[i], name, arguments: args, status: "running" };
-        else {
-          toolCalls.push({ id, name, arguments: args, status: "running" });
-          parts.push({ type: "tool_call", toolCallId: id });
-        }
-        return { ...m, toolCalls, parts };
-      });
-      return;
-    }
-
-    // 鈹€鈹€鈹€ 宸ュ叿璋冪敤娴佸紡澧為噺锛坅rgs 鍒嗙墖锛?鈹€鈹€鈹€
-    case "tool_call_streaming": {
-      ensure();
-      if (b.retryState) b.retryState = null;
-      const chunks: any[] = d.tool_calls || [];
-      replaceTail((m) => {
-        const toolCalls = [...(m.toolCalls || [])];
-        const parts = [...(m.parts || [])];
-        // 鍚?tool_call锛氫笉 seal锛岃 *_complete 鑷繁鎵炬祦寮忔瑕嗙洊
-        for (const c of chunks) {
-          if (!c.id) continue;
-          const i = toolCalls.findIndex((t) => t.id === c.id);
-          const delta: string = c.arguments_delta || "";
-          if (i >= 0) {
-            toolCalls[i] = {
-              ...toolCalls[i],
-              name: c.name || toolCalls[i].name,
-              arguments: toolCalls[i].arguments + delta,
-            };
-          } else {
-            toolCalls.push({
-              id: c.id,
-              name: c.name || "unknown",
-              arguments: delta,
-              status: "running",
-            });
-            parts.push({ type: "tool_call", toolCallId: c.id });
-          }
-        }
-        return { ...m, toolCalls, parts, streaming: true };
-      });
-      return;
-    }
 
     // 鈹€鈹€鈹€ 宸ュ叿缁撴灉锛氫粠灏鹃儴寰€鍓嶆壘鍒板搴?tc 鍐欏叆 鈹€鈹€鈹€
     case "tool_result": {
@@ -557,20 +449,37 @@ export function applyEvent(b: Bucket, ev: BusEvent): void {
       return;
     }
 
-    case "usage_update": {
-      if (!d.usage) return;
-      ensure();
-      replaceTail((m) => ({ ...m, usage: d.usage }));
-      return;
-    }
-
     case "done": {
       replaceTail((m) => {
-        const parts = [...(m.parts || [])];
-        sealStreamingPart(parts);
+        if (!m.streaming) return m;
+        // Cancel scenario: no assistant_message_complete received.
+        // Use lastStreamingContent to build final parts.
+        const lastContent = b.lastStreamingContent;
+        if (lastContent && lastContent.length > 0) {
+          const { parts, toolCalls, textContent, reasoning } = buildFromContent(lastContent);
+          // Preserve tool results from existing toolCalls
+          const existingTCs = m.toolCalls || [];
+          for (const newTc of toolCalls) {
+            const existing = existingTCs.find((t) => t.id === newTc.id);
+            if (existing && (existing.status === "ok" || existing.status === "error")) {
+              newTc.status = existing.status;
+              if (existing.result !== undefined) (newTc as any).result = existing.result;
+            }
+          }
+          return {
+            ...m,
+            parts,
+            toolCalls: toolCalls.map((tc) =>
+              tc.status === "running" || tc.status === "pending" ? { ...tc, status: "ok" as const } : tc,
+            ),
+            content: textContent,
+            reasoning,
+            streaming: false,
+          };
+        }
+        // No streaming content, just seal
         return {
           ...m,
-          parts,
           streaming: false,
           toolCalls: m.toolCalls?.map((tc) =>
             tc.status === "running" || tc.status === "pending" ? { ...tc, status: "ok" as const } : tc,
@@ -580,14 +489,31 @@ export function applyEvent(b: Bucket, ev: BusEvent): void {
       b.isBusy = false;
       b.sessionStatus = "idle";
       b.retryState = null;
+      b.lastStreamingContent = undefined;
       return;
     }
 
     case "error": {
-      const msg: string = d.message ?? "鏈煡閿欒";
+      const msg: string = d.message ?? "Unknown error";
       const code = d.code;
-      // 鍏堝叧鎺夊墠涓€鏉?streaming 娑堟伅锛堝鏋滄湁锛?
-      replaceTail((m) => ({ ...m, streaming: false }));
+      // Seal streaming message if exists (preserve generated content)
+      replaceTail((m) => {
+        if (!m.streaming) return m;
+        const lastContent = b.lastStreamingContent;
+        if (lastContent && lastContent.length > 0) {
+          const { parts, toolCalls, textContent, reasoning } = buildFromContent(lastContent);
+          const existingTCs = m.toolCalls || [];
+          for (const newTc of toolCalls) {
+            const existing = existingTCs.find((t) => t.id === newTc.id);
+            if (existing && (existing.status === "ok" || existing.status === "error")) {
+              newTc.status = existing.status;
+              if (existing.result !== undefined) (newTc as any).result = existing.result;
+            }
+          }
+          return { ...m, parts, toolCalls, content: textContent, reasoning, streaming: false };
+        }
+        return { ...m, streaming: false };
+      });
       b.messages = [
         ...b.messages,
         { id: ev.id ?? nextId("err"), role: "assistant", content: msg, timestamp: ts, isError: true },
@@ -595,37 +521,13 @@ export function applyEvent(b: Bucket, ev: BusEvent): void {
       b.isBusy = false;
       b.sessionStatus = "idle";
       b.error = code ? `[${code}] ${msg}` : msg;
+      b.lastStreamingContent = undefined;
       return;
     }
 
     case "retry": {
-      // 閲嶈瘯鏃跺彧娓呴櫎褰撳墠 streaming assistant 灏鹃儴姝ｅ湪娴佸紡鎷兼帴鐨勬畫鐗?parts锛?
-      // 淇濈暀涔嬪墠宸插畬鎴愮殑 tool_call / tool_result 绛?parts 涓嶅彈褰卞搷銆?
-      const retryTail = tail();
-      if (retryTail) {
-        replaceTail((m) => {
-          // 浠庢湯灏剧Щ闄ゆ墍鏈夎繕鍦?streaming 鐨?text/reasoning parts锛堟湭灏佸彛鐨勬畫鐗囷級
-          const parts = [...(m.parts || [])];
-          while (parts.length > 0) {
-            const last = parts[parts.length - 1];
-            if ((last.type === "text" || last.type === "reasoning") && last.streaming) {
-              parts.pop();
-            } else {
-              break;
-            }
-          }
-          // 閲嶆柊鎷兼帴 content 鍜?reasoning锛堝彧淇濈暀宸插皝鍙ｇ殑锛?
-          const content = parts
-            .filter((p): p is { type: "text"; text: string; streaming?: boolean } => p.type === "text")
-            .map((p) => p.text)
-            .join("") || null;
-          const reasoning = parts
-            .filter((p): p is { type: "reasoning"; text: string; streaming?: boolean } => p.type === "reasoning")
-            .map((p) => p.text)
-            .join("") || undefined;
-          return { ...m, parts, content, reasoning, streaming: true };
-        });
-      }
+      // Next assistant_message will create a new streaming message via ensure().
+      b.lastStreamingContent = undefined;
       b.retryState = { attempt: d.attempt, maxAttempts: d.max_attempts, message: d.message };
       return;
     }
@@ -871,23 +773,17 @@ if (!(globalThis as any)[__wsBoundFlag]) {
     } else {
       _enqueueWsEvent(sid, b, busEvent);
     }
-
-    // 鈹€鈹€ 瀹炴椂鍒锋柊涓婁笅鏂囩敤閲?鈹€鈹€
-    // usage_update锛氫簨浠惰嚜甯?usage 鏁版嵁锛屽氨鍦版洿鏂?store锛屾棤闇€鍐嶈皟 API
-    if (ev.type === "usage_update" && useChat.getState().sessionId === sid) {
-      const u = (ev.data as any)?.usage;
+    // assistant_message_complete: metadata.usage carries real usage data
+    if (ev.type === "assistant_message_complete" && useChat.getState().sessionId === sid) {
+      const u = (ev.data as any)?.metadata?.usage;
       if (u && typeof u.total_tokens === "number") {
-        const current = useChat.getState().tokenUsage;
-        // anchor 鏄繖娆″疄绠楃殑 usage锛沺ending_estimated 浠庝笂娆＄殑鍊煎噺鍘绘湰娆″疄绠楄鐩栫殑閮ㄥ垎
-        const prevAnchorTotal = current?.anchor?.total_tokens ?? 0;
         const newAnchor = {
           prompt_tokens: u.prompt_tokens ?? 0,
           completion_tokens: u.completion_tokens ?? 0,
           total_tokens: u.total_tokens,
           at: Date.now() / 1000,
-          source: "usage_update",
+          source: "assistant_message_complete" as const,
         };
-        // 鏂?anchor 涔嬪悗鐨勪簨浠朵及绠楁殏鏃朵负 0锛堝洜涓鸿繕娌′骇鐢熸柊浜嬩欢锛?
         const pending_estimated = 0;
         const total = newAnchor.total_tokens + pending_estimated;
         useChat.setState({
@@ -955,7 +851,7 @@ interface ChatState {
       completion_tokens: number;
       total_tokens: number;
       at: number;
-      source: "usage_update" | "done";
+      source: "assistant_message_complete" | "done";
     } | null;
     pending_estimated: number;
     total: number;
@@ -990,16 +886,20 @@ interface ChatState {
   /** 娓呯┖鎸囧畾 session 鐨勬湰鍦扮紦瀛橈紙娑堟伅銆佷簨浠躲€佺姸鎬侊級 */
   clearSessionCache: (sessionId: string) => void;
   setSessionStatus: (sessionId: string, status: SessionStatus) => void;
-  /** 鎶婁竴缁?BusEvent 鍠傜粰鎸囧畾 session锛坔istory loader 鐢級 */
-  loadSessionEvents: (sessionId: string, events: BusEvent[], mode: "hydrate" | "refresh") => void;
-  /**
-   * 鎶婁竴娈垫洿鏃╃殑 BusEvent prepend 鍒?session 鐨勪簨浠舵祦锛岄噸鏂拌蛋涓€閬?reducer 閲嶅缓 messages銆?   * 鐢ㄤ簬"鍔犺浇鏇存棭娑堟伅"鍒嗛〉锛歟vents 鏄垎椤垫媺鍒扮殑鏇存棭涓€娈碉紙鎸?timestamp ASC 鎺掑ソ锛夈€?   *
-   * mode 涓?loadSessionEvents 涓€鑷达細
-   *   - hydrate锛氫粎褰撴《闈炵┖涓斾笌鐜版湁 events 涓嶉噸鍙犳椂鎻掑叆锛堥娆℃媺鏃╂湡鍒嗛〉锛?   *   - refresh锛氭祦寮忎腑璺宠繃锛涢潪娴佸紡鏃跺悎骞跺幓閲嶅啀閲嶆斁
-   */
-  prependSessionEvents: (
+  /** Put ChatMessage[] into the specified session bucket (history loader). */
+  loadSessionMessages: (
     sessionId: string,
-    events: BusEvent[],
+    messages: ChatMessage[],
+    hasMoreHistory: boolean,
+    status: SessionStatus,
+  ) => void;
+  /**
+   * Prepend earlier ChatMessage[] to the session, deduping by message id.
+   * Used for "load earlier messages" pagination.
+   */
+  prependSessionMessages: (
+    sessionId: string,
+    earlierMessages: ChatMessage[],
     hasMoreHistory: boolean,
   ) => void;
   /** 鍙栬 session 宸茬煡鏈€鏃╀簨浠剁殑 timestamp锛堢敤浣?鍔犺浇鏇存棭"鐨?before_ts锛?*/
@@ -1150,7 +1050,7 @@ export const useChat = create<ChatState>((set, get) => ({
     if (initialMessages && b.messages.length === 0) b.messages = initialMessages;
     set({ sessionId, messages: b.messages, lastUserInputTs: b.lastUserInputTs, sessionStatus: b.sessionStatus, isBusy: b.isBusy, error: b.error, retryState: b.retryState, contextTokens: 0, tokenUsage: null });
     // WS attach 绉诲埌 switchSession 鐨?HTTP .then() 涓紝淇濊瘉 HTTP 鍏堜簬 WS锛?
-    // 閬垮厤 replay/live 甯у拰 loadSessionEvents 鐨勬竻绌烘搷浣滅珵浜夈€?
+    // 閬垮厤 replay/live 甯у拰 loadSessionMessages 鐨勬竻绌烘搷浣滅珵浜夈€?
     // 寮傛鎷変竴娆℃渶鏂?token 浼扮畻锛堜笉闃诲 UI 鍒囨崲锛?
     void get().refreshTokenUsage(sessionId);
   },
@@ -1189,7 +1089,6 @@ export const useChat = create<ChatState>((set, get) => ({
     b.sessionStatus = status;
     b.isBusy = status === "running";
     if (status === "running") {
-      reopenAssistantTail(b);
       b.error = null;
       b.retryState = null;
     } else {
@@ -1198,42 +1097,33 @@ export const useChat = create<ChatState>((set, get) => ({
     mirror(sessionId);
   },
 
-  loadSessionEvents: (sessionId, events, mode) => {
+  loadSessionMessages: (sessionId, messages, hasMoreHistory, status) => {
     const b = bucket(sessionId);
-    const tail = last(b.messages);
-    if (mode === "refresh" && tail?.streaming) return;
-    // 绂佺敤缂撳瓨鍚?bucket 宸插湪 switchSession 涓竻绌猴紝涓嶉渶瑕?length > 0 淇濇姢
-    const visibleCompactMessages =
-      mode === "refresh" ? b.messages.filter((m) => m.compact && m.compact.status !== "running") : [];
-    b.messages = [];
+    const visibleCompactMessages = b.messages.filter((m) => m.compact && m.compact.status !== "running");
+    b.messages = messages;
     b.events = [];
     b.seenEventIds = new Set<string>();
-    b.earliestTs = events.length > 0 ? events[0].ts ?? null : null;
-    b.lastUserInputTs = null;
-    // hasMoreHistory 鐢辫皟鐢ㄦ柟鍦ㄥ垎椤靛搷搴斾腑鍛婄煡锛涜繖閲屽厛涓嶅姩锛坙oadSessionEvents 鍙?
-    // 鎺ユ敹涓€娈?events锛屼笉鐭ラ亾鏇存棭杩樻湁娌℃湁锛夈€俿ession.ts 鍦ㄥ垎椤佃矾寰勯噷鐩存帴璋?
-    // prependSessionEvents 鏉ヨ〃杈?杩樻湁鏇存棭"銆?
-    for (const ev of events) {
-      if (hasSeenEvent(b, ev)) continue;
-      b.events.push(ev);
-      applyEvent(b, ev);
+    for (const m of messages) {
+      if (m.eventIds) for (const eid of m.eventIds) b.seenEventIds.add(eid);
     }
-    // history 鍥炴斁瀹屾瘯锛氳嫢灏鹃儴浠嶆爣璁?streaming锛堟棤鏄惧紡 done锛夛紝鏀跺熬銆?
-    // 鍚屾鎶婃湯灏捐繕鍦?娴佸紡濉厖"鐨?part 涔熷皝鍙ｏ紝閬垮厤閬楃暀鐘舵€佸奖鍝嶅悗缁垽鏂€?
-    const t = last(b.messages);
-    if (t?.streaming) {
-      const parts = [...(t.parts || [])];
-      sealStreamingPart(parts);
-      const next = b.messages.slice();
-      next[next.length - 1] = { ...t, parts, streaming: false };
-      b.messages = next;
+    b.earliestTs = messages.length > 0 ? messages[0].timestamp / 1000 : null;
+    b.hasMoreHistory = hasMoreHistory;
+    // 恢复 lastUserInputTs：取最后一条 user 消息的时间戳
+    let lastUserTs: number | null = null;
+    for (let i = messages.length - 1; i >= 0; i--) {
+      if (messages[i].role === "user") {
+        lastUserTs = messages[i].timestamp;
+        break;
+      }
     }
-    // context_compact 浼氭寜鍘嗗彶杈圭晫 timestamp 鍥炴彃锛屽埛鏂版渶鏂伴〉鏃跺彲鑳芥嬁涓嶅埌杩欐潯
-    // 鎸佷箙鍖栦簨浠躲€備繚鐣欏疄鏃惰矾寰勫凡缁忔樉绀虹殑鎵嬪姩 /compact 姘旀场锛岄伩鍏?idle 鍚庡埛鏂版妸瀹冩姽鎺夈€?
+    b.lastUserInputTs = lastUserTs;
+    b.sessionStatus = status;
+    b.isBusy = status === "running";
+    b.error = null;
+    b.retryState = null;
     if (visibleCompactMessages.length > 0 && !b.messages.some((m) => m.compact)) {
       b.messages = [...b.messages, ...visibleCompactMessages];
     }
-    // 鍘嗗彶鍥炴斁鏉ヨ嚜 DB锛屽熬閮ㄦ棤 streaming 鍒欎笉搴旀畫鐣?stale isBusy
     if (!last(b.messages)?.streaming) {
       b.isBusy = false;
       if (b.sessionStatus === "running") b.sessionStatus = "idle";
@@ -1241,52 +1131,23 @@ export const useChat = create<ChatState>((set, get) => ({
     mirror(sessionId);
   },
 
-  prependSessionEvents: (sessionId, earlierEvents, hasMoreHistory) => {
-    if (earlierEvents.length === 0) {
-      // 娌℃湁鏇存棭鐨勶紝浣嗚鏇存柊 hasMoreHistory 鐘舵€?
+  prependSessionMessages: (sessionId, earlierMessages, hasMoreHistory) => {
+    if (earlierMessages.length === 0) {
       const b = bucket(sessionId);
       b.hasMoreHistory = hasMoreHistory;
       return;
     }
     const b = bucket(sessionId);
     const tail = last(b.messages);
-    // 娴佸紡涓烦杩囷紝閬垮厤閲嶆帓鎵撴柇锛堜笌 loadSessionEvents 'refresh' 鍚岃涔夛級
     if (tail?.streaming) return;
-
-    // 鎸?message id 鍘婚噸鍚堝苟锛坋arlier 鍦ㄥ墠锛涙棫 events 鍦ㄥ悗锛?
-    const seen = new Set<string>();
-    const merged: BusEvent[] = [];
-    for (const ev of earlierEvents) {
-      const key = eventDedupKey(ev);
-      if (key && seen.has(key)) continue;
-      if (key) seen.add(key);
-      merged.push(ev);
+    const seen = new Set(earlierMessages.map((m) => m.id));
+    const kept = b.messages.filter((m) => !seen.has(m.id));
+    b.messages = [...earlierMessages, ...kept];
+    for (const m of earlierMessages) {
+      if (m.eventIds) for (const eid of m.eventIds) b.seenEventIds.add(eid);
     }
-    for (const ev of b.events) {
-      const key = eventDedupKey(ev);
-      if (key && seen.has(key)) continue;
-      if (key) seen.add(key);
-      merged.push(ev);
-    }
-    // 鎸?timestamp 鍗囧簭鍏滃簳鎺掑簭锛堜竴鑸?earlier 宸茬粡鍗囧簭銆乵erged 鍚庝粛鍗囧簭锛屼絾淇濋櫓锛?
-    merged.sort((a, b2) => (a.ts ?? 0) - (b2.ts ?? 0));
-
-    b.events = merged;
-    b.earliestTs = merged[0]?.ts ?? null;
+    b.earliestTs = earlierMessages.length > 0 ? earlierMessages[0].timestamp / 1000 : b.earliestTs;
     b.hasMoreHistory = hasMoreHistory;
-    b.lastUserInputTs = null;
-    b.messages = [];
-    b.seenEventIds = new Set<string>();
-    for (const ev of merged) applyEvent(b, ev);
-
-    const t = last(b.messages);
-    if (t?.streaming) {
-      const parts = [...(t.parts || [])];
-      sealStreamingPart(parts);
-      const next = b.messages.slice();
-      next[next.length - 1] = { ...t, parts, streaming: false };
-      b.messages = next;
-    }
     mirror(sessionId);
   },
 
