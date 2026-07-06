@@ -161,8 +161,8 @@ export interface BusEvent {
   data?: any;
   ts?: number;
   eventId?: string;
-  /** 鍘嗗彶鍥炴斁鏃跺彲鎸囧畾娑堟伅 id锛堜繚鐣欏師 id锛夛紝ws 璧?nextId */
-  id?: string;
+  /** ws 实时下行帧的帧 ID（BusMessage.id），用于回放去重 */
+  frameId?: string;
   /** ws 瀹炴椂涓嬭甯х殑 metadata锛堝惈 frame_id 绛夌敤浜庡崰浣嶅幓閲嶇殑瀛楁锛?*/
   metadata?: Record<string, any>;
 }
@@ -172,7 +172,7 @@ function eventDedupKey(ev: BusEvent): string | null {
   if (typeof topLevel === "string" && topLevel) return topLevel;
   const dataEventId = ev.data?.event_id;
   if (typeof dataEventId === "string" && dataEventId) return dataEventId;
-  return typeof ev.id === "string" && ev.id ? ev.id : null;
+  return typeof ev.frameId === "string" && ev.frameId ? ev.frameId : null;
 }
 
 function seenEventIds(b: Bucket): Set<string> {
@@ -221,7 +221,7 @@ export function applyEvent(b: Bucket, ev: BusEvent): void {
     b.messages = [
       ...b.messages,
       {
-        id: ev.id ?? nextId("ast"),
+        id: ev.frameId ?? nextId("ast"),
         role: "assistant",
         content: null,
         timestamp: ts,
@@ -307,7 +307,7 @@ export function applyEvent(b: Bucket, ev: BusEvent): void {
       b.messages = [
         ...b.messages,
         {
-          id: frameId || ev.id || nextId("user"),
+          id: frameId || ev.frameId || nextId("user"),
           role: "user",
           content: c,
           timestamp: ts,
@@ -330,10 +330,10 @@ export function applyEvent(b: Bucket, ev: BusEvent): void {
 
       replaceTail((m) => ({
         ...m,
-        // 流式阶段不更新 id：每次 assistant_message 的 ev.id 不同，
+        // 流式阶段不更新 id：每次 assistant_message 的 ev.frameId 不同，
         // 会导致 React key 变化、组件销毁重建、useState 状态丢失。
         // 只在 complete 时设置最终 id。
-        ...(isComplete ? { id: ev.id ?? m.id } : {}),
+        ...(isComplete ? { id: ev.frameId ?? m.id } : {}),
         blocks,
         content: text || null,
         streaming: !isComplete,
@@ -349,7 +349,7 @@ export function applyEvent(b: Bucket, ev: BusEvent): void {
       const fromCh = typeof d.from_channel === "string" ? d.from_channel : "";
       const fromSid = typeof d.from_session === "string" ? d.from_session : "";
       const inserted: ChatMessage = {
-        id: ev.id ?? nextId("ext"),
+        id: ev.frameId ?? nextId("ext"),
         role: "assistant",
         content: text,
         timestamp: ts,
@@ -411,7 +411,7 @@ export function applyEvent(b: Bucket, ev: BusEvent): void {
       replaceTail((m) => m.streaming ? { ...m, streaming: false } : m);
       b.messages = [
         ...b.messages,
-        { id: ev.id ?? nextId("err"), role: "assistant", content: msg, timestamp: ts, isError: true },
+        { id: ev.frameId ?? nextId("err"), role: "assistant", content: msg, timestamp: ts, isError: true },
       ];
       b.isBusy = false;
       b.sessionStatus = "idle";
@@ -431,7 +431,7 @@ export function applyEvent(b: Bucket, ev: BusEvent): void {
       b.messages = [
         ...b.messages,
         {
-          id: ev.id ?? nextId("compact"),
+          id: ev.frameId ?? nextId("compact"),
           role: "system" as Role,
           content: null,
           timestamp: ts,
@@ -506,7 +506,7 @@ export function applyEvent(b: Bucket, ev: BusEvent): void {
       b.messages = [
         ...b.messages,
         {
-          id: ev.id ?? nextId("compact"),
+          id: ev.frameId ?? nextId("compact"),
           role: "system" as Role,
           content: null,
           timestamp: ts,
@@ -654,7 +654,7 @@ if (!(globalThis as any)[__wsBoundFlag]) {
       type: ev.type,
       eventId: ev.event_id,
       data: ev.data,
-      id: msg.id,
+      frameId: msg.frame_id,
       metadata: msg.metadata,
     };
     if (hasSeenEvent(b, busEvent)) return;

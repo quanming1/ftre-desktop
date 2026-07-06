@@ -2,8 +2,8 @@
  * WebSocket Client — 连接 ftre gateway
  *
  * 协议：
- *   上行（client → server）: { id, type: "user_message", data, metadata }
- *   下行（server → client）: { id, type, data: AgentEvent, metadata }
+ *   上行（client → server）: { frame_id, type: "user_message", data, metadata }
+ *   下行（server → client）: { frame_id, type, data: AgentEvent, metadata }
  *
  * AgentEvent.data.type:
  *   assistant_message, assistant_message_complete, reasoning, tool_call, tool_result,
@@ -14,7 +14,7 @@
 
 /** 后端下行消息格式 */
 export interface ServerMessage {
-  id: string;
+  frame_id: string;
   type: string; // "agent_event"
   data: AgentEvent;
   metadata: Record<string, unknown>;
@@ -118,7 +118,7 @@ class WebSocketClient {
         // 重连后重新 attach 所有之前关注的 session
         for (const sid of this.attachedSessions) {
           this.send({
-            id: crypto.randomUUID().slice(0, 16),
+            frame_id: crypto.randomUUID().slice(0, 16),
             type: "attach",
             data: { session_id: sid },
           });
@@ -226,7 +226,7 @@ class WebSocketClient {
     }
     const id = frameId || crypto.randomUUID().slice(0, 16);
     this.send({
-      id,
+      frame_id: id,
       type: "user_message",
       data,
       metadata: metadata || {},
@@ -237,7 +237,7 @@ class WebSocketClient {
   /** 取消当前执行：发送 /cancel 的 user_message 帧，后端系统级指令在锁外处理 */
   sendCancel(sessionId?: string): void {
     this.send({
-      id: crypto.randomUUID().slice(0, 16),
+      frame_id: crypto.randomUUID().slice(0, 16),
       type: "user_message",
       data: { session_id: sessionId || "", content: "/cancel" },
     });
@@ -248,7 +248,7 @@ class WebSocketClient {
     if (!sessionId) return;
     this.attachedSessions.add(sessionId);
     this.send({
-      id: crypto.randomUUID().slice(0, 16),
+      frame_id: crypto.randomUUID().slice(0, 16),
       type: "attach",
       data: { session_id: sessionId },
     });
@@ -258,7 +258,7 @@ class WebSocketClient {
     if (!sessionId) return;
     this.attachedSessions.delete(sessionId);
     this.send({
-      id: crypto.randomUUID().slice(0, 16),
+      frame_id: crypto.randomUUID().slice(0, 16),
       type: "detach",
       data: { session_id: sessionId },
     });
