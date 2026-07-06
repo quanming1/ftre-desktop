@@ -214,10 +214,10 @@ export function applyEvent(b: Bucket, ev: BusEvent): void {
     b.messages = next;
   };
 
-  /** Ensure tail has a streaming assistant; create one if missing or sealed. */
+  /** Ensure tail is a streaming assistant; create one if missing or sealed. */
   const ensure = (): void => {
     const t = tail();
-    if (t) return;
+    if (t && t.role === "assistant" && t.streaming) return;
     b.messages = [
       ...b.messages,
       {
