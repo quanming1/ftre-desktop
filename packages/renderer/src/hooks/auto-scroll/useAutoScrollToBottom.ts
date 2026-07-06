@@ -3,7 +3,7 @@ import { useScrollbarDrag } from "./useScrollbarDrag";
 import { bindRef } from "./bindRef";
 
 /** 距底部多少像素以内视为"在底部"，自动恢复跟随 */
-const LOCK_THRESHOLD = 100;
+const LOCK_THRESHOLD = 30;
 /** wheel 向上解锁后的防抖窗口（ms），此时间内 scroll 事件不恢复锁定 */
 const WHEEL_DEBOUNCE_MS = 200;
 
