@@ -201,7 +201,7 @@ export const ChatMessageList = memo(function ChatMessageList({
         maxHeight,
       }}
     >
-      <div className="mx-auto w-full max-w-[800px] space-y-12 break-words">
+      <div className="mx-auto w-full max-w-[800px] space-y-4 break-words">
         {/* Load more */}
         {hasMore && (
           <div className="text-center py-2">
@@ -241,6 +241,7 @@ export const ChatMessageList = memo(function ChatMessageList({
           const isLastOfTurn =
             msg.role === "assistant" &&
             !msg.streaming &&
+            !isBusy &&
             (!next || next.role !== "assistant");
 
           // 本轮所有 assistant 消息的文本列表（从上一个 user 消息之后到本条）
