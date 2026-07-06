@@ -206,7 +206,7 @@ html[data-theme="light"] {
   --gap-lg: 16px;
   --gap-xl: 24px;
   --font-mono: "JetBrains Mono", "Cascadia Code", "Fira Code", "Consolas", monospace;
-  --font-sans: "Inter", -apple-system, "Segoe UI", sans-serif;
+  --font-sans: "Microsoft YaHei", "Inter", -apple-system, "Segoe UI", sans-serif;
   --font-size-xs: 11px;
   --font-size-sm: 12px;
   --font-size-md: 13px;
