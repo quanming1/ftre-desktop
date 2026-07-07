@@ -1,78 +1,207 @@
-import { useState } from "react";
-import { Bot, Cpu, Wifi, Gauge } from "lucide-react";
-import { AgentDefSettings } from "./AgentDefSettings";
-import { ModelSettings } from "./ModelSettings";
-import { GatewaySettings } from "./GatewaySettings";
-import { McpSettings } from "./McpSettings";
-import { PerformanceSettings } from "./PerformanceSettings";
-import { ChevronRight, Server } from "lucide-react";
+/**
+ * SettingsPanel — 设置面板（右侧面板模式）
+ *
+ * 从 SettingsDialog 改造而来，去掉了 Modal 包裹，
+ * 直接作为右侧面板渲染（与 Skills/Cron/Traces 同级切换）。
+ */
+import { useState, useEffect } from "react";
+import { Sun, Moon, Monitor, ArrowLeft } from "lucide-react";
+import { ModelSettings } from "@/features/settings/ModelSettings";
+import { GatewaySettings } from "@/features/settings/GatewaySettings";
+import { AgentDefSettings } from "@/features/settings/AgentDefSettings";
+import { McpSettings } from "@/features/settings/McpSettings";
+import { PromptSettings } from "@/features/settings/PromptSettings";
+import { PerformanceSettings } from "@/features/settings/PerformanceSettings";
+import { ShortcutsSettings } from "@/features/settings/ShortcutsSettings";
+import { useTheme, type ThemeMode } from "@/stores/theme";
+import { useLayout } from "@/stores/layout";
+import type { SettingsSection } from "@/app/settings-events";
 
-type SettingsView = "home" | "agents" | "models" | "gateway" | "mcp" | "performance";
+const navSections = [
+  {
+    group: "功能",
+    items: [
+      { id: "general", label: "通用" },
+      { id: "models", label: "模型" },
+      { id: "gateway", label: "网关连接" },
+      { id: "agents", label: "智能体" },
+      { id: "mcp", label: "MCP 服务器" },
+      { id: "performance", label: "性能监控" },
+    ] satisfies { id: SettingsSection; label: string }[],
+  },
+  {
+    group: "快捷键",
+    items: [
+      { id: "shortcuts", label: "键盘快捷键" },
+    ] satisfies { id: SettingsSection; label: string }[],
+  },
+];
 
 export function SettingsPanel() {
-  const [view, setView] = useState<SettingsView>("home");
+  const [activeSection, setActiveSection] = useState<SettingsSection>("general");
+  const setActiveLeftPanel = useLayout((s) => s.setActiveLeftPanel);
 
-  if (view !== "home") {
-    const titles: Record<string, string> = {
-      agents: "智能体",
-      models: "模型",
-      gateway: "网关",
-      mcp: "MCP 服务器",
-      performance: "性能监控",
-    };
-    return (
-      <div className="h-full overflow-auto bg-white">
-        <div className="max-w-[800px] mx-auto p-8">
+  return (
+    <div className="h-full flex bg-[#f6f7f9]">
+      {/* Left Nav */}
+      <nav className="w-[240px] flex flex-col py-5 shrink-0 overflow-y-auto bg-[#f6f7f9]">
+        <div className="px-3 mb-3">
           <button
-            onClick={() => setView("home")}
-            className="flex items-center gap-1.5 text-[13px] text-black/40 hover:text-black mb-6 transition-colors active:scale-[0.96] transition-transform"
+            onClick={() => setActiveLeftPanel("chat")}
+            className="flex items-center gap-2 w-full px-3 py-2 rounded-lg text-[13px] font-medium text-t-secondary hover:text-t-primary hover:bg-hover transition-colors active:scale-[0.98]"
           >
-            <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"><path d="M9 3L4 8L4 10L6 10L11 5" /></svg>
-            设置 / {titles[view]}
+            <ArrowLeft size={16} strokeWidth={1.8} />
+            <span>返回</span>
           </button>
-          {view === "agents" && <AgentDefSettings />}
-          {view === "models" && <ModelSettings />}
-          {view === "gateway" && <GatewaySettings />}
-          {view === "mcp" && <McpSettings />}
-          {view === "performance" && <PerformanceSettings />}
+        </div>
+        {navSections.map((section) => (
+          <div key={section.group} className="mb-4">
+            <div className="px-5 mb-2 text-[11px] uppercase tracking-wider text-t-ghost">
+              {section.group}
+            </div>
+            {section.items.map((item) => (
+              <button
+                key={item.id}
+                onClick={() => setActiveSection(item.id)}
+                className={`w-[calc(100%-16px)] mx-2 mb-1 text-left px-3 py-2.5 text-[13px] rounded-md transition-colors ${
+                  activeSection === item.id
+                    ? "bg-hover text-t-primary"
+                    : "text-t-secondary hover:bg-hover"
+                }`}
+              >
+                {item.label}
+              </button>
+            ))}
+          </div>
+        ))}
+      </nav>
+
+      {/* Right Content */}
+      <div className="flex-1 flex flex-col overflow-hidden bg-white">
+        <div className="flex-1 overflow-y-auto p-6">
+          <div className="mx-auto w-full max-w-[800px]">
+          {activeSection === "models" && <ModelSettings />}
+          {activeSection === "gateway" && <GatewaySettings />}
+          {activeSection === "agents" && <AgentDefSettings />}
+          {activeSection === "general" && <GeneralSettings />}
+          {activeSection === "mcp" && <McpSettings />}
+          {activeSection === "performance" && <PerformanceSettings />}
+          {activeSection === "shortcuts" && <ShortcutsSettings />}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── General Settings ───────────────────────────────────────────────
+
+function GeneralSettings() {
+  const mode = useTheme((s) => s.mode);
+  const setMode = useTheme((s) => s.setMode);
+
+  const options: { value: ThemeMode; label: string; icon: typeof Sun }[] = [
+    { value: "light", label: "浅色模式", icon: Sun },
+    { value: "dark", label: "深色模式", icon: Moon },
+    { value: "system", label: "跟随系统", icon: Monitor },
+  ];
+
+  return (
+    <div className="space-y-6">
+      <div>
+        <h2 className="text-[16px] font-semibold text-t-primary mb-2">
+          通用设置
+        </h2>
+      </div>
+
+      <div>
+        <label className="block text-[13px] font-medium text-t-primary mb-3">
+          外观主题
+        </label>
+        <div className="grid grid-cols-3 gap-3">
+          {options.map(({ value, label, icon: Icon }) => {
+            const selected = mode === value;
+            return (
+              <button
+                key={value}
+                onClick={() => setMode(value)}
+                aria-pressed={selected}
+                className={`flex flex-col items-center gap-2 p-2 rounded-xl border-2 transition-all ${
+                  selected
+                    ? "border-accent ring-1 ring-accent/40"
+                    : "border-transparent hover:border-border-subtle"
+                }`}
+              >
+                <ThemePreviewCard variant={value} />
+                <div
+                  className={`flex items-center gap-1.5 text-[12px] ${
+                    selected ? "text-t-primary" : "text-t-secondary"
+                  }`}
+                >
+                  <Icon size={13} strokeWidth={1.8} />
+                  <span>{label}</span>
+                </div>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      <div className="border-t border-border-subtle pt-6">
+        <PromptSettings />
+      </div>
+    </div>
+  );
+}
+
+function ThemePreviewCard({ variant }: { variant: ThemeMode }) {
+  if (variant === "system") {
+    return (
+      <div className="relative w-full aspect-[16/10] rounded-lg overflow-hidden border border-border-subtle">
+        <div className="absolute inset-0 grid grid-cols-2">
+          <ThemePreviewHalf scheme="light" half="left" />
+          <ThemePreviewHalf scheme="dark" half="right" />
         </div>
       </div>
     );
   }
+  return (
+    <div className="w-full aspect-[16/10] rounded-lg overflow-hidden border border-border-subtle">
+      <ThemePreviewHalf scheme={variant} half="full" />
+    </div>
+  );
+}
+
+function ThemePreviewHalf({
+  scheme,
+  half,
+}: {
+  scheme: "light" | "dark";
+  half: "left" | "right" | "full";
+}) {
+  const isDark = scheme === "dark";
+  const bg = isDark ? "bg-[#1f2125]" : "bg-white";
+  const lineMain = isDark ? "bg-white/12" : "bg-black/8";
+  const lineSub = isDark ? "bg-white/6" : "bg-black/4";
+  const dotBg = isDark ? "bg-white/15" : "bg-black/10";
 
   return (
-    <div className="h-full overflow-auto bg-white">
-      <div className="max-w-[800px] mx-auto p-8">
-        <div className="mb-8">
-          <h1 className="text-[15px] font-semibold text-black">设置</h1>
-          <p className="text-[12px] text-black/40 mt-1">配置你的 FTRE 使用体验</p>
-        </div>
-
-        <div className="space-y-3">
-          {[
-            { icon: <Bot size={18} />, title: "智能体", desc: "跨工作区协作的 AI 智能体", view: "agents" as const },
-            { icon: <Cpu size={18} />, title: "模型", desc: "AI 提供商和模型设置", view: "models" as const },
-            { icon: <Server size={18} />, title: "MCP 服务器", desc: "连接外部工具服务器", view: "mcp" as const },
-            { icon: <Wifi size={18} />, title: "网关", desc: "ftre gateway 连接地址", view: "gateway" as const },
-            { icon: <Gauge size={18} />, title: "性能监控", desc: "实时内存使用与运行时长", view: "performance" as const },
-          ].map(({ icon, title, desc, view: v }) => (
-            <button
-              key={v}
-              onClick={() => setView(v)}
-              className="flex w-full items-center gap-4 p-4 rounded-xl border border-black/[0.06] bg-white hover:border-black/[0.1] transition-colors text-left active:scale-[0.99]"
-            >
-              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-black/[0.03] text-black/50">
-                {icon}
-              </div>
-              <div className="flex-1 min-w-0">
-                <div className="text-[13px] font-semibold text-black">{title}</div>
-                <div className="text-[12px] text-black/40 mt-0.5">{desc}</div>
-              </div>
-              <ChevronRight size={16} className="text-black/20" />
-            </button>
-          ))}
-        </div>
+    <div className={`relative w-full h-full ${bg}`}>
+      <div
+        className={`absolute left-2 top-1.5 flex gap-1 ${
+          half === "right" ? "opacity-0" : ""
+        }`}
+      >
+        <div className={`w-1 h-1 rounded-full ${lineSub}`} />
+        <div className={`w-1 h-1 rounded-full ${lineSub}`} />
+        <div className={`w-1 h-1 rounded-full ${lineSub}`} />
       </div>
+      <div className={`absolute left-3 right-3 top-4 h-1 rounded-full ${lineMain}`} />
+      <div
+        className={`absolute left-3 top-6 h-1 rounded-full ${lineSub}`}
+        style={{ width: half === "full" ? "55%" : "70%" }}
+      />
+      <div className={`absolute right-2 bottom-1.5 w-3 h-1.5 rounded-full ${dotBg}`} />
     </div>
   );
 }

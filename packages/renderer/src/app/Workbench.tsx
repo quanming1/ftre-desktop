@@ -1,7 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { ErrorBoundary } from "@ftre/ui";
 import { TitleBar } from "./TitleBar";
-import { SettingsDialog } from "./SettingsDialog";
 import { Sidebar } from "@/features/explorer/Sidebar";
 import { EditorArea } from "@/features/editor/EditorArea";
 import { pathParent } from "@/utils/pathUtils";
@@ -10,6 +9,7 @@ import { SessionPanel } from "@/features/session/SessionPanel";
 import { SkillsPanel } from "@/features/skills/SkillsPanel";
 import { ScheduledTaskPanel } from "@/features/task/ScheduledTaskPanel";
 import { TracePanel } from "@/features/traces/TracePanel";
+import { SettingsPanel } from "@/features/settings/SettingsPanel";
 import { TerminalDropdown } from "@/features/terminal/TerminalDropdown";
 import { FilePalette } from "@/components/FilePalette";
 import { CommandPalette } from "@/components/CommandPalette";
@@ -315,6 +315,17 @@ export function Workbench() {
         {/* Content area with rounded top-left corner */}
         <div className="flex-1 flex overflow-hidden bg-[#f6f7f9]">
 
+        {activeLeftPanel === "settings" ? (
+          /* Settings 模式：SettingsPanel 完全接管左侧 SessionPanel + 右侧区域 */
+          <div className="flex-1 h-full overflow-hidden py-1 px-1.5">
+            <div className="h-full overflow-hidden rounded-xl bg-surface">
+              <ErrorBoundary>
+                <SettingsPanel />
+              </ErrorBoundary>
+            </div>
+          </div>
+        ) : (
+        <>
         {/* Sessions Panel — 在所有模式下保持挂载（顶部内化了模式切换） */}
         {panelVisible.sessions && (
           <div
@@ -457,14 +468,13 @@ export function Workbench() {
               />
             </div>
           )}
+        </>
+        )}
         </div>
       </div>
 
       {/* 终端下拉弹窗 — 始终挂载，CSS 控制显隐 */}
       <TerminalDropdown />
-
-      {/* 全局设置对话框 — 监听 ftre:open-settings 事件，由 SessionPanel 底部按钮触发 */}
-      <SettingsDialog />
 
       <FilePalette
         open={filePaletteOpen}

@@ -66,7 +66,6 @@ import { updateSession } from "@/services/api";
 import { ContextMenu, type ContextMenuItem } from "@/components/ContextMenu";
 import { Tooltip, TooltipProvider } from "@ftre/ui";
 import { normalizePathForCompare } from "@/utils/pathUtils";
-import { OPEN_SETTINGS_EVENT } from "@/app/settings-events";
 import type { SessionSummary } from "@/services/api";
 
 // ─── 水波纹 hook + 渲染组件（通用） ─────────────────────────────────
@@ -701,10 +700,10 @@ export function SessionPanel() {
     newSession(rootPath || undefined);
   }, [activeLeftPanel, setActiveLeftPanel, newSession, rootPath]);
 
-  /** 打开全局设置（沿用全局事件，跨组件复用同一份对话框） */
+  /** 切换到设置面板 */
   const handleOpenSettings = useCallback(() => {
-    window.dispatchEvent(new CustomEvent(OPEN_SETTINGS_EVENT));
-  }, []);
+    setActiveLeftPanel("settings");
+  }, [setActiveLeftPanel]);
 
   // ─── 拖动排序（写入 localStorage 的 group 顺序）────────────────
 
@@ -768,7 +767,8 @@ export function SessionPanel() {
           </div>
 
           <SideIconButton
-            title="Settings"
+            title="设置"
+            active={activeLeftPanel === "settings"}
             className="mt-auto"
             onClick={handleOpenSettings}
           >
@@ -999,6 +999,7 @@ export function SessionPanel() {
           <ActionRow
             icon={Settings}
             label="设置"
+            active={activeLeftPanel === "settings"}
             onClick={handleOpenSettings}
           />
         </div>
