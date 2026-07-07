@@ -42,7 +42,7 @@ export function SettingsPanel() {
   const setActiveLeftPanel = useLayout((s) => s.setActiveLeftPanel);
 
   return (
-    <div className="h-full flex bg-[#f6f7f9]">
+    <div className="settings-light-scope h-full flex bg-[#f6f7f9]">
       {/* Left Nav */}
       <nav className="w-[240px] flex flex-col py-5 shrink-0 overflow-y-auto bg-[#f6f7f9]">
         <div className="px-3 mb-3">
