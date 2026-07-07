@@ -2,6 +2,8 @@
  * McpSettings — MCP 服务器管理
  *
  * 所有操作通过后端 API 热生效，无需重启网关。
+ * 分为「公共 MCP」（config.json，所有 agent 共享）和
+ * 「Agent 私有 MCP」（agent.config.json，仅对当前 agent 可见）两组。
  */
 import { useState, useEffect, useCallback } from "react";
 import {
@@ -14,6 +16,8 @@ import {
   AlertTriangle,
   Check,
   Info,
+  Lock,
+  Users,
 } from "lucide-react";
 import { Button } from "@ftre/ui";
 import {
@@ -22,12 +26,14 @@ import {
   updateMcpServer,
   deleteMcpServer,
   type McpServerConfig,
+  type McpScope,
 } from "@/services/api";
 
 // ─── Types ──────────────────────────────────────────────────────────
 
-type ServerFormState = Omit<McpServerConfig, "status"> & {
+type ServerFormState = Omit<McpServerConfig, "status" | "scope"> & {
   _originalName?: string;
+  _scope?: McpScope;
 };
 
 const EMPTY_LOCAL: ServerFormState = {
@@ -61,7 +67,7 @@ export function McpSettings() {
   const refresh = useCallback(async () => {
     setLoading(true);
     try {
-      const list = await fetchMcpServers();
+      const list = await fetchMcpServers("all");
       setServers(list);
       setError(null);
     } catch (e: any) {
@@ -77,12 +83,13 @@ export function McpSettings() {
     if (!editing) return;
     setError(null);
     try {
+      const scope = editing._scope || "global";
       if (editing._originalName) {
-        const { _originalName, ...patch } = editing;
-        await updateMcpServer(_originalName, patch as any);
+        const { _originalName, _scope, ...patch } = editing;
+        await updateMcpServer(_originalName, patch as any, scope);
       } else {
-        const { _originalName, ...data } = editing;
-        await createMcpServer(data as any);
+        const { _originalName, _scope, ...data } = editing;
+        await createMcpServer(data as any, scope);
       }
       setEditing(null);
       await refresh();
@@ -94,16 +101,16 @@ export function McpSettings() {
   const handleToggle = async (server: McpServerConfig) => {
     setError(null);
     try {
-      await updateMcpServer(server.name, { disabled: !server.disabled });
+      await updateMcpServer(server.name, { disabled: !server.disabled }, server.scope || "global");
       await refresh();
     } catch (e: any) {
       setError(e.message || "切换失败");
     }
   };
 
-  const handleDelete = async (name: string) => {
+  const handleDelete = async (server: McpServerConfig) => {
     setError(null);
-    const result = await deleteMcpServer(name);
+    const result = await deleteMcpServer(server.name, server.scope || "global");
     if ("error" in result) {
       setError(result.error);
     } else {
@@ -150,6 +157,10 @@ export function McpSettings() {
     );
   }
 
+  // 按 scope 分组
+  const globalServers = servers.filter((s) => s.scope !== "private");
+  const privateServers = servers.filter((s) => s.scope === "private");
+
   return (
     <div className="space-y-6">
       <div>
@@ -171,18 +182,18 @@ export function McpSettings() {
 
       <div className="flex items-center gap-2">
         <button
-          onClick={() => setEditing({ ...EMPTY_LOCAL })}
+          onClick={() => setEditing({ ...EMPTY_LOCAL, _scope: "global" })}
           className="flex items-center gap-2 h-9 px-4 rounded-full text-[13px] font-medium bg-black text-white hover:bg-black/85 active:scale-[0.96] transition-[background-color,transform]"
         >
           <Plus size={14} />
-          添加本地
+          添加公共
         </button>
         <button
-          onClick={() => setEditing({ ...EMPTY_REMOTE })}
+          onClick={() => setEditing({ ...EMPTY_LOCAL, _scope: "private" })}
           className="flex items-center gap-2 h-9 px-4 rounded-full text-[13px] font-medium bg-black/[0.04] text-black/70 hover:bg-black/[0.08] active:scale-[0.96] transition-[background-color,transform]"
         >
           <Plus size={14} />
-          添加远程
+          添加私有
         </button>
         <button
           onClick={refresh}
@@ -209,7 +220,10 @@ export function McpSettings() {
               取消
             </button>
             <button
-              onClick={() => handleDelete(deleteConfirm)}
+              onClick={() => {
+                const s = servers.find((x) => x.name === deleteConfirm);
+                if (s) handleDelete(s);
+              }}
               className="px-3 py-1.5 text-[12px] font-medium rounded-lg bg-black text-white hover:bg-black/85 active:scale-[0.96] transition-[background-color,transform]"
             >
               删除
@@ -220,31 +234,81 @@ export function McpSettings() {
 
       {servers.length === 0 ? (
         <EmptyState
-          onAddLocal={() => setEditing({ ...EMPTY_LOCAL })}
-          onAddRemote={() => setEditing({ ...EMPTY_REMOTE })}
+          onAddGlobal={() => setEditing({ ...EMPTY_LOCAL, _scope: "global" })}
+          onAddPrivate={() => setEditing({ ...EMPTY_LOCAL, _scope: "private" })}
         />
       ) : (
-        <div className="space-y-2">
-          {servers.map((s) => (
-            <McpServerCard
-              key={s.name}
-              server={s}
-              expanded={expanded === s.name}
-              onExpand={() => setExpanded(expanded === s.name ? null : s.name)}
-              onEdit={() => setEditing({ ...s, _originalName: s.name })}
-              onToggle={() => handleToggle(s)}
-              onDelete={() => setDeleteConfirm(s.name)}
-            />
-          ))}
+        <div className="space-y-6">
+          {/* 公共 MCP */}
+          {globalServers.length > 0 && (
+            <ServerGroup
+              icon={<Users size={13} />}
+              title="公共 MCP"
+              hint="所有 Agent 共享"
+            >
+              {globalServers.map((s) => (
+                <McpServerCard
+                  key={`global-${s.name}`}
+                  server={s}
+                  expanded={expanded === `global-${s.name}`}
+                  onExpand={() => setExpanded(expanded === `global-${s.name}` ? null : `global-${s.name}`)}
+                  onEdit={() => setEditing({ ...s, _originalName: s.name, _scope: "global" })}
+                  onToggle={() => handleToggle(s)}
+                  onDelete={() => setDeleteConfirm(s.name)}
+                />
+              ))}
+            </ServerGroup>
+          )}
+
+          {/* 私有 MCP */}
+          {privateServers.length > 0 && (
+            <ServerGroup
+              icon={<Lock size={13} />}
+              title="Agent 私有 MCP"
+              hint="仅当前 Agent 可见"
+            >
+              {privateServers.map((s) => (
+                <McpServerCard
+                  key={`private-${s.name}`}
+                  server={s}
+                  expanded={expanded === `private-${s.name}`}
+                  onExpand={() => setExpanded(expanded === `private-${s.name}` ? null : `private-${s.name}`)}
+                  onEdit={() => setEditing({ ...s, _originalName: s.name, _scope: "private" })}
+                  onToggle={() => handleToggle(s)}
+                  onDelete={() => setDeleteConfirm(s.name)}
+                />
+              ))}
+            </ServerGroup>
+          )}
         </div>
       )}
     </div>
   );
 }
 
+// ─── 分组容器 ──────────────────────────────────────────────────────────
+
+function ServerGroup({ icon, title, hint, children }: {
+  icon: React.ReactNode;
+  title: string;
+  hint: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="space-y-2">
+      <div className="flex items-center gap-1.5 px-1">
+        <span className="text-black/40">{icon}</span>
+        <span className="text-[12px] font-semibold text-black/60">{title}</span>
+        <span className="text-[10px] text-black/25">{hint}</span>
+      </div>
+      {children}
+    </div>
+  );
+}
+
 // ─── 空状态 ──────────────────────────────────────────────────────────
 
-function EmptyState({ onAddLocal, onAddRemote }: { onAddLocal: () => void; onAddRemote: () => void }) {
+function EmptyState({ onAddGlobal, onAddPrivate }: { onAddGlobal: () => void; onAddPrivate: () => void }) {
   return (
     <div className="flex flex-col items-center justify-center py-12 rounded-2xl bg-black/[0.01] border border-dashed border-black/[0.06]">
       <div className="w-12 h-12 rounded-2xl bg-black/[0.03] flex items-center justify-center mb-4">
@@ -253,11 +317,11 @@ function EmptyState({ onAddLocal, onAddRemote }: { onAddLocal: () => void; onAdd
       <p className="text-[13px] font-medium text-black/60 mb-1">暂无 MCP 服务器</p>
       <p className="text-[11px] text-black/30 mb-6">添加服务器以扩展 Agent 工具集</p>
       <div className="flex gap-2">
-        <button onClick={onAddLocal} className="flex items-center gap-2 h-8 px-4 rounded-full text-[13px] font-medium bg-black text-white hover:bg-black/85 active:scale-[0.96] transition-[background-color,transform]">
-          <Terminal size={13} />本地
+        <button onClick={onAddGlobal} className="flex items-center gap-2 h-8 px-4 rounded-full text-[13px] font-medium bg-black text-white hover:bg-black/85 active:scale-[0.96] transition-[background-color,transform]">
+          <Users size={13} />公共
         </button>
-        <button onClick={onAddRemote} className="flex items-center gap-2 h-8 px-4 rounded-full text-[13px] font-medium bg-black/[0.04] text-black/70 hover:bg-black/[0.08] active:scale-[0.96] transition-[background-color,transform]">
-          <Globe size={13} />远程
+        <button onClick={onAddPrivate} className="flex items-center gap-2 h-8 px-4 rounded-full text-[13px] font-medium bg-black/[0.04] text-black/70 hover:bg-black/[0.08] active:scale-[0.96] transition-[background-color,transform]">
+          <Lock size={13} />私有
         </button>
       </div>
     </div>
@@ -301,6 +365,9 @@ function McpServerCard({
             <span className="text-[13px] font-semibold text-black truncate">{server.name}</span>
             <span className={`shrink-0 text-[10px] font-medium rounded px-1.5 py-0.5 ${isDisabled ? "bg-black/[0.04] text-black/40" : "bg-black/[0.04] text-black/60"}`}>
               {isDisabled ? "已禁用" : "启用"}
+            </span>
+            <span className={`shrink-0 text-[9px] font-medium rounded px-1 py-0.5 ${server.scope === "private" ? "bg-black/[0.06] text-black/50" : "bg-black/[0.03] text-black/30"}`}>
+              {server.scope === "private" ? "私有" : "公共"}
             </span>
           </div>
           <div className="flex items-center gap-2 mt-0.5">
@@ -396,6 +463,27 @@ function McpServerForm({
 
   return (
     <div className="space-y-5">
+      {!isEdit && (
+        <FormField label="作用域">
+          <div className="flex gap-2">
+            {(["global", "private"] as const).map((sc) => (
+              <button
+                key={sc}
+                onClick={() => onChange({ ...data, _scope: sc })}
+                className={`flex items-center gap-2 px-4 py-2.5 text-[12px] font-medium rounded-lg border transition-all active:scale-[0.96] ${
+                  (data._scope || "global") === sc
+                    ? "border-black bg-black text-white"
+                    : "border-black/[0.08] bg-white text-black/60 hover:border-black/[0.15]"
+                }`}
+              >
+                {sc === "global" ? <Users size={14} /> : <Lock size={14} />}
+                {sc === "global" ? "公共（所有 Agent 共享）" : "私有（仅当前 Agent）"}
+              </button>
+            ))}
+          </div>
+        </FormField>
+      )}
+
       <FormField label="服务器名称" hint="仅允许字母、数字、连字符和下划线">
         <input
           value={data.name}

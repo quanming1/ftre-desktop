@@ -1241,6 +1241,8 @@ export async function sendRoomMessage(
 
 const MCP_API = `${API_BASE}/api/mcp`;
 
+export type McpScope = "global" | "private";
+
 export interface McpServerConfig {
   name: string;
   type: "local" | "remote";
@@ -1255,18 +1257,31 @@ export interface McpServerConfig {
   timeout?: number;
   /** 运行时状态（仅 GET 返回） */
   status?: "connected" | "disconnected";
+  /** 作用域（GET 返回） */
+  scope?: McpScope;
 }
 
-export async function fetchMcpServers(): Promise<McpServerConfig[]> {
-  const res = await fetch(MCP_API);
+export async function fetchMcpServers(
+  scope: "all" | McpScope = "all",
+  agentId: string = "default",
+): Promise<McpServerConfig[]> {
+  const params = new URLSearchParams();
+  if (scope !== "all") params.set("scope", scope);
+  if (scope === "private") params.set("agent_id", agentId);
+  const qs = params.toString();
+  const res = await fetch(qs ? `${MCP_API}?${qs}` : MCP_API);
   const data = await res.json();
   return data.servers || [];
 }
 
 export async function createMcpServer(
-  config: Omit<McpServerConfig, "status">,
+  config: Omit<McpServerConfig, "status" | "scope">,
+  scope: McpScope = "global",
+  agentId: string = "default",
 ): Promise<McpServerConfig> {
-  const res = await fetch(MCP_API, {
+  const params = new URLSearchParams({ scope });
+  if (scope === "private") params.set("agent_id", agentId);
+  const res = await fetch(`${MCP_API}?${params}`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(config),
@@ -1281,8 +1296,12 @@ export async function createMcpServer(
 export async function updateMcpServer(
   name: string,
   patch: Partial<McpServerConfig>,
+  scope: McpScope = "global",
+  agentId: string = "default",
 ): Promise<McpServerConfig> {
-  const res = await fetch(`${MCP_API}/${encodeURIComponent(name)}`, {
+  const params = new URLSearchParams({ scope });
+  if (scope === "private") params.set("agent_id", agentId);
+  const res = await fetch(`${MCP_API}/${encodeURIComponent(name)}?${params}`, {
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(patch),
@@ -1296,8 +1315,12 @@ export async function updateMcpServer(
 
 export async function deleteMcpServer(
   name: string,
+  scope: McpScope = "global",
+  agentId: string = "default",
 ): Promise<{ ok: true } | { error: string }> {
-  const res = await fetch(`${MCP_API}/${encodeURIComponent(name)}`, {
+  const params = new URLSearchParams({ scope });
+  if (scope === "private") params.set("agent_id", agentId);
+  const res = await fetch(`${MCP_API}/${encodeURIComponent(name)}?${params}`, {
     method: "DELETE",
   });
   if (!res.ok && res.status !== 204) {
