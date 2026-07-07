@@ -12,7 +12,7 @@ import { useSession } from "@/stores/session";
 import { fetchAppConfig } from "@/services/api";
 import { ModelPicker, type ProviderInfo } from "./ModelPicker";
 import { buildProviderInfos } from "./providerInfo";
-import { OPEN_SETTINGS_EVENT } from "@/app/settings-events";
+import { useLayout } from "@/stores/layout";
 
 export function AgentBar() {
   const agentId = useChat((s) => s.agentId);
@@ -284,9 +284,7 @@ export function AgentBar() {
                   selected={model && provider ? { provider, modelId: model } : null}
                   onSelect={handleSelectModel}
                   onOpenSettings={() => {
-                    window.dispatchEvent(
-                      new CustomEvent(OPEN_SETTINGS_EVENT, { detail: { section: "models" } }),
-                    );
+                    useLayout.getState().setActiveLeftPanel("settings");
                   }}
                   placement="top"
                   panelWidthClass="w-[300px]"

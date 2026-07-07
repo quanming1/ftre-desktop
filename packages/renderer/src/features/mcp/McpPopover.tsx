@@ -21,7 +21,6 @@ import {
   updateMcpServer,
   type McpServerConfig,
 } from "@/services/api";
-import { OPEN_SETTINGS_EVENT } from "@/app/settings-events";
 import { useLayout } from "@/stores/layout";
 
 // ─── 主组件 ──────────────────────────────────────────────────
@@ -63,9 +62,7 @@ export function McpPopover() {
 
   const openSettings = () => {
     useLayout.getState().setMcpPopoverOpen(false);
-    window.dispatchEvent(
-      new CustomEvent(OPEN_SETTINGS_EVENT, { detail: { section: "mcp" } }),
-    );
+    useLayout.getState().setActiveLeftPanel("settings");
   };
 
   // 统计信息
