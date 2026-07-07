@@ -1,4 +1,4 @@
-/**
+﻿/**
  * ChatMessageList — Standalone message list component.
  *
  * Pure presentational: renders ChatMessage[] without any store dependency.
@@ -35,8 +35,6 @@ export interface ChatMessageListProps {
 
 // ─── Component ──────────────────────────────────────────────────────
 
-const PAGE_SIZE = 10;
-
 export const ChatMessageList = memo(function ChatMessageList({
   messages,
   isBusy = false,
@@ -45,7 +43,6 @@ export const ChatMessageList = memo(function ChatMessageList({
   className = "",
 }: ChatMessageListProps) {
   const containerRef = useRef<HTMLDivElement>(null);
-  const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
 
   // ─── 右键菜单（选中文本后复制）────────────────────────────────────
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null);
@@ -132,66 +129,30 @@ export const ChatMessageList = memo(function ChatMessageList({
     scrollToBottom();
   }, [tailFingerprint, autoScroll, scrollToBottom]);
 
-  // ─── 加载更多 ──────────────────────────────────────────────────
+  // ─── 加载更多（后端分页）──────────────────────────────────────────
 
-  // Reset visible count when switching sessions
-  const prevLenRef = useRef(messages.length);
-  useEffect(() => {
-    if (messages.length < prevLenRef.current || messages.length === 0) {
-      setVisibleCount(PAGE_SIZE);
-    }
-    prevLenRef.current = messages.length;
-  }, [messages.length]);
-
-  const totalCount = messages.length;
-  const startIndex = Math.max(0, totalCount - visibleCount);
-  const visibleMessages = messages.slice(startIndex);
-  // 本地 hidden（前端已加载但被 visibleCount 截掉的）
-  const localHidden = startIndex;
-  // 后端是否还有更早的页可拉
   const hasMoreHistory = useChat((s) =>
     sessionId ? s.hasMoreHistory(sessionId) : false,
   );
   const loadEarlier = useSession((s) => s.loadEarlierMessages);
 
-  const hasMore = localHidden > 0 || hasMoreHistory;
-
-  // 后端拉历史时的 loading 标记（避免重复点）
   const [loadingHistory, setLoadingHistory] = useState(false);
 
   const loadMore = useCallback(async () => {
+    if (!hasMoreHistory || !sessionId || loadingHistory) return;
     const el = containerRef.current;
     const prevHeight = el?.scrollHeight ?? 0;
-
-    // 优先扩 visibleCount，覆盖前端已加载但被截掉的部分
-    if (localHidden > 0) {
-      setVisibleCount((prev) => Math.min(prev + PAGE_SIZE, totalCount));
+    setLoadingHistory(true);
+    try {
+      await loadEarlier(sessionId);
       requestAnimationFrame(() => {
         if (!el) return;
         el.scrollTop += el.scrollHeight - prevHeight;
       });
-      return;
-    }
-
-    // visibleCount 已撑满当前 messages —— 去后端拉更早一页
-    if (!hasMoreHistory || !sessionId || loadingHistory) return;
-    setLoadingHistory(true);
-    try {
-      const got = await loadEarlier(sessionId);
-      if (got) {
-        // prepend 后 messages.length 涨了，把 visibleCount 也跟涨：
-        // 老规则下"加载完一页只显示 PAGE_SIZE"会让用户感觉点了没用，
-        // 把 visibleCount 跟着扩到能至少展示新拉到的那一档。
-        setVisibleCount((prev) => prev + PAGE_SIZE);
-        requestAnimationFrame(() => {
-          if (!el) return;
-          el.scrollTop += el.scrollHeight - prevHeight;
-        });
-      }
     } finally {
       setLoadingHistory(false);
     }
-  }, [localHidden, totalCount, hasMoreHistory, sessionId, loadingHistory, loadEarlier]);
+  }, [hasMoreHistory, sessionId, loadingHistory, loadEarlier]);
 
   return (
     <div
@@ -205,7 +166,7 @@ export const ChatMessageList = memo(function ChatMessageList({
     >
       <div className="mx-auto w-full max-w-[800px] space-y-4 break-words">
         {/* Load more */}
-        {hasMore && (
+        {hasMoreHistory && (
           <div className="text-center py-2">
             <button
               onClick={loadMore}
@@ -216,11 +177,6 @@ export const ChatMessageList = memo(function ChatMessageList({
                 <>
                   <Loader2 size={14} className="animate-spin" />
                   加载中...
-                </>
-              ) : localHidden > 0 ? (
-                <>
-                  <ChevronUp size={14} />
-                  加载更早的消息（还有 {localHidden} 条）
                 </>
               ) : (
                 <>
@@ -238,8 +194,8 @@ export const ChatMessageList = memo(function ChatMessageList({
           </div>
         )}
 
-        {visibleMessages.map((msg, i) => {
-          const next = visibleMessages[i + 1];
+        {messages.map((msg, i) => {
+          const next = messages[i + 1];
           const isLastOfTurn =
             msg.role === "assistant" &&
             !msg.streaming &&
@@ -252,14 +208,14 @@ export const ChatMessageList = memo(function ChatMessageList({
             // 找本轮起始：上一个 user 消息
             let turnStart = 0;
             for (let j = i - 1; j >= 0; j--) {
-              if (visibleMessages[j].role === "user") {
+              if (messages[j].role === "user") {
                 turnStart = j + 1;
                 break;
               }
             }
             turnTexts = [];
             for (let j = turnStart; j <= i; j++) {
-              const m = visibleMessages[j];
+              const m = messages[j];
               if (m.role !== "assistant") continue;
               const text = m.content ?? "";
               if (text) turnTexts.push(text);
@@ -270,7 +226,7 @@ export const ChatMessageList = memo(function ChatMessageList({
           if (msg.role === "assistant" && msg.usage) {
             let prevTotal = 0;
             for (let j = i - 1; j >= 0; j--) {
-              const prev = visibleMessages[j];
+              const prev = messages[j];
               if (prev.role === "assistant" && prev.usage?.total_tokens != null) {
                 prevTotal = prev.usage.total_tokens;
                 break;
