@@ -35,7 +35,7 @@ export function McpPopover() {
   const refresh = useCallback(async () => {
     setLoading(true);
     try {
-      const list = await fetchMcpServers();
+      const list = await fetchMcpServers("all");
       setServers(list);
       setError(null);
     } catch (e: any) {
@@ -49,9 +49,10 @@ export function McpPopover() {
   useEffect(() => { refresh(); }, [refresh]);
 
   const handleToggle = async (server: McpServerConfig) => {
-    setToggling(server.name);
+    const key = `${server.scope}-${server.name}`;
+    setToggling(key);
     try {
-      await updateMcpServer(server.name, { disabled: !server.disabled });
+      await updateMcpServer(server.name, { disabled: !server.disabled }, server.scope || "global");
       await refresh();
     } catch (e: any) {
       setError(e.message || "切换失败");
@@ -121,9 +122,9 @@ export function McpPopover() {
           <div className="py-1.5">
             {servers.map((server) => (
               <ServerRow
-                key={server.name}
+                key={`${server.scope}-${server.name}`}
                 server={server}
-                toggling={toggling === server.name}
+                toggling={toggling === `${server.scope}-${server.name}`}
                 onToggle={() => handleToggle(server)}
               />
             ))}
@@ -174,7 +175,7 @@ function ServerRow({
       />
 
       {/* 名称 */}
-      <div className="flex-1 min-w-0">
+      <div className="flex-1 min-w-0 flex items-center gap-1.5">
         <span
           className={`text-[12px] font-mono truncate ${
             isDisabled ? "text-t-ghost" : "text-t-primary"
@@ -182,6 +183,11 @@ function ServerRow({
         >
           {server.name}
         </span>
+        {server.scope === "private" && (
+          <span className="shrink-0 text-[9px] text-t-ghost/60 px-1 py-0.5 rounded bg-surface border border-border/30">
+            私有
+          </span>
+        )}
       </div>
 
       {/* 开关 */}
