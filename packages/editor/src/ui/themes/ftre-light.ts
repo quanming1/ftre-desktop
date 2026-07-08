@@ -199,5 +199,12 @@ export const ftreLight: FtreThemeDefinition = {
         "scrollbarSlider.hoverBackground": "#646464B3",
         "scrollbarSlider.activeBackground": "#00000099",
         "editorOverviewRuler.border": "#C8C8C8",
+        // ── Diff 编辑器 ──
+        "diffEditor.insertedTextBackground": "#e3f0e8",
+        "diffEditor.removedTextBackground": "#fbeff2",
+        "diffEditorGutter.insertedLineBackground": "#e3f0e8",
+        "diffEditorGutter.deletedLineBackground": "#fbeff2",
+        "diffEditorOverviewRuler.insertedForeground": "#e3f0e8",
+        "diffEditorOverviewRuler.deletedForeground": "#fbeff2",
     },
 };

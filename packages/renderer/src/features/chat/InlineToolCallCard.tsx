@@ -22,7 +22,6 @@ import {
   X,
   Copy,
   Box,
-  PanelRight,
 } from "lucide-react";
 import { ImageViewer, Tooltip, TooltipProvider } from "@ftre/ui";
 import { useInspector } from "@/stores/inspector";
@@ -161,17 +160,6 @@ function buildSummary(
 function basename(path: string): string {
   const parts = path.replace(/\\/g, "/").split("/").filter(Boolean);
   return parts[parts.length - 1] ?? path;
-}
-
-/** 判断路径是否为绝对路径（Windows 盘符或 Unix /） */
-function isAbsolutePath(p: string): boolean {
-  if (!p) return false;
-  // Windows: C:\, C:/, \\server
-  if (/^[a-zA-Z]:[\\/]/.test(p)) return true;
-  if (p.startsWith("\\\\")) return true;
-  // Unix
-  if (p.startsWith("/")) return true;
-  return false;
 }
 
 // ─── 参数解析 ───────────────────────────────────────────────────────
@@ -368,20 +356,21 @@ export const InlineToolCallCard = memo(
       if (hasResult || isError || hasArgs) setExpanded((p) => !p);
     }, [hasResult, isError, hasArgs]);
 
-    // read/edit/write 工具且路径为绝对路径时，显示「在面板中预览」按钮
+    // read/edit/write 工具：成功完成且有 metadata 时点击整行打开 Inspector 面板
     const isReadTool = name === "read" || name === "read_file";
     const isEditTool = name === "edit";
     const isWriteTool = name === "write";
     const previewableTool = isReadTool || isEditTool || isWriteTool;
-    const readFilePath = previewableTool ? (args.path as string) ?? "" : "";
-    const canPreviewInPanel = previewableTool && isAbsolutePath(readFilePath);
 
-    // edit/write：优先使用 metadata.before/after 打开 diff 预览；read：打开文件预览
+    // edit/write：优先使用 metadata.before/after 打开 diff 预览；read：用 metadata.content 打开文件预览
     const resultMeta = result?.metadata;
     const hasDiffMeta = !!(resultMeta?.before !== undefined && resultMeta?.after !== undefined && resultMeta?.file);
+    const hasReadMeta = !!(resultMeta?.content !== undefined && resultMeta?.file);
+    // 成功完成且有可用 metadata → 点击打开 Inspector；失败 → 回退 inline 展开
+    const openInPanelMode = previewableTool && isComplete && !isError && (hasDiffMeta || hasReadMeta);
 
     const handleOpenInPanel = useCallback(() => {
-      if (!canPreviewInPanel) return;
+      if (!openInPanelMode) return;
       if ((isEditTool || isWriteTool) && hasDiffMeta && resultMeta) {
         useInspector.getState().openDiffPreview(
           resultMeta.file!,
@@ -390,20 +379,23 @@ export const InlineToolCallCard = memo(
           resultMeta.additions ?? 0,
           resultMeta.deletions ?? 0,
         );
-      } else {
-        const startLine = isReadTool ? (args.start_line as number | undefined) : undefined;
-        const endLine = isReadTool ? (args.end_line as number | undefined) : undefined;
+      } else if (isReadTool && hasReadMeta && resultMeta) {
+        const startLine = resultMeta.start_line as number | undefined;
+        const endLine = resultMeta.end_line as number | undefined;
         useInspector.getState().openFilePreview(
-          readFilePath,
+          resultMeta.file!,
           undefined,
           startLine && startLine > 0 ? startLine : undefined,
           endLine && endLine > 0 ? endLine : undefined,
+          resultMeta.content as string,
         );
+      } else {
+        return;
       }
       if (!useLayout.getState().panelVisible.inspector) {
         useLayout.getState().togglePanelVisible("inspector");
       }
-    }, [canPreviewInPanel, isEditTool, isWriteTool, hasDiffMeta, resultMeta, readFilePath, isReadTool, args.start_line, args.end_line]);
+    }, [openInPanelMode, isEditTool, isWriteTool, hasDiffMeta, isReadTool, hasReadMeta, resultMeta]);
 
     // loadSkill: 从 result 提取 name + description 用于 tooltip
     const loadSkillMeta = useMemo(() => {
@@ -508,6 +500,24 @@ export const InlineToolCallCard = memo(
     return (
       <div className="py-0.5">
         <div className="flex items-center gap-1 group">
+        {openInPanelMode ? (
+          <button
+            onClick={handleOpenInPanel}
+            className="flex items-center gap-2 text-left flex-1 min-w-0 py-1 group"
+          >
+            <SummaryLine summary={summary} className="flex-1 group-hover:text-t-primary" />
+            {status === "completed" && hasDiffMeta && resultMeta && (
+              <span className="flex items-center gap-1 shrink-0 font-mono text-[12px]">
+                {(resultMeta.additions ?? 0) > 0 && (
+                  <span className="text-green-600">+{resultMeta.additions}</span>
+                )}
+                {(resultMeta.deletions ?? 0) > 0 && (
+                  <span className="text-red-500">-{resultMeta.deletions}</span>
+                )}
+              </span>
+            )}
+          </button>
+        ) : (
         <button
           onClick={toggleExpand}
           disabled={!hasResult && !isError && !hasArgs}
@@ -526,19 +536,10 @@ export const InlineToolCallCard = memo(
           {status === "completed" && <Check size={12} className="text-green-600 shrink-0" />}
           {isError && <X size={12} className="text-red-500 shrink-0" />}
         </button>
-        {canPreviewInPanel && (
-          <Tooltip content="在侧面板预览" side="top">
-            <button
-              onClick={handleOpenInPanel}
-              className="p-1 rounded text-t-ghost hover:text-t-primary hover:bg-hover transition-colors opacity-0 group-hover:opacity-100 shrink-0"
-              aria-label="在侧面板预览"
-            >
-              <PanelRight size={13} />
-            </button>
-          </Tooltip>
         )}
         </div>
 
+        {openInPanelMode ? null : (
         <div
           className="grid transition-[grid-template-rows] duration-200 ease-out"
           style={{ gridTemplateRows: expanded ? "1fr" : "0fr" }}
@@ -575,6 +576,7 @@ export const InlineToolCallCard = memo(
             </div>
           </div>
         </div>
+        )}
       </div>
     );
   },
