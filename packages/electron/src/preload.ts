@@ -44,6 +44,8 @@ const api: DesktopAPI = {
     info: (rootPath: string) => ipcRenderer.invoke("git:info", { rootPath }),
     status: (rootPath: string) =>
       ipcRenderer.invoke("git:status", { rootPath }),
+    numstat: (rootPath: string) =>
+      ipcRenderer.invoke("git:numstat", { rootPath }),
     stage: (rootPath: string, filePath: string) =>
       ipcRenderer.invoke("git:stage", { rootPath, filePath }),
     stageMany: (rootPath: string, filePaths: string[]) =>
