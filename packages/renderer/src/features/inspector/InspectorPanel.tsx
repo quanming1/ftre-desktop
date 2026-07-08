@@ -46,20 +46,28 @@ export function InspectorPanel() {
         onToggleFileTree={toggleFileTree}
       />
       <div className="flex-1 min-h-0 flex overflow-hidden">
-        {fileTreeOpen && (
-          <>
-            <div className="shrink-0 border-r border-border overflow-hidden" style={{ width: fileTreeWidth, background: "#f9fafb" }}>
-              <FileTreeSidebar />
-            </div>
-            <ResizeHandle
-              direction="horizontal"
-              onResize={(delta) => {
-                setFileTreeWidth(fileTreeWidth + delta);
-                return delta;
+            <div
+              className="shrink-0 border-r border-border overflow-hidden transition-[width] duration-150"
+              style={{
+                width: fileTreeOpen ? fileTreeWidth : 0,
+                minWidth: fileTreeOpen ? fileTreeWidth : 0,
+                background: "#f9fafb",
+                overflow: fileTreeOpen ? "hidden" : "hidden",
               }}
-            />
-          </>
-        )}
+            >
+              <div style={{ width: fileTreeWidth, height: "100%" }}>
+                <FileTreeSidebar />
+              </div>
+            </div>
+            {fileTreeOpen && (
+              <ResizeHandle
+                direction="horizontal"
+                onResize={(delta) => {
+                  setFileTreeWidth(fileTreeWidth + delta);
+                  return delta;
+                }}
+              />
+            )}
         <div
           className="flex-1 min-w-0 overflow-hidden bg-surface relative"
         >
@@ -239,7 +247,7 @@ function InspectorTabBar({
                 ) : (
                   <FileIconView path={filePath} size={16} />
                 )}
-                <span className="max-w-[180px] truncate">{tab.title}</span>
+                <span className="max-w-[180px] truncate">{tab.type === "diff" ? `Diff-${tab.title}` : tab.title}</span>
                 <span
                   onClick={(e) => {
                     e.stopPropagation();
@@ -344,12 +352,13 @@ function DiffPreviewContent({ tab, active, wordWrap }: { tab: InspectorTab; acti
     return map[ext] ?? "plaintext";
   }, [displayPath]);
 
-  // tab 变为活跃时触发 layout + 重新定位到第一个 diff
+  // tab 变为活跃时触发 layout + 重新定位到第一个 diff + 确保 minimap
   useEffect(() => {
     if (active) {
       const timer = setTimeout(() => {
         window.dispatchEvent(new CustomEvent("ftre:editor-layout", { detail: {} }));
         diffRef.current?.revealFirstDiff();
+        diffRef.current?.ensureMinimap();
       }, 50);
       return () => clearTimeout(timer);
     }
