@@ -164,6 +164,45 @@ function parseStatusLine(line: string, rootPath: string): GitFileStatus[] {
 }
 
 export function registerGitIPC(): void {
+  // 一次性获取所有变更文件的增删行数（git diff --numstat + git diff --cached --numstat）
+  ipcMain.handle(
+    "git:numstat",
+    async (_event, { rootPath }: { rootPath: string }) => {
+      try {
+        const [unstaged, staged] = await Promise.all([
+          gitExec(["diff", "--numstat", "--no-renames"], rootPath),
+          gitExec(["diff", "--cached", "--numstat", "--no-renames"], rootPath),
+        ]);
+        // 格式: "3\t1\tpath/to/file"
+        const map: Record<string, { additions: number; deletions: number }> = {};
+        const parse = (output: string, stagedFlag: boolean) => {
+          if (!output) return;
+          for (const line of output.trim().split("\n")) {
+            const parts = line.split("\t");
+            if (parts.length < 3) continue;
+            const adds = parts[0] === "-" ? 0 : parseInt(parts[0], 10) || 0;
+            const dels = parts[1] === "-" ? 0 : parseInt(parts[1], 10) || 0;
+            const fp = parts.slice(2).join("\t");
+            const abs = path.join(rootPath, fp).replace(/\\/g, "/");
+            const key = abs.toLowerCase();
+            if (!map[key]) {
+              map[key] = { additions: 0, deletions: 0 };
+            }
+            // staged 和 unstaged 取最大值（同一文件两区都有变更时）
+            map[key].additions = Math.max(map[key].additions, adds);
+            map[key].deletions = Math.max(map[key].deletions, dels);
+            void stagedFlag;
+          }
+        };
+        parse(unstaged ?? "", false);
+        parse(staged ?? "", true);
+        return { stats: map };
+      } catch {
+        return { stats: {} };
+      }
+    },
+  );
+
   ipcMain.handle(
     "git:info",
     async (_event, { rootPath }: { rootPath: string }): Promise<GitInfo> => {
