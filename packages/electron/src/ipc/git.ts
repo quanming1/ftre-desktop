@@ -203,6 +203,74 @@ export function registerGitIPC(): void {
     },
   );
 
+  // 协商缓存式 git 状态轮询：
+  // Phase 1: stat .git/index + .git/HEAD 拼成 etag（<1ms），与客户端传入的 lastEtag 比较
+  // Phase 2: etag 变了才跑 git status --porcelain + git diff --numstat
+  // force=true 时跳过 Phase 1 直接走 Phase 2（兜底：外部编辑器改文件不触发 git 操作）
+  ipcMain.handle(
+    "git:poll",
+    async (
+      _event,
+      { rootPath, lastEtag, force }: { rootPath: string; lastEtag?: string; force?: boolean },
+    ) => {
+      try {
+        const gitDir = path.join(rootPath, ".git");
+
+        // Phase 1: 构建 etag
+        const indexPath = path.join(gitDir, "index");
+        const headPath = path.join(gitDir, "HEAD");
+        const [indexStat, headStat] = await Promise.all([
+          fs.promises.stat(indexPath).catch(() => null),
+          fs.promises.stat(headPath).catch(() => null),
+        ]);
+        const etag = `${indexStat?.mtimeMs ?? 0}:${indexStat?.size ?? 0}:${headStat?.mtimeMs ?? 0}:${headStat?.size ?? 0}`;
+
+        // etag 没变 → 跳过
+        if (!force && lastEtag && etag === lastEtag) {
+          return { changed: false, etag };
+        }
+
+        // Phase 2: etag 变了（或首次/强制），跑完整 git status + numstat
+        const statusResult = await gitExec(["status", "--porcelain", "-z"], rootPath);
+        const numstatUnstaged = await gitExec(["diff", "--numstat", "--no-renames"], rootPath);
+        const numstatStaged = await gitExec(["diff", "--cached", "--numstat", "--no-renames"], rootPath);
+
+        // 解析 status
+        const files: GitFileStatus[] = [];
+        const entries = statusResult ? statusResult.replace(/\0$/g, "").split("\0").filter(Boolean) : [];
+        for (const line of entries) {
+          if (line.length < 3) continue;
+          const parsed = parseStatusLine(line, rootPath);
+          files.push(...parsed);
+        }
+
+        // 解析 numstat
+        const stats: Record<string, { additions: number; deletions: number }> = {};
+        const parseNumstat = (output: string) => {
+          if (!output) return;
+          for (const line of output.trim().split("\n")) {
+            const parts = line.split("\t");
+            if (parts.length < 3) continue;
+            const adds = parts[0] === "-" ? 0 : parseInt(parts[0], 10) || 0;
+            const dels = parts[1] === "-" ? 0 : parseInt(parts[1], 10) || 0;
+            const fp = parts.slice(2).join("\t");
+            const abs = path.join(rootPath, fp).replace(/\\/g, "/");
+            const key = abs.toLowerCase();
+            if (!stats[key]) stats[key] = { additions: 0, deletions: 0 };
+            stats[key].additions = Math.max(stats[key].additions, adds);
+            stats[key].deletions = Math.max(stats[key].deletions, dels);
+          }
+        };
+        parseNumstat(numstatUnstaged ?? "");
+        parseNumstat(numstatStaged ?? "");
+
+        return { changed: true, etag, files, stats };
+      } catch {
+        return { changed: false, etag: lastEtag ?? "" };
+      }
+    },
+  );
+
   ipcMain.handle(
     "git:info",
     async (_event, { rootPath }: { rootPath: string }): Promise<GitInfo> => {
