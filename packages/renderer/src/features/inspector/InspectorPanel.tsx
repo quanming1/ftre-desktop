@@ -7,6 +7,8 @@ import { OverlayScrollbarsComponent, type OverlayScrollbarsComponentRef } from "
 import { useInspector, type InspectorTab } from "@/stores/inspector";
 import { getFileIcon } from "@/lib/file-icons";
 import { CodeEditorWidget, MonacoDiffViewer, type CodeEditorFile } from "@ftre/editor";
+import { ContextMenu, type ContextMenuItem } from "@/components/ContextMenu";
+import { useLayout } from "@/stores/layout";
 
 /** path → CodeEditorFile 内存缓存，切回已加载的 tab 秒切 */
 const fileCache = new Map<string, CodeEditorFile>();
@@ -15,7 +17,45 @@ export function InspectorPanel() {
   const tabs = useInspector((s) => s.tabs);
   const activeTabId = useInspector((s) => s.activeTabId);
   const setActiveTab = useInspector((s) => s.setActiveTab);
-  const closeTab = useInspector((s) => s.closeTab);
+  const closeTabRaw = useInspector((s) => s.closeTab);
+  const closeOtherTabsRaw = useInspector((s) => s.closeOtherTabs);
+  const closeTabsToRightRaw = useInspector((s) => s.closeTabsToRight);
+  const closeAllTabsRaw = useInspector((s) => s.closeAllTabs);
+
+  const { togglePanelVisible } = useLayout.getState();
+
+  // 关闭后如果 tabs 清空，自动隐藏侧边栏
+  const closeTab = useCallback((id: string) => {
+    closeTabRaw(id);
+    if (useInspector.getState().tabs.length <= 1) {
+      if (useLayout.getState().panelVisible.inspector) {
+        togglePanelVisible("inspector");
+      }
+    }
+  }, [closeTabRaw, togglePanelVisible]);
+
+  const closeOtherTabs = useCallback((id: string) => {
+    closeOtherTabsRaw(id);
+    // 只剩一个 tab（被保留的），不隐藏
+  }, [closeOtherTabsRaw]);
+
+  const closeTabsToRight = useCallback((id: string) => {
+    const idx = useInspector.getState().tabs.findIndex((t) => t.id === id);
+    const remaining = idx + 1;
+    closeTabsToRightRaw(id);
+    if (remaining <= 0) {
+      if (useLayout.getState().panelVisible.inspector) {
+        togglePanelVisible("inspector");
+      }
+    }
+  }, [closeTabsToRightRaw, togglePanelVisible]);
+
+  const closeAllTabs = useCallback(() => {
+    closeAllTabsRaw();
+    if (useLayout.getState().panelVisible.inspector) {
+      togglePanelVisible("inspector");
+    }
+  }, [closeAllTabsRaw, togglePanelVisible]);
 
   const activeTab = tabs.find((t) => t.id === activeTabId) ?? null;
 
@@ -26,6 +66,9 @@ export function InspectorPanel() {
         activeTabId={activeTabId}
         onActivate={setActiveTab}
         onClose={closeTab}
+        onCloseOthers={closeOtherTabs}
+        onCloseRight={closeTabsToRight}
+        onCloseAll={closeAllTabs}
       />
       <div className="flex-1 min-h-0 overflow-hidden bg-surface relative">
         {tabs.length === 0 ? (
@@ -53,13 +96,23 @@ function InspectorTabBar({
   activeTabId,
   onActivate,
   onClose,
+  onCloseOthers,
+  onCloseRight,
+  onCloseAll,
 }: {
   tabs: InspectorTab[];
   activeTabId: string | null;
   onActivate: (id: string) => void;
   onClose: (id: string) => void;
+  onCloseOthers: (id: string) => void;
+  onCloseRight: (id: string) => void;
+  onCloseAll: () => void;
 }) {
   const overlayRef = useRef<OverlayScrollbarsComponentRef | null>(null);
+  const [contextMenu, setContextMenu] = useState<{
+    position: { x: number; y: number };
+    tabId: string;
+  } | null>(null);
 
   const getScrollElement = useCallback((): HTMLElement | null => {
     const osInstance = overlayRef.current?.osInstance();
@@ -75,6 +128,45 @@ function InspectorTabBar({
       }
     },
     [getScrollElement],
+  );
+
+  const handleContextMenu = useCallback((e: React.MouseEvent, tabId: string) => {
+    e.preventDefault();
+    setContextMenu({ position: { x: e.clientX, y: e.clientY }, tabId });
+  }, []);
+
+  const closeContextMenu = useCallback(() => setContextMenu(null), []);
+
+  const getContextMenuItems = useCallback(
+    (tabId: string): ContextMenuItem[] => [
+      {
+        id: "close",
+        label: "关闭",
+        action: () => onClose(tabId),
+      },
+      {
+        id: "close-others",
+        label: "关闭其他",
+        action: () => onCloseOthers(tabId),
+      },
+      {
+        id: "close-right",
+        label: "关闭右侧",
+        action: () => onCloseRight(tabId),
+      },
+      {
+        id: "sep",
+        label: "",
+        separator: true,
+        action: () => {},
+      },
+      {
+        id: "close-all",
+        label: "关闭全部",
+        action: () => onCloseAll(),
+      },
+    ],
+    [onClose, onCloseOthers, onCloseRight, onCloseAll],
   );
 
   return (
@@ -98,6 +190,18 @@ function InspectorTabBar({
               <button
                 key={tab.id}
                 onClick={() => onActivate(tab.id)}
+                onMouseDown={(e) => {
+                  if (e.button === 1) {
+                    e.preventDefault();
+                  }
+                }}
+                onAuxClick={(e) => {
+                  if (e.button === 1) {
+                    e.preventDefault();
+                    onClose(tab.id);
+                  }
+                }}
+                onContextMenu={(e) => handleContextMenu(e, tab.id)}
                 className={`group relative flex items-center gap-2 h-full text-[13px] whitespace-nowrap font-sans transition-colors duration-150 border border-border select-none px-3.5 ${
                   isActive
                     ? "z-10 border-b-transparent bg-surface text-t-primary"
@@ -116,8 +220,8 @@ function InspectorTabBar({
                   }}
                   className={`ml-1 p-0.5 rounded transition-all cursor-pointer ${
                     isActive
-                      ? "text-t-muted hover:text-t-primary hover:bg-white/[0.1] opacity-100"
-                      : "opacity-0 group-hover:opacity-100 text-t-muted hover:text-t-primary hover:bg-white/[0.1]"
+                      ? "text-t-muted hover:text-t-primary hover:bg-black/[0.08] opacity-100"
+                      : "opacity-0 group-hover:opacity-100 text-t-muted hover:text-t-primary hover:bg-black/[0.08]"
                   }`}
                 >
                   <X size={12} strokeWidth={1.5} />
@@ -127,6 +231,13 @@ function InspectorTabBar({
           })}
         </div>
       </OverlayScrollbarsComponent>
+      {contextMenu && (
+        <ContextMenu
+          items={getContextMenuItems(contextMenu.tabId)}
+          position={contextMenu.position}
+          onClose={closeContextMenu}
+        />
+      )}
     </div>
   );
 }
@@ -142,6 +253,7 @@ function InspectorTabContent({ tab, active }: { tab: InspectorTab; active: boole
       content={tab.content}
       revealLine={tab.revealLine}
       revealEndLine={tab.revealEndLine}
+      revealNonce={tab.revealNonce}
       active={active}
     />
   );
@@ -199,6 +311,7 @@ function DiffPreviewContent({ tab, active }: { tab: InspectorTab; active: boolea
             language={language}
             renderSideBySide={true}
             theme="ftre-light"
+            revealNonce={tab.revealNonce}
           />
         )}
       </div>
@@ -211,11 +324,12 @@ function DiffPreviewContent({ tab, active }: { tab: InspectorTab; active: boolea
  * 无快照时从磁盘读取。fileCache 缓存已加载文件，切回时秒切。
  * 文件加载完成后，如果有 revealLine 则自动跳转并选中。
  */
-function FilePreviewContent({ filePath, content, revealLine, revealEndLine, active }: {
+function FilePreviewContent({ filePath, content, revealLine, revealEndLine, revealNonce, active }: {
   filePath: string;
   content?: string | null;
   revealLine?: number;
   revealEndLine?: number;
+  revealNonce: number;
   active: boolean;
 }) {
   // 有 content 快照时直接使用，不走磁盘读取和缓存
@@ -282,7 +396,7 @@ function FilePreviewContent({ filePath, content, revealLine, revealEndLine, acti
     }
   }, [filePath, loadFile, snapshotFile]);
 
-  // 文件加载完成后，如果有 revealLine 则跳转并选中
+  // 文件加载完成后，如果有 revealLine 则跳转并选中；revealNonce 变化时也重新定位
   useEffect(() => {
     if (!file || !revealLine || revealLine <= 0) return;
     const timer = setTimeout(() => {
@@ -298,7 +412,7 @@ function FilePreviewContent({ filePath, content, revealLine, revealEndLine, acti
       );
     }, 100);
     return () => clearTimeout(timer);
-  }, [file, filePath, revealLine, revealEndLine]);
+  }, [file, filePath, revealLine, revealEndLine, revealNonce]);
 
   // tab 变为活跃时触发 layout
   useEffect(() => {
