@@ -5,7 +5,7 @@ export type BottomTab = 'terminal' | 'problems' | 'output';
 export type LeftPanelType = 'chat' | 'skills' | 'cron' | 'traces' | 'settings';
 
 export type SplitMode = 'ai-center' | 'code-center';
-export type PanelId = 'sessions' | 'sidebar' | 'editor' | 'chat';
+export type PanelId = 'sessions' | 'sidebar' | 'editor' | 'chat' | 'inspector';
 export type LayoutMode = 'chat' | 'agent';
 
 const STORAGE_KEY = 'ftre-layout-state';
@@ -19,6 +19,11 @@ export const BOTTOM_PANEL_HEIGHT_MAX = 500;
 // Center panel ratio: percentage of available width for the center panel (0-100)
 // Default 70% center, 30% side — no min/max clamping, drag freely
 export const CENTER_RATIO_DEFAULT = 70;
+
+// Inspector panel 宽度范围
+export const INSPECTOR_WIDTH_MIN = 280;
+export const INSPECTOR_WIDTH_MAX = 800;
+export const INSPECTOR_WIDTH_DEFAULT = 480;
 
 const PERSIST_DEBOUNCE_MS = 300;
 let persistTimer: ReturnType<typeof setTimeout> | null = null;
@@ -40,6 +45,7 @@ interface PersistedLayoutData {
     autoFollowFiles: boolean;
     layoutMode: LayoutMode;     // 'chat' or 'agent' layout mode
     activeLeftPanel: LeftPanelType;
+    inspectorWidth: number;     // inspector panel width
 }
 
 export interface LayoutState extends PersistedLayoutData {
@@ -52,6 +58,7 @@ export interface LayoutState extends PersistedLayoutData {
     setSessionsWidth: (w: number) => void;
     toggleSessionsCollapsed: () => void;
     setCenterRatio: (ratio: number) => void;
+    setInspectorWidth: (w: number) => void;
     setBottomPanelHeight: (h: number) => void;
     toggleBottomPanel: () => void;
     setActiveBottomTab: (tab: BottomTab) => void;
@@ -82,12 +89,13 @@ export interface LayoutState extends PersistedLayoutData {
     setMcpPopoverOpen: (open: boolean) => void;
 }
 
-const DEFAULT_PANEL_ORDER: PanelId[] = ['sessions', 'chat'];
+const DEFAULT_PANEL_ORDER: PanelId[] = ['sessions', 'chat', 'inspector'];
 const DEFAULT_PANEL_VISIBLE: Record<PanelId, boolean> = {
     sessions: true,
     sidebar: false,
     editor: false,
     chat: true,
+    inspector: false,
 };
 
 // 写死为 Agent 模式：只显示会话列表 + 聊天，不再有 IDE（文件树/编辑器）。
@@ -98,12 +106,12 @@ const MODE_CONFIGS: Record<LayoutMode, {
     panelVisible: Record<PanelId, boolean>;
 }> = {
     chat: {
-        panelOrder: ['sessions', 'sidebar', 'editor', 'chat'],
-        panelVisible: { sessions: true, sidebar: true, editor: true, chat: true },
+        panelOrder: ['sessions', 'sidebar', 'editor', 'chat', 'inspector'],
+        panelVisible: { sessions: true, sidebar: true, editor: true, chat: true, inspector: false },
     },
     agent: {
-        panelOrder: ['sessions', 'chat'],
-        panelVisible: { sessions: true, sidebar: false, editor: false, chat: true },
+        panelOrder: ['sessions', 'chat', 'inspector'],
+        panelVisible: { sessions: true, sidebar: false, editor: false, chat: true, inspector: false },
     },
 };
 
@@ -113,6 +121,7 @@ const defaults: PersistedLayoutData = {
     sessionsWidth: 240,
     sessionsCollapsed: false,
     centerRatio: CENTER_RATIO_DEFAULT,
+    inspectorWidth: INSPECTOR_WIDTH_DEFAULT,
     bottomPanelHeight: 200,
     sidebarVisible: true,
     bottomPanelVisible: false,
@@ -124,6 +133,7 @@ const defaults: PersistedLayoutData = {
     autoFollowFiles: true,
     layoutMode: DEFAULT_LAYOUT_MODE,
     activeLeftPanel: 'chat' as LeftPanelType,
+    inspectorWidth: INSPECTOR_WIDTH_DEFAULT,
 };
 
 function getPersistedData(state: LayoutState): PersistedLayoutData {
@@ -133,6 +143,7 @@ function getPersistedData(state: LayoutState): PersistedLayoutData {
         sessionsWidth: state.sessionsWidth,
         sessionsCollapsed: state.sessionsCollapsed,
         centerRatio: state.centerRatio,
+        inspectorWidth: state.inspectorWidth,
         bottomPanelHeight: state.bottomPanelHeight,
         sidebarVisible: state.sidebarVisible,
         bottomPanelVisible: state.bottomPanelVisible,
@@ -183,13 +194,17 @@ export const useLayout = create<LayoutState>((set, get) => ({
                         parsed.panelOrder = ['sessions', 'sidebar', 'editor', 'chat'];
                     }
                 }
-                // Validate panelOrder has all 4 panels
-                if (parsed.panelOrder && parsed.panelOrder.length !== 4) {
+                // Validate panelOrder has all 5 panels
+                if (parsed.panelOrder && parsed.panelOrder.length !== 5) {
                     parsed.panelOrder = DEFAULT_PANEL_ORDER;
                 }
                 // Migrate panelVisible if not present
-                if (!parsed.panelVisible) {
+                if (!parsed.panelVisible || !('inspector' in parsed.panelVisible)) {
                     parsed.panelVisible = DEFAULT_PANEL_VISIBLE;
+                }
+                // Migrate inspectorWidth if not present
+                if (typeof parsed.inspectorWidth !== 'number') {
+                    parsed.inspectorWidth = INSPECTOR_WIDTH_DEFAULT;
                 }
                 // Migrate layoutMode if not present
                 if (!parsed.layoutMode) {
@@ -247,8 +262,12 @@ export const useLayout = create<LayoutState>((set, get) => ({
     },
 
     setCenterRatio: (ratio) => {
-        // Clamp between 10% and 90% to keep both panels minimally usable
         set({ centerRatio: Math.max(10, Math.min(90, ratio)) });
+        get().persist();
+    },
+
+    setInspectorWidth: (w) => {
+        set({ inspectorWidth: Math.max(INSPECTOR_WIDTH_MIN, Math.min(INSPECTOR_WIDTH_MAX, w)) });
         get().persist();
     },
 

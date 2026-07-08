@@ -16,8 +16,8 @@ beforeEach(() => {
         minimapEnabled: false,
         splitMode: 'ai-center',
         layoutMode: 'chat',
-        panelOrder: ['sessions', 'sidebar', 'editor', 'chat'],
-        panelVisible: { sessions: true, sidebar: true, editor: true, chat: true },
+        panelOrder: ['sessions', 'sidebar', 'editor', 'chat', 'inspector'],
+        panelVisible: { sessions: true, sidebar: true, editor: true, chat: true, inspector: false },
     });
 });
 
@@ -303,16 +303,17 @@ describe('layout store — layoutMode (VAC tests)', () => {
         expect(s.layoutMode).toBe('chat');
     });
 
-    // VAC-2: Agent mode shows only Sessions and Chat
+    // VAC-2: Agent mode shows only Sessions, Chat, and Inspector
     it('VAC-2: setLayoutMode to agent hides sidebar and editor', () => {
         useLayout.getState().setLayoutMode('agent');
         const s = useLayout.getState();
         expect(s.layoutMode).toBe('agent');
-        expect(s.panelOrder).toEqual(['sessions', 'chat']);
+        expect(s.panelOrder).toEqual(['sessions', 'chat', 'inspector']);
         expect(s.panelVisible.sessions).toBe(true);
         expect(s.panelVisible.sidebar).toBe(false);
         expect(s.panelVisible.editor).toBe(false);
         expect(s.panelVisible.chat).toBe(true);
+        expect(s.panelVisible.inspector).toBe(false);
     });
 
     // VAC-3: Chat mode shows all four panels
