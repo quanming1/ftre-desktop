@@ -1,0 +1,131 @@
+/**
+ * Inspector Store — 管理右侧扩展面板的内容状态。
+ *
+ * 面板的显示/隐藏由 layout store 的 panelVisible.inspector 控制。
+ * 本 store 只跟踪"展示什么内容"。
+ *
+ * 面板支持多 tab：
+ *   - file:  文件预览（传入绝对路径，面板自行读取）
+ *   - diff:  diff 预览（传入修改前后的完整内容 + 增删统计）
+ */
+import { create } from "zustand";
+
+export type InspectorTabType = "file" | "diff";
+
+export interface InspectorTab {
+  id: string;
+  type: InspectorTabType;
+  title: string;
+  /** file 模式：文件绝对路径 */
+  filePath: string | null;
+  /** diff 模式：修改前完整内容 */
+  before: string | null;
+  /** diff 模式：修改后完整内容 */
+  after: string | null;
+  /** diff 模式：新增行数 */
+  additions: number;
+  /** diff 模式：删除行数 */
+  deletions: number;
+  /** file 模式：跳转到的起始行（read 工具的 start_line） */
+  revealLine?: number;
+  /** file 模式：跳转到的结束行（read 工具的 end_line） */
+  revealEndLine?: number;
+}
+
+export interface InspectorState {
+  /** 当前所有 tab */
+  tabs: InspectorTab[];
+  /** 当前激活的 tab id */
+  activeTabId: string | null;
+
+  /** 打开一个文件预览 tab（同路径复用），可选跳转到指定行 */
+  openFilePreview: (path: string, title?: string, revealLine?: number, revealEndLine?: number) => void;
+  /** 打开一个 diff 预览 tab（同文件路径复用） */
+  openDiffPreview: (
+    filePath: string,
+    before: string,
+    after: string,
+    additions: number,
+    deletions: number,
+    title?: string,
+  ) => void;
+  /** 切换激活 tab */
+  setActiveTab: (id: string) => void;
+  /** 关闭 tab */
+  closeTab: (id: string) => void;
+}
+
+let tabSeq = 0;
+function nextId(): string {
+  tabSeq += 1;
+  return `inspector-tab-${tabSeq}`;
+}
+
+function basename(path: string): string {
+  return path.replace(/\\/g, "/").split("/").pop() ?? path;
+}
+
+export const useInspector = create<InspectorState>((set, get) => ({
+  tabs: [],
+  activeTabId: null,
+
+  openFilePreview: (path, title, revealLine, revealEndLine) => {
+    const existing = get().tabs.find(
+      (t) => t.type === "file" && t.filePath === path,
+    );
+    if (existing) {
+      set({
+        activeTabId: existing.id,
+        tabs: get().tabs.map((t) =>
+          t.id === existing.id
+            ? { ...t, revealLine, revealEndLine }
+            : t,
+        ),
+      });
+      return;
+    }
+    const tab: InspectorTab = {
+      id: nextId(),
+      type: "file",
+      title: title ?? basename(path),
+      filePath: path,
+      before: null,
+      after: null,
+      additions: 0,
+      deletions: 0,
+      revealLine,
+      revealEndLine,
+    };
+    set({
+      tabs: [...get().tabs, tab],
+      activeTabId: tab.id,
+    });
+  },
+
+  openDiffPreview: (filePath, before, after, additions, deletions, title) => {
+    const tab: InspectorTab = {
+      id: nextId(),
+      type: "diff",
+      title: title ?? basename(filePath),
+      filePath,
+      before,
+      after,
+      additions,
+      deletions,
+    };
+    set({
+      tabs: [...get().tabs, tab],
+      activeTabId: tab.id,
+    });
+  },
+
+  setActiveTab: (id) => set({ activeTabId: id }),
+
+  closeTab: (id) => {
+    const tabs = get().tabs.filter((t) => t.id !== id);
+    const activeTabId = get().activeTabId === id
+      ? (tabs.length > 0 ? tabs[tabs.length - 1].id : null)
+      : get().activeTabId;
+    set({ tabs, activeTabId });
+  },
+}));

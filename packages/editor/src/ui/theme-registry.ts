@@ -8,14 +8,15 @@
 import type * as Monaco from "monaco-editor";
 import { getTheme } from "./themes";
 
-let registeredThemeId: string | null = null;
+/** 已注册的主题 ID 集合（支持多主题共存） */
+const registeredThemeIds = new Set<string>();
 
 export function registerFtreTheme(
   monaco: typeof Monaco,
   themeId?: string,
 ): void {
   const theme = getTheme(themeId);
-  if (registeredThemeId === theme.id) return;
+  if (registeredThemeIds.has(theme.id)) return;
 
   const style = getComputedStyle(document.documentElement);
   const cssVar = (name: string, fallback: string) =>
@@ -36,10 +37,10 @@ export function registerFtreTheme(
     colors: { ...theme.editorColors, ...cssOverrides },
   });
 
-  registeredThemeId = theme.id;
+  registeredThemeIds.add(theme.id);
 }
 
 /** Reset registration state — exposed only for testing. */
 export function _resetThemeRegistration(): void {
-  registeredThemeId = null;
+  registeredThemeIds.clear();
 }

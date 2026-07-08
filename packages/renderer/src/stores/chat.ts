@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Chat Store 鈥?娑堣垂 ftre gateway WebSocket 浜嬩欢娴併€? *
  * 澶?session 妯″瀷锛? *   姣忎釜 session 鏈夌嫭绔?bucket锛坢essages/isBusy/error/retryState锛夈€? *   store 椤跺眰瀛楁鏄?active bucket 鐨勯暅鍍忥紙淇濈暀鏃ф秷璐?API: useChat((s)=>s.messages) 绛夛級銆? *   鍒?session 鏃剁洿鎺?hydrate锛涜繘琛屼腑鐨勬祦涓嶈鎵撴柇銆? *
  * 浜嬩欢婧愮粺涓€锛? *   ws 瀹炴椂浜嬩欢 鍜?history 鍥炴斁閮借蛋鍚屼竴涓?`applyEvent` reducer銆? */
@@ -27,6 +27,16 @@ export interface ToolResult {
   result: string | null;
   error: string | null;
   status: "completed" | "error" | "cancelled";
+  /** 工具附加元数据（edit/write 携带 diff 信息） */
+  metadata?: {
+    file?: string;
+    before?: string;
+    after?: string;
+    diff?: string;
+    additions?: number;
+    deletions?: number;
+    [key: string]: any;
+  };
 }
 
 export interface MessageAttachment {
@@ -377,6 +387,7 @@ export function applyEvent(b: Bucket, ev: BusEvent): void {
         result: isErr ? null : (d.result ?? ""),
         error: isErr ? d.error : null,
         status: isErr ? "error" : "completed",
+        metadata: d.metadata,
       };
       for (let i = b.messages.length - 1; i >= 0; i--) {
         const msg = b.messages[i];
@@ -769,13 +780,8 @@ interface ChatState {
   cancelStream: () => void;
   newChat: () => void;
   /** 鍒囧埌鎸囧畾 session锛堜笉鍙栨秷鍚庡彴鐢熸垚锛涚寮€鐨?session 闈犲巻鍙?+ WS replay 鎭㈠锛夈€?*/
-  switchTo: (sessionId: string, initialMessages?: ChatMessage[]) => void;
+  switchTo: (sessionId: string) => void;
   /** 浠呭綋妗朵负绌烘椂濉厖锛堥娆¤繘鍏?session 鐢級 */
-  hydrateSession: (sessionId: string, messages: ChatMessage[]) => void;
-  /** 鐢ㄦ渶鏂版暟鎹浛鎹㈡《锛坰treaming 涓烦杩囷級 */
-  refreshSession: (sessionId: string, messages: ChatMessage[]) => void;
-  hasSessionCache: (sessionId: string) => boolean;
-  /** 娓呯┖鎸囧畾 session 鐨勬湰鍦扮紦瀛橈紙娑堟伅銆佷簨浠躲€佺姸鎬侊級 */
   clearSessionCache: (sessionId: string) => void;
   setSessionStatus: (sessionId: string, status: SessionStatus) => void;
   /** Put ChatMessage[] into the specified session bucket (history loader). */
@@ -936,38 +942,13 @@ export const useChat = create<ChatState>((set, get) => ({
     set({ sessionId: null, messages: [], lastUserInputTs: null, sessionStatus: "idle", isBusy: false, error: null, retryState: null, contextTokens: 0, tokenUsage: null, pendingWorkspace: _defaultWsCache });
   },
 
-  switchTo: (sessionId, initialMessages) => {
+  switchTo: (sessionId) => {
     const b = bucket(sessionId);
-    if (initialMessages && b.messages.length === 0) b.messages = initialMessages;
     set({ sessionId, messages: b.messages, lastUserInputTs: b.lastUserInputTs, sessionStatus: b.sessionStatus, isBusy: b.isBusy, error: b.error, retryState: b.retryState, contextTokens: 0, tokenUsage: null });
-    // WS attach 绉诲埌 switchSession 鐨?HTTP .then() 涓紝淇濊瘉 HTTP 鍏堜簬 WS锛?
-    // 閬垮厤 replay/live 甯у拰 loadSessionMessages 鐨勬竻绌烘搷浣滅珵浜夈€?
-    // 寮傛鎷変竴娆℃渶鏂?token 浼扮畻锛堜笉闃诲 UI 鍒囨崲锛?
     void get().refreshTokenUsage(sessionId);
   },
 
-  hydrateSession: (sessionId, messages) => {
-    const b = bucket(sessionId);
-    if (b.messages.length > 0) return;
-    b.messages = messages;
-    mirror(sessionId);
-  },
-
-  refreshSession: (sessionId, messages) => {
-    const b = bucket(sessionId);
-    const tail = last(b.messages);
-    if (tail?.streaming) return;
-    b.messages = messages;
-    mirror(sessionId);
-  },
-
-  hasSessionCache: (_sessionId) => {
-    // 鏆傛椂绂佺敤鏈湴缂撳瓨锛屾瘡娆?switchSession 閮借蛋 HTTP + WS
-    return false;
-  },
-
   clearSessionCache: (sessionId) => {
-    // 涓㈠純璇?session 鏈?flush 鐨勬壒澶勭悊锛坆ucket 鍗冲皢琚浛鎹紝鏃т簨浠舵棤鎰忎箟锛?
     const timer = _wsFlushTimers.get(sessionId);
     if (timer) { clearTimeout(timer); _wsFlushTimers.delete(sessionId); }
     _wsBatches.delete(sessionId);
