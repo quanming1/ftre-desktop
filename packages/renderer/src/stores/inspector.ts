@@ -72,6 +72,9 @@ export interface InspectorState {
   closeAllTabs: () => void;
   /** 切换文件树侧边栏 */
   toggleFileTree: () => void;
+  /** wordWrap 开关 */
+  wordWrap: boolean;
+  toggleWordWrap: () => void;
 }
 
 let tabSeq = 0;
@@ -88,6 +91,7 @@ export const useInspector = create<InspectorState>((set, get) => ({
   tabs: [],
   activeTabId: null,
   fileTreeOpen: false,
+  wordWrap: true,
 
   openFilePreview: (toolCallId, path, title, revealLine, revealEndLine, content) => {
     const existing = get().tabs.find(
@@ -187,6 +191,8 @@ export const useInspector = create<InspectorState>((set, get) => ({
   closeAllTabs: () => set({ tabs: [], activeTabId: null }),
 
   toggleFileTree: () => set((s) => ({ fileTreeOpen: !s.fileTreeOpen })),
+
+  toggleWordWrap: () => set((s) => ({ wordWrap: !s.wordWrap })),
 
   openImagePreview: (toolCallId, path, title) => {
     const existing = get().tabs.find(
