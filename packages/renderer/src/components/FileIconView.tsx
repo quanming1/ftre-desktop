@@ -4,7 +4,11 @@
  * 使用 VS Code 官方图标风格，按扩展名匹配对应图标。
  */
 import { memo } from "react";
-import { Icon } from "@iconify/react";
+import { Icon, addCollection } from "@iconify/react";
+// 预加载整个 vscode-icons 图标集到内存，避免异步加载闪烁
+import vscodeIconsData from "@iconify-json/vscode-icons/icons.json";
+
+addCollection(vscodeIconsData);
 
 /** 扩展名 → { icon, color } */
 const EXT_MAP: Record<string, { icon: string; color: string }> = {
@@ -109,12 +113,24 @@ export const FileIconView = memo(function FileIconView({
 }) {
   const { icon, color } = resolveIcon(path);
   return (
-    <Icon
-      icon={icon}
-      width={size}
-      height={size}
-      style={{ color, minWidth: size, minHeight: size }}
+    <span
+      style={{
+        display: "inline-flex",
+        width: size,
+        height: size,
+        minWidth: size,
+        minHeight: size,
+        alignItems: "center",
+        justifyContent: "center",
+      }}
       className="shrink-0"
-    />
+    >
+      <Icon
+        icon={icon}
+        width={size}
+        height={size}
+        style={{ color }}
+      />
+    </span>
   );
 });

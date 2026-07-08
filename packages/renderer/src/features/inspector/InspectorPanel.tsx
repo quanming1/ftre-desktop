@@ -5,7 +5,7 @@ import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { X, FileText, Loader2, GitCompareArrows, ListTree } from "lucide-react";
 import { OverlayScrollbarsComponent, type OverlayScrollbarsComponentRef } from "overlayscrollbars-react";
 import { useInspector, type InspectorTab } from "@/stores/inspector";
-import { CodeEditorWidget, MonacoDiffViewer, type CodeEditorFile } from "@ftre/editor";
+import { CodeEditorWidget, MonacoDiffViewer, type CodeEditorFile, type MonacoDiffViewerHandle } from "@ftre/editor";
 import { ContextMenu, type ContextMenuItem } from "@/components/ContextMenu";
 import { ResizeHandle } from "@/components/ResizeHandle";
 import { useLayout } from "@/stores/layout";
@@ -198,7 +198,7 @@ function InspectorTabBar({
         defer
         options={{
           overflow: { x: "scroll", y: "hidden" },
-          scrollbars: { autoHide: "leave", autoHideDelay: 120 },
+          scrollbars: { autoHide: "never", autoHideDelay: 0 },
         }}
         className="flex-1 min-w-0 h-full"
         onWheel={handleWheel}
@@ -333,6 +333,7 @@ function ImagePreviewContent({ filePath, active }: { filePath: string; active: b
 function DiffPreviewContent({ tab, active, wordWrap }: { tab: InspectorTab; active: boolean; wordWrap: boolean }) {
   const displayPath = (tab.filePath ?? "").replace(/\\/g, "/");
   const containerRef = useRef<HTMLDivElement>(null);
+  const diffRef = useRef<MonacoDiffViewerHandle>(null);
   const language = useMemo(() => {
     const ext = displayPath.match(/\.([a-z0-9]+)$/i)?.[1]?.toLowerCase() ?? "";
     const map: Record<string, string> = {
@@ -343,11 +344,12 @@ function DiffPreviewContent({ tab, active, wordWrap }: { tab: InspectorTab; acti
     return map[ext] ?? "plaintext";
   }, [displayPath]);
 
-  // tab 变为活跃时触发 layout，让 Monaco 重新计算尺寸
+  // tab 变为活跃时触发 layout + 重新定位到第一个 diff
   useEffect(() => {
     if (active) {
       const timer = setTimeout(() => {
         window.dispatchEvent(new CustomEvent("ftre:editor-layout", { detail: {} }));
+        diffRef.current?.revealFirstDiff();
       }, 50);
       return () => clearTimeout(timer);
     }
@@ -370,6 +372,7 @@ function DiffPreviewContent({ tab, active, wordWrap }: { tab: InspectorTab; acti
       <div className="flex-1 min-h-0 relative bg-surface">
         {tab.before !== null && tab.after !== null && (
           <MonacoDiffViewer
+            ref={diffRef}
             diff={{
               id: tab.id,
               filePath: tab.filePath ?? "",
@@ -487,7 +490,7 @@ function FilePreviewContent({ filePath, content, revealLine, revealEndLine, reve
     return () => clearTimeout(timer);
   }, [file, filePath, revealLine, revealEndLine, revealNonce]);
 
-  // tab 变为活跃时触发 layout
+  // tab 变为活跃时触发 layout，让 Monaco 重新计算尺寸
   useEffect(() => {
     if (active) {
       const timer = setTimeout(() => {
@@ -519,7 +522,7 @@ function FilePreviewContent({ filePath, content, revealLine, revealEndLine, reve
 
       {/* Monaco 编辑器 */}
       <div className="flex-1 overflow-hidden bg-surface">
-        {file && (
+        {file ? (
           <CodeEditorWidget
             file={file}
             minimapEnabled
@@ -528,15 +531,12 @@ function FilePreviewContent({ filePath, content, revealLine, revealEndLine, reve
             theme="ftre-light"
             wordWrap={wordWrap}
           />
+        ) : (
+          <div className="h-full flex items-center justify-center">
+            {loading && <Loader2 size={16} className="animate-spin text-t-ghost" />}
+          </div>
         )}
       </div>
-
-      {/* 加载遮罩 */}
-      {loading && (
-        <div className="absolute inset-0 flex items-center justify-center bg-surface/80 z-10">
-          <Loader2 size={16} className="animate-spin text-t-ghost" />
-        </div>
-      )}
 
       {/* 错误遮罩 */}
       {error && (
