@@ -70,6 +70,16 @@ interface DesktopGit {
   info(rootPath: string): Promise<GitInfo>;
   status(rootPath: string): Promise<{ files: GitFileStatus[]; error?: string }>;
   numstat(rootPath: string): Promise<{ stats: Record<string, { additions: number; deletions: number }> }>;
+  poll(
+    rootPath: string,
+    lastEtag?: string,
+    force?: boolean,
+  ): Promise<{
+    changed: boolean;
+    etag: string;
+    files?: GitFileStatus[];
+    stats?: Record<string, { additions: number; deletions: number }>;
+  }>;
   stage(
     rootPath: string,
     filePath: string,
