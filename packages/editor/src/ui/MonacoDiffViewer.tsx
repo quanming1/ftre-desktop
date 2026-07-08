@@ -23,6 +23,7 @@ function toMonacoLanguage(lang: string): string {
 
 export interface MonacoDiffViewerHandle {
   getCurrentLine: () => number;
+  revealFirstDiff: () => void;
 }
 
 interface MonacoDiffViewerProps {
@@ -30,12 +31,14 @@ interface MonacoDiffViewerProps {
   language: string;
   renderSideBySide: boolean;
   theme?: string;
+  /** 值变化时重新滚动到第一个 diff 位置 */
+  revealNonce?: number;
 }
 
 export const MonacoDiffViewer = forwardRef<
   MonacoDiffViewerHandle,
   MonacoDiffViewerProps
->(function MonacoDiffViewer({ diff, language, renderSideBySide, theme }, ref) {
+>(function MonacoDiffViewer({ diff, language, renderSideBySide, theme, revealNonce }, ref) {
   const monacoLang = toMonacoLanguage(language);
   const editorRef = useRef<editor.IStandaloneDiffEditor | null>(null);
   const monacoRef = useRef<typeof Monaco | null>(null);
@@ -152,7 +155,7 @@ export const MonacoDiffViewer = forwardRef<
     };
   }, []);
 
-  // 暴露获取当前行号的方法
+  // 暴露获取当前行号 + 跳转第一个 diff 的方法
   useImperativeHandle(
     ref,
     () => ({
@@ -162,9 +165,41 @@ export const MonacoDiffViewer = forwardRef<
         const position = diffEditor.getModifiedEditor().getPosition();
         return position?.lineNumber ?? 1;
       },
+      revealFirstDiff: () => {
+        const diffEditor = editorRef.current;
+        if (!diffEditor) return;
+        const changes = diffEditor.getLineChanges();
+        if (changes && changes.length > 0) {
+          const firstLine = changes[0].modifiedStartLineNumber;
+          diffEditor.getModifiedEditor().revealLineInCenter(firstLine);
+        }
+      },
     }),
     [],
   );
+
+  // revealNonce 变化时重新滚动到第一个 diff 位置
+  useEffect(() => {
+    if (revealNonce === undefined || revealNonce === 0) return;
+    const diffEditor = editorRef.current;
+    if (!diffEditor) return;
+    // diff 已计算完成时直接滚动；未完成时监听一次 onDidUpdateDiff
+    const changes = diffEditor.getLineChanges();
+    if (changes) {
+      if (changes.length > 0) {
+        diffEditor.getModifiedEditor().revealLineInCenter(changes[0].modifiedStartLineNumber);
+      }
+      return;
+    }
+    const disposable = diffEditor.onDidUpdateDiff(() => {
+      const ch = diffEditor.getLineChanges();
+      if (ch && ch.length > 0) {
+        diffEditor.getModifiedEditor().revealLineInCenter(ch[0].modifiedStartLineNumber);
+      }
+      disposable.dispose();
+    });
+    return () => disposable.dispose();
+  }, [revealNonce]);
 
   return (
     <DiffEditor
@@ -188,7 +223,7 @@ export const MonacoDiffViewer = forwardRef<
         hideCursorInOverviewRuler: true,
         overviewRulerBorder: false,
         glyphMargin: false,
-        lineNumbersMinChars: renderSideBySide ? 3 : 5,
+        lineNumbersMinChars: 5,
         folding: false,
         automaticLayout: true,
         scrollbar: {

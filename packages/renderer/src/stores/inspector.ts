@@ -16,6 +16,8 @@ export interface InspectorTab {
   id: string;
   type: InspectorTabType;
   title: string;
+  /** 去重 key：tool call ID（per-tool 复用，不是 per-file） */
+  toolCallId: string;
   /** file 模式：文件绝对路径 */
   filePath: string | null;
   /** file 模式：内容快照（来自 read 工具的 metadata），不提供时从磁盘读取 */
@@ -32,6 +34,8 @@ export interface InspectorTab {
   revealLine?: number;
   /** file 模式：跳转到的结束行（read 工具的 end_line） */
   revealEndLine?: number;
+  /** 每次复用 tab 时递增，驱动 FilePreviewContent 重新定位 */
+  revealNonce: number;
 }
 
 export interface InspectorState {
@@ -40,10 +44,11 @@ export interface InspectorState {
   /** 当前激活的 tab id */
   activeTabId: string | null;
 
-  /** 打开一个文件预览 tab（同路径复用），可选跳转到指定行。content 传入时直接使用，不读磁盘 */
-  openFilePreview: (path: string, title?: string, revealLine?: number, revealEndLine?: number, content?: string) => void;
-  /** 打开一个 diff 预览 tab（同文件路径复用） */
+  /** 打开一个文件预览 tab（同 toolCallId 复用），可选跳转到指定行。content 传入时直接使用，不读磁盘 */
+  openFilePreview: (toolCallId: string, path: string, title?: string, revealLine?: number, revealEndLine?: number, content?: string) => void;
+  /** 打开一个 diff 预览 tab（同 toolCallId 复用） */
   openDiffPreview: (
+    toolCallId: string,
     filePath: string,
     before: string,
     after: string,
@@ -55,6 +60,12 @@ export interface InspectorState {
   setActiveTab: (id: string) => void;
   /** 关闭 tab */
   closeTab: (id: string) => void;
+  /** 关闭其他 tab */
+  closeOtherTabs: (id: string) => void;
+  /** 关闭右侧 tab */
+  closeTabsToRight: (id: string) => void;
+  /** 关闭全部 tab */
+  closeAllTabs: () => void;
 }
 
 let tabSeq = 0;
@@ -71,16 +82,16 @@ export const useInspector = create<InspectorState>((set, get) => ({
   tabs: [],
   activeTabId: null,
 
-  openFilePreview: (path, title, revealLine, revealEndLine, content) => {
+  openFilePreview: (toolCallId, path, title, revealLine, revealEndLine, content) => {
     const existing = get().tabs.find(
-      (t) => t.type === "file" && t.filePath === path,
+      (t) => t.toolCallId === toolCallId,
     );
     if (existing) {
       set({
         activeTabId: existing.id,
         tabs: get().tabs.map((t) =>
           t.id === existing.id
-            ? { ...t, revealLine, revealEndLine, content: content ?? t.content }
+            ? { ...t, revealLine, revealEndLine, content: content ?? t.content, revealNonce: t.revealNonce + 1 }
             : t,
         ),
       });
@@ -90,6 +101,7 @@ export const useInspector = create<InspectorState>((set, get) => ({
       id: nextId(),
       type: "file",
       title: title ?? basename(path),
+      toolCallId,
       filePath: path,
       content: content ?? null,
       before: null,
@@ -98,6 +110,7 @@ export const useInspector = create<InspectorState>((set, get) => ({
       deletions: 0,
       revealLine,
       revealEndLine,
+      revealNonce: 0,
     };
     set({
       tabs: [...get().tabs, tab],
@@ -105,17 +118,33 @@ export const useInspector = create<InspectorState>((set, get) => ({
     });
   },
 
-  openDiffPreview: (filePath, before, after, additions, deletions, title) => {
+  openDiffPreview: (toolCallId, filePath, before, after, additions, deletions, title) => {
+    const existing = get().tabs.find(
+      (t) => t.toolCallId === toolCallId,
+    );
+    if (existing) {
+      set({
+        activeTabId: existing.id,
+        tabs: get().tabs.map((t) =>
+          t.id === existing.id
+            ? { ...t, before, after, additions, deletions, revealNonce: t.revealNonce + 1 }
+            : t,
+        ),
+      });
+      return;
+    }
     const tab: InspectorTab = {
       id: nextId(),
       type: "diff",
       title: title ?? basename(filePath),
+      toolCallId,
       filePath,
       content: null,
       before,
       after,
       additions,
       deletions,
+      revealNonce: 0,
     };
     set({
       tabs: [...get().tabs, tab],
@@ -132,4 +161,21 @@ export const useInspector = create<InspectorState>((set, get) => ({
       : get().activeTabId;
     set({ tabs, activeTabId });
   },
+
+  closeOtherTabs: (id) => {
+    const tabs = get().tabs.filter((t) => t.id === id);
+    set({ tabs, activeTabId: tabs.length > 0 ? id : null });
+  },
+
+  closeTabsToRight: (id) => {
+    const idx = get().tabs.findIndex((t) => t.id === id);
+    if (idx < 0) return;
+    const tabs = get().tabs.slice(0, idx + 1);
+    const activeTabId = get().tabs.some((t) => t.id === get().activeTabId && tabs.some((tt) => tt.id === t.id))
+      ? get().activeTabId
+      : id;
+    set({ tabs, activeTabId });
+  },
+
+  closeAllTabs: () => set({ tabs: [], activeTabId: null }),
 }));

@@ -373,6 +373,7 @@ export const InlineToolCallCard = memo(
       if (!openInPanelMode) return;
       if ((isEditTool || isWriteTool) && hasDiffMeta && resultMeta) {
         useInspector.getState().openDiffPreview(
+          block.id,
           resultMeta.file!,
           resultMeta.before ?? "",
           resultMeta.after ?? "",
@@ -383,6 +384,7 @@ export const InlineToolCallCard = memo(
         const startLine = resultMeta.start_line as number | undefined;
         const endLine = resultMeta.end_line as number | undefined;
         useInspector.getState().openFilePreview(
+          block.id,
           resultMeta.file!,
           undefined,
           startLine && startLine > 0 ? startLine : undefined,
@@ -395,7 +397,7 @@ export const InlineToolCallCard = memo(
       if (!useLayout.getState().panelVisible.inspector) {
         useLayout.getState().togglePanelVisible("inspector");
       }
-    }, [openInPanelMode, isEditTool, isWriteTool, hasDiffMeta, isReadTool, hasReadMeta, resultMeta]);
+    }, [openInPanelMode, isEditTool, isWriteTool, hasDiffMeta, isReadTool, hasReadMeta, resultMeta, block.id]);
 
     // loadSkill: 从 result 提取 name + description 用于 tooltip
     const loadSkillMeta = useMemo(() => {
