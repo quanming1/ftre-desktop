@@ -22,7 +22,7 @@ export const CENTER_RATIO_DEFAULT = 70;
 
 // Inspector panel 宽度范围
 export const INSPECTOR_WIDTH_MIN = 280;
-export const INSPECTOR_WIDTH_MAX = 800;
+export const INSPECTOR_WIDTH_MAX = 9999;
 export const INSPECTOR_WIDTH_DEFAULT = 480;
 
 const PERSIST_DEBOUNCE_MS = 300;

@@ -139,6 +139,7 @@ function InspectorTabContent({ tab, active }: { tab: InspectorTab; active: boole
   return (
     <FilePreviewContent
       filePath={tab.filePath!}
+      content={tab.content}
       revealLine={tab.revealLine}
       revealEndLine={tab.revealEndLine}
       active={active}
@@ -206,20 +207,36 @@ function DiffPreviewContent({ tab, active }: { tab: InspectorTab; active: boolea
 }
 
 /**
- * 文件预览内容：读取文件后用 CodeEditorWidget 渲染。
- * fileCache 缓存已加载文件，切回时秒切。
+ * 文件预览内容：优先使用 content 快照（来自 read 工具 metadata），
+ * 无快照时从磁盘读取。fileCache 缓存已加载文件，切回时秒切。
  * 文件加载完成后，如果有 revealLine 则自动跳转并选中。
  */
-function FilePreviewContent({ filePath, revealLine, revealEndLine, active }: {
+function FilePreviewContent({ filePath, content, revealLine, revealEndLine, active }: {
   filePath: string;
+  content?: string | null;
   revealLine?: number;
   revealEndLine?: number;
   active: boolean;
 }) {
+  // 有 content 快照时直接使用，不走磁盘读取和缓存
+  const snapshotFile = useMemo<CodeEditorFile | null>(() => {
+    if (content == null) return null;
+    const name = filePath.replace(/\\/g, "/").split("/").pop() ?? filePath;
+    return {
+      path: filePath,
+      name,
+      language: detectLanguage(filePath),
+      content,
+      loaded: true,
+    };
+  }, [content, filePath]);
+
   const [file, setFile] = useState<CodeEditorFile | null>(
-    () => fileCache.get(filePath) ?? null,
+    () => snapshotFile ?? fileCache.get(filePath) ?? null,
   );
-  const [loading, setLoading] = useState(!fileCache.has(filePath));
+  const [loading, setLoading] = useState(
+    snapshotFile == null && !fileCache.has(filePath),
+  );
   const [error, setError] = useState<string | null>(null);
 
   const loadFile = useCallback(async (path: string) => {
@@ -256,8 +273,14 @@ function FilePreviewContent({ filePath, revealLine, revealEndLine, active }: {
   }, []);
 
   useEffect(() => {
-    loadFile(filePath);
-  }, [filePath, loadFile]);
+    if (snapshotFile) {
+      setFile(snapshotFile);
+      setLoading(false);
+      setError(null);
+    } else {
+      loadFile(filePath);
+    }
+  }, [filePath, loadFile, snapshotFile]);
 
   // 文件加载完成后，如果有 revealLine 则跳转并选中
   useEffect(() => {
@@ -350,4 +373,15 @@ function formatBytes(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function detectLanguage(filePath: string): string {
+  const ext = filePath.match(/\.([a-z0-9]+)$/i)?.[1]?.toLowerCase() ?? "";
+  const map: Record<string, string> = {
+    ts: "typescript", tsx: "typescript", js: "javascript", jsx: "javascript",
+    py: "python", json: "json", md: "markdown", go: "go", rs: "rust",
+    java: "java", c: "c", cpp: "cpp", sh: "shell", yml: "yaml", yaml: "yaml",
+    html: "html", css: "css", xml: "xml", sql: "sql", toml: "ini",
+  };
+  return map[ext] ?? "plaintext";
 }
