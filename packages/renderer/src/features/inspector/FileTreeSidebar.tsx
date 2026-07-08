@@ -4,7 +4,7 @@
  * 懒加载：点击展开目录时才 readDir，不预扫整个工作区。
  * 工作区来源与 WorkspaceBadge 一致：session DB workspace 字段。
  */
-import { useState, useCallback, useEffect, memo, useMemo } from "react";
+import { useState, useCallback, useEffect, memo, useMemo, useRef } from "react";
 import { ChevronRight, Copy, Eye, FolderTree } from "lucide-react";
 import { Icon } from "@iconify/react";
 import { useSession } from "@/stores/session";
@@ -467,17 +467,18 @@ export function FileTreeSidebar() {
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
   const [gitStatusMap, setGitStatusMap] = useState<Map<string, GitStatus> | null>(null);
   const [changedFiles, setChangedFiles] = useState<GitFileStatus[]>([]);
+  const gitEtagRef = useRef<string>("");
+  const pollCountRef = useRef(0);
   const [contextMenu, setContextMenu] = useState<{
     position: { x: number; y: number };
     path: string;
     isDir: boolean;
   } | null>(null);
 
+  // git 轮询：1s 一次，Phase 1 etag 协商（<1ms），变了才走 Phase 2
   useEffect(() => {
     if (!workspace) {
       setRootEntries([]);
-      setGitStatusMap(null);
-      setChangedFiles([]);
       return;
     }
     setLoading(true);
@@ -486,39 +487,55 @@ export function FileTreeSidebar() {
       setRootEntries(entries);
       setLoading(false);
     });
-    // 异步加载 git 状态
-    window.desktop.git.status(workspace).then(async (result) => {
-      if (result.error || !result.files) {
-        setGitStatusMap(null);
-        setChangedFiles([]);
-        return;
-      }
-      const files = result.files.filter((f) => !f.isDir);
-      setGitStatusMap(buildGitStatusMap(result.files, workspace));
-      setChangedFiles(files);
+  }, [workspace]);
 
-      // 异步加载增删行数（git diff --numstat 一次拿到全部）
-      try {
-        const { stats } = await window.desktop.git.numstat(workspace);
-        if (stats) {
-          const enriched = files.map((f) => {
-            const key = f.absolutePath.replace(/\\/g, "/").toLowerCase();
-            const stat = stats[key];
-            return {
-              ...f,
-              additions: stat?.additions ?? 0,
-              deletions: stat?.deletions ?? 0,
-            };
-          });
-          setChangedFiles(enriched);
-        }
-      } catch {
-        // numstat 失败时保留无数字状态
-      }
-    }).catch(() => {
+  useEffect(() => {
+    if (!workspace) {
       setGitStatusMap(null);
       setChangedFiles([]);
-    });
+      return;
+    }
+
+    let cancelled = false;
+
+    const poll = async (force = false) => {
+      const result = await window.desktop.git.poll(workspace, gitEtagRef.current, force);
+      if (cancelled) return;
+      gitEtagRef.current = result.etag;
+      if (!result.changed || !result.files) return;
+
+      const files = result.files.filter((f) => !f.isDir);
+      setGitStatusMap(buildGitStatusMap(result.files, workspace));
+
+      // 合并 numstat 增删行数
+      if (result.stats) {
+        const enriched = files.map((f) => {
+          const key = f.absolutePath.replace(/\\/g, "/").toLowerCase();
+          const stat = result.stats![key];
+          return {
+            ...f,
+            additions: stat?.additions ?? 0,
+            deletions: stat?.deletions ?? 0,
+          };
+        });
+        setChangedFiles(enriched);
+      } else {
+        setChangedFiles(files);
+      }
+    };
+
+    // 立即拉一次
+    poll(true);
+    // 1s 轮询，每 5 次强制走 Phase 2（兜底：外部编辑器改文件不触发 git index 更新）
+    const interval = setInterval(() => {
+      pollCountRef.current += 1;
+      poll(pollCountRef.current % 5 === 0);
+    }, 1000);
+
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
   }, [workspace]);
 
   const handleToggle = useCallback((path: string) => {
