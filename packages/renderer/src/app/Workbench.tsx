@@ -487,19 +487,21 @@ export function Workbench() {
             </div>
           )}
 
-        {/* Inspector Panel — 右侧扩展面板 */}
-        {panelVisible.inspector && activeLeftPanel === "chat" && (
-          <div
-            className="h-full overflow-hidden py-1 pr-1.5"
-            style={getPanelStyle("inspector")}
-          >
-            <div className="h-full overflow-hidden rounded-xl bg-surface">
-              <ErrorBoundary>
-                <InspectorPanel />
-              </ErrorBoundary>
-            </div>
+        {/* Inspector Panel — 右侧扩展面板（CSS 隐藏，不销毁组件，保持文件树状态） */}
+        <div
+          className="h-full overflow-hidden"
+          style={
+            (panelVisible.inspector && activeLeftPanel === "chat")
+              ? { ...getPanelStyle("inspector"), padding: "4px 6px 4px 0" }
+              : { width: 0, minWidth: 0, maxWidth: 0, padding: 0, opacity: 0, overflow: "hidden" }
+          }
+        >
+          <div className="h-full overflow-hidden rounded-xl bg-surface">
+            <ErrorBoundary>
+              <InspectorPanel />
+            </ErrorBoundary>
           </div>
-        )}
+        </div>
         {panelVisible.inspector &&
           activeLeftPanel === "chat" &&
           isResizeHandleVisible("inspector") && (

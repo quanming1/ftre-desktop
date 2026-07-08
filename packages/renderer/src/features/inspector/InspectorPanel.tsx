@@ -47,7 +47,7 @@ export function InspectorPanel() {
       />
       <div className="flex-1 min-h-0 flex overflow-hidden">
             <div
-              className="shrink-0 border-r border-border overflow-hidden transition-[width] duration-150"
+              className="shrink-0 border-r border-border overflow-hidden"
               style={{
                 width: fileTreeOpen ? fileTreeWidth : 0,
                 minWidth: fileTreeOpen ? fileTreeWidth : 0,
