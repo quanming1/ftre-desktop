@@ -25,6 +25,8 @@ export function InspectorPanel() {
   const closeAllTabs = useInspector((s) => s.closeAllTabs);
   const fileTreeOpen = useInspector((s) => s.fileTreeOpen);
   const toggleFileTree = useInspector((s) => s.toggleFileTree);
+  const wordWrap = useInspector((s) => s.wordWrap);
+  const toggleWordWrap = useInspector((s) => s.toggleWordWrap);
   const fileTreeWidth = useLayout((s) => s.fileTreeWidth);
   const setFileTreeWidth = useLayout((s) => s.setFileTreeWidth);
 
@@ -58,7 +60,9 @@ export function InspectorPanel() {
             />
           </>
         )}
-        <div className="flex-1 min-w-0 overflow-hidden bg-surface relative">
+        <div
+          className="flex-1 min-w-0 overflow-hidden bg-surface relative"
+        >
           {tabs.length === 0 ? (
             <EmptyState />
           ) : (
@@ -69,7 +73,7 @@ export function InspectorPanel() {
                 style={{ display: tab.id === activeTabId ? "block" : "none" }}
               >
                 <div className="h-full w-full">
-                  <InspectorTabContent tab={tab} active={tab.id === activeTabId} />
+                  <InspectorTabContent tab={tab} active={tab.id === activeTabId} wordWrap={wordWrap} />
                 </div>
               </div>
             ))
@@ -123,6 +127,9 @@ function InspectorTabBar({
     [getScrollElement],
   );
 
+  const wordWrap = useInspector((s) => s.wordWrap);
+  const toggleWordWrap = useInspector((s) => s.toggleWordWrap);
+
   const handleContextMenu = useCallback((e: React.MouseEvent, tabId: string) => {
     e.preventDefault();
     setContextMenu({ position: { x: e.clientX, y: e.clientY }, tabId });
@@ -132,6 +139,17 @@ function InspectorTabBar({
 
   const getContextMenuItems = useCallback(
     (tabId: string): ContextMenuItem[] => [
+      {
+        id: "wordwrap",
+        label: "开启/关闭自动换行",
+        action: () => toggleWordWrap(),
+      },
+      {
+        id: "sep0",
+        label: "",
+        separator: true,
+        action: () => {},
+      },
       {
         id: "close",
         label: "关闭",
@@ -159,7 +177,7 @@ function InspectorTabBar({
         action: () => onCloseAll(),
       },
     ],
-    [onClose, onCloseOthers, onCloseRight, onCloseAll],
+    [onClose, onCloseOthers, onCloseRight, onCloseAll, toggleWordWrap],
   );
 
   return (
@@ -251,9 +269,9 @@ function InspectorTabBar({
   );
 }
 
-function InspectorTabContent({ tab, active }: { tab: InspectorTab; active: boolean }) {
+function InspectorTabContent({ tab, active, wordWrap }: { tab: InspectorTab; active: boolean; wordWrap: boolean }) {
   if (tab.type === "diff") {
-    return <DiffPreviewContent tab={tab} active={active} />;
+    return <DiffPreviewContent tab={tab} active={active} wordWrap={wordWrap} />;
   }
   if (tab.type === "image") {
     return <ImagePreviewContent filePath={tab.filePath!} active={active} />;
@@ -265,6 +283,7 @@ function InspectorTabContent({ tab, active }: { tab: InspectorTab; active: boole
       revealLine={tab.revealLine}
       revealEndLine={tab.revealEndLine}
       revealNonce={tab.revealNonce}
+      wordWrap={wordWrap}
       active={active}
     />
   );
@@ -311,7 +330,7 @@ function ImagePreviewContent({ filePath, active }: { filePath: string; active: b
   );
 }
 
-function DiffPreviewContent({ tab, active }: { tab: InspectorTab; active: boolean }) {
+function DiffPreviewContent({ tab, active, wordWrap }: { tab: InspectorTab; active: boolean; wordWrap: boolean }) {
   const displayPath = (tab.filePath ?? "").replace(/\\/g, "/");
   const containerRef = useRef<HTMLDivElement>(null);
   const language = useMemo(() => {
@@ -361,7 +380,8 @@ function DiffPreviewContent({ tab, active }: { tab: InspectorTab; active: boolea
               isApproximate: false,
             }}
             language={language}
-            renderSideBySide={true}
+            renderSideBySide={false}
+            wordWrap={wordWrap}
             theme="ftre-light"
             revealNonce={tab.revealNonce}
           />
@@ -376,12 +396,13 @@ function DiffPreviewContent({ tab, active }: { tab: InspectorTab; active: boolea
  * 无快照时从磁盘读取。fileCache 缓存已加载文件，切回时秒切。
  * 文件加载完成后，如果有 revealLine 则自动跳转并选中。
  */
-function FilePreviewContent({ filePath, content, revealLine, revealEndLine, revealNonce, active }: {
+function FilePreviewContent({ filePath, content, revealLine, revealEndLine, revealNonce, wordWrap, active }: {
   filePath: string;
   content?: string | null;
   revealLine?: number;
   revealEndLine?: number;
   revealNonce: number;
+  wordWrap?: boolean;
   active: boolean;
 }) {
   // 有 content 快照时直接使用，不走磁盘读取和缓存
@@ -501,10 +522,11 @@ function FilePreviewContent({ filePath, content, revealLine, revealEndLine, reve
         {file && (
           <CodeEditorWidget
             file={file}
-            minimapEnabled={false}
+            minimapEnabled
             readOnly
             renderLineHighlight="none"
             theme="ftre-light"
+            wordWrap={wordWrap}
           />
         )}
       </div>
