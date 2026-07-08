@@ -15,10 +15,14 @@ import { ContextMenu, type ContextMenuItem } from "@/components/ContextMenu";
 import { FileIconView } from "@/components/FileIconView";
 
 const FolderIcon = ({ size = 16 }: { size?: number }) => (
-  <Icon icon="vscode-icons:default-folder" width={size} height={size} className="shrink-0" />
+  <span style={{ display: "inline-flex", width: size, height: size, minWidth: size, minHeight: size, alignItems: "center", justifyContent: "center" }} className="shrink-0">
+    <Icon icon="vscode-icons:default-folder" width={size} height={size} />
+  </span>
 );
 const FolderOpenIcon = ({ size = 16 }: { size?: number }) => (
-  <Icon icon="vscode-icons:default-folder-opened" width={size} height={size} className="shrink-0" />
+  <span style={{ display: "inline-flex", width: size, height: size, minWidth: size, minHeight: size, alignItems: "center", justifyContent: "center" }} className="shrink-0">
+    <Icon icon="vscode-icons:default-folder-opened" width={size} height={size} />
+  </span>
 );
 
 // ── Git 状态标记 ──────────────────────────────────────────────────
@@ -325,7 +329,9 @@ function GitChangesSection({
           size={13}
           className={`shrink-0 text-t-ghost transition-transform duration-150 ${isExpanded ? "rotate-90" : ""}`}
         />
-        <Icon icon="vscode-icons:file-type-git" width={16} height={16} className="shrink-0" style={{ color: "#f05032" }} />
+        <span style={{ display: "inline-flex", width: 16, height: 16, minWidth: 16, minHeight: 16, alignItems: "center", justifyContent: "center" }} className="shrink-0">
+          <Icon icon="vscode-icons:file-type-git" width={16} height={16} style={{ color: "#f05032" }} />
+        </span>
         <span className="truncate" style={{ color: changedFiles.length > 0 ? "#d97706" : "#111827" }}>
           Changes
         </span>
@@ -493,10 +499,13 @@ export function FileTreeSidebar() {
     if (!workspace) {
       setGitStatusMap(null);
       setChangedFiles([]);
+      gitEtagRef.current = "";
       return;
     }
 
     let cancelled = false;
+    // 切换工作区时清空 etag，强制走 Phase 2
+    gitEtagRef.current = "";
 
     const poll = async (force = false) => {
       const result = await window.desktop.git.poll(workspace, gitEtagRef.current, force);
@@ -563,26 +572,25 @@ export function FileTreeSidebar() {
   }, []);
 
   const handleGitFileClick = useCallback(async (file: GitFileStatus) => {
-    const name = file.absolutePath.replace(/\\/g, "/").split("/").pop() ?? file.absolutePath;
-    setSelectedPath(file.absolutePath);
+    const absPath = file.absolutePath.replace(/\\/g, "/");
+    const ws = workspace.replace(/\\/g, "/");
+    const name = absPath.split("/").pop() ?? absPath;
+    setSelectedPath(absPath);
 
     if (file.status === "untracked" || file.isDir) {
-      // 无 diff 可展示，走文件预览
-      useInspector.getState().openFilePreview(`gitfile-${file.absolutePath}`, file.absolutePath, name);
+      useInspector.getState().openFilePreview(`gitfile-${absPath}`, absPath, name);
       return;
     }
 
-    // 有 diff：调 git:diff-file 拿 original/modified，打开 diff 预览
-    const relPath = file.absolutePath.replace(/\\/g, "/").slice(workspace.replace(/\\/g, "/").length + 1);
-    const result = await window.desktop.git.diffFile(workspace, relPath, file.status, file.staged, file.oldPath);
+    const relPath = absPath.slice(ws.length + 1);
+    const result = await window.desktop.git.diffFile(ws, relPath, file.status, file.staged, file.oldPath);
     if (result.error) {
-      // 降级为文件预览
-      useInspector.getState().openFilePreview(`gitfile-${file.absolutePath}`, file.absolutePath, name);
+      useInspector.getState().openFilePreview(`gitfile-${absPath}`, absPath, name);
       return;
     }
     useInspector.getState().openDiffPreview(
-      `gitfile-${file.absolutePath}`,
-      file.absolutePath,
+      `gitfile-${absPath}`,
+      absPath,
       result.original ?? "",
       result.modified ?? "",
       0,
