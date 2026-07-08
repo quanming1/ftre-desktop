@@ -5,12 +5,12 @@ import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { X, FileText, Loader2, GitCompareArrows, ListTree } from "lucide-react";
 import { OverlayScrollbarsComponent, type OverlayScrollbarsComponentRef } from "overlayscrollbars-react";
 import { useInspector, type InspectorTab } from "@/stores/inspector";
-import { getFileIcon } from "@/lib/file-icons";
 import { CodeEditorWidget, MonacoDiffViewer, type CodeEditorFile } from "@ftre/editor";
 import { ContextMenu, type ContextMenuItem } from "@/components/ContextMenu";
 import { ResizeHandle } from "@/components/ResizeHandle";
 import { useLayout } from "@/stores/layout";
 import { FileTreeSidebar } from "./FileTreeSidebar";
+import { FileIconView } from "@/components/FileIconView";
 
 /** path → CodeEditorFile 内存缓存，切回已加载的 tab 秒切 */
 const fileCache = new Map<string, CodeEditorFile>();
@@ -189,7 +189,6 @@ function InspectorTabBar({
           {tabs.map((tab) => {
             const isActive = tab.id === activeTabId;
             const filePath = tab.filePath ?? tab.title;
-            const { icon: FileIcon, color } = getFileIcon(filePath, false, false);
             return (
               <button
                 key={tab.id}
@@ -215,7 +214,13 @@ function InspectorTabBar({
                 {isActive && (
                   <div className="absolute top-0 left-0 right-0 h-[2px] bg-white/40" />
                 )}
-                <FileIcon size={15} className="shrink-0" style={{ color }} />
+                {tab.type === "diff" ? (
+                  <GitCompareArrows size={15} className="shrink-0 text-t-ghost" />
+                ) : tab.type === "image" ? (
+                  <FileIconView path={filePath} size={16} />
+                ) : (
+                  <FileIconView path={filePath} size={16} />
+                )}
                 <span className="max-w-[180px] truncate">{tab.title}</span>
                 <span
                   onClick={(e) => {
