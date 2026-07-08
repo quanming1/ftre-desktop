@@ -10,7 +10,7 @@
  */
 import { create } from "zustand";
 
-export type InspectorTabType = "file" | "diff";
+export type InspectorTabType = "file" | "diff" | "image";
 
 export interface InspectorTab {
   id: string;
@@ -43,6 +43,8 @@ export interface InspectorState {
   tabs: InspectorTab[];
   /** 当前激活的 tab id */
   activeTabId: string | null;
+  /** 文件树侧边栏是否展开 */
+  fileTreeOpen: boolean;
 
   /** 打开一个文件预览 tab（同 toolCallId 复用），可选跳转到指定行。content 传入时直接使用，不读磁盘 */
   openFilePreview: (toolCallId: string, path: string, title?: string, revealLine?: number, revealEndLine?: number, content?: string) => void;
@@ -56,6 +58,8 @@ export interface InspectorState {
     deletions: number,
     title?: string,
   ) => void;
+  /** 打开一个图片预览 tab（同 toolCallId 复用） */
+  openImagePreview: (toolCallId: string, path: string, title?: string) => void;
   /** 切换激活 tab */
   setActiveTab: (id: string) => void;
   /** 关闭 tab */
@@ -66,6 +70,8 @@ export interface InspectorState {
   closeTabsToRight: (id: string) => void;
   /** 关闭全部 tab */
   closeAllTabs: () => void;
+  /** 切换文件树侧边栏 */
+  toggleFileTree: () => void;
 }
 
 let tabSeq = 0;
@@ -81,6 +87,7 @@ function basename(path: string): string {
 export const useInspector = create<InspectorState>((set, get) => ({
   tabs: [],
   activeTabId: null,
+  fileTreeOpen: false,
 
   openFilePreview: (toolCallId, path, title, revealLine, revealEndLine, content) => {
     const existing = get().tabs.find(
@@ -178,4 +185,33 @@ export const useInspector = create<InspectorState>((set, get) => ({
   },
 
   closeAllTabs: () => set({ tabs: [], activeTabId: null }),
+
+  toggleFileTree: () => set((s) => ({ fileTreeOpen: !s.fileTreeOpen })),
+
+  openImagePreview: (toolCallId, path, title) => {
+    const existing = get().tabs.find(
+      (t) => t.toolCallId === toolCallId,
+    );
+    if (existing) {
+      set({ activeTabId: existing.id });
+      return;
+    }
+    const tab: InspectorTab = {
+      id: nextId(),
+      type: "image",
+      title: title ?? basename(path),
+      toolCallId,
+      filePath: path,
+      content: null,
+      before: null,
+      after: null,
+      additions: 0,
+      deletions: 0,
+      revealNonce: 0,
+    };
+    set({
+      tabs: [...get().tabs, tab],
+      activeTabId: tab.id,
+    });
+  },
 }));

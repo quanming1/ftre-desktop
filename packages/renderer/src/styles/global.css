@@ -473,4 +473,14 @@ html[data-theme="dark"] .tool-highlight .hljs-type {
 "[data-sonner-toaster] [data-close-button] svg {"  
 "  width: 14px !important;"  
 "  height: 14px !important;"  
-"}"  
+""
+
+/* 文件树滚动条：隐藏，不占空间 */
+.filetree-scroll {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+.filetree-scroll::-webkit-scrollbar {
+  width: 0;
+  display: none;
+}

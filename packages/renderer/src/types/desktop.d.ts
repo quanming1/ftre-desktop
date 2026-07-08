@@ -10,6 +10,7 @@ interface DesktopFS {
   readFile(
     filePath: string,
   ): Promise<{ content: string; language: string; error?: string }>;
+  readImageBase64(filePath: string): Promise<{ dataUrl: string; error?: string }>;
   writeFile(
     filePath: string,
     content: string,
