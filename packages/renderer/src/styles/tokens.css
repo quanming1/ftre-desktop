@@ -262,5 +262,3 @@ html[data-theme="light"] {
 .settings-light-scope .text-black\/50 { color: rgba(0, 0, 0, 0.75) !important; }
 .settings-light-scope .text-black\/60 { color: rgba(0, 0, 0, 0.82) !important; }
 .settings-light-scope .text-black\/70 { color: rgba(0, 0, 0, 0.88) !important; }
-  color: var(--ftre-text-primary);
-}

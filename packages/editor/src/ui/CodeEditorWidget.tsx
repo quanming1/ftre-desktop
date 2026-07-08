@@ -56,6 +56,12 @@ export interface CodeEditorWidgetProps {
   file: CodeEditorFile;
   /** minimap 是否启用 */
   minimapEnabled?: boolean;
+  /** 是否只读 */
+  readOnly?: boolean;
+  /** 当前行高亮模式 */
+  renderLineHighlight?: "none" | "gutter" | "line" | "all";
+  /** Monaco 主题 ID（默认跟随全局） */
+  theme?: string;
   /** 内容变化回调 */
   onContentChange?: (path: string) => void;
   /** dirty 状态变化回调 */
@@ -105,6 +111,9 @@ export const CodeEditorWidget = memo(
   function CodeEditorWidget({
     file,
     minimapEnabled = true,
+    readOnly = false,
+    renderLineHighlight = "line",
+    theme,
     onContentChange,
     onDirtyChange,
     onCursorChange,
@@ -245,8 +254,10 @@ export const CodeEditorWidget = memo(
         return;
       }
 
-      // 注册主题
-      registerFtreTheme(monaco);
+      // 注册主题（自定义主题时才注册，否则用 Monaco 内置）
+      if (theme && theme !== "vs" && theme !== "vs-dark") {
+        registerFtreTheme(monaco, theme);
+      }
 
       // 初始化 TextModelResolverService
       const modelService = getTextModelResolverService();
@@ -266,11 +277,12 @@ export const CodeEditorWidget = memo(
             "'JetBrains Mono', 'Cascadia Code', 'Consolas', monospace",
           lineHeight: 22,
           minimap: { enabled: minimapEnabled },
+          readOnly,
           scrollBeyondLastLine: false,
-          renderLineHighlight: "line",
+          renderLineHighlight,
           padding: { top: 10, bottom: 10 },
           smoothScrolling: false,
-          theme: getActiveThemeId(),
+          theme: theme ?? getActiveThemeId(),
         },
         callbacks: {
           onDidChangeContent: (resource) => {
@@ -414,9 +426,11 @@ export const CodeEditorWidget = memo(
       if (pane) {
         pane.updateEditorOptions({
           minimap: { enabled: minimapEnabled },
+          readOnly,
+          renderLineHighlight,
         });
       }
-    }, [minimapEnabled, getActivePane]);
+    }, [minimapEnabled, readOnly, renderLineHighlight, getActivePane]);
 
     // 窗口事件监听
     useEffect(() => {
@@ -453,8 +467,8 @@ export const CodeEditorWidget = memo(
       };
 
       const handleRevealLine = (e: Event) => {
-        const { filePath, line, col } = (
-          e as CustomEvent<{ filePath: string; line: number; col: number }>
+        const { filePath, line, col, endLine } = (
+          e as CustomEvent<{ filePath: string; line: number; col: number; endLine?: number }>
         ).detail;
         const currentPath = currentFilePathRef.current;
         if (filePath !== currentPath) return;
@@ -462,7 +476,19 @@ export const CodeEditorWidget = memo(
         const editor = getEditor();
         if (editor) {
           editor.revealLineInCenter(line);
-          editor.setPosition({ lineNumber: line, column: col ?? 1 });
+          if (endLine && endLine > line) {
+            // 选中 [startLine, endLine] 区间
+            const model = editor.getModel();
+            const endCol = model ? model.getLineMaxColumn(endLine) : 1;
+            editor.setSelection({
+              startLineNumber: line,
+              startColumn: col ?? 1,
+              endLineNumber: endLine,
+              endColumn: endCol,
+            });
+          } else {
+            editor.setPosition({ lineNumber: line, column: col ?? 1 });
+          }
           editor.focus();
         }
       };
@@ -497,10 +523,16 @@ export const CodeEditorWidget = memo(
         saveAllEditorMementos();
       };
 
+      const handleLayout = () => {
+        const editor = getEditor();
+        if (editor) editor.layout();
+      };
+
       window.addEventListener("ftre:apply-code", handleApplyCode);
       window.addEventListener("ftre:undo", handleUndo);
       window.addEventListener("ftre:redo", handleRedo);
-      window.addEventListener("ftre:reveal-line", handleRevealLine);
+      window.addEventListener("ftre:goto-line", handleRevealLine);
+      window.addEventListener("ftre:editor-layout", handleLayout);
       window.addEventListener("ftre:find-in-editor", handleFind);
       window.addEventListener("ftre:replace-in-editor", handleReplace);
       window.addEventListener("ftre:change-language", handleChangeLanguage);
@@ -510,13 +542,11 @@ export const CodeEditorWidget = memo(
         window.removeEventListener("ftre:apply-code", handleApplyCode);
         window.removeEventListener("ftre:undo", handleUndo);
         window.removeEventListener("ftre:redo", handleRedo);
-        window.removeEventListener("ftre:reveal-line", handleRevealLine);
+        window.removeEventListener("ftre:goto-line", handleRevealLine);
+        window.removeEventListener("ftre:editor-layout", handleLayout);
         window.removeEventListener("ftre:find-in-editor", handleFind);
         window.removeEventListener("ftre:replace-in-editor", handleReplace);
-        window.removeEventListener(
-          "ftre:change-language",
-          handleChangeLanguage,
-        );
+        window.removeEventListener("ftre:change-language", handleChangeLanguage);
         window.removeEventListener("beforeunload", handleBeforeUnload);
       };
     }, [getEditor]);
@@ -560,6 +590,8 @@ export const CodeEditorWidget = memo(
   (prevProps, nextProps) => {
     return (
       prevProps.minimapEnabled === nextProps.minimapEnabled &&
+      prevProps.readOnly === nextProps.readOnly &&
+      prevProps.renderLineHighlight === nextProps.renderLineHighlight &&
       prevProps.file.loaded === nextProps.file.loaded &&
       prevProps.file.path === nextProps.file.path &&
       prevProps.file.language === nextProps.file.language

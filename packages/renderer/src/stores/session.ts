@@ -1,18 +1,17 @@
 /**
  * Session store — tracks known chat sessions (local state).
  *
- * History 加载：把后端记录直接转成 BusEvent 喂给 chat store 的统一 reducer
- * （applyEvent），不再维护一份与 dispatcher 同构的转换器。
+ * History 加载：把后端记录转成 BusEvent，走 chat store 的统一 reducer
+ * （applyEvent），不维护第二份转换逻辑。
  */
 import { create } from "zustand";
-import { useChat, type ChatMessage, type ContentBlock, type ToolResult, type MessageAttachment, type Role } from "./chat";
+import { useChat, applyEvent, type ChatMessage, type BusEvent } from "./chat";
 import type { SessionSummary } from "@/services/api";
 import {
   fetchSessionPage,
   fetchWorkspaces,
   fetchSessionMessagesPage,
   deleteSessionRemote,
-  API_BASE,
 } from "@/services/api";
 import { useWorkspace } from "./workspace";
 import { workspaceHash } from "@/utils/pathUtils";
@@ -23,171 +22,44 @@ export type { SessionSummary };
 // ─── History → BusEvent ─────────────────────────────────────────────
 
 /**
- * 后端 history 记录: { id, session_id, type, data, timestamp }
- * timestamp 为 epoch 秒。
+ * 把后端 HTTP 历史记录转成 BusEvent 序列，喂给 applyEvent 统一处理。
  *
- * 直接映射成 BusEvent 序列，由 chat store 的 applyEvent 同款消化。
- * 不在此做语义合并 / 拆分（与 ws 实时事件保持同一份逻辑）。
+ * 不在此做语义合并 / 拆分 — 与 ws 实时事件保持同一份逻辑。
+ * 唯一区别：历史回放后所有消息强制 streaming=false（applyEvent 处理
+ * assistant_message_complete 时已经设 streaming=false，但保险起见再 seal 一次）。
  */
 function historyToMessages(records: any[]): ChatMessage[] {
-  const messages: ChatMessage[] = [];
-
-  let currentAssistant: ChatMessage | null = null;
-
-  const ensureAssistant = (id: string, ts: number): ChatMessage => {
-    currentAssistant = {
-      id,
-      role: "assistant",
-      content: null,
-      timestamp: ts,
-      blocks: [],
-      toolResults: {},
-      streaming: false,
-    };
-    messages.push(currentAssistant);
-    return currentAssistant;
-  };
-
-  const sealAssistant = (): void => {
-    currentAssistant = null;
+  // 用一个临时 bucket 收集 applyEvent 的结果
+  const b = {
+    messages: [] as ChatMessage[],
+    events: [] as BusEvent[],
+    seenEventIds: new Set<string>(),
+    earliestTs: null as number | null,
+    hasMoreHistory: false,
+    lastUserInputTs: null as number | null,
+    sessionStatus: "idle" as const,
+    isBusy: false,
+    error: null as string | null,
+    retryState: null,
   };
 
   for (const r of records) {
     const ts = r.timestamp ? r.timestamp * 1000 : Date.now();
-    const data = r.data ?? {};
-
-    switch (r.type) {
-      case "user_message": {
-        sealAssistant();
-        if (data.metadata?.hide) break;
-        const content = typeof data.content === "string"
-          ? data.content
-          : Array.isArray(data.content)
-            ? data.content
-                .filter((p: any) => p?.type === "text" || p?.type === "skill")
-                .map((p: any) => String(p.text ?? p.data ?? "").trim())
-                .join("\n")
-                .trim()
-            : "";
-        const rawAtts: any[] = Array.isArray(data.attachments) ? data.attachments : [];
-        const localAttachments: MessageAttachment[] = [];
-        for (const a of rawAtts) {
-          if (a && a.type === "image" && typeof a.mime_type === "string") {
-            let url: string | undefined;
-            let bytes: number | undefined;
-            if (typeof a.data === "string") {
-              url = `data:${a.mime_type};base64,${a.data}`;
-              bytes = Math.floor(a.data.length * 0.75);
-            } else if (typeof a.path === "string") {
-              const filename = a.path.split(/[\\/]/).pop();
-              if (filename) url = `${API_BASE}/api/images/${encodeURIComponent(filename)}`;
-              bytes = a.size;
-            }
-            if (url) localAttachments.push({ type: "image", url, mime: a.mime_type, name: a.name, bytes });
-          }
-        }
-        if (!content && localAttachments.length === 0) break;
-        messages.push({
-          id: r.id,
-          role: "user",
-          content,
-          timestamp: ts,
-          ...(localAttachments.length > 0 ? { attachments: localAttachments } : {}),
-        });
-        break;
-      }
-      case "assistant_message_complete": {
-        sealAssistant();
-        const blocks: ContentBlock[] = (Array.isArray(data.content) ? data.content : []) as ContentBlock[];
-        const meta = data.metadata ?? {};
-        const m = ensureAssistant(r.id, ts);
-        // Extract text + eventIds from blocks
-        let text = "";
-        const eventIds: string[] = [];
-        for (const b of blocks) {
-          if (b.type === "text") text += b.text;
-          if (b.event_id) eventIds.push(b.event_id);
-        }
-        m.blocks = blocks;
-        m.content = text || null;
-        if (meta.usage) m.usage = meta.usage;
-        if (meta.kind) m.metadata = meta;
-        if (eventIds.length > 0) m.eventIds = eventIds;
-        break;
-      }
-      case "tool_result": {
-        const id = data.id;
-        const isErr = !!data.error;
-        const result: ToolResult = {
-          id,
-          name: data.name || "",
-          result: isErr ? null : (data.result ?? ""),
-          error: isErr ? data.error : null,
-          status: isErr ? "error" : "completed",
-        };
-        // Find the assistant message that has this toolCall block
-        for (let i = messages.length - 1; i >= 0; i--) {
-          const msg = messages[i];
-          if (!msg.blocks) continue;
-          if (msg.blocks.some((b) => b.type === "toolCall" && b.id === id)) {
-            if (!msg.toolResults) msg.toolResults = {};
-            msg.toolResults[id] = result;
-            break;
-          }
-        }
-        break;
-      }
-      case "done": {
-        sealAssistant();
-        break;
-      }
-      case "error": {
-        sealAssistant();
-        messages.push({
-          id: r.id,
-          role: "assistant",
-          content: data.message ?? "Unknown error",
-          timestamp: ts,
-          isError: true,
-        });
-        break;
-      }
-      case "external_message": {
-        sealAssistant();
-        const text = typeof data.content === "string" ? data.content : "";
-        const fromCh = typeof data.from_channel === "string" ? data.from_channel : "";
-        const fromSid = typeof data.from_session === "string" ? data.from_session : "";
-        messages.push({
-          id: r.id,
-          role: "assistant",
-          content: text,
-          timestamp: ts,
-          blocks: text ? [{ type: "text", text }] : [],
-          toolResults: {},
-          external: true,
-          externalFrom: fromCh || fromSid ? `${fromCh}::${fromSid}` : undefined,
-        });
-        break;
-      }
-      case "context_compact": {
-        sealAssistant();
-        if (data.silent === true) break;
-        messages.push({
-          id: r.id,
-          role: "system" as Role,
-          content: null,
-          timestamp: ts,
-          compact: {
-            status: "done",
-            summaryPreview: typeof data.summary === "string" ? data.summary : undefined,
-          },
-        });
-        break;
-      }
-    }
+    const ev: BusEvent = {
+      type: r.type,
+      data: r.data ?? {},
+      ts,
+      eventId: r.data?.event_id ?? r.id,
+    };
+    applyEvent(b, ev);
   }
-  sealAssistant();
-  return messages;
+
+  // 保险：确保所有消息都是 sealed 状态
+  for (const m of b.messages) {
+    if (m.streaming) m.streaming = false;
+  }
+
+  return b.messages;
 }
 
 // ─── Storage Keys ───────────────────────────────────────────────────
@@ -260,14 +132,10 @@ interface SessionState {
   /** Session ID currently being loaded (HTTP fetch in progress) */
   loadingSessionId: string | null;
 
-  loadSessions: (workspace?: string | null) => Promise<void>;
   /** 枚举工作区 + 为每个工作区拉首页 session（轮询、初始加载用） */
   loadAllSessions: () => Promise<void>;
-  /** 在 allSessions 末尾追加 extraCount 条（兼容旧调用，等价于全局补拉） */
-  loadMoreSessions: (extraCount: number) => Promise<void>;
   /** 为指定工作区多拉一页 session（"展开"按钮用） */
   loadMoreWorkspaceSessions: (workspace: string, extraCount: number) => Promise<void>;
-  loadWorkspaceSessions: (workspace: string) => Promise<void>;
   switchSession: (sessionId: string) => Promise<void>;
   /** 加载更早一页消息（基于当前桶最早事件的 timestamp 作 before_ts）。返回是否真的拉到内容。 */
   loadEarlierMessages: (sessionId: string) => Promise<boolean>;
@@ -275,7 +143,6 @@ interface SessionState {
   closeTab: (sessionId: string) => void;
   deleteSession: (sessionId: string) => Promise<void>;
   newSession: (workspace?: string) => void;
-  restoreLatest: (workspace?: string | null) => Promise<void>;
   patchSession: (
     sessionId: string,
     patch: { model?: string | null; agentId?: string },
@@ -302,11 +169,6 @@ export const useSession = create<SessionState>((set, get) => ({
   openTabs: [],
   loading: false,
   loadingSessionId: null,
-
-  loadSessions: async (_workspace) => {
-    // 兼容旧调用：等价于 loadAllSessions
-    await get().loadAllSessions();
-  },
 
   loadAllSessions: async () => {
     set({ loading: true });
@@ -371,11 +233,6 @@ export const useSession = create<SessionState>((set, get) => ({
     }
   },
 
-  loadMoreSessions: async (_extraCount) => {
-    // 旧的全局"加载更多"已被按工作区分页取代；保留兼容，整体刷新一遍
-    await get().loadAllSessions();
-  },
-
   loadMoreWorkspaceSessions: async (workspace, extraCount) => {
     const ws = workspace || "";
     const paging = get().workspacePaging[ws];
@@ -405,10 +262,6 @@ export const useSession = create<SessionState>((set, get) => ({
     } catch {
       set({ loading: false });
     }
-  },
-
-  loadWorkspaceSessions: async (workspace) => {
-    await get().loadMoreWorkspaceSessions(workspace, WORKSPACE_PAGE_SIZE);
   },
 
   switchSession: async (sessionId) => {
@@ -554,15 +407,5 @@ export const useSession = create<SessionState>((set, get) => ({
         };
       }),
     });
-  },
-
-  restoreLatest: async () => {
-    const savedTabs = loadTabsFromStorage();
-    set({ openTabs: savedTabs });
-    await get().loadSessions();
-    let target: string | null = null;
-    try { target = localStorage.getItem(sessionStorageKey()); } catch { }
-    if (target) await get().switchSession(target);
-    else if (savedTabs.length > 0) await get().switchSession(savedTabs[0]);
   },
 }));

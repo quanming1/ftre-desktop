@@ -29,12 +29,13 @@ interface MonacoDiffViewerProps {
   diff: DiffEntry;
   language: string;
   renderSideBySide: boolean;
+  theme?: string;
 }
 
 export const MonacoDiffViewer = forwardRef<
   MonacoDiffViewerHandle,
   MonacoDiffViewerProps
->(function MonacoDiffViewer({ diff, language, renderSideBySide }, ref) {
+>(function MonacoDiffViewer({ diff, language, renderSideBySide, theme }, ref) {
   const monacoLang = toMonacoLanguage(language);
   const editorRef = useRef<editor.IStandaloneDiffEditor | null>(null);
   const monacoRef = useRef<typeof Monaco | null>(null);
@@ -46,8 +47,11 @@ export const MonacoDiffViewer = forwardRef<
       monacoRef.current = monaco;
       cleanedUpRef.current = false;
 
-      registerFtreTheme(monaco);
-      monaco.editor.setTheme(getActiveThemeId());
+      // 注册指定主题（getTheme 默认返回 darcula，必须显式传入 themeId）
+      if (theme && theme !== "vs" && theme !== "vs-dark") {
+        registerFtreTheme(monaco, theme);
+      }
+      monaco.editor.setTheme(theme ?? getActiveThemeId());
 
       // DiffEditor 的 language prop 有时不生效，手动设置 model 语言
       const origModel = diffEditor.getOriginalEditor().getModel();
@@ -92,6 +96,18 @@ export const MonacoDiffViewer = forwardRef<
       modModel.setValue(diff.newContent);
     }
   }, [diff.originalContent, diff.newContent]);
+
+  // tab 从 hidden 切到 visible 时重新 layout
+  useEffect(() => {
+    const handleLayout = () => {
+      const diffEditor = editorRef.current;
+      if (diffEditor) {
+        diffEditor.layout();
+      }
+    };
+    window.addEventListener("ftre:editor-layout", handleLayout);
+    return () => window.removeEventListener("ftre:editor-layout", handleLayout);
+  }, []);
 
   // 组件卸载时安全释放模型，避免已知 DiffEditor dispose 报错
   useEffect(() => {
@@ -156,7 +172,7 @@ export const MonacoDiffViewer = forwardRef<
       language={toMonacoLanguage(language)}
       original={diff.originalContent}
       modified={diff.newContent}
-      theme="ftre-dark"
+      theme={theme ?? "ftre-dark"}
       onMount={handleMount}
       options={{
         readOnly: true,

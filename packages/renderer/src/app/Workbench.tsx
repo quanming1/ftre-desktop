@@ -10,13 +10,14 @@ import { SkillsPanel } from "@/features/skills/SkillsPanel";
 import { ScheduledTaskPanel } from "@/features/task/ScheduledTaskPanel";
 import { TracePanel } from "@/features/traces/TracePanel";
 import { SettingsPanel } from "@/features/settings/SettingsPanel";
+import { InspectorPanel } from "@/features/inspector/InspectorPanel";
 import { TerminalDropdown } from "@/features/terminal/TerminalDropdown";
 import { FilePalette } from "@/components/FilePalette";
 import { CommandPalette } from "@/components/CommandPalette";
 import { GlobalSearchPalette } from "@/features/global-search/GlobalSearchPalette";
 import { Toaster } from "sonner";
 import { ResizeHandle } from "@/components/ResizeHandle";
-import { useLayout, type PanelId } from "@/stores/layout";
+import { useLayout, type PanelId, INSPECTOR_WIDTH_MIN, INSPECTOR_WIDTH_MAX } from "@/stores/layout";
 import { useWorkspace } from "@/stores/workspace";
 import { useEditor } from "@/stores/editor";
 import { useChat } from "@/stores/chat";
@@ -40,6 +41,7 @@ export function Workbench() {
   const setSessionsWidth = useLayout((s) => s.setSessionsWidth);
   const sessionsCollapsed = useLayout((s) => s.sessionsCollapsed);
   const centerRatio = useLayout((s) => s.centerRatio);
+  const inspectorWidth = useLayout((s) => s.inspectorWidth);
   const setCenterRatio = useLayout((s) => s.setCenterRatio);
   const activeSidebarView = useLayout((s) => s.activeSidebarView);
   const panelOrder = useLayout((s) => s.panelOrder);
@@ -184,12 +186,19 @@ export function Workbench() {
         width: sessionsCollapsed ? 48 : sessionsWidth,
         flexShrink: 0,
         order: getOrder(id),
-        // 折叠/展开时做宽度补间动画；拖拽分隔条时关闭，避免每帧补间造成黏滞。
         transition: resizing ? undefined : "width 160ms ease",
       };
     }
     if (id === "sidebar") {
       return { width: sidebarWidth, flexShrink: 0, order: getOrder(id) };
+    }
+    if (id === "inspector") {
+      return {
+        width: inspectorWidth,
+        flexShrink: 0,
+        order: getOrder(id),
+        transition: resizing ? undefined : "width 160ms ease",
+      };
     }
     // For editor and chat, use flex-grow with ratio
     const flexPanels = visiblePanels.filter(
@@ -216,35 +225,36 @@ export function Workbench() {
   // - If the target panel === afterPanelId, it's on the LEFT of the handle -> delta positive = grow
   // - If the target panel === nextPanelId, it's on the RIGHT of the handle -> delta positive = shrink
   const createFixedPanelResizeHandler = useCallback(
-    (targetPanel: "sessions" | "sidebar", afterPanelId: PanelId) => {
+    (targetPanel: "sessions" | "sidebar" | "inspector", afterPanelId: PanelId) => {
       return (delta: number): number => {
-        // Read current width from store at call time, not at creation time
         const state = useLayout.getState();
         const currentWidth =
-          targetPanel === "sessions" ? state.sessionsWidth : state.sidebarWidth;
+          targetPanel === "sessions" ? state.sessionsWidth
+          : targetPanel === "sidebar" ? state.sidebarWidth
+          : state.inspectorWidth;
         const setWidth =
-          targetPanel === "sessions"
-            ? state.setSessionsWidth
-            : state.setSidebarWidth;
+          targetPanel === "sessions" ? state.setSessionsWidth
+          : targetPanel === "sidebar" ? state.setSidebarWidth
+          : state.setInspectorWidth;
 
         const currentOrder = state.panelOrder;
         const index = currentOrder.indexOf(afterPanelId);
         const nextPanelId = currentOrder[index + 1];
-        // If target panel is on the RIGHT of the handle, reverse delta
         const reverse = nextPanelId === targetPanel;
         const adjustedDelta = reverse ? -delta : delta;
         const clampedWidth = Math.max(
-          140,
-          Math.min(400, currentWidth + adjustedDelta),
+          targetPanel === "inspector" ? INSPECTOR_WIDTH_MIN : 140,
+          Math.min(
+            targetPanel === "inspector" ? INSPECTOR_WIDTH_MAX : 400,
+            currentWidth + adjustedDelta,
+          ),
         );
         const appliedAdjusted = clampedWidth - currentWidth;
         setWidth(clampedWidth);
-        // Map the actually-applied (post-clamp) delta back to the handle's
-        // coordinate system so it can keep cursor and divider in sync.
         return reverse ? -appliedAdjusted : appliedAdjusted;
       };
     },
-    [], // No dependencies - reads from store at call time
+    [],
   );
 
   // Resize handler for editor/chat divider
@@ -302,6 +312,9 @@ export function Workbench() {
     }
     if (afterPanelId === "sidebar" || nextPanelId === "sidebar") {
       return createFixedPanelResizeHandler("sidebar", afterPanelId);
+    }
+    if (afterPanelId === "inspector" || nextPanelId === "inspector") {
+      return createFixedPanelResizeHandler("inspector", afterPanelId);
     }
     return createCenterResizeHandler(afterPanelId);
   };
@@ -447,7 +460,10 @@ export function Workbench() {
 
         {/* Chat Panel */}
         {panelVisible.chat && activeLeftPanel === "chat" && (
-          <div className="h-full overflow-hidden py-1 pr-1.5" style={getPanelStyle("chat")}>
+          <div
+            className={`h-full overflow-hidden py-1 ${panelVisible.inspector ? "" : "pr-1.5"}`}
+            style={getPanelStyle("chat")}
+          >
             <div className="h-full overflow-hidden rounded-xl bg-surface">
               <ErrorBoundary>
                 <ChatPanel key={rootPath} />
@@ -465,6 +481,37 @@ export function Workbench() {
               <ResizeHandle
                 direction="horizontal"
                 onResize={getResizeHandler("chat")}
+                onResizeStart={() => setResizing(true)}
+                onResizeEnd={() => setResizing(false)}
+              />
+            </div>
+          )}
+
+        {/* Inspector Panel — 右侧扩展面板 */}
+        {panelVisible.inspector && activeLeftPanel === "chat" && (
+          <div
+            className="h-full overflow-hidden py-1 pr-1.5"
+            style={getPanelStyle("inspector")}
+          >
+            <div className="h-full overflow-hidden rounded-xl bg-surface">
+              <ErrorBoundary>
+                <InspectorPanel />
+              </ErrorBoundary>
+            </div>
+          </div>
+        )}
+        {panelVisible.inspector &&
+          activeLeftPanel === "chat" &&
+          isResizeHandleVisible("inspector") && (
+            <div
+              className="h-full shrink-0"
+              style={{ order: getResizeHandleOrder("inspector") }}
+            >
+              <ResizeHandle
+                direction="horizontal"
+                onResize={getResizeHandler("inspector")}
+                onResizeStart={() => setResizing(true)}
+                onResizeEnd={() => setResizing(false)}
               />
             </div>
           )}
