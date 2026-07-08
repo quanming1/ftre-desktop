@@ -33,12 +33,14 @@ interface MonacoDiffViewerProps {
   theme?: string;
   /** 值变化时重新滚动到第一个 diff 位置 */
   revealNonce?: number;
+  /** 自动换行 */
+  wordWrap?: boolean;
 }
 
 export const MonacoDiffViewer = forwardRef<
   MonacoDiffViewerHandle,
   MonacoDiffViewerProps
->(function MonacoDiffViewer({ diff, language, renderSideBySide, theme, revealNonce }, ref) {
+>(function MonacoDiffViewer({ diff, language, renderSideBySide, theme, revealNonce, wordWrap }, ref) {
   const monacoLang = toMonacoLanguage(language);
   const editorRef = useRef<editor.IStandaloneDiffEditor | null>(null);
   const monacoRef = useRef<typeof Monaco | null>(null);
@@ -56,7 +58,30 @@ export const MonacoDiffViewer = forwardRef<
       }
       monaco.editor.setTheme(theme ?? getActiveThemeId());
 
-      // DiffEditor 的 language prop 有时不生效，手动设置 model 语言
+      // 非并排模式：original editor 隐藏行号；modified editor 关闭 diff revert icon 避免和行号挤
+      if (!renderSideBySide) {
+        diffEditor.getOriginalEditor().updateOptions({ lineNumbers: "off", lineNumbersMinChars: 0, glyphMargin: false, folding: false });
+        diffEditor.getModifiedEditor().updateOptions({ glyphMargin: false, renderMarginRevertIcon: false });
+      }
+
+      // 注册 wordWrap 右键菜单 action（两个 editor 都加）
+      const modEditor = diffEditor.getModifiedEditor();
+      const origEditor = diffEditor.getOriginalEditor();
+
+      for (const ed of [modEditor, origEditor]) {
+        ed.addAction({
+          id: "ftre-toggle-wordwrap",
+          label: "开启/关闭自动换行",
+          contextMenuGroupId: "ftre",
+          contextMenuOrder: 0,
+          run: (editor) => {
+            const current = editor.getOption(monaco.editor.EditorOption.wordWrap);
+            const next = current === "on" ? "off" : "on";
+            modEditor.updateOptions({ wordWrap: next });
+            origEditor.updateOptions({ wordWrap: next });
+          },
+        });
+      }
       const origModel = diffEditor.getOriginalEditor().getModel();
       const modModel = diffEditor.getModifiedEditor().getModel();
       if (origModel) monaco.editor.setModelLanguage(origModel, monacoLang);
@@ -75,7 +100,7 @@ export const MonacoDiffViewer = forwardRef<
         disposable.dispose();
       });
     },
-    [monacoLang],
+    [monacoLang, renderSideBySide],
   );
 
   // 用 ref 追踪最新的 diff.filePath，确保 cleanup 中拿到正确值
@@ -216,19 +241,20 @@ export const MonacoDiffViewer = forwardRef<
         fontSize: 14,
         fontFamily: "'JetBrains Mono', 'Cascadia Code', 'Consolas', monospace",
         lineHeight: 22,
-        minimap: { enabled: false },
+        minimap: { enabled: true },
         scrollBeyondLastLine: false,
         renderSideBySide,
+        renderIndicators: false,
         renderOverviewRuler: false,
         hideCursorInOverviewRuler: true,
         overviewRulerBorder: false,
         glyphMargin: false,
-        lineNumbersMinChars: 5,
         folding: false,
         automaticLayout: true,
+        wordWrap: wordWrap ? "on" : "off",
         scrollbar: {
-          verticalScrollbarSize: 5,
-          horizontalScrollbarSize: 5,
+          verticalScrollbarSize: 12,
+          horizontalScrollbarSize: 12,
         },
       }}
     />
