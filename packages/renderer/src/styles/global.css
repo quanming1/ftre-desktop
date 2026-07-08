@@ -484,3 +484,11 @@ html[data-theme="dark"] .tool-highlight .hljs-type {
   width: 0;
   display: none;
 }
+
+/* Diff minimap 装饰：让 minimap 中能看到 diff 变更行的颜色 */
+.diff-minimap-added {
+  background: rgba(22, 163, 74, 0.15) !important;
+}
+.diff-minimap-modified {
+  background: rgba(217, 119, 6, 0.15) !important;
+}

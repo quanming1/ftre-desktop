@@ -204,7 +204,7 @@ export const ftreLight: FtreThemeDefinition = {
         "diffEditor.removedTextBackground": "#fbeff2",
         "diffEditorGutter.insertedLineBackground": "#e3f0e8",
         "diffEditorGutter.deletedLineBackground": "#fbeff2",
-        "diffEditorOverviewRuler.insertedForeground": "#e3f0e8",
-        "diffEditorOverviewRuler.deletedForeground": "#fbeff2",
+        "diffEditorOverviewRuler.insertedForeground": "#22c55e",
+        "diffEditorOverviewRuler.deletedForeground": "#ef4444",
     },
 };
