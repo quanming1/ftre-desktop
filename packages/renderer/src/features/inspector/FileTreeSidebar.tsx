@@ -325,6 +325,7 @@ function GitChangesSection({
           size={13}
           className={`shrink-0 text-t-ghost transition-transform duration-150 ${isExpanded ? "rotate-90" : ""}`}
         />
+        <Icon icon="vscode-icons:file-type-git" width={16} height={16} className="shrink-0" style={{ color: "#f05032" }} />
         <span className="truncate" style={{ color: changedFiles.length > 0 ? "#d97706" : "#111827" }}>
           Changes
         </span>
