@@ -10,6 +10,8 @@ const api: DesktopAPI = {
     readDir: (dirPath: string) => ipcRenderer.invoke("fs:readDir", { dirPath }),
     readFile: (filePath: string) =>
       ipcRenderer.invoke("fs:readFile", { filePath }),
+    readImageBase64: (filePath: string) =>
+      ipcRenderer.invoke("fs:readImageBase64", { filePath }),
     writeFile: (filePath: string, content: string) =>
       ipcRenderer.invoke("fs:writeFile", { filePath, content }),
     selectFolder: () => ipcRenderer.invoke("fs:selectFolder"),
