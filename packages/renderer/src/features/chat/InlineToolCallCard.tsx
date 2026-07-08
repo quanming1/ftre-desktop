@@ -26,6 +26,7 @@ import {
 import { ImageViewer, Tooltip, TooltipProvider } from "@ftre/ui";
 import { useInspector } from "@/stores/inspector";
 import { useLayout } from "@/stores/layout";
+import { FileIconView } from "@/components/FileIconView";
 
 const API_BASE = import.meta.env.VITE_API_BASE || "http://127.0.0.1:48650";
 
@@ -507,16 +508,22 @@ export const InlineToolCallCard = memo(
             onClick={handleOpenInPanel}
             className="flex items-center gap-2 text-left flex-1 min-w-0 py-1 group"
           >
-            <SummaryLine summary={summary} className="flex-1 group-hover:text-t-primary" />
-            {status === "completed" && hasDiffMeta && resultMeta && (
-              <span className="flex items-center gap-1 shrink-0 font-mono text-[12px]">
-                {(resultMeta.additions ?? 0) > 0 && (
-                  <span className="text-green-600">+{resultMeta.additions}</span>
+            {previewableTool && (args.path as string) && (
+              <>
+                <SummaryLine summary={isReadTool ? (isComplete ? "Read" : "Reading") : isWriteTool ? (isComplete ? "Wrote" : "Writing") : isEditTool ? (isComplete ? "Edited" : "Editing") : ""} className="shrink-0" />
+                <FileIconView path={args.path as string} size={16} />
+                <span className="truncate group-hover:text-t-primary">{basename(args.path as string)}</span>
+                {status === "completed" && hasDiffMeta && resultMeta && (
+                  <span className="flex items-center gap-1 shrink-0 font-mono text-[12px] translate-y-[1px]">
+                    {(resultMeta.additions ?? 0) > 0 && (
+                      <span className="text-green-600">+{resultMeta.additions}</span>
+                    )}
+                    {(resultMeta.deletions ?? 0) > 0 && (
+                      <span className="text-red-500">-{resultMeta.deletions}</span>
+                    )}
+                  </span>
                 )}
-                {(resultMeta.deletions ?? 0) > 0 && (
-                  <span className="text-red-500">-{resultMeta.deletions}</span>
-                )}
-              </span>
+              </>
             )}
           </button>
         ) : (
