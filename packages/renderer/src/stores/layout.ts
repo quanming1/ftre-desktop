@@ -25,6 +25,11 @@ export const INSPECTOR_WIDTH_MIN = 280;
 export const INSPECTOR_WIDTH_MAX = 9999;
 export const INSPECTOR_WIDTH_DEFAULT = 480;
 
+// 文件树面板宽度范围
+export const FILE_TREE_WIDTH_MIN = 140;
+export const FILE_TREE_WIDTH_MAX = 500;
+export const FILE_TREE_WIDTH_DEFAULT = 200;
+
 const PERSIST_DEBOUNCE_MS = 300;
 let persistTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -46,6 +51,7 @@ interface PersistedLayoutData {
     layoutMode: LayoutMode;     // 'chat' or 'agent' layout mode
     activeLeftPanel: LeftPanelType;
     inspectorWidth: number;     // inspector panel width
+    fileTreeWidth: number;      // file tree sidebar width
 }
 
 export interface LayoutState extends PersistedLayoutData {
@@ -59,6 +65,7 @@ export interface LayoutState extends PersistedLayoutData {
     toggleSessionsCollapsed: () => void;
     setCenterRatio: (ratio: number) => void;
     setInspectorWidth: (w: number) => void;
+    setFileTreeWidth: (w: number) => void;
     setBottomPanelHeight: (h: number) => void;
     toggleBottomPanel: () => void;
     setActiveBottomTab: (tab: BottomTab) => void;
@@ -134,6 +141,7 @@ const defaults: PersistedLayoutData = {
     layoutMode: DEFAULT_LAYOUT_MODE,
     activeLeftPanel: 'chat' as LeftPanelType,
     inspectorWidth: INSPECTOR_WIDTH_DEFAULT,
+    fileTreeWidth: FILE_TREE_WIDTH_DEFAULT,
 };
 
 function getPersistedData(state: LayoutState): PersistedLayoutData {
@@ -144,6 +152,7 @@ function getPersistedData(state: LayoutState): PersistedLayoutData {
         sessionsCollapsed: state.sessionsCollapsed,
         centerRatio: state.centerRatio,
         inspectorWidth: state.inspectorWidth,
+        fileTreeWidth: state.fileTreeWidth,
         bottomPanelHeight: state.bottomPanelHeight,
         sidebarVisible: state.sidebarVisible,
         bottomPanelVisible: state.bottomPanelVisible,
@@ -205,6 +214,10 @@ export const useLayout = create<LayoutState>((set, get) => ({
                 // Migrate inspectorWidth if not present
                 if (typeof parsed.inspectorWidth !== 'number') {
                     parsed.inspectorWidth = INSPECTOR_WIDTH_DEFAULT;
+                }
+                // Migrate fileTreeWidth if not present
+                if (typeof parsed.fileTreeWidth !== 'number') {
+                    parsed.fileTreeWidth = FILE_TREE_WIDTH_DEFAULT;
                 }
                 // Migrate layoutMode if not present
                 if (!parsed.layoutMode) {
@@ -268,6 +281,11 @@ export const useLayout = create<LayoutState>((set, get) => ({
 
     setInspectorWidth: (w) => {
         set({ inspectorWidth: Math.max(INSPECTOR_WIDTH_MIN, Math.min(INSPECTOR_WIDTH_MAX, w)) });
+        get().persist();
+    },
+
+    setFileTreeWidth: (w) => {
+        set({ fileTreeWidth: Math.max(FILE_TREE_WIDTH_MIN, Math.min(FILE_TREE_WIDTH_MAX, w)) });
         get().persist();
     },
 

@@ -98,6 +98,38 @@ export function registerFsIPC(): void {
   );
 
   ipcMain.handle(
+    "fs:readImageBase64",
+    async (_event, { filePath }: { filePath: string }) => {
+      try {
+        const resolved = expandHome(filePath);
+        const buf = await fs.promises.readFile(resolved);
+        const ext = path.extname(resolved).slice(1).toLowerCase();
+        const mime =
+          ext === "svg"
+            ? "image/svg+xml"
+            : ext === "jpg" || ext === "jpeg"
+              ? "image/jpeg"
+              : ext === "png"
+                ? "image/png"
+                : ext === "gif"
+                  ? "image/gif"
+                  : ext === "webp"
+                    ? "image/webp"
+                    : ext === "bmp"
+                      ? "image/bmp"
+                      : ext === "avif"
+                        ? "image/avif"
+                        : ext === "ico"
+                          ? "image/x-icon"
+                          : "image/png";
+        return { dataUrl: `data:${mime};base64,${buf.toString("base64")}` };
+      } catch (err: any) {
+        return { dataUrl: "", error: err.message };
+      }
+    },
+  );
+
+  ipcMain.handle(
     "fs:writeFile",
     async (
       _event,

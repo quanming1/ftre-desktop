@@ -23,11 +23,14 @@ export interface ContextMenuItem {
   action: () => void;
 }
 
+export type ContextMenuSize = "sm" | "md";
+
 export interface ContextMenuProps {
   items: ContextMenuItem[];
   position: { x: number; y: number };
   onClose: () => void;
   className?: string;
+  size?: ContextMenuSize;
 }
 
 function getFocusableIndices(items: ContextMenuItem[]): number[] {
@@ -42,6 +45,7 @@ export function ContextMenu({
   position,
   onClose,
   className,
+  size = "md",
 }: ContextMenuProps) {
   const [focusedIndex, setFocusedIndex] = useState<number>(-1);
   const [adjustedPosition, setAdjustedPosition] = useState(position);
@@ -141,7 +145,8 @@ export function ContextMenu({
       animate={{ opacity: 1, scale: 1, y: 0 }}
       transition={{ duration: 0.15, ease: [0.16, 1, 0.3, 1] }}
       className={cn(
-        "fixed z-[9999] min-w-[160px] rounded-xl py-2 shadow-xl outline-none",
+        "fixed z-[9999] rounded-lg shadow-xl outline-none",
+        size === "sm" ? "min-w-[120px] py-1" : "min-w-[160px] py-1.5",
         "bg-[var(--ftre-elevated,#2d2d2d)] border border-[var(--ftre-border,#3c3c3c)]/50",
         "backdrop-blur-xl",
         className,
@@ -166,7 +171,7 @@ export function ContextMenu({
         // Primary 样式 (微信绿色高亮按钮)
         if (variant === "primary") {
           return (
-            <div key={item.id} className="px-2 py-1">
+            <div key={item.id} className={size === "sm" ? "px-1.5 py-0.5" : "px-2 py-1"}>
               <button
                 role="menuitem"
                 disabled={item.disabled}
@@ -175,7 +180,8 @@ export function ContextMenu({
                   if (!item.disabled) setFocusedIndex(index);
                 }}
                 className={cn(
-                  "w-full flex items-center justify-center gap-2 px-4 py-2 text-[13px] font-medium rounded-lg transition-all duration-150",
+                  "w-full flex items-center justify-center gap-2 font-medium rounded-md transition-all duration-150",
+                  size === "sm" ? "px-3 py-1.5 text-[12px]" : "px-4 py-2 text-[13px]",
                   item.disabled
                     ? "bg-[var(--ftre-accent,#00ff88)]/30 text-white/50 cursor-not-allowed"
                     : isFocused
@@ -193,7 +199,7 @@ export function ContextMenu({
         // Danger 样式 (红色删除按钮)
         if (variant === "danger") {
           return (
-            <div key={item.id} className="px-1.5">
+            <div key={item.id} className={size === "sm" ? "px-1" : "px-1.5"}>
               <button
                 role="menuitem"
                 disabled={item.disabled}
@@ -202,7 +208,8 @@ export function ContextMenu({
                   if (!item.disabled) setFocusedIndex(index);
                 }}
                 className={cn(
-                  "w-full flex items-center gap-3 px-3 py-2 text-left text-[13px] rounded-lg transition-colors duration-150",
+                  "w-full flex items-center gap-3 text-left rounded-md transition-colors duration-150",
+                  size === "sm" ? "px-2.5 py-1.5 text-[12px]" : "px-3 py-2 text-[13px]",
                   item.disabled
                     ? "text-red-400/40 cursor-not-allowed"
                     : isFocused
@@ -226,7 +233,7 @@ export function ContextMenu({
 
         // Default 样式
         return (
-          <div key={item.id} className="px-1.5">
+          <div key={item.id} className={size === "sm" ? "px-1" : "px-1.5"}>
             <button
               role="menuitem"
               disabled={item.disabled}
@@ -235,7 +242,8 @@ export function ContextMenu({
                 if (!item.disabled) setFocusedIndex(index);
               }}
               className={cn(
-                "w-full flex items-center gap-3 px-3 py-2 text-left text-[13px] rounded-lg transition-colors duration-150",
+                "w-full flex items-center gap-3 text-left rounded-md transition-colors duration-150",
+                size === "sm" ? "px-2.5 py-1.5 text-[12px]" : "px-3 py-2 text-[13px]",
                 item.disabled
                   ? "text-[var(--ftre-text-faint,#7a8088)] cursor-not-allowed opacity-40"
                   : isFocused

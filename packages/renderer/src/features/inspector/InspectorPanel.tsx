@@ -2,13 +2,15 @@
  * InspectorPanel — 右侧扩展面板（编辑器风格）
  */
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
-import { X, FileText, Loader2, GitCompareArrows } from "lucide-react";
+import { X, FileText, Loader2, GitCompareArrows, ListTree } from "lucide-react";
 import { OverlayScrollbarsComponent, type OverlayScrollbarsComponentRef } from "overlayscrollbars-react";
 import { useInspector, type InspectorTab } from "@/stores/inspector";
 import { getFileIcon } from "@/lib/file-icons";
 import { CodeEditorWidget, MonacoDiffViewer, type CodeEditorFile } from "@ftre/editor";
 import { ContextMenu, type ContextMenuItem } from "@/components/ContextMenu";
+import { ResizeHandle } from "@/components/ResizeHandle";
 import { useLayout } from "@/stores/layout";
+import { FileTreeSidebar } from "./FileTreeSidebar";
 
 /** path → CodeEditorFile 内存缓存，切回已加载的 tab 秒切 */
 const fileCache = new Map<string, CodeEditorFile>();
@@ -17,45 +19,14 @@ export function InspectorPanel() {
   const tabs = useInspector((s) => s.tabs);
   const activeTabId = useInspector((s) => s.activeTabId);
   const setActiveTab = useInspector((s) => s.setActiveTab);
-  const closeTabRaw = useInspector((s) => s.closeTab);
-  const closeOtherTabsRaw = useInspector((s) => s.closeOtherTabs);
-  const closeTabsToRightRaw = useInspector((s) => s.closeTabsToRight);
-  const closeAllTabsRaw = useInspector((s) => s.closeAllTabs);
-
-  const { togglePanelVisible } = useLayout.getState();
-
-  // 关闭后如果 tabs 清空，自动隐藏侧边栏
-  const closeTab = useCallback((id: string) => {
-    closeTabRaw(id);
-    if (useInspector.getState().tabs.length <= 1) {
-      if (useLayout.getState().panelVisible.inspector) {
-        togglePanelVisible("inspector");
-      }
-    }
-  }, [closeTabRaw, togglePanelVisible]);
-
-  const closeOtherTabs = useCallback((id: string) => {
-    closeOtherTabsRaw(id);
-    // 只剩一个 tab（被保留的），不隐藏
-  }, [closeOtherTabsRaw]);
-
-  const closeTabsToRight = useCallback((id: string) => {
-    const idx = useInspector.getState().tabs.findIndex((t) => t.id === id);
-    const remaining = idx + 1;
-    closeTabsToRightRaw(id);
-    if (remaining <= 0) {
-      if (useLayout.getState().panelVisible.inspector) {
-        togglePanelVisible("inspector");
-      }
-    }
-  }, [closeTabsToRightRaw, togglePanelVisible]);
-
-  const closeAllTabs = useCallback(() => {
-    closeAllTabsRaw();
-    if (useLayout.getState().panelVisible.inspector) {
-      togglePanelVisible("inspector");
-    }
-  }, [closeAllTabsRaw, togglePanelVisible]);
+  const closeTab = useInspector((s) => s.closeTab);
+  const closeOtherTabs = useInspector((s) => s.closeOtherTabs);
+  const closeTabsToRight = useInspector((s) => s.closeTabsToRight);
+  const closeAllTabs = useInspector((s) => s.closeAllTabs);
+  const fileTreeOpen = useInspector((s) => s.fileTreeOpen);
+  const toggleFileTree = useInspector((s) => s.toggleFileTree);
+  const fileTreeWidth = useLayout((s) => s.fileTreeWidth);
+  const setFileTreeWidth = useLayout((s) => s.setFileTreeWidth);
 
   const activeTab = tabs.find((t) => t.id === activeTabId) ?? null;
 
@@ -69,23 +40,41 @@ export function InspectorPanel() {
         onCloseOthers={closeOtherTabs}
         onCloseRight={closeTabsToRight}
         onCloseAll={closeAllTabs}
+        fileTreeOpen={fileTreeOpen}
+        onToggleFileTree={toggleFileTree}
       />
-      <div className="flex-1 min-h-0 overflow-hidden bg-surface relative">
-        {tabs.length === 0 ? (
-          <EmptyState />
-        ) : (
-          tabs.map((tab) => (
-            <div
-              key={tab.id}
-              className="absolute inset-0"
-              style={{ display: tab.id === activeTabId ? "block" : "none" }}
-            >
-              <div className="h-full w-full">
-                <InspectorTabContent tab={tab} active={tab.id === activeTabId} />
-              </div>
+      <div className="flex-1 min-h-0 flex overflow-hidden">
+        {fileTreeOpen && (
+          <>
+            <div className="shrink-0 border-r border-border overflow-hidden" style={{ width: fileTreeWidth, background: "#f9fafb" }}>
+              <FileTreeSidebar />
             </div>
-          ))
+            <ResizeHandle
+              direction="horizontal"
+              onResize={(delta) => {
+                setFileTreeWidth(fileTreeWidth + delta);
+                return delta;
+              }}
+            />
+          </>
         )}
+        <div className="flex-1 min-w-0 overflow-hidden bg-surface relative">
+          {tabs.length === 0 ? (
+            <EmptyState />
+          ) : (
+            tabs.map((tab) => (
+              <div
+                key={tab.id}
+                className="absolute inset-0"
+                style={{ display: tab.id === activeTabId ? "block" : "none" }}
+              >
+                <div className="h-full w-full">
+                  <InspectorTabContent tab={tab} active={tab.id === activeTabId} />
+                </div>
+              </div>
+            ))
+          )}
+        </div>
       </div>
     </div>
   );
@@ -99,6 +88,8 @@ function InspectorTabBar({
   onCloseOthers,
   onCloseRight,
   onCloseAll,
+  fileTreeOpen,
+  onToggleFileTree,
 }: {
   tabs: InspectorTab[];
   activeTabId: string | null;
@@ -107,6 +98,8 @@ function InspectorTabBar({
   onCloseOthers: (id: string) => void;
   onCloseRight: (id: string) => void;
   onCloseAll: () => void;
+  fileTreeOpen: boolean;
+  onToggleFileTree: () => void;
 }) {
   const overlayRef = useRef<OverlayScrollbarsComponentRef | null>(null);
   const [contextMenu, setContextMenu] = useState<{
@@ -170,7 +163,18 @@ function InspectorTabBar({
   );
 
   return (
-    <div className="h-[38px] bg-base flex items-end shrink-0 border-b border-border">
+    <div className="h-[38px] flex items-end shrink-0 border-b border-border" style={{ background: "#f9fafb" }}>
+      <button
+        onClick={onToggleFileTree}
+        title="文件树"
+        className={`h-full w-[32px] shrink-0 flex items-center justify-center border-r border-border transition-colors ${
+          fileTreeOpen
+            ? "text-t-primary bg-surface"
+            : "text-t-ghost hover:text-t-secondary hover:bg-elevated"
+        }`}
+      >
+        <ListTree size={15} />
+      </button>
       <OverlayScrollbarsComponent
         ref={overlayRef}
         defer
@@ -202,10 +206,10 @@ function InspectorTabBar({
                   }
                 }}
                 onContextMenu={(e) => handleContextMenu(e, tab.id)}
-                className={`group relative flex items-center gap-2 h-full text-[13px] whitespace-nowrap font-sans transition-colors duration-150 border border-border select-none px-3.5 ${
+                className={`group relative flex items-center gap-2 h-full text-[13px] whitespace-nowrap font-sans transition-all duration-150 select-none px-3.5 ${
                   isActive
-                    ? "z-10 border-b-transparent bg-surface text-t-primary"
-                    : "bg-base text-t-muted hover:bg-elevated hover:text-t-secondary"
+                    ? "z-10 bg-surface text-t-primary shadow-[0_1px_3px_rgba(0,0,0,0.08)]"
+                    : "text-t-muted hover:bg-elevated hover:text-t-secondary"
                 }`}
               >
                 {isActive && (
@@ -246,7 +250,9 @@ function InspectorTabContent({ tab, active }: { tab: InspectorTab; active: boole
   if (tab.type === "diff") {
     return <DiffPreviewContent tab={tab} active={active} />;
   }
-
+  if (tab.type === "image") {
+    return <ImagePreviewContent filePath={tab.filePath!} active={active} />;
+  }
   return (
     <FilePreviewContent
       filePath={tab.filePath!}
@@ -256,6 +262,47 @@ function InspectorTabContent({ tab, active }: { tab: InspectorTab; active: boole
       revealNonce={tab.revealNonce}
       active={active}
     />
+  );
+}
+
+function ImagePreviewContent({ filePath, active }: { filePath: string; active: boolean }) {
+  const displayPath = filePath.replace(/\\/g, "/");
+  const [src, setSrc] = useState<string | null>(null);
+  const [error, setError] = useState(false);
+
+  useEffect(() => {
+    setSrc(null);
+    setError(false);
+    window.desktop.fs.readImageBase64(filePath).then((result) => {
+      if (result.error || !result.dataUrl) {
+        setError(true);
+      } else {
+        setSrc(result.dataUrl);
+      }
+    });
+  }, [filePath]);
+
+  return (
+    <div className="flex flex-col h-full bg-surface">
+      <div className="px-3 py-1.5 border-b border-border shrink-0 flex items-baseline gap-2 bg-surface overflow-hidden">
+        <span className="text-[12px] font-mono text-t-ghost truncate min-w-0" title={filePath}>
+          {displayPath}
+        </span>
+      </div>
+      <div className="flex-1 min-h-0 flex items-center justify-center overflow-auto p-4">
+        {error ? (
+          <p className="text-sm text-red-500">无法加载图片</p>
+        ) : src ? (
+          <img
+            src={src}
+            alt={displayPath}
+            className="max-w-full max-h-full object-contain"
+          />
+        ) : (
+          <Loader2 size={20} className="animate-spin text-t-ghost" />
+        )}
+      </div>
+    </div>
   );
 }
 
