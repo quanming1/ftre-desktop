@@ -60,6 +60,8 @@ export interface CodeEditorWidgetProps {
   readOnly?: boolean;
   /** 当前行高亮模式 */
   renderLineHighlight?: "none" | "gutter" | "line" | "all";
+  /** 自动换行 */
+  wordWrap?: boolean;
   /** Monaco 主题 ID（默认跟随全局） */
   theme?: string;
   /** 内容变化回调 */
@@ -114,6 +116,7 @@ export const CodeEditorWidget = memo(
     readOnly = false,
     renderLineHighlight = "line",
     theme,
+    wordWrap,
     onContentChange,
     onDirtyChange,
     onCursorChange,
@@ -283,6 +286,10 @@ export const CodeEditorWidget = memo(
           padding: { top: 10, bottom: 10 },
           smoothScrolling: false,
           theme: theme ?? getActiveThemeId(),
+          scrollbar: {
+            verticalScrollbarSize: 12,
+            horizontalScrollbarSize: 12,
+          },
         },
         callbacks: {
           onDidChangeContent: (resource) => {
@@ -398,6 +405,26 @@ export const CodeEditorWidget = memo(
       };
     }, []);
 
+    // 注册 wordWrap 右键菜单 action
+    useEffect(() => {
+      if (!initializedRef.current) return;
+      const editor = getEditor();
+      if (!editor) return;
+
+      const disposable = editor.addAction({
+        id: "ftre-toggle-wordwrap",
+        label: "开启/关闭自动换行",
+        contextMenuGroupId: "ftre",
+        contextMenuOrder: 0,
+        run: () => {
+          const current = editor.getOption(monaco.editor.EditorOption.wordWrap);
+          editor.updateOptions({ wordWrap: current === "on" ? "off" : "on" });
+        },
+      });
+
+      return () => disposable.dispose();
+    }, [getEditor, file.path]);
+
     // 文件切换 effect
     useEffect(() => {
       // 如果文件未加载，保存为待处理
@@ -428,9 +455,10 @@ export const CodeEditorWidget = memo(
           minimap: { enabled: minimapEnabled },
           readOnly,
           renderLineHighlight,
+          wordWrap: wordWrap ? "on" : "off",
         });
       }
-    }, [minimapEnabled, readOnly, renderLineHighlight, getActivePane]);
+    }, [minimapEnabled, readOnly, renderLineHighlight, wordWrap, getActivePane]);
 
     // 窗口事件监听
     useEffect(() => {
@@ -592,6 +620,7 @@ export const CodeEditorWidget = memo(
       prevProps.minimapEnabled === nextProps.minimapEnabled &&
       prevProps.readOnly === nextProps.readOnly &&
       prevProps.renderLineHighlight === nextProps.renderLineHighlight &&
+      prevProps.wordWrap === nextProps.wordWrap &&
       prevProps.file.loaded === nextProps.file.loaded &&
       prevProps.file.path === nextProps.file.path &&
       prevProps.file.language === nextProps.file.language
