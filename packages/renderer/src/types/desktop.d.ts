@@ -61,11 +61,15 @@ interface GitFileStatus {
   staged: boolean;
   /** 是否为目录（未跟踪目录） */
   isDir: boolean;
+  /** 增删行数（前端异步计算填充） */
+  additions?: number;
+  deletions?: number;
 }
 
 interface DesktopGit {
   info(rootPath: string): Promise<GitInfo>;
   status(rootPath: string): Promise<{ files: GitFileStatus[]; error?: string }>;
+  numstat(rootPath: string): Promise<{ stats: Record<string, { additions: number; deletions: number }> }>;
   stage(
     rootPath: string,
     filePath: string,
