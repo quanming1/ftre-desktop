@@ -18,6 +18,8 @@ export interface InspectorTab {
   title: string;
   /** file 模式：文件绝对路径 */
   filePath: string | null;
+  /** file 模式：内容快照（来自 read 工具的 metadata），不提供时从磁盘读取 */
+  content: string | null;
   /** diff 模式：修改前完整内容 */
   before: string | null;
   /** diff 模式：修改后完整内容 */
@@ -38,8 +40,8 @@ export interface InspectorState {
   /** 当前激活的 tab id */
   activeTabId: string | null;
 
-  /** 打开一个文件预览 tab（同路径复用），可选跳转到指定行 */
-  openFilePreview: (path: string, title?: string, revealLine?: number, revealEndLine?: number) => void;
+  /** 打开一个文件预览 tab（同路径复用），可选跳转到指定行。content 传入时直接使用，不读磁盘 */
+  openFilePreview: (path: string, title?: string, revealLine?: number, revealEndLine?: number, content?: string) => void;
   /** 打开一个 diff 预览 tab（同文件路径复用） */
   openDiffPreview: (
     filePath: string,
@@ -69,7 +71,7 @@ export const useInspector = create<InspectorState>((set, get) => ({
   tabs: [],
   activeTabId: null,
 
-  openFilePreview: (path, title, revealLine, revealEndLine) => {
+  openFilePreview: (path, title, revealLine, revealEndLine, content) => {
     const existing = get().tabs.find(
       (t) => t.type === "file" && t.filePath === path,
     );
@@ -78,7 +80,7 @@ export const useInspector = create<InspectorState>((set, get) => ({
         activeTabId: existing.id,
         tabs: get().tabs.map((t) =>
           t.id === existing.id
-            ? { ...t, revealLine, revealEndLine }
+            ? { ...t, revealLine, revealEndLine, content: content ?? t.content }
             : t,
         ),
       });
@@ -89,6 +91,7 @@ export const useInspector = create<InspectorState>((set, get) => ({
       type: "file",
       title: title ?? basename(path),
       filePath: path,
+      content: content ?? null,
       before: null,
       after: null,
       additions: 0,
@@ -108,6 +111,7 @@ export const useInspector = create<InspectorState>((set, get) => ({
       type: "diff",
       title: title ?? basename(filePath),
       filePath,
+      content: null,
       before,
       after,
       additions,
