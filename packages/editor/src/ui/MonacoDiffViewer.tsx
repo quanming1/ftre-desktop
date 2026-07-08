@@ -24,6 +24,7 @@ function toMonacoLanguage(lang: string): string {
 export interface MonacoDiffViewerHandle {
   getCurrentLine: () => number;
   revealFirstDiff: () => void;
+  ensureMinimap: () => void;
 }
 
 interface MonacoDiffViewerProps {
@@ -60,8 +61,8 @@ export const MonacoDiffViewer = forwardRef<
 
       // 非并排模式：original editor 隐藏行号；modified editor 关闭 diff revert icon 避免和行号挤
       if (!renderSideBySide) {
-        diffEditor.getOriginalEditor().updateOptions({ lineNumbers: "off", lineNumbersMinChars: 0, glyphMargin: false, folding: false });
-        diffEditor.getModifiedEditor().updateOptions({ glyphMargin: false, renderMarginRevertIcon: false });
+        diffEditor.getOriginalEditor().updateOptions({ lineNumbers: "off", lineNumbersMinChars: 0, glyphMargin: false, folding: false, minimap: { enabled: false } });
+        diffEditor.getModifiedEditor().updateOptions({ glyphMargin: false, renderMarginRevertIcon: false, minimap: { enabled: true } });
       }
 
       // 注册 wordWrap 右键菜单 action（两个 editor 都加）
@@ -87,17 +88,49 @@ export const MonacoDiffViewer = forwardRef<
       if (origModel) monaco.editor.setModelLanguage(origModel, monacoLang);
       if (modModel) monaco.editor.setModelLanguage(modModel, monacoLang);
 
-      // 自动跳转到第一个 diff 位置 —— diff 计算是异步的，需要监听 onDidUpdateDiff
+      // 自动跳转到第一个 diff 位置 + 给 modified editor 添加 minimap 可见的 diff 装饰
       let scrolledToFirst = false;
       const disposable = diffEditor.onDidUpdateDiff(() => {
-        if (scrolledToFirst) return;
-        scrolledToFirst = true;
         const changes = diffEditor.getLineChanges();
         if (changes && changes.length > 0) {
-          const firstLine = changes[0].modifiedStartLineNumber;
-          diffEditor.getModifiedEditor().revealLineInCenter(firstLine);
+          if (!scrolledToFirst) {
+            scrolledToFirst = true;
+            const firstLine = changes[0].modifiedStartLineNumber;
+            diffEditor.getModifiedEditor().revealLineInCenter(firstLine);
+          }
+          // 给 modified editor 添加行级装饰，minimap 会渲染这些装饰的背景色
+          const modEditor = diffEditor.getModifiedEditor();
+          const decorations: monaco.editor.IModelDeltaDecoration[] = [];
+          for (const change of changes) {
+            const type = change.originalEndLineNumber === 0 ? "added" : "modified";
+            const color = type === "added" ? "rgba(22, 163, 74, 0.25)" : "rgba(217, 119, 6, 0.25)";
+            const startLine = change.modifiedStartLineNumber;
+            const endLine = change.modifiedEndLineNumber || startLine;
+            for (let line = startLine; line <= endLine; line++) {
+              decorations.push({
+                range: new monaco.Range(line, 1, line, 1),
+                options: {
+                  isWholeLine: true,
+                  minimap: {
+                    position: monaco.editor.MinimapPosition.Inline,
+                    color: { id: "minimap.background" },
+                  },
+                  className: type === "added" ? "diff-minimap-added" : "diff-minimap-modified",
+                  overviewRuler: {
+                    position: monaco.editor.OverviewRulerLane.Full,
+                    color: type === "added" ? "rgba(22, 163, 74, 0.6)" : "rgba(217, 119, 6, 0.6)",
+                  },
+                },
+              });
+            }
+            // void color to avoid unused warning
+            void color;
+          }
+          modEditor.deltaDecorations([], decorations);
         }
-        disposable.dispose();
+        if (scrolledToFirst) {
+          disposable.dispose();
+        }
       });
     },
     [monacoLang, renderSideBySide],
@@ -199,6 +232,12 @@ export const MonacoDiffViewer = forwardRef<
           diffEditor.getModifiedEditor().revealLineInCenter(firstLine);
         }
       },
+      ensureMinimap: () => {
+        const diffEditor = editorRef.current;
+        if (!diffEditor) return;
+        diffEditor.getModifiedEditor().updateOptions({ minimap: { enabled: true } });
+        diffEditor.getOriginalEditor().updateOptions({ minimap: { enabled: false } });
+      },
     }),
     [],
   );
@@ -245,7 +284,7 @@ export const MonacoDiffViewer = forwardRef<
         scrollBeyondLastLine: false,
         renderSideBySide,
         renderIndicators: false,
-        renderOverviewRuler: false,
+        renderOverviewRuler: true,
         hideCursorInOverviewRuler: true,
         overviewRulerBorder: false,
         glyphMargin: false,

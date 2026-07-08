@@ -198,7 +198,7 @@ const TreeItem = memo(function TreeItem({
   node,
   depth,
   expandedPaths,
-  selectedPath,
+  selectedFilePath,
   gitStatusMap,
   onToggle,
   onFileClick,
@@ -207,7 +207,7 @@ const TreeItem = memo(function TreeItem({
   node: TreeNode;
   depth: number;
   expandedPaths: Set<string>;
-  selectedPath: string | null;
+  selectedFilePath: string | null;
   gitStatusMap: Map<string, GitStatus> | null;
   onToggle: (path: string) => void;
   onFileClick: (path: string) => void;
@@ -257,7 +257,7 @@ const TreeItem = memo(function TreeItem({
             node={child}
             depth={depth + 1}
             expandedPaths={expandedPaths}
-            selectedPath={selectedPath}
+            selectedFilePath={selectedFilePath}
             gitStatusMap={gitStatusMap}
             onToggle={onToggle}
             onFileClick={onFileClick}
@@ -268,7 +268,7 @@ const TreeItem = memo(function TreeItem({
     );
   }
 
-  const isActive = node.path === selectedPath;
+  const isActive = node.path === selectedFilePath;
   const fileStatus = gitStatusMap ? getFileGitStatus(node.path, gitStatusMap) : null;
 
   return (
@@ -294,14 +294,14 @@ function GitChangesSection({
   workspace,
   changedFiles,
   expandedPaths,
-  selectedPath,
+  selectedDiffPath,
   onToggle,
   onGitFileClick,
 }: {
   workspace: string;
   changedFiles: GitFileStatus[];
   expandedPaths: Set<string>;
-  selectedPath: string | null;
+  selectedDiffPath: string | null;
   onToggle: (path: string) => void;
   onGitFileClick: (file: GitFileStatus) => void;
 }) {
@@ -345,7 +345,7 @@ function GitChangesSection({
         const name = file.absolutePath.replace(/\\/g, "/").split("/").pop() ?? file.absolutePath;
         const relPath = file.absolutePath.replace(/\\/g, "/").slice(workspace.replace(/\\/g, "/").length + 1);
         const status = file.status as GitStatus;
-        const isActive = file.absolutePath === selectedPath;
+        const isActive = file.absolutePath === selectedDiffPath;
 
         // 状态标签：modified → M (橙), added → A (绿), deleted → D (红), renamed → R (蓝), untracked → U (灰), conflict → C (紫)
         const statusChar = GIT_STATUS_LABEL[status];
@@ -398,7 +398,7 @@ function RootFolderItem({
 }: {
   workspace: string;
   expandedPaths: Set<string>;
-  selectedPath: string | null;
+  selectedFilePath: string | null;
   gitStatusMap: Map<string, GitStatus> | null;
   onToggle: (path: string) => void;
   onFileClick: (path: string) => void;
@@ -470,7 +470,8 @@ export function FileTreeSidebar() {
   const [rootEntries, setRootEntries] = useState<TreeNode[]>([]);
   const [loading, setLoading] = useState(false);
   const [expandedPaths, setExpandedPaths] = useState<Set<string>>(new Set());
-  const [selectedPath, setSelectedPath] = useState<string | null>(null);
+  const [selectedFilePath, setSelectedFilePath] = useState<string | null>(null);
+  const [selectedDiffPath, setSelectedDiffPath] = useState<string | null>(null);
   const [gitStatusMap, setGitStatusMap] = useState<Map<string, GitStatus> | null>(null);
   const [changedFiles, setChangedFiles] = useState<GitFileStatus[]>([]);
   const gitEtagRef = useRef<string>("");
@@ -480,6 +481,52 @@ export function FileTreeSidebar() {
     path: string;
     isDir: boolean;
   } | null>(null);
+
+  // 监听 active tab 变化，同步文件树/Changes 的选中状态
+  const activeTabId = useInspector((s) => s.activeTabId);
+  const allTabs = useInspector((s) => s.tabs);
+  useEffect(() => {
+    if (!activeTabId) {
+      setSelectedFilePath(null);
+      setSelectedDiffPath(null);
+      return;
+    }
+    const tab = allTabs.find((t) => t.id === activeTabId);
+    if (!tab) {
+      setSelectedFilePath(null);
+      setSelectedDiffPath(null);
+      return;
+    }
+    // 根据 tab 类型设置选中状态
+    setSelectedFilePath(null);
+    setSelectedDiffPath(null);
+    if (tab.type === "diff") {
+      setSelectedDiffPath(tab.filePath ?? null);
+    } else if (tab.type === "file" || tab.type === "image") {
+      setSelectedFilePath(tab.filePath ?? null);
+      // 自动展开文件树到该文件所在的各级目录
+      if (tab.filePath) {
+        const fp = tab.filePath.replace(/\\/g, "/");
+        const ws = workspace.replace(/\\/g, "/");
+        if (fp.startsWith(ws)) {
+          const relPath = fp.slice(ws.length + 1);
+          const parts = relPath.split("/").filter(Boolean);
+          // 逐级构建路径并加入 expandedPaths
+          const pathsToExpand: string[] = [ws];
+          let current = ws;
+          for (let i = 0; i < parts.length - 1; i++) {
+            current = current + "/" + parts[i];
+            pathsToExpand.push(current);
+          }
+          setExpandedPaths((prev) => {
+            const next = new Set(prev);
+            for (const p of pathsToExpand) next.add(p);
+            return next;
+          });
+        }
+      }
+    }
+  }, [activeTabId, allTabs, workspace]);
 
   // git 轮询：1s 一次，Phase 1 etag 协商（<1ms），变了才走 Phase 2
   useEffect(() => {
@@ -560,7 +607,7 @@ export function FileTreeSidebar() {
   }, []);
 
   const handleFileClick = useCallback((path: string) => {
-    setSelectedPath(path);
+    setSelectedFilePath(path);
     const name = path.replace(/\\/g, "/").split("/").pop() ?? path;
     if (isImageFile(path)) {
       useInspector.getState().openImagePreview(`filetree-${path}`, path, name);
@@ -575,7 +622,7 @@ export function FileTreeSidebar() {
     const absPath = file.absolutePath.replace(/\\/g, "/");
     const ws = workspace.replace(/\\/g, "/");
     const name = absPath.split("/").pop() ?? absPath;
-    setSelectedPath(absPath);
+    setSelectedDiffPath(absPath);
 
     if (file.status === "untracked" || file.isDir) {
       useInspector.getState().openFilePreview(`gitfile-${absPath}`, absPath, name);
@@ -669,7 +716,7 @@ export function FileTreeSidebar() {
             <RootFolderItem
               workspace={workspace}
               expandedPaths={expandedPaths}
-              selectedPath={selectedPath}
+              selectedFilePath={selectedFilePath}
               gitStatusMap={gitStatusMap}
               onToggle={handleToggle}
               onFileClick={handleFileClick}
@@ -682,7 +729,7 @@ export function FileTreeSidebar() {
                   node={node}
                   depth={1}
                   expandedPaths={expandedPaths}
-                  selectedPath={selectedPath}
+                  selectedFilePath={selectedFilePath}
                   gitStatusMap={gitStatusMap}
                   onToggle={handleToggle}
                   onFileClick={handleFileClick}
@@ -694,7 +741,7 @@ export function FileTreeSidebar() {
               workspace={workspace}
               changedFiles={changedFiles}
               expandedPaths={expandedPaths}
-              selectedPath={selectedPath}
+              selectedDiffPath={selectedDiffPath}
               onToggle={handleToggle}
               onGitFileClick={handleGitFileClick}
             />
