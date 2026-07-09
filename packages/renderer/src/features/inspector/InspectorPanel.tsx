@@ -111,6 +111,7 @@ function InspectorTabBar({
   onToggleFileTree: () => void;
 }) {
   const overlayRef = useRef<OverlayScrollbarsComponentRef | null>(null);
+  const activeTabRef = useRef<HTMLButtonElement | null>(null);
   const [contextMenu, setContextMenu] = useState<{
     position: { x: number; y: number };
     tabId: string;
@@ -120,6 +121,22 @@ function InspectorTabBar({
     const osInstance = overlayRef.current?.osInstance();
     return osInstance?.elements()?.viewport ?? null;
   }, []);
+
+  // active tab 变化时滚动定位到可视区域
+  useEffect(() => {
+    if (!activeTabId) return;
+    const el = activeTabRef.current;
+    if (!el) return;
+    const container = getScrollElement();
+    if (!container) return;
+    const elRect = el.getBoundingClientRect();
+    const cRect = container.getBoundingClientRect();
+    if (elRect.left < cRect.left) {
+      container.scrollLeft -= cRect.left - elRect.left + 8;
+    } else if (elRect.right > cRect.right) {
+      container.scrollLeft += elRect.right - cRect.right + 8;
+    }
+  }, [activeTabId, getScrollElement]);
 
   const handleWheel = useCallback(
     (e: React.WheelEvent) => {
@@ -216,6 +233,7 @@ function InspectorTabBar({
             return (
               <button
                 key={tab.id}
+                ref={isActive ? activeTabRef : undefined}
                 onClick={() => onActivate(tab.id)}
                 onMouseDown={(e) => {
                   if (e.button === 1) {
