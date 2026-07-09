@@ -75,9 +75,16 @@ export const MonacoDiffViewer = forwardRef<
         diffEditor.getModifiedEditor().updateOptions({ glyphMargin: false, minimap: { enabled: true } });
       }
 
-      // 注册 wordWrap 右键菜单 action（两个 editor 都加）
+      // 启用文本选择：Monaco 默认加 no-user-select class 禁止选择，readOnly 不自动开启
       const modEditor = diffEditor.getModifiedEditor();
       const origEditor = diffEditor.getOriginalEditor();
+      for (const ed of [modEditor, origEditor]) {
+        const dom = ed.getDomNode();
+        if (dom) {
+          dom.classList.remove("no-user-select");
+          dom.classList.add("enable-user-select");
+        }
+      }
 
       for (const ed of [modEditor, origEditor]) {
         ed.addAction({
