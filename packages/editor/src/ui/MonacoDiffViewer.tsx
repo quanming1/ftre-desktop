@@ -46,15 +46,22 @@ export const MonacoDiffViewer = forwardRef<
   const editorRef = useRef<editor.IStandaloneDiffEditor | null>(null);
   const monacoRef = useRef<typeof Monaco | null>(null);
 
+  // beforeMount：在 editor 创建后、setTheme 之前调用
+  // 确保 defineTheme 先于 setTheme 执行，否则 Monaco 回退到默认 vs 主题导致 diff 颜色不一致
+  const handleBeforeMount = useCallback(
+    (monaco: typeof Monaco) => {
+      if (theme && theme !== "vs" && theme !== "vs-dark") {
+        registerFtreTheme(monaco, theme);
+      }
+    },
+    [theme],
+  );
+
   const handleMount = useCallback(
     (diffEditor: editor.IStandaloneDiffEditor, monaco: typeof Monaco) => {
       editorRef.current = diffEditor;
       monacoRef.current = monaco;
 
-      // 注册指定主题（getTheme 默认返回 darcula，必须显式传入 themeId）
-      if (theme && theme !== "vs" && theme !== "vs-dark") {
-        registerFtreTheme(monaco, theme);
-      }
       monaco.editor.setTheme(theme ?? getActiveThemeId());
 
       // 非并排模式：original editor 隐藏行号；modified editor 关闭 diff revert icon 避免和行号挤
@@ -144,7 +151,7 @@ export const MonacoDiffViewer = forwardRef<
         editor.layout();
       }, 800);
     },
-    [monacoLang, renderSideBySide],
+    [monacoLang, renderSideBySide, theme],
   );
 
   // @monaco-editor/react DiffEditor 不响应 original/modified props 变化
@@ -244,6 +251,7 @@ export const MonacoDiffViewer = forwardRef<
       original={diff.originalContent}
       modified={diff.newContent}
       theme={theme ?? "ftre-dark"}
+      beforeMount={handleBeforeMount}
       onMount={handleMount}
       options={{
         readOnly: true,
