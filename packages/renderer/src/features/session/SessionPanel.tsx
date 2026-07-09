@@ -313,7 +313,7 @@ export function SessionPanel() {
   }, []);
   const closeHoverList = useCallback(() => {
     if (hoverTimerRef.current) clearTimeout(hoverTimerRef.current);
-    hoverTimerRef.current = setTimeout(() => setHoverListOpen(false), 200);
+    setHoverListOpen(false);
   }, []);
   useEffect(() => () => { if (hoverTimerRef.current) clearTimeout(hoverTimerRef.current); }, []);
 
