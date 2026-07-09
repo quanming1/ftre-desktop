@@ -14,6 +14,7 @@ import { useLayout } from "@/stores/layout";
 import { FileTreeSidebar } from "./FileTreeSidebar";
 import { FileIconView } from "@/components/FileIconView";
 import { getTabMeta } from "./tabRegistry";
+import { useRipple, RippleLayer } from "@/components/Ripple";
 
 export function InspectorPanel() {
   const tabs = useInspector((s) => s.tabs);
@@ -121,6 +122,8 @@ function InspectorTabBar({
     const osInstance = overlayRef.current?.osInstance();
     return osInstance?.elements()?.viewport ?? null;
   }, []);
+
+  const { ripples: tabRipples, trigger: triggerTabRipple, remove: removeTabRipple } = useRipple();
 
   // active tab 变化时滚动定位到可视区域
   useEffect(() => {
@@ -234,7 +237,10 @@ function InspectorTabBar({
               <button
                 key={tab.id}
                 ref={isActive ? activeTabRef : undefined}
-                onClick={() => onActivate(tab.id)}
+                onClick={(e) => {
+                  triggerTabRipple(e);
+                  onActivate(tab.id);
+                }}
                 onMouseDown={(e) => {
                   if (e.button === 1) {
                     e.preventDefault();
@@ -247,7 +253,7 @@ function InspectorTabBar({
                   }
                 }}
                 onContextMenu={(e) => handleContextMenu(e, tab.id)}
-                className={`group relative flex items-center gap-2 h-full text-[13px] whitespace-nowrap font-sans transition-all duration-150 select-none px-3.5 ${
+                className={`group relative overflow-hidden flex items-center gap-2 h-full text-[13px] whitespace-nowrap font-sans transition-all duration-150 select-none px-3.5 ${
                   isActive
                     ? "z-10 text-t-primary"
                     : "text-t-muted hover:bg-elevated hover:text-t-secondary"
@@ -257,6 +263,7 @@ function InspectorTabBar({
                   boxShadow: "inset 3px 0 0 #059669, 0 -2px 4px rgba(0,0,0,0.08), 0 1px 2px rgba(0,0,0,0.06), inset 0 1px 0 rgba(255,255,255,1), inset 0 -1px 0 rgba(0,0,0,0.06)",
                 } : undefined}
               >
+                <RippleLayer items={tabRipples} onEnd={removeTabRipple} />
                 {isActive && (
                   <div className="absolute top-0 left-0 right-0 h-[2px] bg-white/60" />
                 )}
