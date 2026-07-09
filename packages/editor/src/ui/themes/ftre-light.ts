@@ -57,8 +57,10 @@ export const ftreLight: FtreThemeDefinition = {
         "scrollbarSlider.activeBackground": "#00000099",
         "editorOverviewRuler.border": "#C8C8C8",
         // ── Diff 编辑器 ──
-        "diffEditor.insertedTextBackground": "#dcf1e4",
-        "diffEditor.removedTextBackground": "#f4cccf",
+        // 颜色参考 VS Code: src/vs/platform/theme/common/colors/editorColors.ts:265-334
+        // insertedTextBackground / removedTextBackground 设为透明避免双层叠加混色（见坑 5）
+        "diffEditor.insertedTextBackground": "#dcf1e400",
+        "diffEditor.removedTextBackground": "#f4cccf00",
         "diffEditor.insertedLineBackground": "#dcf1e4",
         "diffEditor.removedLineBackground": "#f4cccf",
         // inline diff 模式下 deleted 行无独立行号，gutter 背景无法对称显示，统一去掉
@@ -66,5 +68,9 @@ export const ftreLight: FtreThemeDefinition = {
         // "diffEditorGutter.removedLineBackground": "#fbeff2",
         "diffEditorOverviewRuler.insertedForeground": "#22c55e",
         "diffEditorOverviewRuler.deletedForeground": "#ef4444",
+        // ── 从 VS Code 借鉴的补充色 ──
+        "diffEditor.diagonalFill": "#22222233",        // side-by-side 模式的对角线填充
+        "diffEditor.unchangedRegionBackground": "#f8f8f8", // 折叠未变更区域的背景色
+        "diffEditor.unchangedCodeBackground": "#b8b8b829", // 未变更代码的暗化背景
     },
 };

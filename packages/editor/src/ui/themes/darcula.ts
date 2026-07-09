@@ -202,5 +202,16 @@ export const darcula: FtreThemeDefinition = {
     "scrollbarSlider.hoverBackground": "#646464B3",
     "scrollbarSlider.activeBackground": "#BFBFBF66",
     "editorOverviewRuler.border": "#1E1E1E",
+    // ── Diff 编辑器 ──
+    // 颜色参考 VS Code: src/vs/platform/theme/common/colors/editorColors.ts:265-334
+    "diffEditor.insertedTextBackground": "#9ccc2c33",
+    "diffEditor.removedTextBackground": "#ff000033",
+    "diffEditor.insertedLineBackground": "#9bb95533",
+    "diffEditor.removedLineBackground": "#ff000033",
+    "diffEditorOverviewRuler.insertedForeground": "#22c55e",
+    "diffEditorOverviewRuler.deletedForeground": "#ef4444",
+    "diffEditor.diagonalFill": "#cccccc33",
+    "diffEditor.unchangedRegionBackground": "#1E1E1E",
+    "diffEditor.unchangedCodeBackground": "#74747429",
   },
 };
