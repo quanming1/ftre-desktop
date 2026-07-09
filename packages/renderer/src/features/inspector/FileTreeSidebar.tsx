@@ -1,18 +1,132 @@
 /**
- * FileTreeSidebar — Inspector 面板左侧的文件树侧边栏
+ * FileTreeSidebar — 基于 react-arborist 的文件树侧边栏
  *
- * 懒加载：点击展开目录时才 readDir，不预扫整个工作区。
- * 工作区来源与 WorkspaceBadge 一致：session DB workspace 字段。
+ * 特性：
+ * - 虚拟滚动（react-window）
+ * - 懒加载子目录（onLoadChildren）
+ * - git 状态标记 + 染色
+ * - Changes 虚拟节点
+ * - vscode-icons 图标
+ * - 右键菜单
  */
-import { useState, useCallback, useEffect, memo, useMemo, useRef } from "react";
-import { ChevronRight, Copy, Eye, FolderTree } from "lucide-react";
+import { useState, useCallback, useEffect, useMemo, useRef } from "react";
+import { Copy, Eye, FolderTree } from "lucide-react";
 import { Icon } from "@iconify/react";
+import { Tree, type NodeRendererProps, type TreeApi } from "react-arborist";
 import { useSession } from "@/stores/session";
 import { useChat, useSessionId } from "@/stores/chat";
 import { useInspector } from "@/stores/inspector";
 import { fetchAppConfig } from "@/services/api";
 import { ContextMenu, type ContextMenuItem } from "@/components/ContextMenu";
 import { FileIconView } from "@/components/FileIconView";
+
+// ── 常量 ──────────────────────────────────────────────────────────
+
+const IGNORED_DIRS = new Set([
+  "node_modules", ".git", ".turbo", "dist", "build", ".next",
+  "__pycache__", ".cache", ".vite", "target", ".idea", ".vscode",
+]);
+
+const IMAGE_EXTS = new Set(["png", "jpg", "jpeg", "gif", "webp", "bmp", "svg", "avif", "ico"]);
+const BINARY_EXTS = new Set([
+  "exe", "dll", "so", "dylib", "bin", "obj", "o", "a", "lib",
+  "zip", "gz", "tar", "rar", "7z", "bz2",
+  "pdf", "doc", "docx", "xls", "xlsx", "ppt", "pptx",
+  "mp3", "mp4", "avi", "mov", "wav", "flac", "ogg",
+  "ttf", "otf", "woff", "woff2", "eot",
+  "pyc", "class", "jar", "wasm", "sqlite", "db", "mdb",
+]);
+
+// ── Git 状态类型 ──────────────────────────────────────────────────
+
+type GitStatus = "modified" | "untracked" | "added" | "deleted" | "renamed" | "conflict";
+type DirGitStatus = "modified" | "untracked" | "mixed" | null;
+
+const GIT_STATUS_LABEL: Record<GitStatus, string> = {
+  modified: "M", untracked: "U", added: "A", deleted: "D", renamed: "R", conflict: "C",
+};
+const GIT_STATUS_COLOR: Record<GitStatus, string> = {
+  modified: "text-amber-500", untracked: "text-t-ghost", added: "text-green-600",
+  deleted: "text-red-500", renamed: "text-blue-500", conflict: "text-purple-500",
+};
+const GIT_FILENAME_COLOR: Record<GitStatus, string> = {
+  modified: "#d97706", untracked: "#6b7280", added: "#16a34a",
+  deleted: "#dc2626", renamed: "#2563eb", conflict: "#9333ea",
+};
+const DIR_STATUS_COLOR: Record<DirGitStatus, string> = {
+  modified: "#d97706", untracked: "#6b7280", mixed: "#6b7280",
+};
+
+function buildGitStatusMap(
+  files: { absolutePath: string; status: string; isDir: boolean }[],
+): Map<string, GitStatus> {
+  const map = new Map<string, GitStatus>();
+  for (const f of files) {
+    const normalized = f.absolutePath.replace(/\\/g, "/");
+    map.set(normalized, f.status as GitStatus);
+    map.set(normalized.toLowerCase(), f.status as GitStatus);
+  }
+  return map;
+}
+
+function getFileGitStatus(path: string, map: Map<string, GitStatus> | null): GitStatus | null {
+  if (!map) return null;
+  const normalized = path.replace(/\\/g, "/");
+  return map.get(normalized) ?? map.get(normalized.toLowerCase()) ?? null;
+}
+
+function getDirGitStatus(path: string, map: Map<string, GitStatus>): DirGitStatus {
+  const prefix = path.replace(/\\/g, "/").toLowerCase() + "/";
+  let hasModified = false;
+  let hasUntracked = false;
+  for (const [key, status] of map) {
+    if (!key.toLowerCase().startsWith(prefix)) continue;
+    if (status === "untracked") hasUntracked = true;
+    else hasModified = true;
+    if (hasModified && hasUntracked) break;
+  }
+  if (hasModified && hasUntracked) return "mixed";
+  if (hasModified) return "modified";
+  if (hasUntracked) return "untracked";
+  return null;
+}
+
+function getExt(path: string): string {
+  const m = path.toLowerCase().match(/\.([a-z0-9]+)$/);
+  return m?.[1] ?? "";
+}
+function isImageFile(path: string): boolean { return IMAGE_EXTS.has(getExt(path)); }
+function isBinaryFile(path: string): boolean { return BINARY_EXTS.has(getExt(path)); }
+
+// ── 文件树数据类型 ────────────────────────────────────────────────
+
+interface TreeNodeData {
+  id: string;
+  name: string;
+  path: string;
+  isDir: boolean;
+  /** 异步加载的子节点 */
+  children?: TreeNodeData[];
+}
+
+async function readDirSorted(dir: string): Promise<TreeNodeData[]> {
+  const result = await window.desktop.fs.readDir(dir);
+  if (result.error || !result.entries) return [];
+  const filtered = result.entries
+    .filter((e) => !IGNORED_DIRS.has(e.name) && !e.name.startsWith("."))
+    .map((e) => ({
+      id: e.path,
+      name: e.name,
+      path: e.path,
+      isDir: e.isDir,
+    }));
+  return filtered.sort((a, b) => {
+    if (a.isDir !== b.isDir) return a.isDir ? -1 : 1;
+    return a.name.localeCompare(b.name);
+  });
+}
+
+// ── 图标辅助 ──────────────────────────────────────────────────────
 
 const FolderIcon = ({ size = 16 }: { size?: number }) => (
   <span style={{ display: "inline-flex", width: size, height: size, minWidth: size, minHeight: size, alignItems: "center", justifyContent: "center" }} className="shrink-0">
@@ -25,271 +139,20 @@ const FolderOpenIcon = ({ size = 16 }: { size?: number }) => (
   </span>
 );
 
-// ── Git 状态标记 ──────────────────────────────────────────────────
-
-/** 文件级 git 状态：直接来自 git:status 的 GitFileStatus.status */
-type GitStatus = "modified" | "untracked" | "added" | "deleted" | "renamed" | "conflict";
-
-/** 目录级聚合状态：子树中有变更则标记 */
-type DirGitStatus = "modified" | "untracked" | "mixed" | null;
-
-const GIT_STATUS_LABEL: Record<GitStatus, string> = {
-  modified: "M",
-  untracked: "U",
-  added: "A",
-  deleted: "D",
-  renamed: "R",
-  conflict: "C",
-};
-
-const GIT_STATUS_COLOR: Record<GitStatus, string> = {
-  modified: "text-amber-500",
-  untracked: "text-t-ghost",
-  added: "text-green-600",
-  deleted: "text-red-500",
-  renamed: "text-blue-500",
-  conflict: "text-purple-500",
-};
-
-/** 文件名颜色：git 状态对应的 hex 色 */
-const GIT_FILENAME_COLOR: Record<GitStatus, string> = {
-  modified: "#d97706",
-  untracked: "#6b7280",
-  added: "#16a34a",
-  deleted: "#dc2626",
-  renamed: "#2563eb",
-  conflict: "#9333ea",
-};
-
-/** 目录名颜色：目录聚合状态对应的 hex 色 */
-const DIR_STATUS_COLOR: Record<DirGitStatus, string> = {
-  modified: "#d97706",
-  untracked: "#6b7280",
-  mixed: "#6b7280",
-};
-
-/**
- * 构建路径到 git 状态的映射。
- * git:status 返回的 absolutePath 是绝对路径（可能含正斜杠或反斜杠）。
- * 同时构建目录前缀 map，用于目录级聚合。
- */
-function buildGitStatusMap(
-  files: { absolutePath: string; status: string; isDir: boolean }[],
-  workspace: string,
-): Map<string, GitStatus> {
-  const map = new Map<string, GitStatus>();
-  const ws = workspace.replace(/\\/g, "/").toLowerCase();
-  for (const f of files) {
-    const normalized = f.absolutePath.replace(/\\/g, "/");
-    map.set(normalized, f.status as GitStatus);
-    // 也用小写做 key 方便查表（路径大小写在 Windows 不敏感）
-    map.set(normalized.toLowerCase(), f.status as GitStatus);
-  }
-  return map;
-}
-
-/** 查询路径的文件级 git 状态 */
-function getFileGitStatus(path: string, map: Map<string, GitStatus>): GitStatus | null {
-  const normalized = path.replace(/\\/g, "/");
-  return map.get(normalized) ?? map.get(normalized.toLowerCase()) ?? null;
-}
-
-/** 查询路径的目录级聚合 git 状态：子树中有任何变更则返回 */
-function getDirGitStatus(path: string, map: Map<string, GitStatus>): DirGitStatus {
-  const prefix = path.replace(/\\/g, "/").toLowerCase() + "/";
-  let hasModified = false;
-  let hasUntracked = false;
-  let hasOther = false;
-  for (const [key, status] of map) {
-    if (!key.toLowerCase().startsWith(prefix)) continue;
-    if (status === "modified" || status === "added" || status === "deleted" || status === "renamed" || status === "conflict") {
-      hasModified = true;
-    } else if (status === "untracked") {
-      hasUntracked = true;
-    }
-    if (hasModified && hasUntracked) break;
-  }
-  if (hasModified && hasUntracked) return "mixed";
-  if (hasModified) return "modified";
-  if (hasUntracked) return "untracked";
-  return null;
-}
-
 function DirGitBadge({ status }: { status: DirGitStatus }) {
   if (!status) return null;
   const label = status === "mixed" ? "*" : status === "modified" ? "M" : "U";
-  const color = status === "modified" ? "text-amber-500" : status === "untracked" ? "text-t-ghost" : "text-t-ghost";
+  const color = status === "modified" ? "text-amber-500" : "text-t-ghost";
   return <span className={`ml-auto shrink-0 text-[10px] font-mono font-bold ${color} opacity-60`}>{label}</span>;
 }
 
 function FileGitBadge({ status }: { status: GitStatus | null }) {
   if (!status) return null;
-  return (
-    <span className={`ml-auto shrink-0 text-[10px] font-mono font-bold ${GIT_STATUS_COLOR[status]}`}>
-      {GIT_STATUS_LABEL[status]}
-    </span>
-  );
+  return <span className={`ml-auto shrink-0 text-[10px] font-mono font-bold ${GIT_STATUS_COLOR[status]}`}>{GIT_STATUS_LABEL[status]}</span>;
 }
 
-const IMAGE_EXTS = new Set([
-  "png", "jpg", "jpeg", "gif", "webp", "bmp", "svg", "avif", "ico",
-]);
+// ── Changes 节点（虚拟节点，不参与 arborist 树） ──────────────────
 
-const BINARY_EXTS = new Set([
-  "exe", "dll", "so", "dylib", "bin", "obj", "o", "a", "lib",
-  "zip", "gz", "tar", "rar", "7z", "bz2",
-  "pdf", "doc", "docx", "xls", "xlsx", "ppt", "pptx",
-  "mp3", "mp4", "avi", "mov", "wav", "flac", "ogg",
-  "ttf", "otf", "woff", "woff2", "eot",
-  "pyc", "class", "jar", "wasm",
-  "sqlite", "db", "mdb",
-]);
-
-function getExt(path: string): string {
-  const m = path.toLowerCase().match(/\.([a-z0-9]+)$/);
-  return m?.[1] ?? "";
-}
-
-function isImageFile(path: string): boolean {
-  return IMAGE_EXTS.has(getExt(path));
-}
-
-function isBinaryFile(path: string): boolean {
-  return BINARY_EXTS.has(getExt(path));
-}
-
-const IGNORED_DIRS = new Set([
-  "node_modules", ".git", ".turbo", "dist", "build", ".next",
-  "__pycache__", ".cache", ".vite", "target", ".idea", ".vscode",
-]);
-
-interface TreeNode {
-  name: string;
-  path: string;
-  isDir: boolean;
-  ext: string | null;
-  children?: TreeNode[];
-  loaded?: boolean;
-}
-
-function sortEntries(entries: TreeNode[]): TreeNode[] {
-  return entries.sort((a, b) => {
-    if (a.isDir !== b.isDir) return a.isDir ? -1 : 1;
-    return a.name.localeCompare(b.name);
-  });
-}
-
-async function readDirSorted(dir: string): Promise<TreeNode[]> {
-  const result = await window.desktop.fs.readDir(dir);
-  if (result.error || !result.entries) return [];
-  const filtered = result.entries
-    .filter((e) => !IGNORED_DIRS.has(e.name) && !e.name.startsWith("."))
-    .map((e) => ({
-      name: e.name,
-      path: e.path,
-      isDir: e.isDir,
-      ext: e.ext,
-    }));
-  return sortEntries(filtered);
-}
-
-/** 单个树节点 */
-const TreeItem = memo(function TreeItem({
-  node,
-  depth,
-  expandedPaths,
-  selectedFilePath,
-  gitStatusMap,
-  onToggle,
-  onFileClick,
-  onContextMenu,
-}: {
-  node: TreeNode;
-  depth: number;
-  expandedPaths: Set<string>;
-  selectedFilePath: string | null;
-  gitStatusMap: Map<string, GitStatus> | null;
-  onToggle: (path: string) => void;
-  onFileClick: (path: string) => void;
-  onContextMenu: (e: React.MouseEvent, path: string, isDir: boolean) => void;
-}) {
-  const isExpanded = expandedPaths.has(node.path);
-  const [children, setChildren] = useState<TreeNode[]>([]);
-  const [loading, setLoading] = useState(false);
-
-  useEffect(() => {
-    if (isExpanded && node.isDir && !loading && children.length === 0) {
-      setLoading(true);
-      readDirSorted(node.path).then((entries) => {
-        setChildren(entries);
-        setLoading(false);
-      });
-    }
-  }, [isExpanded, node.isDir, node.path]);
-
-  const padding = 8 + depth * 16;
-
-  if (node.isDir) {
-    const dirStatus = gitStatusMap ? getDirGitStatus(node.path, gitStatusMap) : null;
-    return (
-      <>
-        <button
-          onClick={() => onToggle(node.path)}
-          onContextMenu={(e) => onContextMenu(e, node.path, true)}
-          className="flex items-center gap-1 w-full text-left text-[12.5px] hover:bg-hover/60 transition-colors py-[3px] pr-2 group"
-          style={{ paddingLeft: padding }}
-        >
-          <ChevronRight
-            size={13}
-            className={`shrink-0 text-t-ghost transition-transform duration-150 ${isExpanded ? "rotate-90" : ""}`}
-          />
-          {isExpanded ? (
-            <FolderOpenIcon size={16} />
-          ) : (
-            <FolderIcon size={16} />
-          )}
-          <span className="truncate" style={{ color: dirStatus ? DIR_STATUS_COLOR[dirStatus] : "#374151" }}>{node.name}</span>
-          <DirGitBadge status={dirStatus} />
-        </button>
-        {isExpanded && !loading && children.map((child) => (
-          <TreeItem
-            key={child.path}
-            node={child}
-            depth={depth + 1}
-            expandedPaths={expandedPaths}
-            selectedFilePath={selectedFilePath}
-            gitStatusMap={gitStatusMap}
-            onToggle={onToggle}
-            onFileClick={onFileClick}
-            onContextMenu={onContextMenu}
-          />
-        ))}
-      </>
-    );
-  }
-
-  const isActive = node.path === selectedFilePath;
-  const fileStatus = gitStatusMap ? getFileGitStatus(node.path, gitStatusMap) : null;
-
-  return (
-    <button
-      onClick={() => onFileClick(node.path)}
-      onContextMenu={(e) => onContextMenu(e, node.path, false)}
-      className={`flex items-center gap-1 w-full text-left text-[12.5px] transition-colors py-[3px] pr-2 group ${
-        isActive
-          ? "bg-neon/10 font-medium"
-          : "hover:bg-hover/60"
-      }`}
-      style={{ paddingLeft: padding + 13 }}
-    >
-      <FileIconView path={node.path} size={16} />
-      <span className="truncate" style={{ color: isActive ? "#111827" : (fileStatus ? GIT_FILENAME_COLOR[fileStatus] : "#4b5563") }}>{node.name}</span>
-      <FileGitBadge status={fileStatus} />
-    </button>
-  );
-});
-
-/** Git 变更文件平铺列表（虚拟 "Changes" 节点） */
 function GitChangesSection({
   workspace,
   changedFiles,
@@ -299,16 +162,15 @@ function GitChangesSection({
   onGitFileClick,
 }: {
   workspace: string;
-  changedFiles: GitFileStatus[];
+  changedFiles: any[];
   expandedPaths: Set<string>;
   selectedDiffPath: string | null;
   onToggle: (path: string) => void;
-  onGitFileClick: (file: GitFileStatus) => void;
+  onGitFileClick: (file: any) => void;
 }) {
   const changesKey = `${workspace}::changes`;
   const isExpanded = expandedPaths.has(changesKey);
 
-  /** 按 git 状态分组排序：modified > added > deleted > renamed > untracked > conflict */
   const statusOrder: Record<string, number> = {
     modified: 0, added: 1, deleted: 2, renamed: 3, untracked: 4, conflict: 5,
   };
@@ -322,13 +184,9 @@ function GitChangesSection({
     <>
       <button
         onClick={() => onToggle(changesKey)}
-        className="flex items-center gap-1 w-full text-left text-[12.5px] font-medium hover:bg-hover/60 transition-colors py-[3px] pr-2 group"
+        className="flex items-center gap-1 w-full text-left text-[12.5px] font-medium hover:bg-hover/60 transition-colors py-[3px] pr-2"
         style={{ paddingLeft: 8 }}
       >
-        <ChevronRight
-          size={13}
-          className={`shrink-0 text-t-ghost transition-transform duration-150 ${isExpanded ? "rotate-90" : ""}`}
-        />
         <span style={{ display: "inline-flex", width: 16, height: 16, minWidth: 16, minHeight: 16, alignItems: "center", justifyContent: "center" }} className="shrink-0">
           <Icon icon="vscode-icons:file-type-git" width={16} height={16} style={{ color: "#f05032" }} />
         </span>
@@ -342,12 +200,11 @@ function GitChangesSection({
         )}
       </button>
       {isExpanded && sorted.map((file) => {
-        const name = file.absolutePath.replace(/\\/g, "/").split("/").pop() ?? file.absolutePath;
-        const relPath = file.absolutePath.replace(/\\/g, "/").slice(workspace.replace(/\\/g, "/").length + 1);
+        const absPath = file.absolutePath.replace(/\\/g, "/");
+        const name = absPath.split("/").pop() ?? absPath;
+        const relPath = absPath.slice(workspace.replace(/\\/g, "/").length + 1);
         const status = file.status as GitStatus;
-        const isActive = file.absolutePath === selectedDiffPath;
-
-        // 状态标签：modified → M (橙), added → A (绿), deleted → D (红), renamed → R (蓝), untracked → U (灰), conflict → C (紫)
+        const isActive = absPath === selectedDiffPath;
         const statusChar = GIT_STATUS_LABEL[status];
         const statusColor = GIT_STATUS_COLOR[status];
 
@@ -361,78 +218,81 @@ function GitChangesSection({
             }`}
             style={{ paddingLeft: 8 + 16 + 13 }}
           >
-            <FileIconView path={file.absolutePath} size={16} />
+            <FileIconView path={absPath} size={16} />
             <span className="truncate" style={{ color: isActive ? "#111827" : GIT_FILENAME_COLOR[status] }}>
               {name}
             </span>
-            {/* 右侧：+xx -xx M */}
             <span className="ml-auto shrink-0 flex items-center gap-1.5 font-mono text-[10px]">
-              {file.additions != null && file.additions > 0 && (
-                <span className="text-green-600">+{file.additions}</span>
-              )}
-              {file.deletions != null && file.deletions > 0 && (
-                <span className="text-red-500">-{file.deletions}</span>
-              )}
+              {file.additions > 0 && <span className="text-green-600">+{file.additions}</span>}
+              {file.deletions > 0 && <span className="text-red-500">-{file.deletions}</span>}
               <span className={`font-bold ${statusColor}`}>{statusChar}</span>
             </span>
           </button>
         );
       })}
-      {isExpanded && sorted.length === 0 && (
-        <div className="text-[12px] text-t-ghost px-3 py-1.5" style={{ paddingLeft: 8 + 16 + 13 }}>
-          无变更
-        </div>
-      )}
     </>
   );
 }
 
-/** 根目录文件夹（工作区名称），默认展开 */
-function RootFolderItem({
-  workspace,
-  expandedPaths,
-  gitStatusMap,
-  onToggle,
-  onContextMenu,
-  children,
-}: {
-  workspace: string;
-  expandedPaths: Set<string>;
-  selectedFilePath: string | null;
-  gitStatusMap: Map<string, GitStatus> | null;
-  onToggle: (path: string) => void;
-  onFileClick: (path: string) => void;
-  onContextMenu: (e: React.MouseEvent, path: string, isDir: boolean) => void;
-  children: React.ReactNode;
-}) {
-  const isExpanded = expandedPaths.has(workspace);
-  const name = workspace.replace(/\\/g, "/").split("/").filter(Boolean).pop() ?? workspace;
-  const dirStatus = gitStatusMap ? getDirGitStatus(workspace, gitStatusMap) : null;
+// ── react-arborist 节点渲染 ───────────────────────────────────────
+
+function TreeNodeRenderer({
+  node,
+  style,
+  tree,
+}: NodeRendererProps<TreeNodeData>) {
+  const data = node.data;
+  const gitStatusMap = (tree as any).gitStatusMap as Map<string, GitStatus> | null;
+  const selectedFilePath = (tree as any).selectedFilePath as string | null;
+  const onFileClick = (tree as any).onFileClick as (path: string) => void;
+  const onContextMenu = (tree as any).onContextMenu as (e: React.MouseEvent, path: string, isDir: boolean) => void;
+
+  const padding = 8 + node.level * 16;
+
+  if (data.isDir) {
+    const dirStatus = gitStatusMap ? getDirGitStatus(data.path, gitStatusMap) : null;
+    return (
+      <div
+        style={style}
+        onClick={() => node.toggle()}
+        onContextMenu={(e) => onContextMenu(e, data.path, true)}
+        className="flex items-center gap-1 w-full text-left text-[12.5px] hover:bg-hover/60 transition-colors py-[3px] pr-2 cursor-pointer"
+        onDoubleClick={() => node.toggle()}
+      >
+        <div style={{ paddingLeft: padding }} className="flex items-center gap-1 w-full">
+          <span style={{ display: "inline-flex", width: 13, height: 13, alignItems: "center", justifyContent: "center" }} className="shrink-0">
+            <Icon icon="vscode-icons:chevron-right" width={13} height={13} className={`text-t-ghost transition-transform duration-150 ${node.isOpen ? "rotate-90" : ""}`} />
+          </span>
+          {node.isOpen ? <FolderOpenIcon size={16} /> : <FolderIcon size={16} />}
+          <span className="truncate" style={{ color: dirStatus ? DIR_STATUS_COLOR[dirStatus] : "#374151" }}>{data.name}</span>
+          <DirGitBadge status={dirStatus} />
+        </div>
+      </div>
+    );
+  }
+
+  const isActive = data.path === selectedFilePath;
+  const fileStatus = gitStatusMap ? getFileGitStatus(data.path, gitStatusMap) : null;
 
   return (
-    <>
-      <button
-        onClick={() => onToggle(workspace)}
-        onContextMenu={(e) => onContextMenu(e, workspace, true)}
-        className="flex items-center gap-1 w-full text-left text-[12.5px] font-medium hover:bg-hover/60 transition-colors py-[3px] pr-2 group"
-        style={{ paddingLeft: 8 }}
-      >
-        <ChevronRight
-          size={13}
-          className={`shrink-0 text-t-ghost transition-transform duration-150 ${isExpanded ? "rotate-90" : ""}`}
-        />
-        {isExpanded ? (
-          <FolderOpenIcon size={16} />
-        ) : (
-          <FolderIcon size={16} />
-        )}
-        <span className="truncate" style={{ color: dirStatus ? DIR_STATUS_COLOR[dirStatus] : "#111827" }}>{name}</span>
-        <DirGitBadge status={dirStatus} />
-      </button>
-      {isExpanded && children}
-    </>
+    <div
+      style={style}
+      onClick={() => onFileClick(data.path)}
+      onContextMenu={(e) => onContextMenu(e, data.path, false)}
+      className={`flex items-center gap-1 w-full text-left text-[12.5px] transition-colors py-[3px] pr-2 cursor-pointer ${
+        isActive ? "bg-neon/10 font-medium" : "hover:bg-hover/60"
+      }`}
+    >
+      <div style={{ paddingLeft: padding + 13 }} className="flex items-center gap-1 w-full">
+        <FileIconView path={data.path} size={16} />
+        <span className="truncate" style={{ color: isActive ? "#111827" : (fileStatus ? GIT_FILENAME_COLOR[fileStatus] : "#4b5563") }}>{data.name}</span>
+        <FileGitBadge status={fileStatus} />
+      </div>
+    </div>
   );
 }
+
+// ── 主组件 ────────────────────────────────────────────────────────
 
 export function FileTreeSidebar() {
   const sessionId = useSessionId();
@@ -447,10 +307,8 @@ export function FileTreeSidebar() {
     return lookup(sessions) || lookup(allSessions);
   }, [sessionId, sessions, allSessions]);
 
-  // 当前生效路径：有 session 用 DB 字段（即使为空也不用 pending），否则用 pending
   const workspace = sessionId ? sessionWorkspace : (pendingWorkspace || "");
 
-  // 无 session 且 pendingWorkspace 为空时，从 config 读默认工作区
   const setPendingWorkspace = useChat((s) => s.setPendingWorkspace);
   useEffect(() => {
     if (sessionId || pendingWorkspace !== null) return;
@@ -467,22 +325,30 @@ export function FileTreeSidebar() {
     return () => { cancelled = true; };
   }, [sessionId, pendingWorkspace, setPendingWorkspace]);
 
-  const [rootEntries, setRootEntries] = useState<TreeNode[]>([]);
+  // 文件树状态
+  const [treeData, setTreeData] = useState<TreeNodeData[]>([]);
   const [loading, setLoading] = useState(false);
   const [expandedPaths, setExpandedPaths] = useState<Set<string>>(new Set());
   const [selectedFilePath, setSelectedFilePath] = useState<string | null>(null);
   const [selectedDiffPath, setSelectedDiffPath] = useState<string | null>(null);
+
+  // git 状态
   const [gitStatusMap, setGitStatusMap] = useState<Map<string, GitStatus> | null>(null);
-  const [changedFiles, setChangedFiles] = useState<GitFileStatus[]>([]);
+  const [changedFiles, setChangedFiles] = useState<any[]>([]);
   const gitEtagRef = useRef<string>("");
   const pollCountRef = useRef(0);
+
+  // 右键菜单
   const [contextMenu, setContextMenu] = useState<{
     position: { x: number; y: number };
     path: string;
     isDir: boolean;
   } | null>(null);
 
-  // 监听 active tab 变化，同步文件树/Changes 的选中状态
+  // treeApi ref
+  const treeApiRef = useRef<TreeApi<TreeNodeData> | null>(null);
+
+  // active tab 同步
   const activeTabId = useInspector((s) => s.activeTabId);
   const allTabs = useInspector((s) => s.tabs);
   useEffect(() => {
@@ -497,21 +363,18 @@ export function FileTreeSidebar() {
       setSelectedDiffPath(null);
       return;
     }
-    // 根据 tab 类型设置选中状态
     setSelectedFilePath(null);
     setSelectedDiffPath(null);
     if (tab.type === "diff") {
       setSelectedDiffPath(tab.filePath ?? null);
     } else if (tab.type === "file" || tab.type === "image") {
       setSelectedFilePath(tab.filePath ?? null);
-      // 自动展开文件树到该文件所在的各级目录
       if (tab.filePath) {
         const fp = tab.filePath.replace(/\\/g, "/");
         const ws = workspace.replace(/\\/g, "/");
         if (fp.startsWith(ws)) {
           const relPath = fp.slice(ws.length + 1);
           const parts = relPath.split("/").filter(Boolean);
-          // 逐级构建路径并加入 expandedPaths
           const pathsToExpand: string[] = [ws];
           let current = ws;
           for (let i = 0; i < parts.length - 1; i++) {
@@ -528,20 +391,21 @@ export function FileTreeSidebar() {
     }
   }, [activeTabId, allTabs, workspace]);
 
-  // git 轮询：1s 一次，Phase 1 etag 协商（<1ms），变了才走 Phase 2
+  // 加载根目录
   useEffect(() => {
     if (!workspace) {
-      setRootEntries([]);
+      setTreeData([]);
       return;
     }
     setLoading(true);
     setExpandedPaths(new Set([workspace]));
     readDirSorted(workspace).then((entries) => {
-      setRootEntries(entries);
+      setTreeData(entries);
       setLoading(false);
     });
   }, [workspace]);
 
+  // git 轮询
   useEffect(() => {
     if (!workspace) {
       setGitStatusMap(null);
@@ -551,7 +415,6 @@ export function FileTreeSidebar() {
     }
 
     let cancelled = false;
-    // 切换工作区时清空 etag，强制走 Phase 2
     gitEtagRef.current = "";
 
     const poll = async (force = false) => {
@@ -560,19 +423,14 @@ export function FileTreeSidebar() {
       gitEtagRef.current = result.etag;
       if (!result.changed || !result.files) return;
 
-      const files = result.files.filter((f) => !f.isDir);
-      setGitStatusMap(buildGitStatusMap(result.files, workspace));
+      const files = result.files.filter((f: any) => !f.isDir);
+      setGitStatusMap(buildGitStatusMap(result.files));
 
-      // 合并 numstat 增删行数
       if (result.stats) {
-        const enriched = files.map((f) => {
+        const enriched = files.map((f: any) => {
           const key = f.absolutePath.replace(/\\/g, "/").toLowerCase();
           const stat = result.stats![key];
-          return {
-            ...f,
-            additions: stat?.additions ?? 0,
-            deletions: stat?.deletions ?? 0,
-          };
+          return { ...f, additions: stat?.additions ?? 0, deletions: stat?.deletions ?? 0 };
         });
         setChangedFiles(enriched);
       } else {
@@ -580,9 +438,7 @@ export function FileTreeSidebar() {
       }
     };
 
-    // 立即拉一次
     poll(true);
-    // 1s 轮询，每 5 次强制走 Phase 2（兜底：外部编辑器改文件不触发 git index 更新）
     const interval = setInterval(() => {
       pollCountRef.current += 1;
       poll(pollCountRef.current % 5 === 0);
@@ -594,17 +450,42 @@ export function FileTreeSidebar() {
     };
   }, [workspace]);
 
-  const handleToggle = useCallback((path: string) => {
+  // 懒加载：onToggle 时异步加载子节点，更新 treeData
+  const loadChildrenAndUpdate = useCallback(async (nodeId: string) => {
+    const children = await readDirSorted(nodeId);
+    // 递归更新 treeData，把 children 挂到对应节点
+    const updateNode = (nodes: TreeNodeData[]): TreeNodeData[] =>
+      nodes.map((n) => {
+        if (n.id === nodeId) {
+          return { ...n, children };
+        }
+        if (n.children) {
+          return { ...n, children: updateNode(n.children) };
+        }
+        return n;
+      });
+    setTreeData((prev) => updateNode(prev));
+  }, []);
+
+  // 扩展 treeApi 以传递自定义数据
+  const handleToggle = useCallback((nodeId: string) => {
     setExpandedPaths((prev) => {
       const next = new Set(prev);
-      if (next.has(path)) {
-        next.delete(path);
+      if (next.has(nodeId)) {
+        next.delete(nodeId);
       } else {
-        next.add(path);
+        next.add(nodeId);
+        // 异步加载子节点
+        loadChildrenAndUpdate(nodeId);
       }
       return next;
     });
-  }, []);
+  }, [loadChildrenAndUpdate]);
+
+  // react-arborist onToggle
+  const onTreeToggle = useCallback((id: string) => {
+    handleToggle(id);
+  }, [handleToggle]);
 
   const handleFileClick = useCallback((path: string) => {
     setSelectedFilePath(path);
@@ -618,7 +499,7 @@ export function FileTreeSidebar() {
     }
   }, []);
 
-  const handleGitFileClick = useCallback(async (file: GitFileStatus) => {
+  const handleGitFileClick = useCallback(async (file: any) => {
     const absPath = file.absolutePath.replace(/\\/g, "/");
     const ws = workspace.replace(/\\/g, "/");
     const name = absPath.split("/").pop() ?? absPath;
@@ -636,13 +517,9 @@ export function FileTreeSidebar() {
       return;
     }
     useInspector.getState().openDiffPreview(
-      `gitfile-${absPath}`,
-      absPath,
-      result.original ?? "",
-      result.modified ?? "",
-      0,
-      0,
-      name,
+      `gitfile-${absPath}`, absPath,
+      result.original ?? "", result.modified ?? "",
+      0, 0, name,
     );
   }, [workspace]);
 
@@ -655,45 +532,28 @@ export function FileTreeSidebar() {
   const closeContextMenu = useCallback(() => setContextMenu(null), []);
 
   const getContextMenuItems = useCallback((path: string, isDir: boolean): ContextMenuItem[] => {
-    const name = path.replace(/\\/g, "/").split("/").pop() ?? path;
     const items: ContextMenuItem[] = [];
-
     if (!isDir) {
-      items.push({
-        id: "open",
-        label: "预览",
-        icon: Eye,
-        action: () => handleFileClick(path),
-      });
+      items.push({ id: "open", label: "预览", icon: Eye, action: () => handleFileClick(path) });
     }
-
     items.push({
-      id: "reveal",
-      label: "在资源管理器中打开",
-      icon: FolderTree,
-      action: () => {
-        window.desktop?.fs?.revealInExplorer(path);
-      },
+      id: "reveal", label: "在资源管理器中打开", icon: FolderTree,
+      action: () => { window.desktop?.fs?.revealInExplorer(path); },
     });
-
+    items.push({ id: "sep1", label: "", separator: true, action: () => {} });
     items.push({
-      id: "sep1",
-      label: "",
-      separator: true,
-      action: () => {},
+      id: "copy-path", label: "复制路径", icon: Copy,
+      action: () => { navigator.clipboard.writeText(path); },
     });
-
-    items.push({
-      id: "copy-path",
-      label: "复制路径",
-      icon: Copy,
-      action: () => {
-        navigator.clipboard.writeText(path);
-      },
-    });
-
     return items;
   }, [handleFileClick]);
+
+  // react-arborist 初始展开状态
+  const initialOpenState = useMemo(() => {
+    const map: Record<string, boolean> = {};
+    for (const p of expandedPaths) map[p] = true;
+    return map;
+  }, [expandedPaths]);
 
   if (!workspace) {
     return (
@@ -703,40 +563,55 @@ export function FileTreeSidebar() {
     );
   }
 
+  // 根目录包装：工作区名称作为根节点
+  const rootData: TreeNodeData[] = [{
+    id: workspace,
+    name: workspace.replace(/\\/g, "/").split("/").filter(Boolean).pop() ?? workspace,
+    path: workspace,
+    isDir: true,
+    children: treeData,
+  }];
+
+  // 扩展 treeApi 以传递自定义数据
+  const treeRef = (api: TreeApi<TreeNodeData> | null) => {
+    if (api) {
+      (api as any).gitStatusMap = gitStatusMap;
+      (api as any).selectedFilePath = selectedFilePath;
+      (api as any).onFileClick = handleFileClick;
+      (api as any).onContextMenu = handleContextMenu;
+    }
+    treeApiRef.current = api;
+  };
+
   return (
     <>
-    <div className="h-full w-full overflow-y-auto filetree-scroll">
-      <div className="py-1 min-h-full">
-        {loading ? (
-          <div className="text-[12px] text-t-ghost px-3 py-2">加载中...</div>
-        ) : rootEntries.length === 0 ? (
-          <div className="text-[12px] text-t-ghost px-3 py-2">空目录</div>
-        ) : (
-          <>
-            <RootFolderItem
-              workspace={workspace}
-              expandedPaths={expandedPaths}
-              selectedFilePath={selectedFilePath}
-              gitStatusMap={gitStatusMap}
-              onToggle={handleToggle}
-              onFileClick={handleFileClick}
-              onContextMenu={handleContextMenu}
-              children={rootEntries}
+      <div className="h-full w-full flex flex-col overflow-hidden">
+        <div className="flex-1 min-h-0 overflow-y-auto filetree-scroll">
+          {loading ? (
+            <div className="text-[12px] text-t-ghost px-3 py-2">加载中...</div>
+          ) : (
+            <Tree
+              ref={treeRef}
+              data={rootData}
+              width="100%"
+              height={100000}
+              indent={16}
+              rowHeight={26}
+              openByDefault={false}
+              onToggle={onTreeToggle}
+              initialOpenState={initialOpenState}
+              disableDrag
+              disableDrop
+              disableSearch
+              selection={selectedFilePath ?? undefined}
             >
-              {rootEntries.map((node) => (
-                <TreeItem
-                  key={node.path}
-                  node={node}
-                  depth={1}
-                  expandedPaths={expandedPaths}
-                  selectedFilePath={selectedFilePath}
-                  gitStatusMap={gitStatusMap}
-                  onToggle={handleToggle}
-                  onFileClick={handleFileClick}
-                  onContextMenu={handleContextMenu}
-                />
-              ))}
-            </RootFolderItem>
+              {TreeNodeRenderer}
+            </Tree>
+          )}
+        </div>
+
+        {!loading && (
+          <div className="shrink-0 max-h-[40%] overflow-y-auto filetree-scroll border-t border-border">
             <GitChangesSection
               workspace={workspace}
               changedFiles={changedFiles}
@@ -745,18 +620,17 @@ export function FileTreeSidebar() {
               onToggle={handleToggle}
               onGitFileClick={handleGitFileClick}
             />
-          </>
+          </div>
         )}
       </div>
-    </div>
-    {contextMenu && (
-      <ContextMenu
-        items={getContextMenuItems(contextMenu.path, contextMenu.isDir)}
-        position={contextMenu.position}
-        onClose={closeContextMenu}
-        size="sm"
-      />
-    )}
+      {contextMenu && (
+        <ContextMenu
+          items={getContextMenuItems(contextMenu.path, contextMenu.isDir)}
+          position={contextMenu.position}
+          onClose={closeContextMenu}
+          size="sm"
+        />
+      )}
     </>
   );
 }
