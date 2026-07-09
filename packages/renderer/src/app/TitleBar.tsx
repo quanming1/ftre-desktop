@@ -81,15 +81,15 @@ export function TitleBar() {
     <div className="h-[var(--titlebar-height)] bg-[#f6f7f9] flex items-center shrink-0 relative z-50" style={drag}>
 
       {/* ── 左侧: Logo 菜单 + Git 指示器 ── */}
-      <div className="flex items-center shrink-0 h-full" style={noDrag}>
+      <div className="flex items-center shrink-0 h-full pl-1.5" style={noDrag}>
 
         {/* Logo → 点击弹出一级菜单 */}
-        <div ref={menuAreaRef} className="relative h-full">
+        <div ref={menuAreaRef} className="relative h-full ml-[3px]">
           <button
             onClick={() => { setLogoMenuOpen((v) => !v); setHoveredMenu(null); }}
-            className={`flex items-center justify-center w-[46px] h-full hover:bg-hover transition-colors ${logoMenuOpen ? "bg-active" : ""}`}
+            className={`flex items-center justify-center w-9 h-full hover:bg-hover transition-colors ${logoMenuOpen ? "bg-active" : ""}`}
           >
-            <PixelLogo size={2} />
+            <PixelLogo size={2.5} />
           </button>
 
           {/* 一级菜单 */}
@@ -136,8 +136,6 @@ export function TitleBar() {
             </div>
           )}
         </div>
-
-        <div className="w-[1px] h-[14px] bg-border" />
 
         {/* Git 分支 */}
         {gitInfo.isGitRepo && (
