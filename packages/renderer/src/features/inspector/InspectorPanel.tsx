@@ -255,7 +255,7 @@ function InspectorTabBar({
                 style={isActive ? {
                   background: "linear-gradient(180deg, #ffffff 0%, #e2e8f0 100%)",
                   boxShadow: "0 -2px 4px rgba(0,0,0,0.08), 0 1px 2px rgba(0,0,0,0.06), inset 0 1px 0 rgba(255,255,255,1), inset 0 -1px 0 rgba(0,0,0,0.06)",
-                  borderTop: "1px solid rgba(0,0,0,0.05)",
+                  borderLeft: "3px solid #059669",
                 } : undefined}
               >
                 {isActive && (
