@@ -299,7 +299,21 @@ export function SessionPanel() {
   const setActiveLeftPanel = useLayout((s) => s.setActiveLeftPanel);
   const locateTraceSession = useLayout((s) => s.locateTraceSession);
   const sessionsCollapsed = useLayout((s) => s.sessionsCollapsed);
+  const sessionsWidth = useLayout((s) => s.sessionsWidth);
   const toggleSessionsCollapsed = useLayout((s) => s.toggleSessionsCollapsed);
+
+  // ── 折叠态悬停浮层 ──
+  const [hoverListOpen, setHoverListOpen] = useState(false);
+  const hoverTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const openHoverList = useCallback(() => {
+    if (hoverTimerRef.current) clearTimeout(hoverTimerRef.current);
+    setHoverListOpen(true);
+  }, []);
+  const closeHoverList = useCallback(() => {
+    if (hoverTimerRef.current) clearTimeout(hoverTimerRef.current);
+    hoverTimerRef.current = setTimeout(() => setHoverListOpen(false), 200);
+  }, []);
+  useEffect(() => () => { if (hoverTimerRef.current) clearTimeout(hoverTimerRef.current); }, []);
 
   const [hoveredSession, setHoveredSession] = useState<string | null>(null);
   /** 每个 group 已展开多少条；未列入即 PER_GROUP_DEFAULT */
@@ -731,7 +745,11 @@ export function SessionPanel() {
   return (
     <TooltipProvider>
       {sessionsCollapsed ? (
-        <div className="h-full flex flex-col items-center bg-[#f6f7f9] py-3 text-[14px]">
+        <div
+          className="h-full flex flex-col items-center bg-[#f6f7f9] py-3 text-[14px] relative"
+          onMouseEnter={openHoverList}
+          onMouseLeave={closeHoverList}
+        >
           <SideIconButton
             title="展开会话列表"
             onClick={toggleSessionsCollapsed}
@@ -774,6 +792,132 @@ export function SessionPanel() {
           >
             <Settings size={17} />
           </SideIconButton>
+
+          {/* 悬停浮层：会话列表 */}
+          {hoverListOpen && (
+            <div
+              className="absolute top-0 left-full ml-1 z-50 h-full"
+              onMouseEnter={openHoverList}
+              onMouseLeave={closeHoverList}
+            >
+              <div
+                className="h-full overflow-hidden rounded-xl bg-[#f6f7f9] shadow-2xl border border-border/40 flex flex-col"
+                style={{ width: sessionsWidth }}
+              >
+                {/* 顶层：新会话按钮 */}
+                <div className="shrink-0 px-2 pt-3 pb-1">
+                  <ExpandedNewThreadButton onClick={handleNewThread} />
+                </div>
+                {/* 段头 */}
+                <div className="shrink-0 px-3 pb-1">
+                  <span className="text-[12px] text-t-ghost font-medium">Ws Threads</span>
+                </div>
+                {/* 列表 */}
+                <div className="flex-1 overflow-y-auto scrollbar-thin px-2 py-2">
+                  {totalCount === 0 ? (
+                    <div className="text-t-ghost px-2 py-12 text-center text-[13px]">暂无会话</div>
+                  ) : (
+                    <>
+                      {pinnedList.length > 0 && (
+                        <div className="mb-4">
+                          <div className="px-3 pb-1">
+                            <span className="text-[12px] text-t-ghost font-medium flex items-center gap-1.5">
+                              <Pin size={12} />
+                              Pin Threads
+                            </span>
+                          </div>
+                          <div className="space-y-px">
+                            {pinnedList.map((session) => (
+                              <SessionRow
+                                key={session.session_id}
+                                session={session}
+                                alignWithSectionLabel
+                                isActive={stripPrefix(session.session_id) === stripPrefix(currentSessionId || "")}
+                                isHovered={hoveredSession === session.session_id}
+                                isLoading={loadingSessionId === session.session_id}
+                                isPinned
+                                dotColor={getSessionColor(session.session_id)}
+                                onDotClick={(e) => {
+                                  e.stopPropagation();
+                                  setColorPicker({ sessionId: session.session_id, x: e.clientX, y: e.clientY });
+                                }}
+                                onClick={() => handleSwitchSession(session.session_id)}
+                                onEnter={() => setHoveredSession(session.session_id)}
+                                onLeave={() => setHoveredSession(null)}
+                                onMenu={(e) => showSessionMenu(e, session)}
+                              />
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                      {buckets.map((bucket) => {
+                        const expanded = expandCount[bucket.key] ?? PER_GROUP_DEFAULT;
+                        const paging = workspacePaging[bucket.full || ""];
+                        const backendTotal = paging?.total ?? bucket.sessions.length;
+                        const hasMoreInBackend = paging ? paging.loaded < paging.total : false;
+                        return (
+                          <WorkspaceGroup
+                            key={bucket.key}
+                            bucket={bucket}
+                            first={false}
+                            visibleCount={expanded}
+                            hasMoreInBackend={hasMoreInBackend}
+                            backendTotal={backendTotal}
+                            currentSessionId={currentSessionId}
+                            hoveredSession={hoveredSession}
+                            loadingSessionId={loadingSessionId}
+                            collapsed={collapsedWorkspaces.has(bucket.key)}
+                            onSwitch={handleSwitchSession}
+                            onHover={setHoveredSession}
+                            onMenu={showSessionMenu}
+                            onExpand={() => handleExpandGroup(bucket.key, bucket.full, bucket.sessions.length)}
+                            onCollapse={() => handleCollapseGroup(bucket.key)}
+                            onNewInWorkspace={() => handleNewInWorkspace(bucket.full)}
+                            onToggleCollapse={() => handleToggleCollapse(bucket.key)}
+                            onHeaderContextMenu={(e) => showWorkspaceHeaderMenu(e, bucket.full)}
+                          />
+                        );
+                      })}
+                      {otherSessions.length > 0 && (
+                        <div className={buckets.length > 0 ? "mt-5" : ""}>
+                          <div className="px-3 pb-1">
+                            <span className="text-[12px] text-t-ghost font-medium">Other Threads</span>
+                          </div>
+                          <div className="space-y-px pl-[18px]">
+                            {otherVisible.map((session) => (
+                              <SessionRow
+                                key={session.session_id}
+                                session={session}
+                                isActive={stripPrefix(session.session_id) === stripPrefix(currentSessionId || "")}
+                                isHovered={hoveredSession === session.session_id}
+                                isLoading={loadingSessionId === session.session_id}
+                                isPinned={false}
+                                onClick={() => handleSwitchSession(session.session_id)}
+                                onEnter={() => setHoveredSession(session.session_id)}
+                                onLeave={() => setHoveredSession(null)}
+                                onMenu={(e) => showSessionMenu(e, session)}
+                              />
+                            ))}
+                          </div>
+                          {otherHidden > 0 && (
+                            <div className="flex items-center gap-3 mt-1 pl-[30px] py-1 text-[12px]">
+                              <button
+                                type="button"
+                                onClick={() => handleExpandGroup(OTHER_KEY, "", otherSessions.length)}
+                                className="text-left text-t-ghost hover:text-neon transition-colors"
+                              >
+                                展开 +{Math.min(PER_GROUP_STEP, otherHidden)} 条
+                              </button>
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       ) : (
       <div className="h-full flex flex-col bg-[#f6f7f9] text-[14px]">
