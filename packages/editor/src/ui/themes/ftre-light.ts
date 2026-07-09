@@ -58,10 +58,10 @@ export const ftreLight: FtreThemeDefinition = {
         "editorOverviewRuler.border": "#C8C8C8",
         // ── Diff 编辑器 ──
         // 统一用 #e3f0e8 (绿) / #fbeff2 (红)，覆盖 Monaco 默认的 #9ccc2c40 / #ff000033
-        "diffEditor.insertedTextBackground": "#dcedc8",
-        "diffEditor.removedTextBackground": "#f9dadc",
-        "diffEditor.insertedLineBackground": "#dcedc8",
-        "diffEditor.removedLineBackground": "#f9dadc",
+        "diffEditor.insertedTextBackground": "#d6e8c0",
+        "diffEditor.removedTextBackground": "#f4cccf",
+        "diffEditor.insertedLineBackground": "#d6e8c0",
+        "diffEditor.removedLineBackground": "#f4cccf",
         // inline diff 模式下 deleted 行无独立行号，gutter 背景无法对称显示，统一去掉
         // "diffEditorGutter.insertedLineBackground": "#e3f0e8",
         // "diffEditorGutter.removedLineBackground": "#fbeff2",
