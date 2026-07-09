@@ -351,11 +351,26 @@ export const MonacoDiffViewer = memo(forwardRef<
 
   // ─── memoized options（见坑 7）─────────────────────────────────
   // inline 对象字面量会导致 @monaco-editor/react 的 React.memo 失效
+  // 配置参考 VS Code 源码：
+  //   - diffEditorDefaultOptions: src/vs/editor/common/config/diffEditor.ts
+  //   - Chat codeBlockPart: src/vs/workbench/contrib/chat/browser/widget/chatContentParts/codeBlockPart.ts:720
+  //   - getSimpleEditorOptions: src/vs/workbench/contrib/codeEditor/browser/simpleEditorOptions.ts
   const options = useMemo(
     () => ({
       readOnly: true,
       originalEditable: false,
       ignoreTrimWhitespace: false,
+      // ── 从 VS Code diffEditorDefaultOptions 借鉴 ──
+      diffAlgorithm: 'advanced' as const,      // 高级 diff 算法，更准更快
+      renderMarginRevertIcon: false,            // 只读预览不需要 revert 按钮
+      renderGutterMenu: false,                  // 只读预览不需要 gutter 菜单
+      // ── 从 VS Code chat codeBlockPart + simpleEditorOptions 借鉴 ──
+      stickyScroll: { enabled: false },         // 预览不需要 sticky scroll
+      fixedOverflowWidgets: true,               // 防止 hover tooltip 被 overflow 裁剪
+      renderLineHighlight: 'none' as const,     // 只读预览不需要行高亮
+      selectionHighlight: false,                // 只读预览不需要选择高亮
+      guides: { indentation: false },           // 预览不需要缩进引导线
+      // ── 已有 ──
       fontSize: 14,
       fontFamily: "'JetBrains Mono', 'Cascadia Code', 'Consolas', monospace",
       lineHeight: 22,
