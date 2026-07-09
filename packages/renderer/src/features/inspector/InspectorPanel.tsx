@@ -4,7 +4,7 @@
  * Tab 渲染通过 tabRegistry 分发，新增 tab 类型只需注册 renderer。
  */
 import { useState, useEffect, useCallback, useRef, memo } from "react";
-import { X, FileText, Loader2, ListTree, ChevronLeft, ChevronRight } from "lucide-react";
+import { X, FileText, Loader2, ListTree } from "lucide-react";
 import { GitCompareArrows } from "lucide-react";
 import { OverlayScrollbarsComponent, type OverlayScrollbarsComponentRef } from "overlayscrollbars-react";
 import { useInspector, type InspectorTab } from "@/stores/inspector";
@@ -123,14 +123,22 @@ function InspectorTabBar({
     return osInstance?.elements()?.viewport ?? null;
   }, []);
 
-  // 检测左右是否有溢出内容
-  const [canScrollLeft, setCanScrollLeft] = useState(false);
-  const [canScrollRight, setCanScrollRight] = useState(false);
+  // 检测左右溢出：是否有隐藏 tab + 数量
+  const [hiddenLeft, setHiddenLeft] = useState(0);
+  const [hiddenRight, setHiddenRight] = useState(0);
   const updateScrollState = useCallback(() => {
     const el = getScrollElement();
-    if (!el) return;
-    setCanScrollLeft(el.scrollLeft > 2);
-    setCanScrollRight(el.scrollLeft + el.clientWidth < el.scrollWidth - 2);
+    if (!el) { setHiddenLeft(0); setHiddenRight(0); return; }
+    // 遍历子 tab button 统计左右隐藏数量
+    const cRect = el.getBoundingClientRect();
+    let left = 0, right = 0;
+    for (const child of el.querySelectorAll('[data-tab-btn]')) {
+      const r = (child as HTMLElement).getBoundingClientRect();
+      if (r.right < cRect.left + 2) left++;
+      else if (r.left > cRect.right - 2) right++;
+    }
+    setHiddenLeft(left);
+    setHiddenRight(right);
   }, [getScrollElement]);
   useEffect(() => {
     updateScrollState();
@@ -256,14 +264,14 @@ function InspectorTabBar({
             ))}
           </div>
         </OverlayScrollbarsComponent>
-        {canScrollLeft && (
-          <div className="absolute left-0 top-0 bottom-0 w-6 flex items-center justify-center pointer-events-none bg-gradient-to-r from-[#e8eaed] via-[#e8eaed]/80 to-transparent">
-            <ChevronLeft size={14} className="text-t-ghost" />
+        {hiddenLeft > 0 && (
+          <div className="absolute left-0 top-0 bottom-0 flex items-center pointer-events-none bg-gradient-to-r from-[#e8eaed] via-[#e8eaed]/80 to-transparent pl-1 pr-3">
+            <span className="text-[10px] font-mono font-bold text-t-ghost">+{hiddenLeft}</span>
           </div>
         )}
-        {canScrollRight && (
-          <div className="absolute right-0 top-0 bottom-0 w-6 flex items-center justify-center pointer-events-none bg-gradient-to-l from-[#e8eaed] via-[#e8eaed]/80 to-transparent">
-            <ChevronRight size={14} className="text-t-ghost" />
+        {hiddenRight > 0 && (
+          <div className="absolute right-0 top-0 bottom-0 flex items-center justify-end pointer-events-none bg-gradient-to-l from-[#e8eaed] via-[#e8eaed]/80 to-transparent pl-3 pr-1">
+            <span className="text-[10px] font-mono font-bold text-t-ghost">+{hiddenRight}</span>
           </div>
         )}
       </div>
@@ -301,6 +309,7 @@ const TabButton = memo(function TabButton({
 
   return (
     <button
+      data-tab-btn
       ref={isActive ? activeRef : undefined}
       onClick={(e) => {
         trigger(e);
