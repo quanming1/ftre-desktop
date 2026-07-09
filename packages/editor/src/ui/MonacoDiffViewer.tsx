@@ -45,13 +45,11 @@ export const MonacoDiffViewer = forwardRef<
   const monacoLang = toMonacoLanguage(language);
   const editorRef = useRef<editor.IStandaloneDiffEditor | null>(null);
   const monacoRef = useRef<typeof Monaco | null>(null);
-  const cleanedUpRef = useRef(false);
 
   const handleMount = useCallback(
     (diffEditor: editor.IStandaloneDiffEditor, monaco: typeof Monaco) => {
       editorRef.current = diffEditor;
       monacoRef.current = monaco;
-      cleanedUpRef.current = false;
 
       // 注册指定主题（getTheme 默认返回 darcula，必须显式传入 themeId）
       if (theme && theme !== "vs" && theme !== "vs-dark") {
@@ -62,7 +60,7 @@ export const MonacoDiffViewer = forwardRef<
       // 非并排模式：original editor 隐藏行号；modified editor 关闭 diff revert icon 避免和行号挤
       if (!renderSideBySide) {
         diffEditor.getOriginalEditor().updateOptions({ lineNumbers: "off", lineNumbersMinChars: 0, glyphMargin: false, folding: false, minimap: { enabled: false } });
-        diffEditor.getModifiedEditor().updateOptions({ glyphMargin: false, renderMarginRevertIcon: false, minimap: { enabled: true } });
+        diffEditor.getModifiedEditor().updateOptions({ glyphMargin: false, minimap: { enabled: true } });
       }
 
       // 注册 wordWrap 右键菜单 action（两个 editor 都加）
@@ -89,19 +87,18 @@ export const MonacoDiffViewer = forwardRef<
       if (modModel) monaco.editor.setModelLanguage(modModel, monacoLang);
 
       // 自动跳转到第一个 diff 位置 + 给 modified editor 添加 minimap 可见的 diff 装饰
-      let scrolledToFirst = false;
+      let diffComputed = false;
       const disposable = diffEditor.onDidUpdateDiff(() => {
+        diffComputed = true;
         const changes = diffEditor.getLineChanges();
         if (changes && changes.length > 0) {
-          if (!scrolledToFirst) {
-            scrolledToFirst = true;
-            const firstLine = changes[0].modifiedStartLineNumber;
-            diffEditor.getModifiedEditor().revealLineInCenter(firstLine);
-          }
+          const firstLine = changes[0].modifiedStartLineNumber;
+          diffEditor.getModifiedEditor().revealLineInCenter(firstLine);
+
           // 给 modified editor 添加行级装饰，minimap 会渲染这些装饰的背景色
           // 简化：只用绿色（added）+ 红色（deleted），不区分 modified 琥珀色
           const modEditor = diffEditor.getModifiedEditor();
-          const decorations: monaco.editor.IModelDeltaDecoration[] = [];
+          const decorations: editor.IModelDeltaDecoration[] = [];
           for (const change of changes) {
             // const type = change.originalEndLineNumber === 0 ? "added" : "modified";
             const startLine = change.modifiedStartLineNumber;
@@ -126,10 +123,23 @@ export const MonacoDiffViewer = forwardRef<
           }
           modEditor.deltaDecorations([], decorations);
         }
-        if (scrolledToFirst) {
+        if (diffComputed) {
           disposable.dispose();
         }
       });
+
+      // 兜底：如果 onDidUpdateDiff 在 800ms 内未触发（Monaco 内部状态残留导致 diff worker 不启动），
+      // 强制重新设置 model 触发 diff 计算
+      setTimeout(() => {
+        if (!editorRef.current || diffComputed) return;
+        const editor = editorRef.current;
+        const orig = editor.getOriginalEditor().getModel();
+        const mod = editor.getModifiedEditor().getModel();
+        if (orig && mod) {
+          editor.setModel({ original: orig, modified: mod });
+        }
+        editor.layout();
+      }, 800);
     },
     [monacoLang, renderSideBySide],
   );
@@ -162,49 +172,6 @@ export const MonacoDiffViewer = forwardRef<
     };
     window.addEventListener("ftre:editor-layout", handleLayout);
     return () => window.removeEventListener("ftre:editor-layout", handleLayout);
-  }, []);
-
-  // 组件卸载时安全释放模型，避免已知 DiffEditor dispose 报错
-  useEffect(() => {
-    return () => {
-      if (cleanedUpRef.current) {
-        return;
-      }
-      cleanedUpRef.current = true;
-
-      const diffEditor = editorRef.current;
-      const monaco = monacoRef.current;
-
-      if (diffEditor && monaco) {
-        try {
-          const modifiedEditor = diffEditor.getModifiedEditor();
-          const modModel = modifiedEditor.getModel();
-          if (!modModel) {
-            return;
-          }
-
-          const origModel = diffEditor.getOriginalEditor().getModel();
-
-          if (origModel && modModel) {
-            const emptyOriginal = monaco.editor.createModel("", "plaintext");
-            const emptyModified = monaco.editor.createModel("", "plaintext");
-
-            diffEditor.setModel({
-              original: emptyOriginal,
-              modified: emptyModified,
-            });
-
-            origModel.dispose();
-            modModel.dispose();
-          }
-        } catch {
-          // Editor was already disposed or in invalid state, ignore
-        }
-      }
-
-      editorRef.current = null;
-      monacoRef.current = null;
-    };
   }, []);
 
   // 暴露获取当前行号 + 跳转第一个 diff 的方法
