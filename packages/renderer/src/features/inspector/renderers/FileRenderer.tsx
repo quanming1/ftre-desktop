@@ -116,16 +116,6 @@ export function FileRenderer({ tab, active, wordWrap }: TabRendererProps) {
     return () => clearTimeout(timer);
   }, [file, filePath, revealLine, revealEndLine, revealNonce]);
 
-  // tab 变为活跃时触发 layout，让 Monaco 重新计算尺寸
-  useEffect(() => {
-    if (active) {
-      const timer = setTimeout(() => {
-        window.dispatchEvent(new CustomEvent("ftre:editor-layout", { detail: {} }));
-      }, 50);
-      return () => clearTimeout(timer);
-    }
-  }, [active]);
-
   // 加载中 / 出错时仍保持 editor 挂载（如果有已缓存文件），只叠加遮罩
   const lineCount = file?.content ? file.content.split("\n").length : 0;
   const byteSize = file?.content ? new Blob([file.content]).size : 0;

@@ -3,9 +3,9 @@
  *
  * 使用 MonacoDiffViewer inline 模式展示修改前后的内容差异。
  */
-import { useEffect, useMemo, useRef } from "react";
+import { useMemo } from "react";
 import { GitCompareArrows } from "lucide-react";
-import { MonacoDiffViewer, type MonacoDiffViewerHandle } from "@ftre/editor";
+import { MonacoDiffViewer } from "@ftre/editor";
 import type { TabRendererProps } from "../tabRegistry";
 import type { DiffTab } from "@/stores/inspector";
 
@@ -20,23 +20,23 @@ function detectLanguage(filePath: string): string {
   return map[ext] ?? "plaintext";
 }
 
-export function DiffRenderer({ tab, active, wordWrap }: TabRendererProps) {
+export function DiffRenderer({ tab, wordWrap }: TabRendererProps) {
   const { filePath, before, after, additions, deletions, revealNonce } = tab as DiffTab;
   const displayPath = filePath.replace(/\\/g, "/");
-  const diffRef = useRef<MonacoDiffViewerHandle>(null);
   const language = useMemo(() => detectLanguage(displayPath), [displayPath]);
 
-  // tab 变为活跃时触发 layout + 重新定位到第一个 diff + 确保 minimap
-  useEffect(() => {
-    if (active) {
-      const timer = setTimeout(() => {
-        window.dispatchEvent(new CustomEvent("ftre:editor-layout", { detail: {} }));
-        diffRef.current?.revealFirstDiff();
-        diffRef.current?.ensureMinimap();
-      }, 50);
-      return () => clearTimeout(timer);
-    }
-  }, [active]);
+  // ⚠️ memoize diff 对象：切 tab 时 InspectorPanel re-render，
+  // 如果 diff 对象每次新建，memo(MonacoDiffViewer) 的浅比较失效，
+  // 导致内部 hooks 重跑 → @monaco-editor/react 收到新 options 引用 → wordWrap 闪烁
+  const diff = useMemo(() => ({
+    id: tab.id,
+    filePath,
+    tabPath: filePath,
+    originalContent: before,
+    newContent: after,
+    toolName: "edit" as const,
+    isApproximate: false,
+  }), [tab.id, filePath, before, after]);
 
   return (
     <div className="flex flex-col h-full min-h-0 bg-surface">
@@ -55,16 +55,7 @@ export function DiffRenderer({ tab, active, wordWrap }: TabRendererProps) {
       <div className="flex-1 min-h-0 relative bg-surface">
         {before !== null && after !== null && (
           <MonacoDiffViewer
-            ref={diffRef}
-            diff={{
-              id: tab.id,
-              filePath,
-              tabPath: filePath,
-              originalContent: before,
-              newContent: after,
-              toolName: "edit",
-              isApproximate: false,
-            }}
+            diff={diff}
             language={language}
             renderSideBySide={false}
             wordWrap={wordWrap}

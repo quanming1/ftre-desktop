@@ -6,6 +6,8 @@ import {
   useEffect,
   useImperativeHandle,
   forwardRef,
+  useMemo,
+  memo,
 } from "react";
 import type { editor } from "monaco-editor";
 import type * as Monaco from "monaco-editor";
@@ -13,8 +15,64 @@ import { registerFtreTheme } from "./theme-registry";
 import { getActiveThemeId } from "./themes";
 import type { DiffEntry } from "../store/types";
 
+// ════════════════════════════════════════════════════════════════════════
+// 踩坑记录（此注释不可删除，后续维护必读）
+// ════════════════════════════════════════════════════════════════════════
+//
+// 【坑 1】CDN 双实例：loader 不配置本地 monaco-editor 时，@monaco-editor/react
+//         会从 CDN 加载一个独立 Monaco 实例，导致 defineTheme 注册在 CDN 实例
+//         上，而编辑器用的是本地实例，主题/diff 颜色全部不生效。
+//         → 修复：loader.config({ monaco: monacoEditor }) 强制使用本地实例。
+//
+// 【坑 2】行号双列：inline 模式配置（关 original editor 行号）如果只放在
+//         useEffect 里，effect 在 mount 后才跑，Monaco 已经渲染了双侧行号。
+//         → 修复：必须在 handleMount 里立即设置，effect 只负责后续 renderSideBySide 变化。
+//
+// 【坑 3】切 tab 触发定位：useRevealPolling/useDiffDecorations 每次渲染返回
+//         新对象 { start, stop }，如果直接把对象放进 useEffect 依赖数组，
+//         每次渲染都会重跑 effect。revealNonce effect 尤其严重——revealNonce
+//         非 0 时每次渲染都调 reveal.start()，导致切 tab 也触发定位。
+//         → 修复：解构出 start/stop 作为 stable useCallback，只放 primitive
+//           stable 引用到 deps，不放假对象。
+//
+// 【坑 4】onDidUpdateDiff 提前 dispose：首次 diff 计算完就 dispose 监听器，
+//         tab 复用时 @monaco-editor/react 更新 model 触发 diff 重算，但监听
+//         已不在，装饰（minimap 标记）不会重新应用 → 第二次点击 minimap 消失。
+//         → 修复：onDidUpdateDiff 保持存活不 dispose，每次 diff 重算都应用装饰。
+//
+// 【坑 5】minimap 颜色 token 无效：decoration 的 minimap.color 用
+//         { id: "minimap.background" } 是无效 token，Monaco 不认识，
+//         minimap 上的 diff 标记不可见。
+//         → 修复：用 { id: "diffEditor.insertedLineBackground" } 等合法主题色。
+//
+// 【坑 6】deltaDecorations 已废弃：Monaco 0.40+ 标记 deprecated。
+//         → 修复：改用 editor.createDecorationsCollection() + collection.set()。
+//
+// 【坑 7】options 对象每次渲染新建：inline 对象字面量传给 DiffEditor 的
+//         options prop 会导致 @monaco-editor/react 的 React.memo 失效，
+//         每次 re-render 都穿透到内部更新。
+//         → 修复：useMemo 缓存 options，依赖 [renderSideBySide, wordWrap]。
+//
+// 【坑 8】display:none 导致容器尺寸归零：tab 用 display:none 隐藏时 Monaco
+//         容器宽高为 0，automaticLayout 把 editor 压成 0x0，切回来需要手动
+//         layout() 重新计算，还要全局事件通知、检查 offsetParent 可见性等。
+//         → 修复：InspectorPanel 改用 visibility:hidden + pointer-events:none，
+//           容器始终有尺寸，Monaco automaticLayout 全程正常，无需任何补丁。
+//           砍掉了 active prop、全局 layout 事件监听、active effect。
+//
+// 【坑 9】handleMount 依赖数组不稳定：如果 deps 包含每次渲染变化的引用
+//         （如 hook 返回的对象），handleMount 会不稳定，虽然 @monaco-editor/react
+//         的 onMount 只调一次，但可能导致内部行为异常。
+//         → 修复：deps 只放 stable useCallback + 不变的 props。
+//
+// 【坑 10】reveal 轮询不清理：setInterval 如果不在 unmount 时清理，会持续
+//          操作已销毁的 editor，造成内存泄漏 + 报错。
+//          → 修复：2 个清理时机——reveal 成功/超时、unmount。
+//          （active=false 清理已不需要，见坑 8 改用 visibility:hidden）
+// ════════════════════════════════════════════════════════════════════════
+
 // 确保 @monaco-editor/react 使用本地 monaco-editor 实例，而非 CDN 加载的独立实例
-// 否则 defineTheme 注册在 CDN 实例上，与本地实例主题不同步
+// 否则 defineTheme 注册在 CDN 实例上，与本地实例主题不同步（见坑 1）
 loader.config({ monaco: monacoEditor });
 
 const MONACO_LANG_MAP: Record<string, string> = {
@@ -37,250 +95,351 @@ interface MonacoDiffViewerProps {
   language: string;
   renderSideBySide: boolean;
   theme?: string;
-  /** 值变化时重新滚动到第一个 diff 位置 */
   revealNonce?: number;
-  /** 自动换行 */
   wordWrap?: boolean;
 }
 
-export const MonacoDiffViewer = forwardRef<
+// ════════════════════════════════════════════════════════════════════════
+// Reveal 行为规格（此注释不可删除）
+// ════════════════════════════════════════════════════════════════════════
+//
+// 「定位到第一个 diff 行」只在以下两种场景触发：
+//
+//   1. 新 diff tab 首次挂载（handleMount）
+//      —— 用户从 Changes 点击变更文件、或从 Edit/Write 工具调用点击打开
+//      —— 此时 editor 刚创建，diff worker 尚未算完，需要轮询等待
+//
+//   2. tab 复用时内容更新（revealNonce 递增）
+//      —— 同一 toolCallId 的 diff tab 被复用，before/after 变了
+//      —— diff worker 会重算，轮询等待新结果
+//
+// 以下场景【绝不触发】reveal：
+//
+//   ✗ 切换 tab
+//     —— 用户只是想看看之前打开的 diff，不需要重新滚动
+//     —— 改用 visibility:hidden 后 Monaco 尺寸不变，连 layout() 都不需要
+//
+// 清理时机（防止内存泄漏，见坑 10）：
+//   ① reveal 成功 → clearInterval
+//   ② 超过 REVEAL_POLL_MAX 次 → clearInterval
+//   ③ 组件 unmount → clearInterval + cancelAnimationFrame
+// ════════════════════════════════════════════════════════════════════════
+
+const REVEAL_POLL_MS = 10;
+const REVEAL_POLL_MAX = 500; // 5 秒后放弃
+
+// ─── useRevealPolling：轮询等待 diff 计算完成后 reveal 到第一个变更行 ──────
+// 返回 start/stop 两个 stable useCallback。
+// ⚠️ 调用方必须解构出 start/stop 再放进 deps，不能直接放返回对象（见坑 3）
+function useRevealPolling(
+  editorRef: React.RefObject<editor.IStandaloneDiffEditor | null>,
+) {
+  const revealIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  const stop = useCallback(() => {
+    if (revealIntervalRef.current !== null) {
+      clearInterval(revealIntervalRef.current);
+      revealIntervalRef.current = null;
+    }
+  }, []);
+
+  const start = useCallback(() => {
+    stop();
+    let attempts = 0;
+    revealIntervalRef.current = setInterval(() => {
+      const diffEditor = editorRef.current;
+      if (!diffEditor) {
+        attempts++;
+        if (attempts >= REVEAL_POLL_MAX) stop();
+        return;
+      }
+      const changes = diffEditor.getLineChanges();
+      if (changes && changes.length > 0) {
+        diffEditor.getModifiedEditor().revealLineInCenter(changes[0].modifiedStartLineNumber);
+        stop();
+        return;
+      }
+      attempts++;
+      if (attempts >= REVEAL_POLL_MAX) stop();
+    }, REVEAL_POLL_MS);
+  }, [editorRef, stop]);
+
+  // unmount 时兜底清理（见坑 10 ③）
+  useEffect(() => () => stop(), [stop]);
+
+  return { start, stop };
+}
+
+// ─── useDiffDecorations：diff 行装饰（minimap + overview ruler）──────────
+// 返回 stable callbacks。
+// ⚠️ 调用方必须解构出 init/attachListener/cleanup 再放进 deps（见坑 3）
+// onDidUpdateDiff 保持存活不 dispose（见坑 4），每次 diff 重算都重新应用装饰
+function useDiffDecorations() {
+  const decorationsRef = useRef<editor.IEditorDecorationsCollection | null>(null);
+  const listenerRef = useRef<Monaco.IDisposable | null>(null);
+
+  const init = useCallback((diffEditor: editor.IStandaloneDiffEditor) => {
+    // createDecorationsCollection 替代废弃的 deltaDecorations（见坑 6）
+    decorationsRef.current = diffEditor.getModifiedEditor().createDecorationsCollection();
+  }, []);
+
+  const attachListener = useCallback((diffEditor: editor.IStandaloneDiffEditor, monaco: typeof Monaco) => {
+    listenerRef.current?.dispose();
+    // 不 dispose —— 保持存活，每次 diff 重算都应用装饰（见坑 4）
+    listenerRef.current = diffEditor.onDidUpdateDiff(() => {
+      const changes = diffEditor.getLineChanges();
+      if (decorationsRef.current) {
+        applyDiffDecorations(monaco, changes ?? [], decorationsRef.current);
+      }
+    });
+  }, []);
+
+  const cleanup = useCallback(() => {
+    listenerRef.current?.dispose();
+    listenerRef.current = null;
+    decorationsRef.current?.clear();
+    decorationsRef.current = null;
+  }, []);
+
+  useEffect(() => () => cleanup(), [cleanup]);
+
+  return { init, attachListener, cleanup };
+}
+
+// ─── 主组件 ──────────────────────────────────────────────────────────────
+// ⚠️ 用 memo 包装：切 tab 时 InspectorPanel re-render，如果不 memo，
+// 即使 props 没变也会重跑 MonacoDiffViewer 内部所有 hooks，
+// 导致 @monaco-editor/react 的 DiffEditor 收到新的 options/callbacks 引用，
+// 触发 updateOptions → wordWrap 重新应用 → 可见闪烁（见坑 7）
+// memo 的默认浅比较足以拦截：string/number/boolean props 不变就不 re-render
+export const MonacoDiffViewer = memo(forwardRef<
   MonacoDiffViewerHandle,
   MonacoDiffViewerProps
->(function MonacoDiffViewer({ diff, language, renderSideBySide, theme, revealNonce, wordWrap }, ref) {
+>(function MonacoDiffViewer(
+  { diff, language, renderSideBySide, theme, revealNonce, wordWrap },
+  ref,
+) {
   const monacoLang = toMonacoLanguage(language);
   const editorRef = useRef<editor.IStandaloneDiffEditor | null>(null);
   const monacoRef = useRef<typeof Monaco | null>(null);
+  const rafRef = useRef(0);
+  const actionDisposablesRef = useRef<Monaco.IDisposable[]>([]);
 
-  // beforeMount：在 editor 创建后、setTheme 之前调用
-  // 确保 defineTheme 先于 setTheme 执行，否则 Monaco 回退到默认 vs 主题导致 diff 颜色不一致
+  // ⚠️ 解构出 stable callbacks，不直接把返回对象放进 deps（见坑 3）
+  const { start: revealStart, stop: revealStop } = useRevealPolling(editorRef);
+  const { init: decorInit, attachListener: decorAttach, cleanup: decorCleanup } = useDiffDecorations();
+
+  // ─── beforeMount：仅注册主题 ───────────────────────────────────
   const handleBeforeMount = useCallback(
     (monaco: typeof Monaco) => {
-      if (theme && theme !== "vs" && theme !== "vs-dark") {
-        registerFtreTheme(monaco, theme);
+      const themeId = theme ?? getActiveThemeId();
+      if (themeId !== "vs" && themeId !== "vs-dark") {
+        registerFtreTheme(monaco, themeId);
       }
     },
     [theme],
   );
 
+  // ─── onMount：一次性初始化 ─────────────────────────────────────
+  // deps 全为 stable callbacks + 不变的 props，实际只执行一次（见坑 9）
   const handleMount = useCallback(
     (diffEditor: editor.IStandaloneDiffEditor, monaco: typeof Monaco) => {
       editorRef.current = diffEditor;
       monacoRef.current = monaco;
 
-      monaco.editor.setTheme(theme ?? getActiveThemeId());
+      decorInit(diffEditor);
+      decorAttach(diffEditor, monaco);
 
-      // 非并排模式：original editor 隐藏行号；modified editor 关闭 diff revert icon 避免和行号挤
+      // ⚠️ inline 模式配置必须在 mount 时立即设置（见坑 2）
+      // 如果只放在 useEffect 里，effect 在 mount 后才跑，
+      // Monaco 已经渲染了 original editor 的行号，用户看到双列行号
       if (!renderSideBySide) {
-        diffEditor.getOriginalEditor().updateOptions({ lineNumbers: "off", lineNumbersMinChars: 0, glyphMargin: false, folding: false, minimap: { enabled: false } });
-        diffEditor.getModifiedEditor().updateOptions({ glyphMargin: false, minimap: { enabled: true } });
-      }
-
-      // 注册 wordWrap 右键菜单 action（两个 editor 都加）
-      const modEditor = diffEditor.getModifiedEditor();
-      const origEditor = diffEditor.getOriginalEditor();
-
-      for (const ed of [modEditor, origEditor]) {
-        ed.addAction({
-          id: "ftre-toggle-wordwrap",
-          label: "开启/关闭自动换行",
-          contextMenuGroupId: "ftre",
-          contextMenuOrder: 0,
-          run: (editor) => {
-            const current = editor.getOption(monaco.editor.EditorOption.wordWrap);
-            const next = current === "on" ? "off" : "on";
-            modEditor.updateOptions({ wordWrap: next });
-            origEditor.updateOptions({ wordWrap: next });
-          },
+        diffEditor.getOriginalEditor().updateOptions({
+          lineNumbers: "off",
+          lineNumbersMinChars: 0,
+          glyphMargin: false,
+          folding: false,
+          minimap: { enabled: false },
+        });
+        diffEditor.getModifiedEditor().updateOptions({
+          glyphMargin: false,
+          minimap: { enabled: true },
         });
       }
-      const origModel = diffEditor.getOriginalEditor().getModel();
-      const modModel = diffEditor.getModifiedEditor().getModel();
-      if (origModel) monaco.editor.setModelLanguage(origModel, monacoLang);
-      if (modModel) monaco.editor.setModelLanguage(modModel, monacoLang);
 
-      // 自动跳转到第一个 diff 位置 + 给 modified editor 添加 minimap 可见的 diff 装饰
-      let diffComputed = false;
-      const disposable = diffEditor.onDidUpdateDiff(() => {
-        diffComputed = true;
-        const changes = diffEditor.getLineChanges();
-        if (changes && changes.length > 0) {
-          const firstLine = changes[0].modifiedStartLineNumber;
-          // 延迟到下一帧，等 wordWrap 布局完成后再定位，否则换行后行数增多导致偏上
-          requestAnimationFrame(() => {
-            diffEditor.getModifiedEditor().revealLineInCenter(firstLine);
-          });
+      // wordWrap 右键菜单
+      const modEditor = diffEditor.getModifiedEditor();
+      const origEditor = diffEditor.getOriginalEditor();
+      const toggleWordWrap = () => {
+        const current = modEditor.getOption(monaco.editor.EditorOption.wordWrap);
+        const next = current === "on" ? "off" : "on";
+        modEditor.updateOptions({ wordWrap: next });
+        origEditor.updateOptions({ wordWrap: next });
+      };
+      const actionOpts = {
+        id: "ftre-toggle-wordwrap",
+        label: "开启/关闭自动换行",
+        contextMenuGroupId: "ftre",
+        contextMenuOrder: 0,
+        run: toggleWordWrap,
+      };
+      actionDisposablesRef.current.push(modEditor.addAction(actionOpts));
+      actionDisposablesRef.current.push(origEditor.addAction(actionOpts));
 
-          // 给 modified editor 添加行级装饰，minimap 会渲染这些装饰的背景色
-          // 简化：只用绿色（added）+ 红色（deleted），不区分 modified 琥珀色
-          const modEditor = diffEditor.getModifiedEditor();
-          const decorations: editor.IModelDeltaDecoration[] = [];
-          for (const change of changes) {
-            // const type = change.originalEndLineNumber === 0 ? "added" : "modified";
-            const startLine = change.modifiedStartLineNumber;
-            const endLine = change.modifiedEndLineNumber || startLine;
-            for (let line = startLine; line <= endLine; line++) {
-              decorations.push({
-                range: new monaco.Range(line, 1, line, 1),
-                options: {
-                  isWholeLine: true,
-                  minimap: {
-                    position: monaco.editor.MinimapPosition.Inline,
-                    color: { id: "minimap.background" },
-                  },
-                  className: "diff-minimap-added",
-                  overviewRuler: {
-                    position: monaco.editor.OverviewRulerLane.Full,
-                    color: "rgba(22, 163, 74, 0.6)",
-                  },
-                },
-              });
-            }
-          }
-          modEditor.deltaDecorations([], decorations);
-        }
-        if (diffComputed) {
-          disposable.dispose();
-        }
-      });
-
-      // 兜底：如果 onDidUpdateDiff 在 800ms 内未触发（Monaco 内部状态残留导致 diff worker 不启动），
-      // 强制重新设置 model 触发 diff 计算
-      setTimeout(() => {
-        if (!editorRef.current || diffComputed) return;
-        const editor = editorRef.current;
-        const orig = editor.getOriginalEditor().getModel();
-        const mod = editor.getModifiedEditor().getModel();
-        if (orig && mod) {
-          editor.setModel({ original: orig, modified: mod });
-        }
-        editor.layout();
-      }, 800);
+      // 场景 1：新 tab 首次挂载，启动 reveal 轮询
+      revealStart();
     },
-    [monacoLang, renderSideBySide, theme],
+    [decorInit, decorAttach, revealStart, renderSideBySide],
   );
 
-  // @monaco-editor/react DiffEditor 不响应 original/modified props 变化
-  // 需要手动更新 model 内容
+  // ─── inline 模式配置：响应 renderSideBySide 变化 ──────────────
+  // mount 时的初始配置在 handleMount 里已做，这里只处理后续变化
   useEffect(() => {
     const diffEditor = editorRef.current;
-    const monaco = monacoRef.current;
-    if (!diffEditor || !monaco) return;
+    if (!diffEditor || renderSideBySide) return;
+    diffEditor.getOriginalEditor().updateOptions({
+      lineNumbers: "off",
+      lineNumbersMinChars: 0,
+      glyphMargin: false,
+      folding: false,
+      minimap: { enabled: false },
+    });
+    diffEditor.getModifiedEditor().updateOptions({
+      glyphMargin: false,
+      minimap: { enabled: true },
+    });
+  }, [renderSideBySide]);
 
-    const origModel = diffEditor.getOriginalEditor().getModel();
-    const modModel = diffEditor.getModifiedEditor().getModel();
-
-    if (origModel && origModel.getValue() !== diff.originalContent) {
-      origModel.setValue(diff.originalContent);
-    }
-    if (modModel && modModel.getValue() !== diff.newContent) {
-      modModel.setValue(diff.newContent);
-    }
-  }, [diff.originalContent, diff.newContent]);
-
-  // tab 从 hidden 切到 visible 时重新 layout
+  // ─── revealNonce：内容更新后重新启动 reveal 轮询（场景 2）──────
+  // ⚠️ deps 只放 revealNonce + revealStart（stable），
+  //    不放 reveal 对象——否则每次渲染重跑导致切 tab 也触发定位（见坑 3）
   useEffect(() => {
-    const handleLayout = () => {
-      const diffEditor = editorRef.current;
-      if (diffEditor) {
-        diffEditor.layout();
-      }
-    };
-    window.addEventListener("ftre:editor-layout", handleLayout);
-    return () => window.removeEventListener("ftre:editor-layout", handleLayout);
-  }, []);
+    if (revealNonce === undefined || revealNonce === 0) return;
+    revealStart();
+  }, [revealNonce, revealStart]);
 
-  // 暴露获取当前行号 + 跳转第一个 diff 的方法
+  // ─── unmount cleanup（见坑 10 ③）──────────────────────────────
+  useEffect(() => {
+    return () => {
+      cancelAnimationFrame(rafRef.current);
+      revealStop();
+      decorCleanup();
+      for (const d of actionDisposablesRef.current) d.dispose();
+      actionDisposablesRef.current = [];
+    };
+  }, [revealStop, decorCleanup]);
+
+  // ─── 暴露方法 ──────────────────────────────────────────────────
   useImperativeHandle(
     ref,
     () => ({
       getCurrentLine: () => {
         const diffEditor = editorRef.current;
         if (!diffEditor) return 1;
-        const position = diffEditor.getModifiedEditor().getPosition();
-        return position?.lineNumber ?? 1;
+        return diffEditor.getModifiedEditor().getPosition()?.lineNumber ?? 1;
       },
-      revealFirstDiff: () => {
-        const diffEditor = editorRef.current;
-        if (!diffEditor) return;
-        const changes = diffEditor.getLineChanges();
-        if (changes && changes.length > 0) {
-          const firstLine = changes[0].modifiedStartLineNumber;
-          requestAnimationFrame(() => {
-            diffEditor.getModifiedEditor().revealLineInCenter(firstLine);
-          });
-        }
-      },
+      revealFirstDiff: () => revealStart(),
       ensureMinimap: () => {
         const diffEditor = editorRef.current;
-        if (!diffEditor) return;
+        if (!diffEditor || renderSideBySide) return;
         diffEditor.getModifiedEditor().updateOptions({ minimap: { enabled: true } });
         diffEditor.getOriginalEditor().updateOptions({ minimap: { enabled: false } });
       },
     }),
-    [],
+    [revealStart, renderSideBySide],
   );
 
-  // revealNonce 变化时重新滚动到第一个 diff 位置
-  useEffect(() => {
-    if (revealNonce === undefined || revealNonce === 0) return;
-    const diffEditor = editorRef.current;
-    if (!diffEditor) return;
-    // diff 已计算完成时直接滚动；未完成时监听一次 onDidUpdateDiff
-    const changes = diffEditor.getLineChanges();
-    if (changes) {
-      if (changes.length > 0) {
-        const firstLine = changes[0].modifiedStartLineNumber;
-        requestAnimationFrame(() => {
-          diffEditor.getModifiedEditor().revealLineInCenter(firstLine);
-        });
-      }
-      return;
-    }
-    const disposable = diffEditor.onDidUpdateDiff(() => {
-      const ch = diffEditor.getLineChanges();
-      if (ch && ch.length > 0) {
-        const firstLine = ch[0].modifiedStartLineNumber;
-        requestAnimationFrame(() => {
-          diffEditor.getModifiedEditor().revealLineInCenter(firstLine);
-        });
-      }
-      disposable.dispose();
-    });
-    return () => disposable.dispose();
-  }, [revealNonce]);
+  // ─── memoized options（见坑 7）─────────────────────────────────
+  // inline 对象字面量会导致 @monaco-editor/react 的 React.memo 失效
+  const options = useMemo(
+    () => ({
+      readOnly: true,
+      originalEditable: false,
+      ignoreTrimWhitespace: false,
+      fontSize: 14,
+      fontFamily: "'JetBrains Mono', 'Cascadia Code', 'Consolas', monospace",
+      lineHeight: 22,
+      minimap: { enabled: true },
+      scrollBeyondLastLine: false,
+      renderSideBySide,
+      renderIndicators: false,
+      renderOverviewRuler: true,
+      hideCursorInOverviewRuler: true,
+      overviewRulerBorder: false,
+      glyphMargin: false,
+      folding: false,
+      automaticLayout: true,
+      wordWrap: (wordWrap ? "on" : "off") as "on" | "off",
+      scrollbar: {
+        verticalScrollbarSize: 12,
+        horizontalScrollbarSize: 12,
+      },
+    }),
+    [renderSideBySide, wordWrap],
+  );
+
+  const resolvedTheme = theme ?? getActiveThemeId();
 
   return (
     <DiffEditor
       height="100%"
-      language={toMonacoLanguage(language)}
+      language={monacoLang}
       original={diff.originalContent}
       modified={diff.newContent}
-      theme={theme ?? "ftre-dark"}
+      theme={resolvedTheme}
       beforeMount={handleBeforeMount}
       onMount={handleMount}
-      options={{
-        readOnly: true,
-        originalEditable: false,
-        ignoreTrimWhitespace: false,
-        fontSize: 14,
-        fontFamily: "'JetBrains Mono', 'Cascadia Code', 'Consolas', monospace",
-        lineHeight: 22,
-        minimap: { enabled: true },
-        scrollBeyondLastLine: false,
-        renderSideBySide,
-        renderIndicators: false,
-        renderOverviewRuler: true,
-        hideCursorInOverviewRuler: true,
-        overviewRulerBorder: false,
-        glyphMargin: false,
-        folding: false,
-        automaticLayout: true,
-        wordWrap: wordWrap ? "on" : "off",
-        scrollbar: {
-          verticalScrollbarSize: 12,
-          horizontalScrollbarSize: 12,
-        },
-      }}
+      options={options}
     />
   );
-});
+}));
+
+// ─── 辅助函数 ──────────────────────────────────────────────────
+
+/**
+ * 给 modified editor 添加行级装饰：minimap + overview ruler。
+ * 使用 createDecorationsCollection.set() 增量更新（见坑 6）。
+ *
+ * 只装饰 added/modified 行（modifiedStart <= modifiedEnd）。
+ * 纯删除行（modifiedStart > modifiedEnd）在 inline 模式下是虚拟行，
+ * 无真实行号，由 Monaco 内置 diff 渲染 + 主题色处理。
+ *
+ * ⚠️ minimap.color 必须用合法的 Monaco 主题色 token（见坑 5）：
+ *    "diffEditor.insertedLineBackground" ✓
+ *    "minimap.background" ✗ 无效 token
+ *
+ * ⚠️ overviewRuler.color 同理，用合法主题色 token：
+ *    "diffEditorOverviewRuler.insertedForeground" ✓
+ */
+function applyDiffDecorations(
+  monaco: typeof Monaco,
+  changes: readonly editor.ILineChange[],
+  collection: editor.IEditorDecorationsCollection,
+): void {
+  const decorations: editor.IModelDeltaDecoration[] = [];
+
+  for (const change of changes) {
+    const startLine = change.modifiedStartLineNumber;
+    const endLine = change.modifiedEndLineNumber || startLine;
+    if (startLine > endLine) continue;
+
+    for (let line = startLine; line <= endLine; line++) {
+      decorations.push({
+        range: new monaco.Range(line, 1, line, 1),
+        options: {
+          isWholeLine: true,
+          minimap: {
+            position: monaco.editor.MinimapPosition.Inline,
+            color: { id: "diffEditor.insertedLineBackground" },
+          },
+          overviewRuler: {
+            position: monaco.editor.OverviewRulerLane.Full,
+            color: { id: "diffEditorOverviewRuler.insertedForeground" },
+          },
+        },
+      });
+    }
+  }
+
+  collection.set(decorations);
+}
