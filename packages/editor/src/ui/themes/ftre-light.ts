@@ -57,9 +57,9 @@ export const ftreLight: FtreThemeDefinition = {
         "scrollbarSlider.activeBackground": "#00000099",
         "editorOverviewRuler.border": "#C8C8C8",
         // ── Diff 编辑器 ──
-        "diffEditor.insertedTextBackground": "#d6e8c0",
+        "diffEditor.insertedTextBackground": "#dcf1e4",
         "diffEditor.removedTextBackground": "#f4cccf",
-        "diffEditor.insertedLineBackground": "#d6e8c0",
+        "diffEditor.insertedLineBackground": "#dcf1e4",
         "diffEditor.removedLineBackground": "#f4cccf",
         // inline diff 模式下 deleted 行无独立行号，gutter 背景无法对称显示，统一去掉
         // "diffEditorGutter.insertedLineBackground": "#e3f0e8",
