@@ -249,7 +249,7 @@ function InspectorTabBar({
                 onContextMenu={(e) => handleContextMenu(e, tab.id)}
                 className={`group relative flex items-center gap-2 h-full text-[13px] whitespace-nowrap font-sans transition-all duration-150 select-none px-3.5 ${
                   isActive
-                    ? "z-10 bg-surface text-t-primary shadow-[0_1px_3px_rgba(0,0,0,0.08)]"
+                    ? "z-10 bg-[#e8f5e9] text-t-primary shadow-[0_1px_3px_rgba(0,0,0,0.08)]"
                     : "text-t-muted hover:bg-elevated hover:text-t-secondary"
                 }`}
               >
