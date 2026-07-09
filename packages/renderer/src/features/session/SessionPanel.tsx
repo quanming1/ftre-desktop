@@ -24,6 +24,7 @@ import {
   useEffect,
   useRef,
 } from "react";
+import { createPortal } from "react-dom";
 import {
   MoreHorizontal,
   Loader2,
@@ -305,6 +306,7 @@ export function SessionPanel() {
   // ── 折叠态悬停浮层 ──
   const [hoverListOpen, setHoverListOpen] = useState(false);
   const hoverTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const collapsedRef = useRef<HTMLDivElement>(null);
   const openHoverList = useCallback(() => {
     if (hoverTimerRef.current) clearTimeout(hoverTimerRef.current);
     setHoverListOpen(true);
@@ -314,6 +316,14 @@ export function SessionPanel() {
     hoverTimerRef.current = setTimeout(() => setHoverListOpen(false), 200);
   }, []);
   useEffect(() => () => { if (hoverTimerRef.current) clearTimeout(hoverTimerRef.current); }, []);
+
+  // 计算浮层位置：紧贴折叠栏右侧
+  const [overlayPos, setOverlayPos] = useState({ top: 0, left: 0, height: 0 });
+  useEffect(() => {
+    if (!hoverListOpen || !collapsedRef.current) return;
+    const rect = collapsedRef.current.getBoundingClientRect();
+    setOverlayPos({ top: rect.top, left: rect.right + 4, height: rect.height });
+  }, [hoverListOpen]);
 
   const [hoveredSession, setHoveredSession] = useState<string | null>(null);
   /** 每个 group 已展开多少条；未列入即 PER_GROUP_DEFAULT */
@@ -746,6 +756,7 @@ export function SessionPanel() {
     <TooltipProvider>
       {sessionsCollapsed ? (
         <div
+          ref={collapsedRef}
           className="h-full flex flex-col items-center bg-[#f6f7f9] py-3 text-[14px] relative"
           onMouseEnter={openHoverList}
           onMouseLeave={closeHoverList}
@@ -793,10 +804,11 @@ export function SessionPanel() {
             <Settings size={17} />
           </SideIconButton>
 
-          {/* 悬停浮层：会话列表 */}
-          {hoverListOpen && (
+          {/* 悬停浮层：会话列表 — portal 到 body 避免被父容器 overflow-hidden 裁剪 */}
+          {hoverListOpen && createPortal(
             <div
-              className="absolute top-0 left-full ml-1 z-50 h-full"
+              className="fixed z-50"
+              style={{ top: overlayPos.top, left: overlayPos.left, height: overlayPos.height }}
               onMouseEnter={openHoverList}
               onMouseLeave={closeHoverList}
             >
@@ -916,7 +928,8 @@ export function SessionPanel() {
                   )}
                 </div>
               </div>
-            </div>
+            </div>,
+            document.body,
           )}
         </div>
       ) : (
