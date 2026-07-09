@@ -20,7 +20,6 @@ vi.mock("@ftre/editor/ui", async () => {
     registerFtreTheme: (...args: unknown[]) => mockRegisterFtreTheme(...args),
     computeDiffStats: vi.fn(() => ({ additions: 0, deletions: 0 })),
     DiffBar: vi.fn(() => null),
-    _resetThemeRegistration: vi.fn(),
   };
 });
 

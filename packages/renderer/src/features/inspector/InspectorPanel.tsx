@@ -52,7 +52,7 @@ export function InspectorPanel() {
                 width: fileTreeOpen ? fileTreeWidth : 0,
                 minWidth: fileTreeOpen ? fileTreeWidth : 0,
                 background: "#f9fafb",
-                overflow: fileTreeOpen ? "hidden" : "hidden",
+                overflow: "hidden",
               }}
             >
               <div style={{ width: fileTreeWidth, height: "100%" }}>
@@ -340,17 +340,8 @@ function ImagePreviewContent({ filePath, active }: { filePath: string; active: b
 
 function DiffPreviewContent({ tab, active, wordWrap }: { tab: InspectorTab; active: boolean; wordWrap: boolean }) {
   const displayPath = (tab.filePath ?? "").replace(/\\/g, "/");
-  const containerRef = useRef<HTMLDivElement>(null);
   const diffRef = useRef<MonacoDiffViewerHandle>(null);
-  const language = useMemo(() => {
-    const ext = displayPath.match(/\.([a-z0-9]+)$/i)?.[1]?.toLowerCase() ?? "";
-    const map: Record<string, string> = {
-      ts: "typescript", tsx: "typescript", js: "javascript", jsx: "javascript",
-      py: "python", json: "json", md: "markdown", go: "go", rs: "rust",
-      java: "java", c: "c", cpp: "cpp", sh: "shell", yml: "yaml", yaml: "yaml",
-    };
-    return map[ext] ?? "plaintext";
-  }, [displayPath]);
+  const language = useMemo(() => detectLanguage(displayPath), [displayPath]);
 
   // tab 变为活跃时触发 layout + 重新定位到第一个 diff + 确保 minimap
   useEffect(() => {

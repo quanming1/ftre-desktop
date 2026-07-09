@@ -29,13 +29,3 @@ export function registerFtreTheme(
     colors: { ...theme.editorColors, ...cssOverrides },
   });
 }
-
-/**
- * Reset theme registration state (for testing).
- *
- * registerFtreTheme has no side-effect state (defineTheme is idempotent),
- * this function is a no-op kept for test mock and export contract compatibility.
- */
-export function _resetThemeRegistration(): void {
-  // no-op: defineTheme is idempotent, nothing to reset
-}
