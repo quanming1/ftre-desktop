@@ -69,6 +69,14 @@ import type { DiffEntry } from "../store/types";
 //          操作已销毁的 editor，造成内存泄漏 + 报错。
 //          → 修复：2 个清理时机——reveal 成功/超时、unmount。
 //          （active=false 清理已不需要，见坑 8 改用 visibility:hidden）
+//
+// 【坑 11】onDidUpdateDiff 不保证首次触发时机：@monaco-editor/react 在
+//          setModel 后 diff worker 异步计算，onDidUpdateDiff 可能在 mount
+//          回调返回后才触发（此时 editorRef 已就绪），也可能在内容很短时
+//          同步触发。纯靠 onDidUpdateDiff 做 reveal 有时序风险。
+//          → 修复：主路径用 onDidUpdateDiff（等价 VS Code 的 waitForDiff().then()），
+//            兜底用 setInterval 轮询。两者通过 revealPendingRef 协调：
+//            onDidUpdateDiff 触发时如果 pending 就 reveal + 清 pending + 停轮询。
 // ════════════════════════════════════════════════════════════════════════
 
 // 确保 @monaco-editor/react 使用本地 monaco-editor 实例，而非 CDN 加载的独立实例
@@ -107,11 +115,13 @@ interface MonacoDiffViewerProps {
 //
 //   1. 新 diff tab 首次挂载（handleMount）
 //      —— 用户从 Changes 点击变更文件、或从 Edit/Write 工具调用点击打开
-//      —— 此时 editor 刚创建，diff worker 尚未算完，需要轮询等待
+//      —— 主路径：onDidUpdateDiff 触发后直接 reveal（等价 VS Code 的
+//        waitForDiff().then(() => _goTo(diffs[0]))）
+//      —— 兜底路径：setInterval 轮询 getLineChanges()（防 onDidUpdateDiff 时序问题）
 //
 //   2. tab 复用时内容更新（revealNonce 递增）
 //      —— 同一 toolCallId 的 diff tab 被复用，before/after 变了
-//      —— diff worker 会重算，轮询等待新结果
+//      —— 主路径 + 兜底同上
 //
 // 以下场景【绝不触发】reveal：
 //
@@ -119,22 +129,45 @@ interface MonacoDiffViewerProps {
 //     —— 用户只是想看看之前打开的 diff，不需要重新滚动
 //     —— 改用 visibility:hidden 后 Monaco 尺寸不变，连 layout() 都不需要
 //
+// 协调机制：revealPendingRef
+//   - requestReveal() 设 revealPendingRef = true + 启动轮询
+//   - onDidUpdateDiff 回调检查 revealPendingRef，为 true 时 reveal + 清 pending + 停轮询
+//   - 轮询检查 getLineChanges()，有结果时 reveal + 清 pending + 停轮询
+//   - 两条路径谁先拿到结果谁 reveal，后到的因 pending 已清空而跳过
+//
 // 清理时机（防止内存泄漏，见坑 10）：
-//   ① reveal 成功 → clearInterval
+//   ① reveal 成功（任一路径）→ clearInterval + revealPendingRef = false
 //   ② 超过 REVEAL_POLL_MAX 次 → clearInterval
-//   ③ 组件 unmount → clearInterval + cancelAnimationFrame
+//   ③ 组件 unmount → clearInterval
 // ════════════════════════════════════════════════════════════════════════
 
 const REVEAL_POLL_MS = 10;
 const REVEAL_POLL_MAX = 500; // 5 秒后放弃
 
-// ─── useRevealPolling：轮询等待 diff 计算完成后 reveal 到第一个变更行 ──────
-// 返回 start/stop 两个 stable useCallback。
-// ⚠️ 调用方必须解构出 start/stop 再放进 deps，不能直接放返回对象（见坑 3）
-function useRevealPolling(
+// ─── useReveal：主路径 onDidUpdateDiff + 兜底轮询，协调 reveal 到第一个变更行 ─
+// 返回 stable callbacks。调用方必须解构后再放进 deps（见坑 3）
+//
+// 参考 VS Code diffEditorWidget.ts:667-680 revealFirstDiff():
+//   waitForDiff().then(() => { this._goTo(diffs[0]); })
+//   _goTo: setPosition(startLineNumber, 1) + revealRangeInCenter
+function useReveal(
   editorRef: React.RefObject<editor.IStandaloneDiffEditor | null>,
 ) {
   const revealIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  // pending 标志：onDidUpdateDiff 和轮询通过它协调，谁先拿到结果谁 reveal（见坑 11）
+  const revealPendingRef = useRef(false);
+
+  const doReveal = useCallback(() => {
+    const diffEditor = editorRef.current;
+    if (!diffEditor) return;
+    const changes = diffEditor.getLineChanges();
+    if (changes && changes.length > 0) {
+      // VS Code 的 _goTo: setPosition + revealLineInCenter
+      const firstLine = changes[0].modifiedStartLineNumber;
+      diffEditor.getModifiedEditor().setPosition({ lineNumber: firstLine, column: 1 });
+      diffEditor.getModifiedEditor().revealLineInCenter(firstLine);
+    }
+  }, [editorRef]);
 
   const stop = useCallback(() => {
     if (revealIntervalRef.current !== null) {
@@ -143,7 +176,18 @@ function useRevealPolling(
     }
   }, []);
 
-  const start = useCallback(() => {
+  // onDidUpdateDiff 回调：主路径（等价 VS Code 的 waitForDiff().then()）
+  // 由 useDiffDecorations.attachListener 在 onDidUpdateDiff 事件里调用
+  const onDiffComputed = useCallback(() => {
+    if (!revealPendingRef.current) return;
+    doReveal();
+    revealPendingRef.current = false;
+    stop();
+  }, [doReveal, stop]);
+
+  // 请求 reveal：设 pending + 启动兜底轮询
+  const request = useCallback(() => {
+    revealPendingRef.current = true;
     stop();
     let attempts = 0;
     revealIntervalRef.current = setInterval(() => {
@@ -155,26 +199,30 @@ function useRevealPolling(
       }
       const changes = diffEditor.getLineChanges();
       if (changes && changes.length > 0) {
-        diffEditor.getModifiedEditor().revealLineInCenter(changes[0].modifiedStartLineNumber);
+        doReveal();
+        revealPendingRef.current = false;
         stop();
         return;
       }
       attempts++;
       if (attempts >= REVEAL_POLL_MAX) stop();
     }, REVEAL_POLL_MS);
-  }, [editorRef, stop]);
+  }, [editorRef, doReveal, stop]);
 
   // unmount 时兜底清理（见坑 10 ③）
   useEffect(() => () => stop(), [stop]);
 
-  return { start, stop };
+  return { request, onDiffComputed, stop };
 }
 
 // ─── useDiffDecorations：diff 行装饰（minimap + overview ruler）──────────
 // 返回 stable callbacks。
 // ⚠️ 调用方必须解构出 init/attachListener/cleanup 再放进 deps（见坑 3）
 // onDidUpdateDiff 保持存活不 dispose（见坑 4），每次 diff 重算都重新应用装饰
-function useDiffDecorations() {
+// onDiffComputed 回调注入：装饰 + reveal 在同一个 onDidUpdateDiff 回调里完成
+function useDiffDecorations(
+  onDiffComputed: () => void,
+) {
   const decorationsRef = useRef<editor.IEditorDecorationsCollection | null>(null);
   const listenerRef = useRef<Monaco.IDisposable | null>(null);
 
@@ -191,8 +239,10 @@ function useDiffDecorations() {
       if (decorationsRef.current) {
         applyDiffDecorations(monaco, changes ?? [], decorationsRef.current);
       }
+      // 主路径 reveal：diff 计算完成时检查 pending（见坑 11）
+      onDiffComputed();
     });
-  }, []);
+  }, [onDiffComputed]);
 
   const cleanup = useCallback(() => {
     listenerRef.current?.dispose();
@@ -222,12 +272,11 @@ export const MonacoDiffViewer = memo(forwardRef<
   const monacoLang = toMonacoLanguage(language);
   const editorRef = useRef<editor.IStandaloneDiffEditor | null>(null);
   const monacoRef = useRef<typeof Monaco | null>(null);
-  const rafRef = useRef(0);
   const actionDisposablesRef = useRef<Monaco.IDisposable[]>([]);
 
   // ⚠️ 解构出 stable callbacks，不直接把返回对象放进 deps（见坑 3）
-  const { start: revealStart, stop: revealStop } = useRevealPolling(editorRef);
-  const { init: decorInit, attachListener: decorAttach, cleanup: decorCleanup } = useDiffDecorations();
+  const { request: revealRequest, onDiffComputed, stop: revealStop } = useReveal(editorRef);
+  const { init: decorInit, attachListener: decorAttach, cleanup: decorCleanup } = useDiffDecorations(onDiffComputed);
 
   // ─── beforeMount：仅注册主题 ───────────────────────────────────
   const handleBeforeMount = useCallback(
@@ -286,10 +335,10 @@ export const MonacoDiffViewer = memo(forwardRef<
       actionDisposablesRef.current.push(modEditor.addAction(actionOpts));
       actionDisposablesRef.current.push(origEditor.addAction(actionOpts));
 
-      // 场景 1：新 tab 首次挂载，启动 reveal 轮询
-      revealStart();
+      // 场景 1：新 tab 首次挂载，请求 reveal（主路径 onDidUpdateDiff + 兜底轮询）
+      revealRequest();
     },
-    [decorInit, decorAttach, revealStart, renderSideBySide],
+    [decorInit, decorAttach, revealRequest, renderSideBySide],
   );
 
   // ─── inline 模式配置：响应 renderSideBySide 变化 ──────────────
@@ -310,18 +359,17 @@ export const MonacoDiffViewer = memo(forwardRef<
     });
   }, [renderSideBySide]);
 
-  // ─── revealNonce：内容更新后重新启动 reveal 轮询（场景 2）──────
-  // ⚠️ deps 只放 revealNonce + revealStart（stable），
+  // ─── revealNonce：内容更新后重新请求 reveal（场景 2）──────────
+  // ⚠️ deps 只放 revealNonce + revealRequest（stable），
   //    不放 reveal 对象——否则每次渲染重跑导致切 tab 也触发定位（见坑 3）
   useEffect(() => {
     if (revealNonce === undefined || revealNonce === 0) return;
-    revealStart();
-  }, [revealNonce, revealStart]);
+    revealRequest();
+  }, [revealNonce, revealRequest]);
 
   // ─── unmount cleanup（见坑 10 ③）──────────────────────────────
   useEffect(() => {
     return () => {
-      cancelAnimationFrame(rafRef.current);
       revealStop();
       decorCleanup();
       for (const d of actionDisposablesRef.current) d.dispose();
@@ -338,7 +386,7 @@ export const MonacoDiffViewer = memo(forwardRef<
         if (!diffEditor) return 1;
         return diffEditor.getModifiedEditor().getPosition()?.lineNumber ?? 1;
       },
-      revealFirstDiff: () => revealStart(),
+      revealFirstDiff: () => revealRequest(),
       ensureMinimap: () => {
         const diffEditor = editorRef.current;
         if (!diffEditor || renderSideBySide) return;
@@ -346,7 +394,7 @@ export const MonacoDiffViewer = memo(forwardRef<
         diffEditor.getOriginalEditor().updateOptions({ minimap: { enabled: false } });
       },
     }),
-    [revealStart, renderSideBySide],
+    [revealRequest, renderSideBySide],
   );
 
   // ─── memoized options（见坑 7）─────────────────────────────────
