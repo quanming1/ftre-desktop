@@ -24,6 +24,7 @@ export function InspectorPanel() {
   const closeOtherTabs = useInspector((s) => s.closeOtherTabs);
   const closeTabsToRight = useInspector((s) => s.closeTabsToRight);
   const closeAllTabs = useInspector((s) => s.closeAllTabs);
+  const openFilePreview = useInspector((s) => s.openFilePreview);
   const fileTreeOpen = useInspector((s) => s.fileTreeOpen);
   const toggleFileTree = useInspector((s) => s.toggleFileTree);
   const wordWrap = useInspector((s) => s.wordWrap);
@@ -40,6 +41,7 @@ export function InspectorPanel() {
         onCloseOthers={closeOtherTabs}
         onCloseRight={closeTabsToRight}
         onCloseAll={closeAllTabs}
+        onOpenOriginalFile={openFilePreview}
         fileTreeOpen={fileTreeOpen}
         onToggleFileTree={toggleFileTree}
       />
@@ -76,7 +78,11 @@ export function InspectorPanel() {
               <div
                 key={tab.id}
                 className="absolute inset-0"
-                style={{ display: tab.id === activeTabId ? "block" : "none" }}
+                style={{
+                  visibility: tab.id === activeTabId ? "visible" : "hidden",
+                  pointerEvents: tab.id === activeTabId ? "auto" : "none",
+                  zIndex: tab.id === activeTabId ? 1 : 0,
+                }}
               >
                 <div className="h-full w-full">
                   <InspectorTabContent tab={tab} active={tab.id === activeTabId} wordWrap={wordWrap} />
@@ -98,6 +104,7 @@ function InspectorTabBar({
   onCloseOthers,
   onCloseRight,
   onCloseAll,
+  onOpenOriginalFile,
   fileTreeOpen,
   onToggleFileTree,
 }: {
@@ -108,6 +115,7 @@ function InspectorTabBar({
   onCloseOthers: (id: string) => void;
   onCloseRight: (id: string) => void;
   onCloseAll: () => void;
+  onOpenOriginalFile: (toolCallId: string, path: string, title?: string, revealLine?: number, revealEndLine?: number, content?: string) => void;
   fileTreeOpen: boolean;
   onToggleFileTree: () => void;
 }) {
@@ -188,46 +196,80 @@ function InspectorTabBar({
   const closeContextMenu = useCallback(() => setContextMenu(null), []);
 
   const getContextMenuItems = useCallback(
-    (tabId: string): ContextMenuItem[] => [
-      {
-        id: "wordwrap",
-        label: "开启/关闭自动换行",
-        action: () => toggleWordWrap(),
-      },
-      {
-        id: "sep0",
-        label: "",
-        separator: true,
-        action: () => {},
-      },
-      {
-        id: "close",
-        label: "关闭",
-        action: () => onClose(tabId),
-      },
-      {
-        id: "close-others",
-        label: "关闭其他",
-        action: () => onCloseOthers(tabId),
-      },
-      {
-        id: "close-right",
-        label: "关闭右侧",
-        action: () => onCloseRight(tabId),
-      },
-      {
-        id: "sep",
-        label: "",
-        separator: true,
-        action: () => {},
-      },
-      {
-        id: "close-all",
-        label: "关闭全部",
-        action: () => onCloseAll(),
-      },
-    ],
-    [onClose, onCloseOthers, onCloseRight, onCloseAll, toggleWordWrap],
+    (tabId: string): ContextMenuItem[] => {
+      const tab = tabs.find((t) => t.id === tabId);
+      const items: ContextMenuItem[] = [];
+
+      // diff tab 专属：打开原始文件
+      // toolCallId 统一用 original-${filePath}，与 FileTreeSidebar Changes 右键菜单一致
+      if (tab?.type === "diff" && tab.filePath) {
+        const absPath = tab.filePath.replace(/\\/g, "/");
+        items.push({
+          id: "open-original",
+          label: "打开原始文件",
+          icon: FileText,
+          action: () => {
+            onOpenOriginalFile(
+              `original-${absPath}`,
+              tab.filePath,
+              undefined,
+              undefined,
+              undefined,
+              undefined,
+            );
+          },
+        });
+        items.push({
+          id: "sep-diff",
+          label: "",
+          separator: true,
+          action: () => {},
+        });
+      }
+
+      items.push(
+        {
+          id: "wordwrap",
+          label: "开启/关闭自动换行",
+          action: () => toggleWordWrap(),
+        },
+        {
+          id: "sep0",
+          label: "",
+          separator: true,
+          action: () => {},
+        },
+        {
+          id: "close",
+          label: "关闭",
+          action: () => onClose(tabId),
+        },
+        {
+          id: "close-others",
+          label: "关闭其他",
+          action: () => onCloseOthers(tabId),
+        },
+        {
+          id: "close-right",
+          label: "关闭右侧",
+          action: () => onCloseRight(tabId),
+        },
+        {
+          id: "sep",
+          label: "",
+          separator: true,
+          action: () => {},
+        },
+        {
+          id: "close-all",
+          label: "关闭全部",
+          action: () => onCloseAll(),
+        },
+      );
+
+      return items;
+    },
+    [tabs, onClose, onCloseOthers, onCloseRight, onCloseAll, toggleWordWrap, onOpenOriginalFile],
   );
 
   return (
@@ -363,11 +405,14 @@ const TabButton = memo(function TabButton({
   );
 });
 
-function InspectorTabContent(props: { tab: InspectorTab; active: boolean; wordWrap: boolean }) {
+// ⚠️ memo 包装：切 tab 时只有 active 值变化的 tab 会 re-render，
+// 其余 tab 的 props（tab 引用、wordWrap）不变则跳过，
+// 避免所有 tab 同时 re-render → MonacoDiffViewer 即使自己 memo 了也会被调用
+const InspectorTabContent = memo(function InspectorTabContent(props: { tab: InspectorTab; active: boolean; wordWrap: boolean }) {
   const meta = getTabMeta(props.tab.type);
   if (!meta) return null;
   return <>{meta.renderer(props)}</>;
-}
+});
 
 function EmptyState() {
   return (

@@ -622,8 +622,6 @@ export function FileTreeSidebar() {
 
   const handleFileClick = useCallback((path: string) => openFileInTab("filetree", path), [openFileInTab]);
 
-  const handleChangesFileClick = useCallback((path: string) => openFileInTab("changes", path), [openFileInTab]);
-
   const handleGitFileClick = useCallback(async (file: GitFileStatus) => {
     const absPath = file.absolutePath.replace(/\\/g, "/");
     const ws = workspace.replace(/\\/g, "/");
@@ -706,12 +704,15 @@ export function FileTreeSidebar() {
         id: "open-original",
         label: "打开原始文件",
         icon: FileText,
-        action: () => handleChangesFileClick(absPath),
+        action: () => {
+          const name = absPath.split("/").pop() ?? absPath;
+          useInspector.getState().openFilePreview(`original-${absPath}`, absPath, name);
+        },
       });
     }
 
     return items;
-  }, [handleChangesFileClick]);
+  }, []);
 
   const getContextMenuItems = useCallback((path: string, isDir: boolean): ContextMenuItem[] => {
     const name = path.replace(/\\/g, "/").split("/").pop() ?? path;
