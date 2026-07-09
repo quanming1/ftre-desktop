@@ -142,7 +142,12 @@ function InspectorTabBar({
   }, [getScrollElement]);
   useEffect(() => {
     updateScrollState();
-  }, [tabs, updateScrollState]);
+    // OverlayScrollbars 的 onScroll 不一定触发，直接在 viewport 上加原生监听
+    const el = getScrollElement();
+    if (!el) return;
+    el.addEventListener("scroll", updateScrollState, { passive: true });
+    return () => el.removeEventListener("scroll", updateScrollState);
+  }, [tabs, getScrollElement, updateScrollState]);
 
   // active tab 变化时滚动定位到可视区域
   useEffect(() => {
