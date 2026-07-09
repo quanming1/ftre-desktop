@@ -1,4 +1,5 @@
-import { DiffEditor } from "@monaco-editor/react";
+import { DiffEditor, loader } from "@monaco-editor/react";
+import * as monacoEditor from "monaco-editor";
 import {
   useCallback,
   useRef,
@@ -11,6 +12,10 @@ import type * as Monaco from "monaco-editor";
 import { registerFtreTheme } from "./theme-registry";
 import { getActiveThemeId } from "./themes";
 import type { DiffEntry } from "../store/types";
+
+// 确保 @monaco-editor/react 使用本地 monaco-editor 实例，而非 CDN 加载的独立实例
+// 否则 defineTheme 注册在 CDN 实例上，与本地实例主题不同步
+loader.config({ monaco: monacoEditor });
 
 const MONACO_LANG_MAP: Record<string, string> = {
   typescriptreact: "typescript",
