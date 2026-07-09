@@ -70,6 +70,14 @@ pnpm dist
 
 在 `packages/electron/src/window.ts` 中配置，当前为 `ftre`。
 
+## Git 分支
+
+| 分支 | 用途 |
+|------|------|
+| `master` | **主分支**，稳定代码 |
+| `develop` | 开发集成 |
+| `feat/*` / `feature/*` | 功能分支 |
+
 ## 许可证
 
 MIT
