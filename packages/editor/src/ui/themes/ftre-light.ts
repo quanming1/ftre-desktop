@@ -57,11 +57,14 @@ export const ftreLight: FtreThemeDefinition = {
         "scrollbarSlider.activeBackground": "#00000099",
         "editorOverviewRuler.border": "#C8C8C8",
         // ── Diff 编辑器 ──
+        // 统一用 #e3f0e8 (绿) / #fbeff2 (红)，覆盖 Monaco 默认的 #9ccc2c40 / #ff000033
         "diffEditor.insertedTextBackground": "#e3f0e8",
         "diffEditor.removedTextBackground": "#fbeff2",
+        "diffEditor.insertedLineBackground": "#e3f0e8",
+        "diffEditor.removedLineBackground": "#fbeff2",
         // inline diff 模式下 deleted 行无独立行号，gutter 背景无法对称显示，统一去掉
         // "diffEditorGutter.insertedLineBackground": "#e3f0e8",
-        // "diffEditorGutter.deletedLineBackground": "#fbeff2",
+        // "diffEditorGutter.removedLineBackground": "#fbeff2",
         "diffEditorOverviewRuler.insertedForeground": "#22c55e",
         "diffEditorOverviewRuler.deletedForeground": "#ef4444",
     },
