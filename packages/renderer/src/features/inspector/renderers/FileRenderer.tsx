@@ -6,8 +6,9 @@
  * 文件加载完成后，如果有 revealLine 则自动跳转并选中。
  */
 import { useState, useEffect, useCallback, useMemo } from "react";
-import { Loader2 } from "lucide-react";
+import { Loader2, WrapText } from "lucide-react";
 import { CodeEditorWidget, type CodeEditorFile } from "@ftre/editor";
+import { useInspector } from "@/stores/inspector";
 import type { TabRendererProps } from "../tabRegistry";
 import type { FileTab } from "@/stores/inspector";
 
@@ -25,13 +26,7 @@ function detectLanguage(filePath: string): string {
   return map[ext] ?? "plaintext";
 }
 
-function formatBytes(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-}
-
-export function FileRenderer({ tab, active, wordWrap }: TabRendererProps) {
+export function FileRenderer({ tab, wordWrap }: TabRendererProps) {
   const { filePath, content, revealLine, revealEndLine, revealNonce } = tab as FileTab;
 
   // 有 content 快照时直接使用，不走磁盘读取和缓存
@@ -116,24 +111,25 @@ export function FileRenderer({ tab, active, wordWrap }: TabRendererProps) {
     return () => clearTimeout(timer);
   }, [file, filePath, revealLine, revealEndLine, revealNonce]);
 
-  // 加载中 / 出错时仍保持 editor 挂载（如果有已缓存文件），只叠加遮罩
-  const lineCount = file?.content ? file.content.split("\n").length : 0;
-  const byteSize = file?.content ? new Blob([file.content]).size : 0;
   const displayPath = filePath.replace(/\\/g, "/");
 
   return (
     <div className="flex flex-col h-full bg-surface relative">
       {/* 文件信息 */}
-      <div className="px-3 py-1.5 border-b border-border shrink-0 flex items-baseline gap-2 bg-surface overflow-hidden">
+      <div className="px-3 py-1.5 shrink-0 flex items-center gap-2 bg-surface overflow-hidden shadow-[0_1px_3px_rgba(0,0,0,0.08)] z-[1]">
         <span className="text-[12px] font-mono text-t-ghost truncate min-w-0" title={filePath}>
           {displayPath}
         </span>
-        {file && (
-          <>
-            <span className="text-[11px] font-mono text-t-faint shrink-0">{lineCount} lines</span>
-            <span className="text-[11px] font-mono text-t-faint shrink-0">{formatBytes(byteSize)}</span>
-          </>
-        )}
+        <div className="ml-auto flex items-center gap-1 shrink-0">
+          {/* 换行切换 */}
+          <button
+            onClick={() => useInspector.getState().toggleWordWrap()}
+            title={wordWrap ? "关闭自动换行" : "开启自动换行"}
+            className={`p-1.5 rounded transition-colors ${wordWrap ? "text-t-primary bg-hover" : "text-t-faint hover:text-t-primary hover:bg-hover"}`}
+          >
+            {wordWrap ? <WrapText size={16} /> : <WrapText size={16} className="opacity-40" />}
+          </button>
+        </div>
       </div>
 
       {/* Monaco 编辑器 */}
