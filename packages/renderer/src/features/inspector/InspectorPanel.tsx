@@ -265,12 +265,12 @@ function InspectorTabBar({
           </div>
         </OverlayScrollbarsComponent>
         {hiddenLeft > 0 && (
-          <div className="absolute left-0 top-0 bottom-0 flex items-center pointer-events-none bg-gradient-to-r from-[#e8eaed] via-[#e8eaed]/80 to-transparent pl-1 pr-3">
+          <div className="absolute left-0 top-0 bottom-0 flex items-center pointer-events-none bg-[#f9fafb] pr-2 pl-1 shadow-[4px_0_4px_-2px_rgba(0,0,0,0.08)]">
             <span className="text-[10px] font-mono font-bold text-t-ghost">+{hiddenLeft}</span>
           </div>
         )}
         {hiddenRight > 0 && (
-          <div className="absolute right-0 top-0 bottom-0 flex items-center justify-end pointer-events-none bg-gradient-to-l from-[#e8eaed] via-[#e8eaed]/80 to-transparent pl-3 pr-1">
+          <div className="absolute right-0 top-0 bottom-0 flex items-center justify-end pointer-events-none bg-[#f9fafb] pl-2 pr-1 shadow-[-4px_0_4px_-2px_rgba(0,0,0,0.08)]">
             <span className="text-[10px] font-mono font-bold text-t-ghost">+{hiddenRight}</span>
           </div>
         )}
