@@ -609,30 +609,21 @@ export function FileTreeSidebar() {
     });
   }, []);
 
-  const handleFileClick = useCallback((path: string) => {
+  const openFileInTab = useCallback((prefix: string, path: string) => {
     setSelectedFilePath(path);
     const name = path.replace(/\\/g, "/").split("/").pop() ?? path;
     if (isImageFile(path)) {
-      useInspector.getState().openImagePreview(`filetree-${path}`, path, name);
+      useInspector.getState().openImagePreview(`${prefix}-${path}`, path, name);
     } else if (isBinaryFile(path)) {
       return;
     } else {
-      useInspector.getState().openFilePreview(`filetree-${path}`, path, name);
+      useInspector.getState().openFilePreview(`${prefix}-${path}`, path, name);
     }
   }, []);
 
-  // Changes 文件点击：使用独立 tab id，避免与文件树复用
-  const handleChangesFileClick = useCallback((path: string) => {
-    setSelectedFilePath(path);
-    const name = path.replace(/\\/g, "/").split("/").pop() ?? path;
-    if (isImageFile(path)) {
-      useInspector.getState().openImagePreview(`changes-${path}`, path, name);
-    } else if (isBinaryFile(path)) {
-      return;
-    } else {
-      useInspector.getState().openFilePreview(`changes-${path}`, path, name);
-    }
-  }, []);
+  const handleFileClick = useCallback((path: string) => openFileInTab("filetree", path), [openFileInTab]);
+
+  const handleChangesFileClick = useCallback((path: string) => openFileInTab("changes", path), [openFileInTab]);
 
   const handleGitFileClick = useCallback(async (file: GitFileStatus) => {
     const absPath = file.absolutePath.replace(/\\/g, "/");
@@ -669,6 +660,7 @@ export function FileTreeSidebar() {
   }, []);
 
   const closeContextMenu = useCallback(() => setContextMenu(null), []);
+  const closeChangesContextMenu = useCallback(() => setChangesContextMenu(null), []);
 
   // ── Changes 文件右键菜单 ──────────────────────────────────────────
   const [changesContextMenu, setChangesContextMenu] = useState<{
@@ -690,7 +682,7 @@ export function FileTreeSidebar() {
         label: "复制路径",
         icon: Copy,
         action: () => {
-          navigator.clipboard.writeText(absPath);
+          navigator.clipboard.writeText(file.absolutePath).catch(() => {});
         },
       },
       {
@@ -756,7 +748,7 @@ export function FileTreeSidebar() {
       label: "复制路径",
       icon: Copy,
       action: () => {
-        navigator.clipboard.writeText(path);
+        navigator.clipboard.writeText(path).catch(() => {});
       },
     });
 
@@ -830,7 +822,7 @@ export function FileTreeSidebar() {
       <ContextMenu
         items={getChangesContextMenuItems(changesContextMenu.file)}
         position={changesContextMenu.position}
-        onClose={() => setChangesContextMenu(null)}
+        onClose={closeChangesContextMenu}
         size="sm"
       />
     )}
