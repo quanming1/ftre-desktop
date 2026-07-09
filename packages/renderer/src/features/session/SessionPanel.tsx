@@ -70,7 +70,7 @@ import { normalizePathForCompare } from "@/utils/pathUtils";
 import type { SessionSummary } from "@/services/api";
 
 // ─── 水波纹（从共享组件导入） ──────────────────────────────────────
-import { useRipple, RippleLayer } from "@/components/Ripple";
+import { useRipple, RippleLayer, type RippleItem } from "@/components/Ripple";
 export { useRipple, RippleLayer };
 export type { RippleItem };
 
