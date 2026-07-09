@@ -317,13 +317,13 @@ export function SessionPanel() {
   }, []);
   useEffect(() => () => { if (hoverTimerRef.current) clearTimeout(hoverTimerRef.current); }, []);
 
-  // 计算浮层位置：紧贴折叠栏右侧
-  const [overlayPos, setOverlayPos] = useState({ top: 0, left: 0, height: 0 });
+  // 计算浮层位置：靠 window 左侧，顶部对齐折叠栏
+  const [overlayPos, setOverlayPos] = useState({ top: 0, height: 0 });
   useEffect(() => {
-    if (!hoverListOpen || !collapsedRef.current) return;
+    if (!collapsedRef.current) return;
     const rect = collapsedRef.current.getBoundingClientRect();
-    setOverlayPos({ top: rect.top, left: rect.right + 4, height: rect.height });
-  }, [hoverListOpen]);
+    setOverlayPos({ top: rect.top, height: rect.height });
+  });
 
   const [hoveredSession, setHoveredSession] = useState<string | null>(null);
   /** 每个 group 已展开多少条；未列入即 PER_GROUP_DEFAULT */
@@ -805,15 +805,15 @@ export function SessionPanel() {
           </SideIconButton>
 
           {/* 悬停浮层：会话列表 — portal 到 body 避免被父容器 overflow-hidden 裁剪 */}
-          {hoverListOpen && createPortal(
+          {createPortal(
             <div
-              className="fixed z-50"
-              style={{ top: overlayPos.top, left: overlayPos.left, height: overlayPos.height }}
+              className={`fixed z-50 left-0 transition-all duration-200 ease-out ${hoverListOpen ? "opacity-100 translate-x-0 pointer-events-auto" : "opacity-0 -translate-x-full pointer-events-none"}`}
+              style={{ top: overlayPos.top, height: overlayPos.height }}
               onMouseEnter={openHoverList}
               onMouseLeave={closeHoverList}
             >
               <div
-                className="h-full overflow-hidden rounded-xl bg-[#f6f7f9] shadow-2xl border border-border/40 flex flex-col"
+                className="h-full overflow-hidden rounded-r-xl bg-[#f6f7f9] shadow-2xl border-r border-y border-border/40 flex flex-col"
                 style={{ width: sessionsWidth }}
               >
                 {/* 顶层：新会话按钮 */}
