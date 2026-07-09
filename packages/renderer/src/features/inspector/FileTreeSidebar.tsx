@@ -5,7 +5,7 @@
  * 工作区来源与 WorkspaceBadge 一致：session DB workspace 字段。
  */
 import { useState, useCallback, useEffect, memo, useMemo, useRef } from "react";
-import { ChevronRight, Copy, Eye, FolderTree } from "lucide-react";
+import { ChevronRight, Copy, Eye, FileText, FolderTree } from "lucide-react";
 import { Icon } from "@iconify/react";
 import { useSession } from "@/stores/session";
 import { useChat, useSessionId } from "@/stores/chat";
@@ -297,6 +297,7 @@ function GitChangesSection({
   selectedDiffPath,
   onToggle,
   onGitFileClick,
+  onContextMenu,
 }: {
   workspace: string;
   changedFiles: GitFileStatus[];
@@ -304,6 +305,7 @@ function GitChangesSection({
   selectedDiffPath: string | null;
   onToggle: (path: string) => void;
   onGitFileClick: (file: GitFileStatus) => void;
+  onContextMenu: (e: React.MouseEvent, file: GitFileStatus) => void;
 }) {
   const changesKey = `${workspace}::changes`;
   const isExpanded = expandedPaths.has(changesKey);
@@ -355,6 +357,7 @@ function GitChangesSection({
           <button
             key={file.absolutePath}
             onClick={() => onGitFileClick(file)}
+            onContextMenu={(e) => onContextMenu(e, file)}
             title={relPath}
             className={`flex items-center gap-1 w-full text-left text-[12.5px] transition-colors py-[3px] pr-2 ${
               isActive ? "bg-neon/10 font-medium" : "hover:bg-hover/60"
@@ -654,6 +657,50 @@ export function FileTreeSidebar() {
 
   const closeContextMenu = useCallback(() => setContextMenu(null), []);
 
+  // ── Changes 文件右键菜单 ──────────────────────────────────────────
+  const [changesContextMenu, setChangesContextMenu] = useState<{
+    position: { x: number; y: number };
+    file: GitFileStatus;
+  } | null>(null);
+
+  const handleChangesContextMenu = useCallback((e: React.MouseEvent, file: GitFileStatus) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setChangesContextMenu({ position: { x: e.clientX, y: e.clientY }, file });
+  }, []);
+
+  const getChangesContextMenuItems = useCallback((file: GitFileStatus): ContextMenuItem[] => {
+    const absPath = file.absolutePath.replace(/\\/g, "/");
+    const items: ContextMenuItem[] = [
+      {
+        id: "copy-path",
+        label: "复制路径",
+        icon: Copy,
+        action: () => {
+          navigator.clipboard.writeText(absPath);
+        },
+      },
+    ];
+
+    // deleted 文件已不存在，不显示"打开原始文件"
+    if (file.status !== "deleted") {
+      items.push({
+        id: "sep1",
+        label: "",
+        separator: true,
+        action: () => {},
+      });
+      items.push({
+        id: "open-original",
+        label: "打开原始文件",
+        icon: FileText,
+        action: () => handleFileClick(absPath),
+      });
+    }
+
+    return items;
+  }, [handleFileClick]);
+
   const getContextMenuItems = useCallback((path: string, isDir: boolean): ContextMenuItem[] => {
     const name = path.replace(/\\/g, "/").split("/").pop() ?? path;
     const items: ContextMenuItem[] = [];
@@ -744,6 +791,7 @@ export function FileTreeSidebar() {
               selectedDiffPath={selectedDiffPath}
               onToggle={handleToggle}
               onGitFileClick={handleGitFileClick}
+              onContextMenu={handleChangesContextMenu}
             />
           </>
         )}
@@ -754,6 +802,14 @@ export function FileTreeSidebar() {
         items={getContextMenuItems(contextMenu.path, contextMenu.isDir)}
         position={contextMenu.position}
         onClose={closeContextMenu}
+        size="sm"
+      />
+    )}
+    {changesContextMenu && (
+      <ContextMenu
+        items={getChangesContextMenuItems(changesContextMenu.file)}
+        position={changesContextMenu.position}
+        onClose={() => setChangesContextMenu(null)}
         size="sm"
       />
     )}
