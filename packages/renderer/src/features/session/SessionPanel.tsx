@@ -278,7 +278,7 @@ export function SessionPanel() {
     if (!collapsedRef.current) return;
     const rect = collapsedRef.current.getBoundingClientRect();
     setOverlayPos({ top: rect.top, height: rect.height });
-  });
+  }, [sessionsCollapsed]);
 
   const [hoveredSession, setHoveredSession] = useState<string | null>(null);
   /** 每个 group 已展开多少条；未列入即 PER_GROUP_DEFAULT */
@@ -713,8 +713,6 @@ export function SessionPanel() {
         <div
           ref={collapsedRef}
           className="h-full flex flex-col items-center bg-[#f6f7f9] py-3 text-[14px] relative"
-          onMouseEnter={openHoverList}
-          onMouseLeave={closeHoverList}
         >
           <SideIconButton
             title="展开会话列表"
@@ -750,10 +748,16 @@ export function SessionPanel() {
             </SideIconButton>
           </div>
 
+          {/* 中间空白区域：hover 展开悬浮会话列表 */}
+          <div
+            className="flex-1 w-full"
+            onMouseEnter={openHoverList}
+            onMouseLeave={closeHoverList}
+          />
+
           <SideIconButton
             title="设置"
             active={activeLeftPanel === "settings"}
-            className="mt-auto"
             onClick={handleOpenSettings}
           >
             <Settings size={17} />
