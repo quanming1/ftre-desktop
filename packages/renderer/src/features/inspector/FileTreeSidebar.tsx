@@ -538,7 +538,7 @@ export function FileTreeSidebar() {
       return;
     }
     setLoading(true);
-    setExpandedPaths(new Set([workspace]));
+    setExpandedPaths(new Set([workspace, `${workspace}::changes`]));
     readDirSorted(workspace).then((entries) => {
       setRootEntries(entries);
       setLoading(false);
