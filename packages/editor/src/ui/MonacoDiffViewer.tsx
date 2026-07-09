@@ -93,7 +93,10 @@ export const MonacoDiffViewer = forwardRef<
         const changes = diffEditor.getLineChanges();
         if (changes && changes.length > 0) {
           const firstLine = changes[0].modifiedStartLineNumber;
-          diffEditor.getModifiedEditor().revealLineInCenter(firstLine);
+          // 延迟到下一帧，等 wordWrap 布局完成后再定位，否则换行后行数增多导致偏上
+          requestAnimationFrame(() => {
+            diffEditor.getModifiedEditor().revealLineInCenter(firstLine);
+          });
 
           // 给 modified editor 添加行级装饰，minimap 会渲染这些装饰的背景色
           // 简化：只用绿色（added）+ 红色（deleted），不区分 modified 琥珀色
@@ -190,7 +193,9 @@ export const MonacoDiffViewer = forwardRef<
         const changes = diffEditor.getLineChanges();
         if (changes && changes.length > 0) {
           const firstLine = changes[0].modifiedStartLineNumber;
-          diffEditor.getModifiedEditor().revealLineInCenter(firstLine);
+          requestAnimationFrame(() => {
+            diffEditor.getModifiedEditor().revealLineInCenter(firstLine);
+          });
         }
       },
       ensureMinimap: () => {
@@ -212,14 +217,20 @@ export const MonacoDiffViewer = forwardRef<
     const changes = diffEditor.getLineChanges();
     if (changes) {
       if (changes.length > 0) {
-        diffEditor.getModifiedEditor().revealLineInCenter(changes[0].modifiedStartLineNumber);
+        const firstLine = changes[0].modifiedStartLineNumber;
+        requestAnimationFrame(() => {
+          diffEditor.getModifiedEditor().revealLineInCenter(firstLine);
+        });
       }
       return;
     }
     const disposable = diffEditor.onDidUpdateDiff(() => {
       const ch = diffEditor.getLineChanges();
       if (ch && ch.length > 0) {
-        diffEditor.getModifiedEditor().revealLineInCenter(ch[0].modifiedStartLineNumber);
+        const firstLine = ch[0].modifiedStartLineNumber;
+        requestAnimationFrame(() => {
+          diffEditor.getModifiedEditor().revealLineInCenter(firstLine);
+        });
       }
       disposable.dispose();
     });
