@@ -4,39 +4,60 @@
  * 面板的显示/隐藏由 layout store 的 panelVisible.inspector 控制。
  * 本 store 只跟踪"展示什么内容"。
  *
- * 面板支持多 tab：
- *   - file:  文件预览（传入绝对路径，面板自行读取）
- *   - diff:  diff 预览（传入修改前后的完整内容 + 增删统计）
+ * Tab 类型使用 discriminated union，严格区分 file / diff / image。
  */
 import { create } from "zustand";
 
+// ─── Tab 类型（discriminated union）──────────────────────────────
+
 export type InspectorTabType = "file" | "diff" | "image";
 
-export interface InspectorTab {
+/** 所有 tab 共享的基础字段 */
+interface TabBase {
   id: string;
   type: InspectorTabType;
-  title: string;
   /** 去重 key：tool call ID（per-tool 复用，不是 per-file） */
   toolCallId: string;
-  /** file 模式：文件绝对路径 */
-  filePath: string | null;
-  /** file 模式：内容快照（来自 read 工具的 metadata），不提供时从磁盘读取 */
-  content: string | null;
-  /** diff 模式：修改前完整内容 */
-  before: string | null;
-  /** diff 模式：修改后完整内容 */
-  after: string | null;
-  /** diff 模式：新增行数 */
-  additions: number;
-  /** diff 模式：删除行数 */
-  deletions: number;
-  /** file 模式：跳转到的起始行（read 工具的 start_line） */
-  revealLine?: number;
-  /** file 模式：跳转到的结束行（read 工具的 end_line） */
-  revealEndLine?: number;
-  /** 每次复用 tab 时递增，驱动 FilePreviewContent 重新定位 */
+  title: string;
+  /** 每次复用 tab 时递增，驱动渲染器重新定位 */
   revealNonce: number;
 }
+
+/** file tab：文件预览 */
+export interface FileTab extends TabBase {
+  type: "file";
+  filePath: string;
+  /** 内容快照（来自 read 工具 metadata），不提供时从磁盘读取 */
+  content: string | null;
+  /** 跳转到的起始行（read 工具的 start_line） */
+  revealLine?: number;
+  /** 跳转到的结束行（read 工具的 end_line） */
+  revealEndLine?: number;
+}
+
+/** diff tab：diff 预览 */
+export interface DiffTab extends TabBase {
+  type: "diff";
+  filePath: string;
+  /** 修改前完整内容 */
+  before: string;
+  /** 修改后完整内容 */
+  after: string;
+  /** 新增行数 */
+  additions: number;
+  /** 删除行数 */
+  deletions: number;
+}
+
+/** image tab：图片预览 */
+export interface ImageTab extends TabBase {
+  type: "image";
+  filePath: string;
+}
+
+export type InspectorTab = FileTab | DiffTab | ImageTab;
+
+// ─── Store 接口 ─────────────────────────────────────────────────
 
 export interface InspectorState {
   /** 当前所有 tab */
@@ -97,28 +118,24 @@ export const useInspector = create<InspectorState>((set, get) => ({
     const existing = get().tabs.find(
       (t) => t.toolCallId === toolCallId,
     );
-    if (existing) {
+    if (existing && existing.type === "file") {
       set({
         activeTabId: existing.id,
         tabs: get().tabs.map((t) =>
-          t.id === existing.id
+          t.id === existing.id && t.type === "file"
             ? { ...t, revealLine, revealEndLine, content: content ?? t.content, revealNonce: t.revealNonce + 1 }
             : t,
         ),
       });
       return;
     }
-    const tab: InspectorTab = {
+    const tab: FileTab = {
       id: nextId(),
       type: "file",
       title: title ?? basename(path),
       toolCallId,
       filePath: path,
       content: content ?? null,
-      before: null,
-      after: null,
-      additions: 0,
-      deletions: 0,
       revealLine,
       revealEndLine,
       revealNonce: 0,
@@ -133,24 +150,23 @@ export const useInspector = create<InspectorState>((set, get) => ({
     const existing = get().tabs.find(
       (t) => t.toolCallId === toolCallId,
     );
-    if (existing) {
+    if (existing && existing.type === "diff") {
       set({
         activeTabId: existing.id,
         tabs: get().tabs.map((t) =>
-          t.id === existing.id
+          t.id === existing.id && t.type === "diff"
             ? { ...t, before, after, additions, deletions, revealNonce: t.revealNonce + 1 }
             : t,
         ),
       });
       return;
     }
-    const tab: InspectorTab = {
+    const tab: DiffTab = {
       id: nextId(),
       type: "diff",
       title: title ?? basename(filePath),
       toolCallId,
       filePath,
-      content: null,
       before,
       after,
       additions,
@@ -202,17 +218,12 @@ export const useInspector = create<InspectorState>((set, get) => ({
       set({ activeTabId: existing.id });
       return;
     }
-    const tab: InspectorTab = {
+    const tab: ImageTab = {
       id: nextId(),
       type: "image",
       title: title ?? basename(path),
       toolCallId,
       filePath: path,
-      content: null,
-      before: null,
-      after: null,
-      additions: 0,
-      deletions: 0,
       revealNonce: 0,
     };
     set({
