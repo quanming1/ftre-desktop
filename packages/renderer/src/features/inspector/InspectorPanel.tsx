@@ -4,8 +4,9 @@
  * Tab 渲染通过 tabRegistry 分发，新增 tab 类型只需注册 renderer。
  */
 import { useState, useEffect, useCallback, useRef, memo } from "react";
-import { X, FileText, Loader2, ListTree } from "lucide-react";
+import { X, FileText, Loader2, ListTree, ChevronLeft, ChevronRight } from "lucide-react";
 import { GitCompareArrows } from "lucide-react";
+import { OverlayScrollbarsComponent, type OverlayScrollbarsComponentRef } from "overlayscrollbars-react";
 import { useInspector, type InspectorTab } from "@/stores/inspector";
 import { ContextMenu, type ContextMenuItem } from "@/components/ContextMenu";
 import { ResizeHandle } from "@/components/ResizeHandle";
@@ -110,7 +111,7 @@ function InspectorTabBar({
   fileTreeOpen: boolean;
   onToggleFileTree: () => void;
 }) {
-  const scrollContainerRef = useRef<HTMLDivElement | null>(null);
+  const overlayRef = useRef<OverlayScrollbarsComponentRef | null>(null);
   const activeTabRef = useRef<HTMLButtonElement | null>(null);
   const [contextMenu, setContextMenu] = useState<{
     position: { x: number; y: number };
@@ -118,8 +119,22 @@ function InspectorTabBar({
   } | null>(null);
 
   const getScrollElement = useCallback((): HTMLElement | null => {
-    return scrollContainerRef.current;
+    const osInstance = overlayRef.current?.osInstance();
+    return osInstance?.elements()?.viewport ?? null;
   }, []);
+
+  // 检测左右是否有溢出内容
+  const [canScrollLeft, setCanScrollLeft] = useState(false);
+  const [canScrollRight, setCanScrollRight] = useState(false);
+  const updateScrollState = useCallback(() => {
+    const el = getScrollElement();
+    if (!el) return;
+    setCanScrollLeft(el.scrollLeft > 2);
+    setCanScrollRight(el.scrollLeft + el.clientWidth < el.scrollWidth - 2);
+  }, [getScrollElement]);
+  useEffect(() => {
+    updateScrollState();
+  }, [tabs, updateScrollState]);
 
   // active tab 变化时滚动定位到可视区域
   useEffect(() => {
@@ -135,7 +150,8 @@ function InspectorTabBar({
     } else if (elRect.right > cRect.right) {
       container.scrollLeft += elRect.right - cRect.right + 8;
     }
-  }, [activeTabId, getScrollElement]);
+    updateScrollState();
+  }, [activeTabId, getScrollElement, updateScrollState]);
 
   const handleWheel = useCallback(
     (e: React.WheelEvent) => {
@@ -214,24 +230,42 @@ function InspectorTabBar({
       >
         <ListTree size={15} />
       </button>
-      <div
-        ref={(el) => { scrollContainerRef.current = el; }}
-        className="flex-1 min-w-0 h-full overflow-x-auto overflow-y-hidden scrollbar-thin"
-        onWheel={handleWheel}
-      >
-        <div className="flex items-end justify-start h-full min-w-max">
-          {tabs.map((tab) => (
-            <TabButton
-              key={tab.id}
-              tab={tab}
-              isActive={tab.id === activeTabId}
-              activeRef={activeTabRef}
-              onActivate={onActivate}
-              onClose={onClose}
-              onContextMenu={handleContextMenu}
-            />
-          ))}
-        </div>
+      <div className="relative flex-1 min-w-0 h-full">
+        <OverlayScrollbarsComponent
+          ref={overlayRef}
+          defer
+          options={{
+            overflow: { x: "scroll", y: "hidden" },
+            scrollbars: { autoHide: "never", autoHideDelay: 0 },
+          }}
+          className="h-full tabbar-scroll-area"
+          onWheel={handleWheel}
+          onScroll={updateScrollState}
+        >
+          <div className="flex items-end justify-start h-full min-w-max">
+            {tabs.map((tab) => (
+              <TabButton
+                key={tab.id}
+                tab={tab}
+                isActive={tab.id === activeTabId}
+                activeRef={activeTabRef}
+                onActivate={onActivate}
+                onClose={onClose}
+                onContextMenu={handleContextMenu}
+              />
+            ))}
+          </div>
+        </OverlayScrollbarsComponent>
+        {canScrollLeft && (
+          <div className="absolute left-0 top-0 bottom-0 w-6 flex items-center justify-center pointer-events-none bg-gradient-to-r from-[#e8eaed] via-[#e8eaed]/80 to-transparent">
+            <ChevronLeft size={14} className="text-t-ghost" />
+          </div>
+        )}
+        {canScrollRight && (
+          <div className="absolute right-0 top-0 bottom-0 w-6 flex items-center justify-center pointer-events-none bg-gradient-to-l from-[#e8eaed] via-[#e8eaed]/80 to-transparent">
+            <ChevronRight size={14} className="text-t-ghost" />
+          </div>
+        )}
       </div>
       {contextMenu && (
         <ContextMenu
