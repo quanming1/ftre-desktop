@@ -621,6 +621,19 @@ export function FileTreeSidebar() {
     }
   }, []);
 
+  // Changes 文件点击：使用独立 tab id，避免与文件树复用
+  const handleChangesFileClick = useCallback((path: string) => {
+    setSelectedFilePath(path);
+    const name = path.replace(/\\/g, "/").split("/").pop() ?? path;
+    if (isImageFile(path)) {
+      useInspector.getState().openImagePreview(`changes-${path}`, path, name);
+    } else if (isBinaryFile(path)) {
+      return;
+    } else {
+      useInspector.getState().openFilePreview(`changes-${path}`, path, name);
+    }
+  }, []);
+
   const handleGitFileClick = useCallback(async (file: GitFileStatus) => {
     const absPath = file.absolutePath.replace(/\\/g, "/");
     const ws = workspace.replace(/\\/g, "/");
@@ -680,6 +693,14 @@ export function FileTreeSidebar() {
           navigator.clipboard.writeText(absPath);
         },
       },
+      {
+        id: "reveal",
+        label: "在资源管理器中打开",
+        icon: FolderTree,
+        action: () => {
+          window.desktop?.fs?.revealInExplorer(file.absolutePath);
+        },
+      },
     ];
 
     // deleted 文件已不存在，不显示"打开原始文件"
@@ -694,12 +715,12 @@ export function FileTreeSidebar() {
         id: "open-original",
         label: "打开原始文件",
         icon: FileText,
-        action: () => handleFileClick(absPath),
+        action: () => handleChangesFileClick(absPath),
       });
     }
 
     return items;
-  }, [handleFileClick]);
+  }, [handleChangesFileClick]);
 
   const getContextMenuItems = useCallback((path: string, isDir: boolean): ContextMenuItem[] => {
     const name = path.replace(/\\/g, "/").split("/").pop() ?? path;
