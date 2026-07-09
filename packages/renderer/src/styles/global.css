@@ -130,7 +130,7 @@
 
 /* ===== TabBar OverlayScrollbars ===== */
 .tabbar-scroll-area .os-scrollbar-horizontal {
-  --os-size: 6px;
+  --os-size: 3px;
 }
 
 .tabbar-scroll-area .os-scrollbar-track {
