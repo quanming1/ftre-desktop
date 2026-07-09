@@ -6,7 +6,6 @@
 import { useState, useEffect, useCallback, useRef, memo } from "react";
 import { X, FileText, Loader2, ListTree } from "lucide-react";
 import { GitCompareArrows } from "lucide-react";
-import { OverlayScrollbarsComponent, type OverlayScrollbarsComponentRef } from "overlayscrollbars-react";
 import { useInspector, type InspectorTab } from "@/stores/inspector";
 import { ContextMenu, type ContextMenuItem } from "@/components/ContextMenu";
 import { ResizeHandle } from "@/components/ResizeHandle";
@@ -111,7 +110,7 @@ function InspectorTabBar({
   fileTreeOpen: boolean;
   onToggleFileTree: () => void;
 }) {
-  const overlayRef = useRef<OverlayScrollbarsComponentRef | null>(null);
+  const scrollContainerRef = useRef<HTMLDivElement | null>(null);
   const activeTabRef = useRef<HTMLButtonElement | null>(null);
   const [contextMenu, setContextMenu] = useState<{
     position: { x: number; y: number };
@@ -119,8 +118,7 @@ function InspectorTabBar({
   } | null>(null);
 
   const getScrollElement = useCallback((): HTMLElement | null => {
-    const osInstance = overlayRef.current?.osInstance();
-    return osInstance?.elements()?.viewport ?? null;
+    return scrollContainerRef.current;
   }, []);
 
   // active tab 变化时滚动定位到可视区域
@@ -216,14 +214,9 @@ function InspectorTabBar({
       >
         <ListTree size={15} />
       </button>
-      <OverlayScrollbarsComponent
-        ref={overlayRef}
-        defer
-        options={{
-          overflow: { x: "scroll", y: "hidden" },
-          scrollbars: { autoHide: "never", autoHideDelay: 0 },
-        }}
-        className="flex-1 min-w-0 h-full"
+      <div
+        ref={(el) => { scrollContainerRef.current = el; }}
+        className="flex-1 min-w-0 h-full overflow-x-auto overflow-y-hidden scrollbar-thin"
         onWheel={handleWheel}
       >
         <div className="flex items-end justify-start h-full min-w-max">
@@ -239,7 +232,7 @@ function InspectorTabBar({
             />
           ))}
         </div>
-      </OverlayScrollbarsComponent>
+      </div>
       {contextMenu && (
         <ContextMenu
           items={getContextMenuItems(contextMenu.tabId)}
