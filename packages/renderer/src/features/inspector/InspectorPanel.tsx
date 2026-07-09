@@ -295,7 +295,7 @@ const TabButton = memo(function TabButton({
           : "text-t-muted hover:bg-elevated hover:text-t-secondary"
       }`}
       style={isActive ? {
-        background: "#ffffff",
+        background: "#f0f1f3",
         boxShadow: "inset 3px 0 0 #059669, 0 -1px 3px rgba(0,0,0,0.06), inset 0 -1px 0 rgba(0,0,0,0.05)",
       } : undefined}
     >
