@@ -99,10 +99,11 @@ export const MonacoDiffViewer = forwardRef<
             diffEditor.getModifiedEditor().revealLineInCenter(firstLine);
           }
           // 给 modified editor 添加行级装饰，minimap 会渲染这些装饰的背景色
+          // 简化：只用绿色（added）+ 红色（deleted），不区分 modified 琥珀色
           const modEditor = diffEditor.getModifiedEditor();
           const decorations: monaco.editor.IModelDeltaDecoration[] = [];
           for (const change of changes) {
-            const type = change.originalEndLineNumber === 0 ? "added" : "modified";
+            // const type = change.originalEndLineNumber === 0 ? "added" : "modified";
             const startLine = change.modifiedStartLineNumber;
             const endLine = change.modifiedEndLineNumber || startLine;
             for (let line = startLine; line <= endLine; line++) {
@@ -114,10 +115,10 @@ export const MonacoDiffViewer = forwardRef<
                     position: monaco.editor.MinimapPosition.Inline,
                     color: { id: "minimap.background" },
                   },
-                  className: type === "added" ? "diff-minimap-added" : "diff-minimap-modified",
+                  className: "diff-minimap-added",
                   overviewRuler: {
                     position: monaco.editor.OverviewRulerLane.Full,
-                    color: type === "added" ? "rgba(22, 163, 74, 0.6)" : "rgba(217, 119, 6, 0.6)",
+                    color: "rgba(22, 163, 74, 0.6)",
                   },
                 },
               });
