@@ -249,12 +249,17 @@ function InspectorTabBar({
                 onContextMenu={(e) => handleContextMenu(e, tab.id)}
                 className={`group relative flex items-center gap-2 h-full text-[13px] whitespace-nowrap font-sans transition-all duration-150 select-none px-3.5 ${
                   isActive
-                    ? "z-10 bg-[#e8f5e9] text-t-primary shadow-[0_1px_3px_rgba(0,0,0,0.08)]"
+                    ? "z-10 text-t-primary"
                     : "text-t-muted hover:bg-elevated hover:text-t-secondary"
                 }`}
+                style={isActive ? {
+                  background: "linear-gradient(180deg, #ffffff 0%, #e2e8f0 100%)",
+                  boxShadow: "0 -2px 4px rgba(0,0,0,0.08), 0 1px 2px rgba(0,0,0,0.06), inset 0 1px 0 rgba(255,255,255,1), inset 0 -1px 0 rgba(0,0,0,0.06)",
+                  borderTop: "1px solid rgba(0,0,0,0.05)",
+                } : undefined}
               >
                 {isActive && (
-                  <div className="absolute top-0 left-0 right-0 h-[2px] bg-white/40" />
+                  <div className="absolute top-0 left-0 right-0 h-[2px] bg-white/60" />
                 )}
                 {meta?.icon(tab) ?? <FileIconView path={filePath} size={16} />}
                 <span className="max-w-[180px] truncate">{meta?.title(tab) ?? tab.title}</span>
