@@ -103,7 +103,6 @@ export const MonacoDiffViewer = forwardRef<
           const decorations: monaco.editor.IModelDeltaDecoration[] = [];
           for (const change of changes) {
             const type = change.originalEndLineNumber === 0 ? "added" : "modified";
-            const color = type === "added" ? "rgba(22, 163, 74, 0.25)" : "rgba(217, 119, 6, 0.25)";
             const startLine = change.modifiedStartLineNumber;
             const endLine = change.modifiedEndLineNumber || startLine;
             for (let line = startLine; line <= endLine; line++) {
@@ -123,8 +122,6 @@ export const MonacoDiffViewer = forwardRef<
                 },
               });
             }
-            // void color to avoid unused warning
-            void color;
           }
           modEditor.deltaDecorations([], decorations);
         }
@@ -135,10 +132,6 @@ export const MonacoDiffViewer = forwardRef<
     },
     [monacoLang, renderSideBySide],
   );
-
-  // 用 ref 追踪最新的 diff.filePath，确保 cleanup 中拿到正确值
-  const filePathRef = useRef(diff.filePath);
-  filePathRef.current = diff.filePath;
 
   // @monaco-editor/react DiffEditor 不响应 original/modified props 变化
   // 需要手动更新 model 内容

@@ -1,4 +1,4 @@
-export { registerFtreTheme, _resetThemeRegistration } from "./theme-registry";
+export { registerFtreTheme } from "./theme-registry";
 export { MonacoDiffViewer, type MonacoDiffViewerHandle } from "./MonacoDiffViewer";
 export { DiffBar, computeDiffStats } from "./DiffBar";
 

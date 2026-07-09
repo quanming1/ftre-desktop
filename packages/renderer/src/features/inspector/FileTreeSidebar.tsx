@@ -99,7 +99,6 @@ function getDirGitStatus(path: string, map: Map<string, GitStatus>): DirGitStatu
   const prefix = path.replace(/\\/g, "/").toLowerCase() + "/";
   let hasModified = false;
   let hasUntracked = false;
-  let hasOther = false;
   for (const [key, status] of map) {
     if (!key.toLowerCase().startsWith(prefix)) continue;
     if (status === "modified" || status === "added" || status === "deleted" || status === "renamed" || status === "conflict") {
