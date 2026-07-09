@@ -3,7 +3,7 @@
  *
  * Tab 渲染通过 tabRegistry 分发，新增 tab 类型只需注册 renderer。
  */
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useRef, memo } from "react";
 import { X, FileText, Loader2, ListTree } from "lucide-react";
 import { GitCompareArrows } from "lucide-react";
 import { OverlayScrollbarsComponent, type OverlayScrollbarsComponentRef } from "overlayscrollbars-react";
@@ -123,8 +123,6 @@ function InspectorTabBar({
     return osInstance?.elements()?.viewport ?? null;
   }, []);
 
-  const { ripples: tabRipples, trigger: triggerTabRipple, remove: removeTabRipple } = useRipple();
-
   // active tab 变化时滚动定位到可视区域
   useEffect(() => {
     if (!activeTabId) return;
@@ -229,62 +227,17 @@ function InspectorTabBar({
         onWheel={handleWheel}
       >
         <div className="flex items-end justify-start h-full min-w-max">
-          {tabs.map((tab) => {
-            const isActive = tab.id === activeTabId;
-            const meta = getTabMeta(tab.type);
-            const filePath = tab.filePath ?? tab.title;
-            return (
-              <button
-                key={tab.id}
-                ref={isActive ? activeTabRef : undefined}
-                onClick={(e) => {
-                  triggerTabRipple(e);
-                  onActivate(tab.id);
-                }}
-                onMouseDown={(e) => {
-                  if (e.button === 1) {
-                    e.preventDefault();
-                  }
-                }}
-                onAuxClick={(e) => {
-                  if (e.button === 1) {
-                    e.preventDefault();
-                    onClose(tab.id);
-                  }
-                }}
-                onContextMenu={(e) => handleContextMenu(e, tab.id)}
-                className={`group relative overflow-hidden flex items-center gap-2 h-full text-[13px] whitespace-nowrap font-sans transition-all duration-150 select-none px-3.5 ${
-                  isActive
-                    ? "z-10 text-t-primary"
-                    : "text-t-muted hover:bg-elevated hover:text-t-secondary"
-                }`}
-                style={isActive ? {
-                  background: "linear-gradient(180deg, #ffffff 0%, #e2e8f0 100%)",
-                  boxShadow: "inset 3px 0 0 #059669, 0 -2px 4px rgba(0,0,0,0.08), 0 1px 2px rgba(0,0,0,0.06), inset 0 1px 0 rgba(255,255,255,1), inset 0 -1px 0 rgba(0,0,0,0.06)",
-                } : undefined}
-              >
-                <RippleLayer items={tabRipples} onEnd={removeTabRipple} />
-                {isActive && (
-                  <div className="absolute top-0 left-0 right-0 h-[2px] bg-white/60" />
-                )}
-                {meta?.icon(tab) ?? <FileIconView path={filePath} size={16} />}
-                <span className="max-w-[180px] truncate">{meta?.title(tab) ?? tab.title}</span>
-                <span
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onClose(tab.id);
-                  }}
-                  className={`ml-1 p-0.5 rounded transition-all cursor-pointer ${
-                    isActive
-                      ? "text-t-muted hover:text-t-primary hover:bg-black/[0.08] opacity-100"
-                      : "opacity-0 group-hover:opacity-100 text-t-muted hover:text-t-primary hover:bg-black/[0.08]"
-                  }`}
-                >
-                  <X size={12} strokeWidth={1.5} />
-                </span>
-              </button>
-            );
-          })}
+          {tabs.map((tab) => (
+            <TabButton
+              key={tab.id}
+              tab={tab}
+              isActive={tab.id === activeTabId}
+              activeRef={activeTabRef}
+              onActivate={onActivate}
+              onClose={onClose}
+              onContextMenu={handleContextMenu}
+            />
+          ))}
         </div>
       </OverlayScrollbarsComponent>
       {contextMenu && (
@@ -297,6 +250,77 @@ function InspectorTabBar({
     </div>
   );
 }
+
+// ─── 单个 Tab 按钮（独立 ripple） ──────────────────────────────────
+
+const TabButton = memo(function TabButton({
+  tab,
+  isActive,
+  activeRef,
+  onActivate,
+  onClose,
+  onContextMenu,
+}: {
+  tab: InspectorTab;
+  isActive: boolean;
+  activeRef: React.RefObject<HTMLButtonElement | null>;
+  onActivate: (id: string) => void;
+  onClose: (id: string) => void;
+  onContextMenu: (e: React.MouseEvent, tabId: string) => void;
+}) {
+  const { ripples, trigger, remove } = useRipple();
+  const meta = getTabMeta(tab.type);
+  const filePath = tab.filePath ?? tab.title;
+
+  return (
+    <button
+      ref={isActive ? activeRef : undefined}
+      onClick={(e) => {
+        trigger(e);
+        onActivate(tab.id);
+      }}
+      onMouseDown={(e) => {
+        if (e.button === 1) e.preventDefault();
+      }}
+      onAuxClick={(e) => {
+        if (e.button === 1) {
+          e.preventDefault();
+          onClose(tab.id);
+        }
+      }}
+      onContextMenu={(e) => onContextMenu(e, tab.id)}
+      className={`group relative overflow-hidden flex items-center gap-2 h-full text-[13px] whitespace-nowrap font-sans transition-all duration-150 select-none px-3.5 ${
+        isActive
+          ? "z-10 text-t-primary"
+          : "text-t-muted hover:bg-elevated hover:text-t-secondary"
+      }`}
+      style={isActive ? {
+        background: "#ffffff",
+        boxShadow: "inset 3px 0 0 #059669, 0 -1px 3px rgba(0,0,0,0.06), inset 0 -1px 0 rgba(0,0,0,0.05)",
+      } : undefined}
+    >
+      <RippleLayer items={ripples} onEnd={remove} />
+      {isActive && (
+        <div className="absolute top-0 left-0 right-0 h-[2px] bg-white/60" />
+      )}
+      {meta?.icon(tab) ?? <FileIconView path={filePath} size={16} />}
+      <span className="max-w-[180px] truncate">{meta?.title(tab) ?? tab.title}</span>
+      <span
+        onClick={(e) => {
+          e.stopPropagation();
+          onClose(tab.id);
+        }}
+        className={`ml-1 p-0.5 rounded transition-all cursor-pointer ${
+          isActive
+            ? "text-t-muted hover:text-t-primary hover:bg-black/[0.08] opacity-100"
+            : "opacity-0 group-hover:opacity-100 text-t-muted hover:text-t-primary hover:bg-black/[0.08]"
+        }`}
+      >
+        <X size={12} strokeWidth={1.5} />
+      </span>
+    </button>
+  );
+});
 
 function InspectorTabContent(props: { tab: InspectorTab; active: boolean; wordWrap: boolean }) {
   const meta = getTabMeta(props.tab.type);
