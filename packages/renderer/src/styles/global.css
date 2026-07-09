@@ -489,6 +489,7 @@ html[data-theme="dark"] .tool-highlight .hljs-type {
 .diff-minimap-added {
   background: rgba(22, 163, 74, 0.15) !important;
 }
-.diff-minimap-modified {
+/* 暂时注释 modified 琥珀色，只用绿色+红色 */
+/* .diff-minimap-modified {
   background: rgba(217, 119, 6, 0.15) !important;
-}
+} */
