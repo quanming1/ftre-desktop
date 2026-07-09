@@ -57,9 +57,10 @@ export const ftreLight: FtreThemeDefinition = {
         "scrollbarSlider.activeBackground": "#00000099",
         "editorOverviewRuler.border": "#C8C8C8",
         // ── Diff 编辑器 ──
-        // 统一用 #e3f0e8 (绿) / #fbeff2 (红)，覆盖 Monaco 默认的 #9ccc2c40 / #ff000033
-        "diffEditor.insertedTextBackground": "#d6e8c0",
-        "diffEditor.removedTextBackground": "#f4cccf",
+        // insertedTextBackground / removedTextBackground 被 Monaco 强制加 alpha（registerColor 第4参数 true），
+        // 叠加在 lineBackground 上会产生不同色。设为透明，只保留 lineBackground 一层颜色。
+        "diffEditor.insertedTextBackground": "#00000000",
+        "diffEditor.removedTextBackground": "#00000000",
         "diffEditor.insertedLineBackground": "#d6e8c0",
         "diffEditor.removedLineBackground": "#f4cccf",
         // inline diff 模式下 deleted 行无独立行号，gutter 背景无法对称显示，统一去掉
