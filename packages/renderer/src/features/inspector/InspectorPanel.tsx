@@ -1,19 +1,19 @@
 /**
  * InspectorPanel — 右侧扩展面板（编辑器风格）
+ *
+ * Tab 渲染通过 tabRegistry 分发，新增 tab 类型只需注册 renderer。
  */
-import { useState, useEffect, useCallback, useMemo, useRef } from "react";
-import { X, FileText, Loader2, GitCompareArrows, ListTree } from "lucide-react";
+import { useState, useEffect, useCallback, useRef } from "react";
+import { X, FileText, Loader2, ListTree } from "lucide-react";
+import { GitCompareArrows } from "lucide-react";
 import { OverlayScrollbarsComponent, type OverlayScrollbarsComponentRef } from "overlayscrollbars-react";
 import { useInspector, type InspectorTab } from "@/stores/inspector";
-import { CodeEditorWidget, MonacoDiffViewer, type CodeEditorFile, type MonacoDiffViewerHandle } from "@ftre/editor";
 import { ContextMenu, type ContextMenuItem } from "@/components/ContextMenu";
 import { ResizeHandle } from "@/components/ResizeHandle";
 import { useLayout } from "@/stores/layout";
 import { FileTreeSidebar } from "./FileTreeSidebar";
 import { FileIconView } from "@/components/FileIconView";
-
-/** path → CodeEditorFile 内存缓存，切回已加载的 tab 秒切 */
-const fileCache = new Map<string, CodeEditorFile>();
+import { getTabMeta } from "./tabRegistry";
 
 export function InspectorPanel() {
   const tabs = useInspector((s) => s.tabs);
@@ -26,11 +26,8 @@ export function InspectorPanel() {
   const fileTreeOpen = useInspector((s) => s.fileTreeOpen);
   const toggleFileTree = useInspector((s) => s.toggleFileTree);
   const wordWrap = useInspector((s) => s.wordWrap);
-  const toggleWordWrap = useInspector((s) => s.toggleWordWrap);
   const fileTreeWidth = useLayout((s) => s.fileTreeWidth);
   const setFileTreeWidth = useLayout((s) => s.setFileTreeWidth);
-
-  const activeTab = tabs.find((t) => t.id === activeTabId) ?? null;
 
   return (
     <div className="h-full flex flex-col overflow-hidden bg-surface">
@@ -214,6 +211,7 @@ function InspectorTabBar({
         <div className="flex items-end justify-start h-full min-w-max">
           {tabs.map((tab) => {
             const isActive = tab.id === activeTabId;
+            const meta = getTabMeta(tab.type);
             const filePath = tab.filePath ?? tab.title;
             return (
               <button
@@ -240,14 +238,8 @@ function InspectorTabBar({
                 {isActive && (
                   <div className="absolute top-0 left-0 right-0 h-[2px] bg-white/40" />
                 )}
-                {tab.type === "diff" ? (
-                  <GitCompareArrows size={15} className="shrink-0 text-t-ghost" />
-                ) : tab.type === "image" ? (
-                  <FileIconView path={filePath} size={16} />
-                ) : (
-                  <FileIconView path={filePath} size={16} />
-                )}
-                <span className="max-w-[180px] truncate">{tab.type === "diff" ? `Diff-${tab.title}` : tab.title}</span>
+                {meta?.icon(tab) ?? <FileIconView path={filePath} size={16} />}
+                <span className="max-w-[180px] truncate">{meta?.title(tab) ?? tab.title}</span>
                 <span
                   onClick={(e) => {
                     e.stopPropagation();
@@ -277,275 +269,10 @@ function InspectorTabBar({
   );
 }
 
-function InspectorTabContent({ tab, active, wordWrap }: { tab: InspectorTab; active: boolean; wordWrap: boolean }) {
-  if (tab.type === "diff") {
-    return <DiffPreviewContent tab={tab} active={active} wordWrap={wordWrap} />;
-  }
-  if (tab.type === "image") {
-    return <ImagePreviewContent filePath={tab.filePath!} active={active} />;
-  }
-  return (
-    <FilePreviewContent
-      filePath={tab.filePath!}
-      content={tab.content}
-      revealLine={tab.revealLine}
-      revealEndLine={tab.revealEndLine}
-      revealNonce={tab.revealNonce}
-      wordWrap={wordWrap}
-      active={active}
-    />
-  );
-}
-
-function ImagePreviewContent({ filePath, active }: { filePath: string; active: boolean }) {
-  const displayPath = filePath.replace(/\\/g, "/");
-  const [src, setSrc] = useState<string | null>(null);
-  const [error, setError] = useState(false);
-
-  useEffect(() => {
-    setSrc(null);
-    setError(false);
-    window.desktop.fs.readImageBase64(filePath).then((result) => {
-      if (result.error || !result.dataUrl) {
-        setError(true);
-      } else {
-        setSrc(result.dataUrl);
-      }
-    });
-  }, [filePath]);
-
-  return (
-    <div className="flex flex-col h-full bg-surface">
-      <div className="px-3 py-1.5 border-b border-border shrink-0 flex items-baseline gap-2 bg-surface overflow-hidden">
-        <span className="text-[12px] font-mono text-t-ghost truncate min-w-0" title={filePath}>
-          {displayPath}
-        </span>
-      </div>
-      <div className="flex-1 min-h-0 flex items-center justify-center overflow-auto p-4">
-        {error ? (
-          <p className="text-sm text-red-500">无法加载图片</p>
-        ) : src ? (
-          <img
-            src={src}
-            alt={displayPath}
-            className="max-w-full max-h-full object-contain"
-          />
-        ) : (
-          <Loader2 size={20} className="animate-spin text-t-ghost" />
-        )}
-      </div>
-    </div>
-  );
-}
-
-function DiffPreviewContent({ tab, active, wordWrap }: { tab: InspectorTab; active: boolean; wordWrap: boolean }) {
-  const displayPath = (tab.filePath ?? "").replace(/\\/g, "/");
-  const diffRef = useRef<MonacoDiffViewerHandle>(null);
-  const language = useMemo(() => detectLanguage(displayPath), [displayPath]);
-
-  // tab 变为活跃时触发 layout + 重新定位到第一个 diff + 确保 minimap
-  useEffect(() => {
-    if (active) {
-      const timer = setTimeout(() => {
-        window.dispatchEvent(new CustomEvent("ftre:editor-layout", { detail: {} }));
-        diffRef.current?.revealFirstDiff();
-        diffRef.current?.ensureMinimap();
-      }, 50);
-      return () => clearTimeout(timer);
-    }
-  }, [active]);
-
-  return (
-    <div className="flex flex-col h-full min-h-0 bg-surface">
-      <div className="px-3 py-1.5 border-b border-border shrink-0 flex items-baseline gap-2 bg-surface overflow-hidden">
-        <GitCompareArrows size={13} className="text-t-ghost shrink-0 self-center" />
-        <span className="text-[12px] font-mono text-t-ghost truncate min-w-0" title={tab.filePath ?? ""}>
-          {displayPath}
-        </span>
-        {tab.additions > 0 && (
-          <span className="text-[11px] font-mono text-green-600 shrink-0">+{tab.additions}</span>
-        )}
-        {tab.deletions > 0 && (
-          <span className="text-[11px] font-mono text-red-500 shrink-0">-{tab.deletions}</span>
-        )}
-      </div>
-      <div className="flex-1 min-h-0 relative bg-surface">
-        {tab.before !== null && tab.after !== null && (
-          <MonacoDiffViewer
-            ref={diffRef}
-            diff={{
-              id: tab.id,
-              filePath: tab.filePath ?? "",
-              tabPath: tab.filePath ?? "",
-              originalContent: tab.before,
-              newContent: tab.after,
-              toolName: "edit",
-              isApproximate: false,
-            }}
-            language={language}
-            renderSideBySide={false}
-            wordWrap={wordWrap}
-            theme="ftre-light"
-            revealNonce={tab.revealNonce}
-          />
-        )}
-      </div>
-    </div>
-  );
-}
-
-/**
- * 文件预览内容：优先使用 content 快照（来自 read 工具 metadata），
- * 无快照时从磁盘读取。fileCache 缓存已加载文件，切回时秒切。
- * 文件加载完成后，如果有 revealLine 则自动跳转并选中。
- */
-function FilePreviewContent({ filePath, content, revealLine, revealEndLine, revealNonce, wordWrap, active }: {
-  filePath: string;
-  content?: string | null;
-  revealLine?: number;
-  revealEndLine?: number;
-  revealNonce: number;
-  wordWrap?: boolean;
-  active: boolean;
-}) {
-  // 有 content 快照时直接使用，不走磁盘读取和缓存
-  const snapshotFile = useMemo<CodeEditorFile | null>(() => {
-    if (content == null) return null;
-    const name = filePath.replace(/\\/g, "/").split("/").pop() ?? filePath;
-    return {
-      path: filePath,
-      name,
-      language: detectLanguage(filePath),
-      content,
-      loaded: true,
-    };
-  }, [content, filePath]);
-
-  const [file, setFile] = useState<CodeEditorFile | null>(
-    () => snapshotFile ?? fileCache.get(filePath) ?? null,
-  );
-  const [loading, setLoading] = useState(
-    snapshotFile == null && !fileCache.has(filePath),
-  );
-  const [error, setError] = useState<string | null>(null);
-
-  const loadFile = useCallback(async (path: string) => {
-    const cached = fileCache.get(path);
-    if (cached) {
-      setFile(cached);
-      setLoading(false);
-      setError(null);
-      return;
-    }
-    setLoading(true);
-    setError(null);
-    try {
-      const result = await window.desktop.fs.readFile(path);
-      if (result.error) {
-        setError(result.error);
-      } else {
-        const name = path.replace(/\\/g, "/").split("/").pop() ?? path;
-        const f: CodeEditorFile = {
-          path,
-          name,
-          language: result.language || "plaintext",
-          content: result.content ?? "",
-          loaded: true,
-        };
-        fileCache.set(path, f);
-        setFile(f);
-      }
-    } catch (e) {
-      setError(`无法读取文件: ${e instanceof Error ? e.message : String(e)}`);
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    if (snapshotFile) {
-      setFile(snapshotFile);
-      setLoading(false);
-      setError(null);
-    } else {
-      loadFile(filePath);
-    }
-  }, [filePath, loadFile, snapshotFile]);
-
-  // 文件加载完成后，如果有 revealLine 则跳转并选中；revealNonce 变化时也重新定位
-  useEffect(() => {
-    if (!file || !revealLine || revealLine <= 0) return;
-    const timer = setTimeout(() => {
-      window.dispatchEvent(
-        new CustomEvent("ftre:goto-line", {
-          detail: {
-            filePath,
-            line: revealLine,
-            col: 1,
-            endLine: revealEndLine && revealEndLine > 0 ? revealEndLine : undefined,
-          },
-        }),
-      );
-    }, 100);
-    return () => clearTimeout(timer);
-  }, [file, filePath, revealLine, revealEndLine, revealNonce]);
-
-  // tab 变为活跃时触发 layout，让 Monaco 重新计算尺寸
-  useEffect(() => {
-    if (active) {
-      const timer = setTimeout(() => {
-        window.dispatchEvent(new CustomEvent("ftre:editor-layout", { detail: {} }));
-      }, 50);
-      return () => clearTimeout(timer);
-    }
-  }, [active]);
-
-  // 加载中 / 出错时仍保持 editor 挂载（如果有已缓存文件），只叠加遮罩
-  const lineCount = file?.content ? file.content.split("\n").length : 0;
-  const byteSize = file?.content ? new Blob([file.content]).size : 0;
-  const displayPath = filePath.replace(/\\/g, "/");
-
-  return (
-    <div className="flex flex-col h-full bg-surface relative">
-      {/* 文件信息 */}
-      <div className="px-3 py-1.5 border-b border-border shrink-0 flex items-baseline gap-2 bg-surface overflow-hidden">
-        <span className="text-[12px] font-mono text-t-ghost truncate min-w-0" title={filePath}>
-          {displayPath}
-        </span>
-        {file && (
-          <>
-            <span className="text-[11px] font-mono text-t-faint shrink-0">{lineCount} lines</span>
-            <span className="text-[11px] font-mono text-t-faint shrink-0">{formatBytes(byteSize)}</span>
-          </>
-        )}
-      </div>
-
-      {/* Monaco 编辑器 */}
-      <div className="flex-1 overflow-hidden bg-surface">
-        {file ? (
-          <CodeEditorWidget
-            file={file}
-            minimapEnabled
-            readOnly
-            renderLineHighlight="none"
-            theme="ftre-light"
-            wordWrap={wordWrap}
-          />
-        ) : (
-          <div className="h-full flex items-center justify-center">
-            {loading && <Loader2 size={16} className="animate-spin text-t-ghost" />}
-          </div>
-        )}
-      </div>
-
-      {/* 错误遮罩 */}
-      {error && (
-        <div className="absolute inset-0 flex items-center justify-center bg-surface/80 z-10 p-4">
-          <p className="text-sm text-red-500">{error}</p>
-        </div>
-      )}
-    </div>
-  );
+function InspectorTabContent(props: { tab: InspectorTab; active: boolean; wordWrap: boolean }) {
+  const meta = getTabMeta(props.tab.type);
+  if (!meta) return null;
+  return <>{meta.renderer(props)}</>;
 }
 
 function EmptyState() {
@@ -557,19 +284,28 @@ function EmptyState() {
   );
 }
 
-function formatBytes(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-}
+// ─── 渲染器注册 ──────────────────────────────────────────────────
+// 在模块加载时注册，确保 InspectorPanel 使用前就绪。
 
-function detectLanguage(filePath: string): string {
-  const ext = filePath.match(/\.([a-z0-9]+)$/i)?.[1]?.toLowerCase() ?? "";
-  const map: Record<string, string> = {
-    ts: "typescript", tsx: "typescript", js: "javascript", jsx: "javascript",
-    py: "python", json: "json", md: "markdown", go: "go", rs: "rust",
-    java: "java", c: "c", cpp: "cpp", sh: "shell", yml: "yaml", yaml: "yaml",
-    html: "html", css: "css", xml: "xml", sql: "sql", toml: "ini",
-  };
-  return map[ext] ?? "plaintext";
-}
+import { registerTabMeta } from "./tabRegistry";
+import { FileRenderer } from "./renderers/FileRenderer";
+import { DiffRenderer } from "./renderers/DiffRenderer";
+import { ImageRenderer } from "./renderers/ImageRenderer";
+
+registerTabMeta("file", {
+  icon: (tab) => <FileIconView path={tab.filePath ?? tab.title} size={16} />,
+  title: (tab) => tab.title,
+  renderer: (props) => <FileRenderer {...props} />,
+});
+
+registerTabMeta("diff", {
+  icon: () => <GitCompareArrows size={15} className="shrink-0 text-t-ghost" />,
+  title: (tab) => `Diff-${tab.title}`,
+  renderer: (props) => <DiffRenderer {...props} />,
+});
+
+registerTabMeta("image", {
+  icon: (tab) => <FileIconView path={tab.filePath ?? tab.title} size={16} />,
+  title: (tab) => tab.title,
+  renderer: (props) => <ImageRenderer {...props} />,
+});
