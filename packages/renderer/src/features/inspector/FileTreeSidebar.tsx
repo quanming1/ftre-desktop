@@ -553,7 +553,11 @@ export function FileTreeSidebar() {
     }
 
     let cancelled = false;
-    // 切换工作区时清空 etag，强制走 Phase 2
+    // 切换工作区时清空旧数据和 etag，强制走 Phase 2
+    // 不清空的话，readDirSorted 先完成（loading=false）时 GitChangesSection 会用上一个工作区的 changedFiles 渲染，
+    // 点击这些 stale 文件时 handleGitFileClick 用新 workspace 计算 relPath 会得到错误路径 → diff 内容全空
+    setGitStatusMap(null);
+    setChangedFiles([]);
     gitEtagRef.current = "";
 
     const poll = async (force = false) => {
