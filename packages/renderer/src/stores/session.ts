@@ -41,6 +41,7 @@ function historyToMessages(records: any[]): ChatMessage[] {
     isBusy: false,
     error: null as string | null,
     retryState: null,
+    turnStartTs: null as number | null,
   };
 
   for (const r of records) {
@@ -49,7 +50,7 @@ function historyToMessages(records: any[]): ChatMessage[] {
       type: r.type,
       data: r.data ?? {},
       ts,
-      eventId: r.data?.event_id ?? r.id,
+      eventId: r.id,
     };
     applyEvent(b, ev);
   }
@@ -120,6 +121,25 @@ interface WorkspacePaging {
   loaded: number;
 }
 
+const SORT_MODE_KEY = "ftre-session-sort-mode";
+
+export type SessionSortMode = "workspace" | "time";
+
+function loadSortMode(): SessionSortMode {
+  try {
+    const v = localStorage.getItem(SORT_MODE_KEY);
+    return v === "time" ? "time" : "workspace";
+  } catch {
+    return "workspace";
+  }
+}
+
+function saveSortMode(mode: SessionSortMode): void {
+  try {
+    localStorage.setItem(SORT_MODE_KEY, mode);
+  } catch { /* ignore */ }
+}
+
 interface SessionState {
   sessions: SessionSummary[];
   allSessions: SessionSummary[];
@@ -127,6 +147,10 @@ interface SessionState {
   sessionsTotal: number;
   /** 每个工作区的分页状态：workspace 路径（""=未设置）→ { total, loaded } */
   workspacePaging: Record<string, WorkspacePaging>;
+  /** 列表排序模式：workspace=按工作区分组，time=按时间平铺 */
+  sortMode: SessionSortMode;
+  /** time 模式：ws 渠道全局分页状态 */
+  wsFlatPaging: WorkspacePaging;
   openTabs: string[];
   loading: boolean;
   /** Session ID currently being loaded (HTTP fetch in progress) */
@@ -136,6 +160,10 @@ interface SessionState {
   loadAllSessions: () => Promise<void>;
   /** 为指定工作区多拉一页 session（"展开"按钮用） */
   loadMoreWorkspaceSessions: (workspace: string, extraCount: number) => Promise<void>;
+  /** time 模式：全局分页加载更多 session */
+  loadMoreGlobalSessions: (extraCount: number) => Promise<void>;
+  /** 切换排序模式 */
+  setSortMode: (mode: SessionSortMode) => void;
   switchSession: (sessionId: string) => Promise<void>;
   /** 加载更早一页消息（基于当前桶最早事件的 timestamp 作 before_ts）。返回是否真的拉到内容。 */
   loadEarlierMessages: (sessionId: string) => Promise<boolean>;
@@ -166,6 +194,8 @@ export const useSession = create<SessionState>((set, get) => ({
   allSessions: [],
   sessionsTotal: 0,
   workspacePaging: {},
+  sortMode: loadSortMode(),
+  wsFlatPaging: { total: 0, loaded: 0 },
   openTabs: [],
   loading: false,
   loadingSessionId: null,
@@ -192,6 +222,9 @@ export const useSession = create<SessionState>((set, get) => ({
       // 3) 同时拉一页非 ws 的 session（cron / cli / telegram 等，平铺在 Other Threads）
       const otherPage = await fetchSessionPage({ limit: FIRST_PAGE_SIZE, offset: 0 });
       const otherSessions = otherPage.sessions.filter((s) => s.channel !== "ws");
+
+      // 3.5) 拉 ws channel 全局首页，用于 time 模式的分页（total / loaded）
+      const wsFlatPage = await fetchSessionPage({ channelId: "ws", limit: 1, offset: 0 });
 
       // 4) 合并：保留已加载的更多页（loadMoreWorkspaceSessions 拉过的尾部数据不丢）
       const existing = get().allSessions;
@@ -226,6 +259,11 @@ export const useSession = create<SessionState>((set, get) => ({
         sessions: deduped,
         sessionsTotal: total,
         workspacePaging: wsPaging,
+        wsFlatPaging: {
+          total: wsFlatPage.total,
+          // 已加载的 ws 会话数 = 合并后 ws 会话的数量
+          loaded: deduped.filter((s) => s.channel === "ws").length,
+        },
         loading: false,
       });
     } catch {
@@ -262,6 +300,36 @@ export const useSession = create<SessionState>((set, get) => ({
     } catch {
       set({ loading: false });
     }
+  },
+
+  loadMoreGlobalSessions: async (extraCount) => {
+    const paging = get().wsFlatPaging;
+    if (paging.loaded >= paging.total) return;
+    const offset = paging.loaded;
+    const limit = Math.max(1, Math.floor(extraCount));
+    set({ loading: true });
+    try {
+      // ws 渠道全局分页：后端按 updated_at 倒序，按 channel_id=ws 过滤
+      const page = await fetchSessionPage({ channelId: "ws", limit, offset });
+      const merged = dedupeById([...get().allSessions, ...page.sessions]);
+      set({
+        allSessions: merged,
+        sessions: merged,
+        sessionsTotal: merged.length,
+        wsFlatPaging: {
+          total: page.total,
+          loaded: Math.min(offset + page.sessions.length, page.total),
+        },
+        loading: false,
+      });
+    } catch {
+      set({ loading: false });
+    }
+  },
+
+  setSortMode: (mode) => {
+    saveSortMode(mode);
+    set({ sortMode: mode });
   },
 
   switchSession: async (sessionId) => {

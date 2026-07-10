@@ -76,6 +76,17 @@ export interface ChatMessage {
     reason?: string;
   };
   eventIds?: string[];
+  /** 本轮耗时（秒），turn_end 时计算写入 */
+  durationSec?: number;
+  /** 产生该消息的模型 ID（从 assistant_message_complete.metadata.model 提取） */
+  model?: string;
+  /** 本轮累积 token 用量（从 turn_end 的 token_usage 提取） */
+  turnUsage?: {
+    prompt_tokens: number;
+    completion_tokens: number;
+    cached_tokens: number;
+    llm_calls: number;
+  };
 }
 
 let _defaultWsCache: string | null = null;
@@ -90,18 +101,17 @@ export interface RetryState {
 
 interface Bucket {
   messages: ChatMessage[];
-  /** 鍘熷浜嬩欢娴侊紙鎸?timestamp ASC锛夈€俽educer 鐨勮緭鍏ユ簮锛岀敤浜庡閲忓姞杞芥洿鏃╂秷鎭椂鐨勫彲閲嶅叆鍥炴斁銆?*/
   events: BusEvent[];
   seenEventIds: Set<string>;
-  /** 宸茬煡鏈€鏃╀簨浠剁殑 timestamp锛坋vents[0].ts锛夛紱鐢ㄤ簬"鍔犺浇鏇存棭"鍒嗛〉鏃朵綔涓?before_ts銆俷ull = 杩樻病鎷夎繃 / 娌℃秷鎭?*/
   earliestTs: number | null;
-  /** 鍘嗗彶鏄惁杩樻湁鏇存棭鐨勯〉鍙互鎷夛紙鍩轰簬鍚庣 has_more锛?*/
   hasMoreHistory: boolean;
   lastUserInputTs: number | null;
   sessionStatus: SessionStatus;
   isBusy: boolean;
   error: string | null;
   retryState: RetryState | null;
+  /** turn_start 的 timestamp（秒），turn_end 时用于计算耗时 */
+  turnStartTs: number | null;
 }
 
 const buckets = new Map<string, Bucket>();
@@ -121,6 +131,7 @@ const emptyBucket = (): Bucket => ({
   isBusy: false,
   error: null,
   retryState: null,
+  turnStartTs: null,
 });
 function bucket(sid: string): Bucket {
   let b = buckets.get(sid);
@@ -155,6 +166,7 @@ function mirror(sid: string): void {
     error: b.error,
     retryState: b.retryState,
     lastUserInputTs: b.lastUserInputTs,
+    turnStartTs: b.turnStartTs,
   });
 }
 
@@ -349,6 +361,7 @@ export function applyEvent(b: Bucket, ev: BusEvent): void {
         streaming: !isComplete,
         ...(metadata.usage ? { usage: metadata.usage } : {}),
         ...(metadata.kind ? { metadata } : {}),
+        ...(isComplete && typeof metadata.model === "string" && metadata.model ? { model: metadata.model } : {}),
         ...(eventIds.length > 0 ? { eventIds } : {}),
       }));
       return;
@@ -405,28 +418,44 @@ export function applyEvent(b: Bucket, ev: BusEvent): void {
       return;
     }
 
-    case "done": {
-      // content is already on the message (from assistant_message snapshots);
-      // just seal streaming.
+    case "step": {
+      const phase = d.phase;
+      if (phase === "turn_start") {
+        b.isBusy = true;
+        b.sessionStatus = "running";
+        b.error = null;
+        b.retryState = null;
+        b.turnStartTs = ts ?? null;
+        return;
+      }
+      // phase === "turn_end"
       replaceTail((m) => m.streaming ? { ...m, streaming: false } : m);
       b.isBusy = false;
       b.sessionStatus = "idle";
       b.retryState = null;
-      return;
-    }
 
-    case "error": {
-      const msg: string = d.message ?? "Unknown error";
-      const code = d.code;
-      // Seal streaming message if exists (content already on message)
-      replaceTail((m) => m.streaming ? { ...m, streaming: false } : m);
-      b.messages = [
-        ...b.messages,
-        { id: ev.frameId ?? nextId("err"), role: "assistant", content: msg, timestamp: ts, isError: true },
-      ];
-      b.isBusy = false;
-      b.sessionStatus = "idle";
-      b.error = code ? `[${code}] ${msg}` : msg;
+      // 计算耗时并写入本轮最后一条 assistant 消息
+      if (b.turnStartTs != null && ts != null) {
+        const durationSec = Math.round((ts - b.turnStartTs) / 1000);
+        const turnUsage = d.token_usage ?? undefined;
+        for (let i = b.messages.length - 1; i >= 0; i--) {
+          if (b.messages[i].role === "assistant" && !b.messages[i].streaming) {
+            b.messages[i] = { ...b.messages[i], durationSec, ...(turnUsage ? { turnUsage } : {}) };
+            break;
+          }
+        }
+        b.turnStartTs = null;
+      }
+
+      if (d.reason === "error" && d.error_message) {
+        const msg: string = d.error_message;
+        const code = d.error_code;
+        b.messages = [
+          ...b.messages,
+          { id: ev.frameId ?? nextId("err"), role: "assistant", content: msg, timestamp: ts, isError: true },
+        ];
+        b.error = code ? `[${code}] ${msg}` : msg;
+      }
       return;
     }
 
@@ -665,6 +694,7 @@ if (!(globalThis as any)[__wsBoundFlag]) {
       type: ev.type,
       eventId: ev.event_id,
       data: ev.data,
+      ts: typeof ev.timestamp === "number" ? ev.timestamp * 1000 : undefined,
       frameId: msg.frame_id,
       metadata: msg.metadata,
     };
@@ -700,7 +730,7 @@ if (!(globalThis as any)[__wsBoundFlag]) {
       }
     }
     // 鍏朵粬浜嬩欢锛氶渶瑕侀噸绠?pending_estimated 绛夛紝璋?API
-    if ((ev.type === "done" || ev.type === "external_message" || ev.type === "context_compact_done" || ev.type === "context_compact_enabled") && useChat.getState().sessionId === sid) {
+    if ((ev.type === "step" || ev.type === "external_message" || ev.type === "context_compact_done" || ev.type === "context_compact_enabled") && useChat.getState().sessionId === sid) {
       useChat.getState().refreshTokenUsage(sid);
     }
   });
@@ -730,6 +760,7 @@ interface ChatState {
   // mirrored from active bucket
   messages: ChatMessage[];
   lastUserInputTs: number | null;
+  turnStartTs: number | null;
   sessionStatus: SessionStatus;
   isBusy: boolean;
   error: string | null;
@@ -754,7 +785,7 @@ interface ChatState {
       completion_tokens: number;
       total_tokens: number;
       at: number;
-      source: "assistant_message_complete" | "done";
+      source: "assistant_message_complete";
     } | null;
     pending_estimated: number;
     total: number;
@@ -820,6 +851,7 @@ interface ChatState {
 export const useChat = create<ChatState>((set, get) => ({
   messages: [],
   lastUserInputTs: null,
+  turnStartTs: null,
   sessionStatus: "idle",
   isBusy: false,
   error: null,
@@ -939,12 +971,12 @@ export const useChat = create<ChatState>((set, get) => ({
 
   newChat: () => {
     wsClient.subscribeOnly(null);
-    set({ sessionId: null, messages: [], lastUserInputTs: null, sessionStatus: "idle", isBusy: false, error: null, retryState: null, contextTokens: 0, tokenUsage: null, pendingWorkspace: _defaultWsCache });
+    set({ sessionId: null, messages: [], lastUserInputTs: null, turnStartTs: null, sessionStatus: "idle", isBusy: false, error: null, retryState: null, contextTokens: 0, tokenUsage: null, pendingWorkspace: _defaultWsCache });
   },
 
   switchTo: (sessionId) => {
     const b = bucket(sessionId);
-    set({ sessionId, messages: b.messages, lastUserInputTs: b.lastUserInputTs, sessionStatus: b.sessionStatus, isBusy: b.isBusy, error: b.error, retryState: b.retryState, contextTokens: 0, tokenUsage: null });
+    set({ sessionId, messages: b.messages, lastUserInputTs: b.lastUserInputTs, turnStartTs: b.turnStartTs, sessionStatus: b.sessionStatus, isBusy: b.isBusy, error: b.error, retryState: b.retryState, contextTokens: 0, tokenUsage: null });
     void get().refreshTokenUsage(sessionId);
   },
 

@@ -24,6 +24,8 @@ export interface ServerMessage {
 export interface AgentEvent {
   type: string; // EventType enum value
   event_id?: string;
+  timestamp?: number;
+  turn_id?: string;
   data: Record<string, unknown>;
 }
 

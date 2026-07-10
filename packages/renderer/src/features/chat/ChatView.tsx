@@ -8,7 +8,7 @@
  */
 import { useState, useEffect, useMemo } from "react";
 import { Loader2, FileEdit, FilePlus2, ChevronDown, ChevronUp } from "lucide-react";
-import { useChat } from "@/stores/chat";
+import { useChat, type RetryState } from "@/stores/chat";
 import { useSession } from "@/stores/session";
 import { wsClient } from "@/services/websocket-client";
 import { ChatMessageList } from "./ChatMessageList";
@@ -39,7 +39,8 @@ export function ChatView() {
   const messages = useChat((s) => s.messages);
   const isBusy = useChat((s) => s.isBusy);
   const sessionStatus = useChat((s) => s.sessionStatus);
-  const lastUserInputTs = useChat((s) => s.lastUserInputTs);
+  const turnStartTs = useChat((s) => s.turnStartTs);
+  const storeModel = useChat((s) => s.model);
   const retryState = useChat((s) => s.retryState);
   const connected = useChat((s) => s.connected);
 
@@ -73,13 +74,23 @@ export function ChatView() {
   const [now, setNow] = useState(() => Date.now());
   const [runningBannerVisible, setRunningBannerVisible] = useState(false);
   const [runningBannerExiting, setRunningBannerExiting] = useState(false);
-  const runningDuration = lastUserInputTs
-    ? formatRunningDuration(now - lastUserInputTs)
+  const runningDuration = turnStartTs
+    ? formatRunningDuration(now - turnStartTs)
     : null;
   const shouldShowRunningBanner = sessionStatus === "running" && canSend;
+
+  // 本轮使用的模型：优先取本轮最后一条 assistant 消息的 model，兜底 store 选中的 model
+  const turnModel = useMemo(() => {
+    if (!isBusy) return null;
+    for (let j = messages.length - 1; j >= 0; j--) {
+      if (messages[j].role === "assistant" && messages[j].model) return messages[j].model!;
+    }
+    return storeModel ?? null;
+  }, [isBusy, messages, storeModel]);
+
   const bannerLabel = retryState
     ? `Retrying ${retryState.attempt}/${retryState.maxAttempts}`
-    : lastUserInputTs
+    : turnStartTs
       ? "Running"
       : "Preparing";
 
@@ -134,7 +145,7 @@ export function ChatView() {
     setNow(Date.now());
     const timer = window.setInterval(() => setNow(Date.now()), 1000);
     return () => window.clearInterval(timer);
-  }, [shouldShowRunningBanner, lastUserInputTs]);
+  }, [shouldShowRunningBanner, turnStartTs]);
 
   useEffect(() => {
     if (shouldShowRunningBanner) {
@@ -214,24 +225,13 @@ export function ChatView() {
                         runningBannerExiting ? "running-banner-exit" : "running-banner-enter"
                       }`}
                     >
-                      <div className="flex items-center justify-between gap-4 px-4 py-2.5 text-[13px] font-medium text-t-secondary">
-                        <span className={`running-ellipsis shrink-0 ${retryState ? "text-[#b7791f]" : ""}`}>
-                          {bannerLabel}
-                        </span>
-                        {retryState ? (
-                          <span
-                            className="min-w-0 flex-1 truncate text-right text-[#b7791f]/80"
-                            title={retryState.message}
-                          >
-                            {retryState.message}
-                          </span>
-                        ) : runningDuration ? (
-                          <span className="shrink-0 tabular-nums text-t-muted">{runningDuration}</span>
-                        ) : null}
-                      </div>
-                      {activeTurnFileChanges.length > 0 && (
-                        <ActiveChangesInline changes={activeTurnFileChanges} />
-                      )}
+                      <RunningBannerContent
+                        bannerLabel={bannerLabel}
+                        turnModel={turnModel}
+                        runningDuration={runningDuration}
+                        retryState={retryState}
+                        fileChanges={activeTurnFileChanges}
+                      />
                     </div>
                   </div>
                 </div>
@@ -267,10 +267,26 @@ export function ChatView() {
   );
 }
 
-// ─── 进行中文件变更（嵌入 running banner 底部）──────────────────────
+// ─── Running Banner 内容 ──────────────────────────────────────────
 
-function ActiveChangesInline({ changes }: { changes: TurnFileChange[] }) {
-  const [expanded, setExpanded] = useState(true);
+function RunningBannerContent({
+  bannerLabel,
+  turnModel,
+  runningDuration,
+  retryState,
+  fileChanges,
+}: {
+  bannerLabel: string;
+  turnModel: string | null;
+  runningDuration: string | null;
+  retryState: RetryState | null;
+  fileChanges: TurnFileChange[];
+}) {
+  const [changesExpanded, setChangesExpanded] = useState(false);
+  const hasChanges = fileChanges.length > 0;
+  const totalAdd = fileChanges.reduce((s, c) => s + c.additions, 0);
+  const totalDel = fileChanges.reduce((s, c) => s + c.deletions, 0);
+
   const handleClick = (c: TurnFileChange) => {
     useInspector.getState().openDiffPreview(
       c.toolCallId, c.filePath, c.before, c.after, c.additions, c.deletions,
@@ -280,45 +296,76 @@ function ActiveChangesInline({ changes }: { changes: TurnFileChange[] }) {
     }
   };
 
-  const totalAdd = changes.reduce((s, c) => s + c.additions, 0);
-  const totalDel = changes.reduce((s, c) => s + c.deletions, 0);
-
   return (
-    <div className="border-t border-black/5">
-      <button
-        onClick={() => setExpanded((v) => !v)}
-        className="flex items-center gap-2 w-full px-3 py-2 text-left text-[11px] font-medium text-t-muted hover:bg-black/[0.02] transition-colors"
-      >
-        <span>本轮变更</span>
-        <span className="text-t-faint">{changes.length}</span>
-        <span className="ml-auto font-mono">
-          <span className="text-green-600">+{totalAdd}</span>
-          <span className="text-red-500 ml-1.5">-{totalDel}</span>
-        </span>
-        {expanded ? <ChevronUp size={14} className="text-t-faint ml-1" /> : <ChevronDown size={14} className="text-t-faint ml-1" />}
-      </button>
-      {expanded && (
-        <div className="max-h-[80px] overflow-y-auto px-2.5 pb-2">
-          {changes.map((c) => (
-            <button
-              key={c.toolCallId}
-              onClick={() => handleClick(c)}
-              className="flex items-center gap-2 w-full px-2 py-1 text-left text-[12px] hover:bg-black/[0.03] rounded transition-colors"
+    <>
+      <div className="flex items-center gap-2.5 px-4 py-2.5 text-[13px] font-medium text-t-secondary">
+        {retryState ? (
+          <>
+            <span className="running-ellipsis shrink-0 text-[#b7791f]">
+              {bannerLabel}
+            </span>
+            <span
+              className="min-w-0 flex-1 truncate text-right text-[#b7791f]/80"
+              title={retryState.message}
             >
-              <FileIconView path={c.filePath} size={14} />
-              <span className="truncate text-t-primary">{basename(c.filePath)}</span>
-              <span className="ml-auto shrink-0 inline-flex items-center gap-1 text-t-faint">
-                {c.operation === "write" ? <FilePlus2 size={11} /> : <FileEdit size={11} />}
-                <span className="text-[10px] uppercase">{c.operation === "write" ? "new" : "edit"}</span>
+              {retryState.message}
+            </span>
+          </>
+        ) : (
+          <>
+            {/* 状态 + 时间 */}
+            <span className={`shrink-0 ${bannerLabel === "Running" ? "running-shimmer" : ""}`}>
+              {bannerLabel}
+            </span>
+            {runningDuration && (
+              <span className="shrink-0 tabular-nums text-[12px] text-t-muted">{runningDuration}</span>
+            )}
+            {/* 模型 badge */}
+            {turnModel && (
+              <span className="shrink-0 inline-flex items-center rounded-full bg-black/[0.05] px-2 py-0.5 text-[10px] font-mono text-t-faint leading-none">
+                {turnModel}
               </span>
-              <span className="shrink-0 font-mono text-[10px] flex items-center gap-1 min-w-[50px] justify-end">
-                {c.additions > 0 && <span className="text-green-600">+{c.additions}</span>}
-                {c.deletions > 0 && <span className="text-red-500">-{c.deletions}</span>}
-              </span>
-            </button>
-          ))}
+            )}
+            {/* 撑开 */}
+            <span className="flex-1" />
+            {/* 变更按钮 */}
+            {hasChanges && (
+              <button
+                onClick={() => setChangesExpanded((v) => !v)}
+                className="shrink-0 inline-flex items-center gap-1 text-[11px] font-mono text-t-ghost hover:text-t-secondary rounded-md hover:bg-black/[0.04] px-1.5 py-1 transition-colors"
+              >
+                <span className="text-green-600">+{totalAdd}</span>
+                <span className="text-red-500">-{totalDel}</span>
+                {changesExpanded ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
+              </button>
+            )}
+          </>
+        )}
+      </div>
+      {hasChanges && changesExpanded && (
+        <div className="border-t border-black/5">
+          <div className="max-h-[80px] overflow-y-auto px-2.5 pb-2">
+            {fileChanges.map((c) => (
+              <button
+                key={c.toolCallId}
+                onClick={() => handleClick(c)}
+                className="flex items-center gap-2 w-full px-2 py-1 text-left text-[12px] hover:bg-black/[0.03] rounded transition-colors"
+              >
+                <FileIconView path={c.filePath} size={14} />
+                <span className="truncate text-t-primary">{basename(c.filePath)}</span>
+                <span className="ml-auto shrink-0 inline-flex items-center gap-1 text-t-faint">
+                  {c.operation === "write" ? <FilePlus2 size={11} /> : <FileEdit size={11} />}
+                  <span className="text-[10px] uppercase">{c.operation === "write" ? "new" : "edit"}</span>
+                </span>
+                <span className="shrink-0 font-mono text-[10px] flex items-center gap-1 min-w-[50px] justify-end">
+                  {c.additions > 0 && <span className="text-green-600">+{c.additions}</span>}
+                  {c.deletions > 0 && <span className="text-red-500">-{c.deletions}</span>}
+                </span>
+              </button>
+            ))}
+          </div>
         </div>
       )}
-    </div>
+    </>
   );
 }

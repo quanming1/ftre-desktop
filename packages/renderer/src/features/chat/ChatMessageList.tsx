@@ -283,8 +283,11 @@ export const ChatMessageList = memo(function ChatMessageList({
               message={msg}
               showActions={isLastOfTurn}
               turnUsage={turnUsage}
+              turnAccumulatedUsage={msg.turnUsage}
               turnTexts={turnTexts}
               turnFileChanges={turnFileChanges}
+              turnDurationSec={msg.durationSec}
+              turnModel={msg.model}
             />
           );
         })}
@@ -309,16 +312,24 @@ const MessageItem = memo(function MessageItem({
   message,
   showActions = false,
   turnUsage,
+  turnAccumulatedUsage,
   turnTexts,
   turnFileChanges,
+  turnDurationSec,
+  turnModel,
 }: {
   message: ChatMessage;
   showActions?: boolean;
   turnUsage?: ChatMessage["usage"];
+  turnAccumulatedUsage?: ChatMessage["turnUsage"];
   /** 本轮所有 assistant 消息的纯文本列表（isLastOfTurn 时传入） */
   turnTexts?: string[];
   /** 本轮所有 edit/write 文件变更列表（isLastOfTurn 时传入） */
   turnFileChanges?: TurnFileChange[];
+  /** 本轮耗时（秒） */
+  turnDurationSec?: number;
+  /** 本轮使用的模型 ID */
+  turnModel?: string;
 }) {
   if (message.role === "user") {
     return <UserMessage message={message} />;
@@ -329,8 +340,11 @@ const MessageItem = memo(function MessageItem({
         message={message}
         showActions={showActions}
         turnUsage={turnUsage}
+        turnAccumulatedUsage={turnAccumulatedUsage}
         turnTexts={turnTexts}
         turnFileChanges={turnFileChanges}
+        turnDurationSec={turnDurationSec}
+        turnModel={turnModel}
       />
     );
   }
