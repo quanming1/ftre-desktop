@@ -171,14 +171,21 @@ export function TabBar({ groupId }: TabBarProps) {
     const el = getScrollElement();
     if (!el) return;
 
+    const onWheel = (e: WheelEvent) => {
+      e.preventDefault();
+      el.scrollLeft += e.deltaY;
+    };
+
     const observer = new ResizeObserver(() => updateScrollState());
     observer.observe(el);
     el.addEventListener("scroll", updateScrollState);
+    el.addEventListener("wheel", onWheel, { passive: false });
     updateScrollState();
 
     return () => {
       observer.disconnect();
       el.removeEventListener("scroll", updateScrollState);
+      el.removeEventListener("wheel", onWheel);
     };
   }, [getScrollElement, updateScrollState, openFiles.length]);
 
@@ -276,17 +283,6 @@ export function TabBar({ groupId }: TabBarProps) {
     [resolvedGroupId],
   );
 
-  const handleWheel = useCallback(
-    (e: React.WheelEvent) => {
-      e.preventDefault();
-      const container = getScrollElement();
-      if (container) {
-        container.scrollLeft += e.deltaY;
-      }
-    },
-    [getScrollElement],
-  );
-
   const handleContainerDragOver = useCallback(
     (e: React.DragEvent<HTMLElement>) => {
       e.preventDefault();
@@ -321,7 +317,6 @@ export function TabBar({ groupId }: TabBarProps) {
         }}
         className="tabbar-scroll-area flex items-end flex-1 min-w-0 h-full relative"
         onDragOver={handleContainerDragOver}
-        onWheel={handleWheel}
       >
         <div className="flex items-end justify-start h-full min-w-max">
           {openFiles.map((file, index) => {

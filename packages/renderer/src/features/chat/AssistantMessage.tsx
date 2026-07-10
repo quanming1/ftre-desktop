@@ -365,7 +365,7 @@ export const AssistantMessage = memo(
     }, [turnTexts, message.content]);
 
     return (
-      <div data-AssistantMessage="true" className="flex justify-start">
+      <div data-assistant-message="true" className="flex justify-start">
         <div className="w-full">
           {message.isError ? (
             <div className="px-3 py-2 rounded-lg text-[13px] text-t-dim italic leading-relaxed">
