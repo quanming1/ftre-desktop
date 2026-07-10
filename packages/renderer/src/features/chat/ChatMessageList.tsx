@@ -16,6 +16,7 @@ import { useChat } from "@/stores/chat";
 import { useSession } from "@/stores/session";
 import { UserMessage } from "./UserMessage";
 import { AssistantMessage } from "./AssistantMessage";
+import type { TurnFileChange } from "./TurnFileChanges";
 import { ContextMenu, type ContextMenuItem } from "@/components/ContextMenu";
 import { remarkPlugins, rehypePlugins } from "@/lib/markdown-plugins";
 
@@ -196,15 +197,16 @@ export const ChatMessageList = memo(function ChatMessageList({
 
         {messages.map((msg, i) => {
           const next = messages[i + 1];
-          const isLastOfTurn =
+          const isTurnEnd =
             msg.role === "assistant" &&
             !msg.streaming &&
-            !isBusy &&
             (!next || next.role !== "assistant");
+          const isLastOfTurn = isTurnEnd && !isBusy;
 
           // 本轮所有 assistant 消息的文本列表（从上一个 user 消息之后到本条）
           let turnTexts: string[] | undefined;
-          if (isLastOfTurn) {
+          let turnFileChanges: TurnFileChange[] | undefined;
+          if (isTurnEnd) {
             // 找本轮起始：上一个 user 消息
             let turnStart = 0;
             for (let j = i - 1; j >= 0; j--) {
@@ -214,12 +216,45 @@ export const ChatMessageList = memo(function ChatMessageList({
               }
             }
             turnTexts = [];
+            // 按文件路径合并：同一文件多次修改只保留第一次的 before 和最后一次的 after
+            const fileMap = new Map<string, TurnFileChange>();
             for (let j = turnStart; j <= i; j++) {
               const m = messages[j];
               if (m.role !== "assistant") continue;
               const text = m.content ?? "";
               if (text) turnTexts.push(text);
+              // 收集 edit/write 工具调用
+              if (m.blocks) {
+                for (const block of m.blocks) {
+                  if (block.type !== "toolCall") continue;
+                  if (block.name !== "edit" && block.name !== "write") continue;
+                  const result = m.toolResults?.[block.id];
+                  if (!result || result.status !== "completed") continue;
+                  const meta = result.metadata;
+                  if (!meta?.file || meta.before === undefined || meta.after === undefined) continue;
+                  const key = meta.file.replace(/\\/g, "/").toLowerCase();
+                  const existing = fileMap.get(key);
+                  if (existing) {
+                    // 后续修改：更新 after 为最新版本，累加增删行数
+                    existing.after = meta.after ?? "";
+                    existing.additions += meta.additions ?? 0;
+                    existing.deletions += meta.deletions ?? 0;
+                  } else {
+                    // 首次修改：保留原始 before，记录 toolCallId
+                    fileMap.set(key, {
+                      toolCallId: block.id,
+                      filePath: meta.file,
+                      operation: block.name as "edit" | "write",
+                      additions: meta.additions ?? 0,
+                      deletions: meta.deletions ?? 0,
+                      before: meta.before ?? "",
+                      after: meta.after ?? "",
+                    });
+                  }
+                }
+              }
             }
+            turnFileChanges = fileMap.size > 0 ? Array.from(fileMap.values()) : undefined;
           }
 
           let turnUsage: ChatMessage["usage"] | undefined;
@@ -248,6 +283,7 @@ export const ChatMessageList = memo(function ChatMessageList({
               showActions={isLastOfTurn}
               turnUsage={turnUsage}
               turnTexts={turnTexts}
+              turnFileChanges={turnFileChanges}
             />
           );
         })}
@@ -273,12 +309,15 @@ const MessageItem = memo(function MessageItem({
   showActions = false,
   turnUsage,
   turnTexts,
+  turnFileChanges,
 }: {
   message: ChatMessage;
   showActions?: boolean;
   turnUsage?: ChatMessage["usage"];
   /** 本轮所有 assistant 消息的纯文本列表（isLastOfTurn 时传入） */
   turnTexts?: string[];
+  /** 本轮所有 edit/write 文件变更列表（isLastOfTurn 时传入） */
+  turnFileChanges?: TurnFileChange[];
 }) {
   if (message.role === "user") {
     return <UserMessage message={message} />;
@@ -290,6 +329,7 @@ const MessageItem = memo(function MessageItem({
         showActions={showActions}
         turnUsage={turnUsage}
         turnTexts={turnTexts}
+        turnFileChanges={turnFileChanges}
       />
     );
   }
