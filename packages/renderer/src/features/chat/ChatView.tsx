@@ -7,7 +7,7 @@
  * - Falls back to streamManager directly if store is empty/unavailable
  */
 import { useState, useEffect, useMemo } from "react";
-import { Loader2 } from "lucide-react";
+import { Loader2, FileEdit, FilePlus2, ChevronDown, ChevronUp } from "lucide-react";
 import { useChat } from "@/stores/chat";
 import { useSession } from "@/stores/session";
 import { wsClient } from "@/services/websocket-client";
@@ -15,6 +15,11 @@ import { ChatMessageList } from "./ChatMessageList";
 import { ChatInput } from "./ChatInput";
 import { WelcomeView } from "./WelcomeView";
 import { WsLogPanel, type LogEntry } from "./WsLogPanel";
+import { FileIconView } from "@/components/FileIconView";
+import { useInspector } from "@/stores/inspector";
+import { useLayout } from "@/stores/layout";
+import type { TurnFileChange } from "./TurnFileChanges";
+import { basename } from "@/utils/pathUtils";
 
 function formatRunningDuration(ms: number): string {
   const totalSeconds = Math.max(0, Math.floor(ms / 1000));
@@ -77,6 +82,52 @@ export function ChatView() {
     : lastUserInputTs
       ? "Running"
       : "Preparing";
+
+  // 会话进行中：收集当前轮次的文件变更，传给输入框横幅展示
+  const activeTurnFileChanges = useMemo<TurnFileChange[]>(() => {
+    if (!isBusy || !canSend) return [];
+    // 找本轮起始：最后一个 user 消息
+    let turnStart = 0;
+    for (let j = messages.length - 1; j >= 0; j--) {
+      if (messages[j].role === "user") {
+        turnStart = j + 1;
+        break;
+      }
+    }
+    const fileMap = new Map<string, TurnFileChange>();
+    for (let j = turnStart; j < messages.length; j++) {
+      const m = messages[j];
+      if (m.role !== "assistant") continue;
+      if (m.blocks) {
+        for (const block of m.blocks) {
+          if (block.type !== "toolCall") continue;
+          if (block.name !== "edit" && block.name !== "write") continue;
+          const result = m.toolResults?.[block.id];
+          if (!result || result.status !== "completed") continue;
+          const meta = result.metadata;
+          if (!meta?.file || meta.before === undefined || meta.after === undefined) continue;
+          const key = meta.file.replace(/\\/g, "/").toLowerCase();
+          const existing = fileMap.get(key);
+          if (existing) {
+            existing.after = meta.after ?? "";
+            existing.additions += meta.additions ?? 0;
+            existing.deletions += meta.deletions ?? 0;
+          } else {
+            fileMap.set(key, {
+              toolCallId: block.id,
+              filePath: meta.file,
+              operation: block.name as "edit" | "write",
+              additions: meta.additions ?? 0,
+              deletions: meta.deletions ?? 0,
+              before: meta.before ?? "",
+              after: meta.after ?? "",
+            });
+          }
+        }
+      }
+    }
+    return Array.from(fileMap.values());
+  }, [isBusy, canSend, messages]);
 
   useEffect(() => {
     if (!shouldShowRunningBanner) return;
@@ -163,7 +214,7 @@ export function ChatView() {
                         runningBannerExiting ? "running-banner-exit" : "running-banner-enter"
                       }`}
                     >
-                      <div className="flex items-center justify-between gap-4 px-4 py-3 text-[13px] font-medium text-t-secondary">
+                      <div className="flex items-center justify-between gap-4 px-4 py-2.5 text-[13px] font-medium text-t-secondary">
                         <span className={`running-ellipsis shrink-0 ${retryState ? "text-[#b7791f]" : ""}`}>
                           {bannerLabel}
                         </span>
@@ -178,6 +229,9 @@ export function ChatView() {
                           <span className="shrink-0 tabular-nums text-t-muted">{runningDuration}</span>
                         ) : null}
                       </div>
+                      {activeTurnFileChanges.length > 0 && (
+                        <ActiveChangesInline changes={activeTurnFileChanges} />
+                      )}
                     </div>
                   </div>
                 </div>
@@ -207,6 +261,62 @@ export function ChatView() {
             <button onClick={() => setShowLog(false)} className="text-xs text-t-ghost hover:text-white">Close</button>
           </div>
           <WsLogPanel entries={logEntries} onClear={() => setLogEntries([])} className="flex-1 min-h-0" />
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── 进行中文件变更（嵌入 running banner 底部）──────────────────────
+
+function ActiveChangesInline({ changes }: { changes: TurnFileChange[] }) {
+  const [expanded, setExpanded] = useState(true);
+  const handleClick = (c: TurnFileChange) => {
+    useInspector.getState().openDiffPreview(
+      c.toolCallId, c.filePath, c.before, c.after, c.additions, c.deletions,
+    );
+    if (!useLayout.getState().panelVisible.inspector) {
+      useLayout.getState().togglePanelVisible("inspector");
+    }
+  };
+
+  const totalAdd = changes.reduce((s, c) => s + c.additions, 0);
+  const totalDel = changes.reduce((s, c) => s + c.deletions, 0);
+
+  return (
+    <div className="border-t border-black/5">
+      <button
+        onClick={() => setExpanded((v) => !v)}
+        className="flex items-center gap-2 w-full px-3 py-2 text-left text-[11px] font-medium text-t-muted hover:bg-black/[0.02] transition-colors"
+      >
+        <span>本轮变更</span>
+        <span className="text-t-faint">{changes.length}</span>
+        <span className="ml-auto font-mono">
+          <span className="text-green-600">+{totalAdd}</span>
+          <span className="text-red-500 ml-1.5">-{totalDel}</span>
+        </span>
+        {expanded ? <ChevronUp size={14} className="text-t-faint ml-1" /> : <ChevronDown size={14} className="text-t-faint ml-1" />}
+      </button>
+      {expanded && (
+        <div className="max-h-[80px] overflow-y-auto px-2.5 pb-2">
+          {changes.map((c) => (
+            <button
+              key={c.toolCallId}
+              onClick={() => handleClick(c)}
+              className="flex items-center gap-2 w-full px-2 py-1 text-left text-[12px] hover:bg-black/[0.03] rounded transition-colors"
+            >
+              <FileIconView path={c.filePath} size={14} />
+              <span className="truncate text-t-primary">{basename(c.filePath)}</span>
+              <span className="ml-auto shrink-0 inline-flex items-center gap-1 text-t-faint">
+                {c.operation === "write" ? <FilePlus2 size={11} /> : <FileEdit size={11} />}
+                <span className="text-[10px] uppercase">{c.operation === "write" ? "new" : "edit"}</span>
+              </span>
+              <span className="shrink-0 font-mono text-[10px] flex items-center gap-1 min-w-[50px] justify-end">
+                {c.additions > 0 && <span className="text-green-600">+{c.additions}</span>}
+                {c.deletions > 0 && <span className="text-red-500">-{c.deletions}</span>}
+              </span>
+            </button>
+          ))}
         </div>
       )}
     </div>
