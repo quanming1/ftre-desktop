@@ -254,7 +254,8 @@ export const ChatMessageList = memo(function ChatMessageList({
                 }
               }
             }
-            turnFileChanges = fileMap.size > 0 ? Array.from(fileMap.values()) : undefined;
+            // isBusy 时本轮变更展示在输入框横幅，不在消息列表展示
+            turnFileChanges = (!isBusy && fileMap.size > 0) ? Array.from(fileMap.values()) : undefined;
           }
 
           let turnUsage: ChatMessage["usage"] | undefined;
