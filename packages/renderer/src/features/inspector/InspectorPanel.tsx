@@ -154,7 +154,18 @@ function InspectorTabBar({
     const el = getScrollElement();
     if (!el) return;
     el.addEventListener("scroll", updateScrollState, { passive: true });
-    return () => el.removeEventListener("scroll", updateScrollState);
+
+    // React onWheel 是 passive 的，preventDefault 会警告，改用原生 { passive: false }
+    const onWheel = (e: WheelEvent) => {
+      e.preventDefault();
+      el.scrollLeft += e.deltaY;
+    };
+    el.addEventListener("wheel", onWheel, { passive: false });
+
+    return () => {
+      el.removeEventListener("scroll", updateScrollState);
+      el.removeEventListener("wheel", onWheel);
+    };
   }, [tabs, getScrollElement, updateScrollState]);
 
   // active tab 变化时滚动定位到可视区域
@@ -173,17 +184,6 @@ function InspectorTabBar({
     }
     updateScrollState();
   }, [activeTabId, getScrollElement, updateScrollState]);
-
-  const handleWheel = useCallback(
-    (e: React.WheelEvent) => {
-      e.preventDefault();
-      const container = getScrollElement();
-      if (container) {
-        container.scrollLeft += e.deltaY;
-      }
-    },
-    [getScrollElement],
-  );
 
   const wordWrap = useInspector((s) => s.wordWrap);
   const toggleWordWrap = useInspector((s) => s.toggleWordWrap);
@@ -294,7 +294,6 @@ function InspectorTabBar({
             scrollbars: { autoHide: "never", autoHideDelay: 0 },
           }}
           className="h-full tabbar-scroll-area"
-          onWheel={handleWheel}
           onScroll={updateScrollState}
         >
           <div className="flex items-end justify-start h-full min-w-max">
