@@ -1,5 +1,9 @@
 /**
- * SessionPanel — 会话列表（侧边栏，工作区分组 + 顶部模式切换 + 底部设置）
+ * SessionPanel — 会话列表（侧边栏，工作区分组 / 时间平铺 + 顶部模式切换 + 底部设置）
+ *
+ * 两种排序模式（段头右侧切换按钮）：
+ *   - workspace（默认）：按工作区分组，每组默认 2 条，可展开
+ *   - time：所有会话按 updated_at 倒序平铺，不分组
  *
  * 视觉：
  *   - 工作区作为不可折叠的标题行（📁 + basename）
@@ -9,12 +13,14 @@
  *   - 时间右对齐，hover 时被『更多』按钮通过透明度切换覆盖（不重排）
  *
  * 排序：
- *   - 桶完全来自 sessions 自身的 workspace 字段
- *   - 当前 rootPath 对应的组优先冒顶；其余按组内最新一条 updated_at 倒序
+ *   - workspace 模式：当前 rootPath 对应的组优先冒顶；其余按组内最新一条 updated_at 倒序
+ *   - time 模式：全局 updated_at 倒序，置顶会话仍在顶部
  *   - "未设置工作区"压底
  *
  * 数据：
  *   - 后端按 updated_at 倒序分页（GET /api/sessions?limit&offset）
+ *   - workspace 模式：按工作区各自分页（每组 20 条首页）
+ *   - time 模式：全局分页（loadMoreGlobalSessions）
  *   - 5s 轮询只刷首页（最新创建/活跃）
  */
 import {
@@ -42,6 +48,7 @@ import {
   PanelLeftOpen,
   Activity,
   Palette,
+  History,
 } from "lucide-react";
 import {
   DndContext,
@@ -58,7 +65,7 @@ import {
   verticalListSortingStrategy,
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import { useSession } from "@/stores/session";
+import { useSession, type SessionSortMode } from "@/stores/session";
 import { useChat } from "@/stores/chat";
 import { useWorkspace } from "@/stores/workspace";
 import { useLayout } from "@/stores/layout";
@@ -243,6 +250,10 @@ export function SessionPanel() {
   const workspacePaging = useSession((s) => s.workspacePaging);
   const loadAllSessions = useSession((s) => s.loadAllSessions);
   const loadMoreWorkspaceSessions = useSession((s) => s.loadMoreWorkspaceSessions);
+  const loadMoreGlobalSessions = useSession((s) => s.loadMoreGlobalSessions);
+  const sortMode = useSession((s) => s.sortMode);
+  const setSortMode = useSession((s) => s.setSortMode);
+  const wsFlatPaging = useSession((s) => s.wsFlatPaging);
   const switchSession = useSession((s) => s.switchSession);
   const deleteSession = useSession((s) => s.deleteSession);
   const newSession = useSession((s) => s.newSession);
@@ -418,6 +429,22 @@ export function SessionPanel() {
 
   const totalCount = allSessions.length;
 
+  /** time 模式：非置顶 ws session 按 updated_at 倒序平铺（非 ws 渠道仍单独放 Other Threads） */
+  const flatSessions = useMemo(() => {
+    const nonPinned = allSessions.filter(
+      (s) => !pinnedSessions.has(s.session_id) && s.channel === "ws",
+    );
+    return nonPinned.sort((a, b) => (b.updated_at ?? 0) - (a.updated_at ?? 0));
+  }, [allSessions, pinnedSessions]);
+
+  /** time 模式：初始显示条数，与 workspace 模式的 PER_GROUP_DEFAULT 对齐 */
+  const FLAT_INITIAL = 20;
+  const flatExpanded = expandCount["__flat__"] ?? FLAT_INITIAL;
+  const flatVisible = flatSessions.slice(0, flatExpanded);
+  const flatHidden = flatSessions.length - flatVisible.length;
+  const flatHasMoreInBackend = wsFlatPaging.total > flatSessions.length;
+  const flatIsExpanded = flatExpanded > FLAT_INITIAL;
+
   /** Other Threads 默认折叠展示 PER_GROUP_DEFAULT 条；用同样的展开/收起按钮 */
   const OTHER_KEY = "__other__";
   const otherExpanded = expandCount[OTHER_KEY] ?? PER_GROUP_DEFAULT;
@@ -447,6 +474,8 @@ export function SessionPanel() {
     expandCount,
     collapsedWorkspaces,
     showAllGroups,
+    sortMode,
+    flatVisible,
     currentSessionId,
     handleSwitchSession,
   });
@@ -459,6 +488,8 @@ export function SessionPanel() {
     expandCount,
     collapsedWorkspaces,
     showAllGroups,
+    sortMode,
+    flatVisible,
     currentSessionId,
     handleSwitchSession,
   };
@@ -469,23 +500,29 @@ export function SessionPanel() {
       const s = navRef.current;
       if (!detail) return;
 
-      // 1. 收集"可见会话"，DOM 顺序：Pin → Ws (按桶顺序) → Other
+      // 1. 收集"可见会话"
       const visible: SessionSummary[] = [];
       visible.push(...s.pinnedList);
 
-      const wsVisibleBucketKeys = s.showAllGroups
-        ? s.buckets.map((b) => b.key)
-        : s.buckets.slice(0, 5).map((b) => b.key);
-      const visibleBuckets = s.buckets.filter((b) => wsVisibleBucketKeys.includes(b.key));
+      if (s.sortMode === "time") {
+        // time 模式：置顶 + 平铺列表
+        visible.push(...s.flatVisible);
+      } else {
+        // workspace 模式：Pin → Ws (按桶顺序) → Other
+        const wsVisibleBucketKeys = s.showAllGroups
+          ? s.buckets.map((b) => b.key)
+          : s.buckets.slice(0, 5).map((b) => b.key);
+        const visibleBuckets = s.buckets.filter((b) => wsVisibleBucketKeys.includes(b.key));
 
-      for (const b of visibleBuckets) {
-        if (s.collapsedWorkspaces.has(b.key)) continue;
-        const expand = s.expandCount[b.key] ?? PER_GROUP_DEFAULT;
-        visible.push(...b.sessions.slice(0, expand));
-      }
+        for (const b of visibleBuckets) {
+          if (s.collapsedWorkspaces.has(b.key)) continue;
+          const expand = s.expandCount[b.key] ?? PER_GROUP_DEFAULT;
+          visible.push(...b.sessions.slice(0, expand));
+        }
 
-      if (s.otherSessions.length > 0) {
-        visible.push(...s.otherSessions.slice(0, s.otherExpanded));
+        if (s.otherSessions.length > 0) {
+          visible.push(...s.otherSessions.slice(0, s.otherExpanded));
+        }
       }
 
       if (visible.length === 0) return;
@@ -663,6 +700,33 @@ export function SessionPanel() {
     }
   }, [expandCount, workspacePaging, loadMoreWorkspaceSessions]);
 
+  /** time 模式：展开更多（前端 slice + 后端按需全局拉取） */
+  const handleExpandFlat = useCallback(async () => {
+    const FLAT_STEP = 20;
+    const current = expandCount["__flat__"] ?? FLAT_INITIAL;
+    const next = current + FLAT_STEP;
+    setExpandCount((prev) => ({ ...prev, __flat__: next }));
+
+    // 如果展开数超过已加载的 session 数，且后端全局还有更多，拉下一页
+    if (next > flatSessions.length && flatHasMoreInBackend) {
+      setLoadingMore(true);
+      try {
+        await loadMoreGlobalSessions(FLAT_STEP);
+      } finally {
+        setLoadingMore(false);
+      }
+    }
+  }, [expandCount, flatSessions.length, flatHasMoreInBackend, loadMoreGlobalSessions]);
+
+  /** time 模式：收起到初始条数 */
+  const handleCollapseFlat = useCallback(() => {
+    setExpandCount((prev) => {
+      const next = { ...prev };
+      delete next["__flat__"];
+      return next;
+    });
+  }, []);
+
   const handleCollapseGroup = useCallback((key: string) => {
     setExpandCount((prev) => {
       const next = { ...prev };
@@ -779,9 +843,12 @@ export function SessionPanel() {
                 <div className="shrink-0 px-2 pt-3 pb-1">
                   <ExpandedNewThreadButton onClick={handleNewThread} />
                 </div>
-                {/* 段头 */}
-                <div className="shrink-0 px-3 pb-1">
-                  <span className="text-[12px] text-t-ghost font-medium">Ws Threads</span>
+                {/* 段头 + 排序模式切换 */}
+                <div className="shrink-0 px-3 pb-1 flex items-center justify-between">
+                  <span className="text-[12px] text-t-ghost font-medium">
+                    {sortMode === "workspace" ? "Ws Threads" : "All Threads"}
+                  </span>
+                  <SortModeToggle sortMode={sortMode} onToggle={setSortMode} />
                 </div>
                 {/* 列表 */}
                 <div className="flex-1 overflow-y-auto scrollbar-thin px-2 py-2">
@@ -821,67 +888,85 @@ export function SessionPanel() {
                           </div>
                         </div>
                       )}
-                      {buckets.map((bucket) => {
-                        const expanded = expandCount[bucket.key] ?? PER_GROUP_DEFAULT;
-                        const paging = workspacePaging[bucket.full || ""];
-                        const backendTotal = paging?.total ?? bucket.sessions.length;
-                        const hasMoreInBackend = paging ? paging.loaded < paging.total : false;
-                        return (
-                          <WorkspaceGroup
-                            key={bucket.key}
-                            bucket={bucket}
-                            first={false}
-                            visibleCount={expanded}
-                            hasMoreInBackend={hasMoreInBackend}
-                            backendTotal={backendTotal}
+                      {sortMode === "time" ? (
+                        <>
+                          <FlatSessionList
+                            flatVisible={flatVisible}
+                            flatHidden={flatHidden}
+                            flatHasMoreInBackend={flatHasMoreInBackend}
+                            flatIsExpanded={flatIsExpanded}
+                            loadingMore={loadingMore}
                             currentSessionId={currentSessionId}
                             hoveredSession={hoveredSession}
                             loadingSessionId={loadingSessionId}
-                            collapsed={collapsedWorkspaces.has(bucket.key)}
                             onSwitch={handleSwitchSession}
                             onHover={setHoveredSession}
                             onMenu={showSessionMenu}
-                            onExpand={() => handleExpandGroup(bucket.key, bucket.full, bucket.sessions.length)}
-                            onCollapse={() => handleCollapseGroup(bucket.key)}
-                            onNewInWorkspace={() => handleNewInWorkspace(bucket.full)}
-                            onToggleCollapse={() => handleToggleCollapse(bucket.key)}
-                            onHeaderContextMenu={(e) => showWorkspaceHeaderMenu(e, bucket.full)}
+                            onExpand={handleExpandFlat}
+                            onCollapse={handleCollapseFlat}
                           />
-                        );
-                      })}
-                      {otherSessions.length > 0 && (
-                        <div className={buckets.length > 0 ? "mt-5" : ""}>
-                          <div className="px-3 pb-1">
-                            <span className="text-[12px] text-t-ghost font-medium">Other Threads</span>
-                          </div>
-                          <div className="space-y-px pl-[18px]">
-                            {otherVisible.map((session) => (
-                              <SessionRow
-                                key={session.session_id}
-                                session={session}
-                                isActive={stripPrefix(session.session_id) === stripPrefix(currentSessionId || "")}
-                                isHovered={hoveredSession === session.session_id}
-                                isLoading={loadingSessionId === session.session_id}
-                                isPinned={false}
-                                onClick={() => handleSwitchSession(session.session_id)}
-                                onEnter={() => setHoveredSession(session.session_id)}
-                                onLeave={() => setHoveredSession(null)}
-                                onMenu={(e) => showSessionMenu(e, session)}
+                          <OtherThreadsSection
+                            otherVisible={otherVisible}
+                            otherHidden={otherHidden}
+                            otherIsExpanded={otherIsExpanded}
+                            currentSessionId={currentSessionId}
+                            hoveredSession={hoveredSession}
+                            loadingSessionId={loadingSessionId}
+                            showMargin
+                            onSwitch={handleSwitchSession}
+                            onHover={setHoveredSession}
+                            onMenu={showSessionMenu}
+                            onExpand={() => handleExpandGroup(OTHER_KEY, "", otherSessions.length)}
+                            onCollapse={() => handleCollapseGroup(OTHER_KEY)}
+                          />
+                        </>
+                      ) : (
+                        <>
+                          {buckets.map((bucket) => {
+                            const expanded = expandCount[bucket.key] ?? PER_GROUP_DEFAULT;
+                            const paging = workspacePaging[bucket.full || ""];
+                            const backendTotal = paging?.total ?? bucket.sessions.length;
+                            const hasMoreInBackend = paging ? paging.loaded < paging.total : false;
+                            return (
+                              <WorkspaceGroup
+                                key={bucket.key}
+                                bucket={bucket}
+                                first={false}
+                                visibleCount={expanded}
+                                hasMoreInBackend={hasMoreInBackend}
+                                backendTotal={backendTotal}
+                                currentSessionId={currentSessionId}
+                                hoveredSession={hoveredSession}
+                                loadingSessionId={loadingSessionId}
+                                collapsed={collapsedWorkspaces.has(bucket.key)}
+                                onSwitch={handleSwitchSession}
+                                onHover={setHoveredSession}
+                                onMenu={showSessionMenu}
+                                onExpand={() => handleExpandGroup(bucket.key, bucket.full, bucket.sessions.length)}
+                                onCollapse={() => handleCollapseGroup(bucket.key)}
+                                onNewInWorkspace={() => handleNewInWorkspace(bucket.full)}
+                                onToggleCollapse={() => handleToggleCollapse(bucket.key)}
+                                onHeaderContextMenu={(e) => showWorkspaceHeaderMenu(e, bucket.full)}
                               />
-                            ))}
-                          </div>
-                          {otherHidden > 0 && (
-                            <div className="flex items-center gap-3 mt-1 pl-[30px] py-1 text-[12px]">
-                              <button
-                                type="button"
-                                onClick={() => handleExpandGroup(OTHER_KEY, "", otherSessions.length)}
-                                className="text-left text-t-ghost hover:text-neon transition-colors"
-                              >
-                                展开 +{Math.min(PER_GROUP_STEP, otherHidden)} 条
-                              </button>
-                            </div>
+                            );
+                          })}
+                          {otherSessions.length > 0 && (
+                            <OtherThreadsSection
+                              otherVisible={otherVisible}
+                              otherHidden={otherHidden}
+                              otherIsExpanded={otherIsExpanded}
+                              currentSessionId={currentSessionId}
+                              hoveredSession={hoveredSession}
+                              loadingSessionId={loadingSessionId}
+                              showMargin={buckets.length > 0}
+                              onSwitch={handleSwitchSession}
+                              onHover={setHoveredSession}
+                              onMenu={showSessionMenu}
+                              onExpand={() => handleExpandGroup(OTHER_KEY, "", otherSessions.length)}
+                              onCollapse={() => handleCollapseGroup(OTHER_KEY)}
+                            />
                           )}
-                        </div>
+                        </>
                       )}
                     </>
                   )}
@@ -925,11 +1010,12 @@ export function SessionPanel() {
           />
         </div>
 
-        {/* ── Ws Threads 段头 ── */}
-        <div className="shrink-0 px-3 pb-1">
+        {/* ── 段头 + 排序模式切换 ── */}
+        <div className="shrink-0 px-3 pb-1 flex items-center justify-between">
           <span className="text-[12px] text-t-ghost font-medium">
-            Ws Threads
+            {sortMode === "workspace" ? "Ws Threads" : "All Threads"}
           </span>
+          <SortModeToggle sortMode={sortMode} onToggle={setSortMode} />
         </div>
 
         {/* 列表 */}
@@ -940,7 +1026,7 @@ export function SessionPanel() {
             </div>
           ) : (
             <>
-              {/* Pin Threads：所有置顶会话，与 Ws Threads 平级 */}
+              {/* Pin Threads：所有置顶会话 */}
               {pinnedList.length > 0 && (
                 <div className="mb-4">
                   <div className="px-3 pb-1">
@@ -981,133 +1067,134 @@ export function SessionPanel() {
                 </div>
               )}
 
-              {/* Ws Threads：按 workspace 分组 */}
-              {buckets.length > 0 && (() => {
-                const MAX_GROUPS = 5;
-                const visibleBuckets = showAllGroups ? buckets : buckets.slice(0, MAX_GROUPS);
-                const hiddenCount = buckets.length - visibleBuckets.length;
-                return (
-                <DndContext
-                  sensors={sensors}
-                  collisionDetection={closestCenter}
-                  onDragEnd={handleDragEnd}
-                >
-                  <SortableContext
-                    items={visibleBuckets.map((b) => b.key)}
-                    strategy={verticalListSortingStrategy}
-                  >
-                    {visibleBuckets.map((bucket, idx) => {
-                      const expanded = expandCount[bucket.key] ?? PER_GROUP_DEFAULT;
-                      const paging = workspacePaging[bucket.full || ""];
-                      const backendTotal = paging?.total ?? bucket.sessions.length;
-                      const hasMoreInBackend = paging
-                        ? paging.loaded < paging.total
-                        : false;
-                      return (
-                        <WorkspaceGroup
-                          key={bucket.key}
-                          bucket={bucket}
-                          first={idx === 0}
-                          visibleCount={expanded}
-                          hasMoreInBackend={hasMoreInBackend}
-                          backendTotal={backendTotal}
-                          currentSessionId={currentSessionId}
-                          hoveredSession={hoveredSession}
-                          loadingSessionId={loadingSessionId}
-                          collapsed={collapsedWorkspaces.has(bucket.key)}
-                          onSwitch={handleSwitchSession}
-                          onHover={setHoveredSession}
-                          onMenu={showSessionMenu}
-                          onExpand={() => handleExpandGroup(bucket.key, bucket.full, bucket.sessions.length)}
-                          onCollapse={() => handleCollapseGroup(bucket.key)}
-                          onNewInWorkspace={() => handleNewInWorkspace(bucket.full)}
-                          onToggleCollapse={() => handleToggleCollapse(bucket.key)}
-                          onHeaderContextMenu={(e) => showWorkspaceHeaderMenu(e, bucket.full)}
-                        />
-                      );
-                    })}
-                  </SortableContext>
-                  {(hiddenCount > 0 || showAllGroups) && (
-                    <div className="flex items-center gap-3 mt-2 pl-[30px] py-1 text-[12px]">
-                      {hiddenCount > 0 && (
-                        <button
-                          type="button"
-                          onClick={() => setShowAllGroups(true)}
-                          className="text-left text-t-ghost hover:text-neon transition-colors"
-                        >
-                          展开更多工作区 (+{hiddenCount})
-                        </button>
+              {sortMode === "time" ? (
+                /* time 模式：非置顶 ws session 按 updated_at 倒序平铺 + Other Threads */
+                <>
+                  <FlatSessionList
+                    flatVisible={flatVisible}
+                    flatHidden={flatHidden}
+                    flatHasMoreInBackend={flatHasMoreInBackend}
+                    flatIsExpanded={flatIsExpanded}
+                    loadingMore={loadingMore}
+                    currentSessionId={currentSessionId}
+                    hoveredSession={hoveredSession}
+                    loadingSessionId={loadingSessionId}
+                    onSwitch={handleSwitchSession}
+                    onHover={setHoveredSession}
+                    onMenu={showSessionMenu}
+                    onExpand={handleExpandFlat}
+                    onCollapse={handleCollapseFlat}
+                  />
+                  <OtherThreadsSection
+                    otherVisible={otherVisible}
+                    otherHidden={otherHidden}
+                    otherIsExpanded={otherIsExpanded}
+                    currentSessionId={currentSessionId}
+                    hoveredSession={hoveredSession}
+                    loadingSessionId={loadingSessionId}
+                    showMargin
+                    onSwitch={handleSwitchSession}
+                    onHover={setHoveredSession}
+                    onMenu={showSessionMenu}
+                    onExpand={() => handleExpandGroup(OTHER_KEY, "", otherSessions.length)}
+                    onCollapse={() => handleCollapseGroup(OTHER_KEY)}
+                  />
+                </>
+              ) : (
+                <>
+                  {/* Ws Threads：按 workspace 分组 */}
+                  {buckets.length > 0 && (() => {
+                    const MAX_GROUPS = 5;
+                    const visibleBuckets = showAllGroups ? buckets : buckets.slice(0, MAX_GROUPS);
+                    const hiddenCount = buckets.length - visibleBuckets.length;
+                    return (
+                    <DndContext
+                      sensors={sensors}
+                      collisionDetection={closestCenter}
+                      onDragEnd={handleDragEnd}
+                    >
+                      <SortableContext
+                        items={visibleBuckets.map((b) => b.key)}
+                        strategy={verticalListSortingStrategy}
+                      >
+                        {visibleBuckets.map((bucket, idx) => {
+                          const expanded = expandCount[bucket.key] ?? PER_GROUP_DEFAULT;
+                          const paging = workspacePaging[bucket.full || ""];
+                          const backendTotal = paging?.total ?? bucket.sessions.length;
+                          const hasMoreInBackend = paging
+                            ? paging.loaded < paging.total
+                            : false;
+                          return (
+                            <WorkspaceGroup
+                              key={bucket.key}
+                              bucket={bucket}
+                              first={idx === 0}
+                              visibleCount={expanded}
+                              hasMoreInBackend={hasMoreInBackend}
+                              backendTotal={backendTotal}
+                              currentSessionId={currentSessionId}
+                              hoveredSession={hoveredSession}
+                              loadingSessionId={loadingSessionId}
+                              collapsed={collapsedWorkspaces.has(bucket.key)}
+                              onSwitch={handleSwitchSession}
+                              onHover={setHoveredSession}
+                              onMenu={showSessionMenu}
+                              onExpand={() => handleExpandGroup(bucket.key, bucket.full, bucket.sessions.length)}
+                              onCollapse={() => handleCollapseGroup(bucket.key)}
+                              onNewInWorkspace={() => handleNewInWorkspace(bucket.full)}
+                              onToggleCollapse={() => handleToggleCollapse(bucket.key)}
+                              onHeaderContextMenu={(e) => showWorkspaceHeaderMenu(e, bucket.full)}
+                            />
+                          );
+                        })}
+                      </SortableContext>
+                      {(hiddenCount > 0 || showAllGroups) && (
+                        <div className="flex items-center gap-3 mt-2 pl-[30px] py-1 text-[12px]">
+                          {hiddenCount > 0 && (
+                            <button
+                              type="button"
+                              onClick={() => setShowAllGroups(true)}
+                              className="text-left text-t-ghost hover:text-neon transition-colors"
+                            >
+                              展开更多工作区 (+{hiddenCount})
+                            </button>
+                          )}
+                          {showAllGroups && buckets.length > MAX_GROUPS && (
+                            <button
+                              type="button"
+                              onClick={() => setShowAllGroups(false)}
+                              className="text-left text-t-ghost hover:text-neon transition-colors"
+                            >
+                              收起
+                            </button>
+                          )}
+                        </div>
                       )}
-                      {showAllGroups && buckets.length > MAX_GROUPS && (
-                        <button
-                          type="button"
-                          onClick={() => setShowAllGroups(false)}
-                          className="text-left text-t-ghost hover:text-neon transition-colors"
-                        >
-                          收起
-                        </button>
-                      )}
-                    </div>
-                  )}
-                </DndContext>
-                );
-              })()}
+                    </DndContext>
+                    );
+                  })()}
 
-              {/* Other Threads：非 ws channel，平铺 */}
-              {otherSessions.length > 0 && (
-                <div className={buckets.length > 0 ? "mt-5" : ""}>
-                  <div className="px-3 pb-1">
-                    <span className="text-[12px] text-t-ghost font-medium">
-                      Other Threads
-                    </span>
-                  </div>
-                  <div className="space-y-px pl-[18px]">
-                    {otherVisible.map((session) => (
-                      <SessionRow
-                        key={session.session_id}
-                        session={session}
-                        isActive={
-                          stripPrefix(session.session_id) ===
-                          stripPrefix(currentSessionId || "")
-                        }
-                        isHovered={hoveredSession === session.session_id}
-                        isLoading={loadingSessionId === session.session_id}
-                        isPinned={false}
-                        onClick={() => handleSwitchSession(session.session_id)}
-                        onEnter={() => setHoveredSession(session.session_id)}
-                        onLeave={() => setHoveredSession(null)}
-                        onMenu={(e) => showSessionMenu(e, session)}
-                      />
-                    ))}
-                  </div>
-                  {(otherHidden > 0 || otherIsExpanded) && (
-                    <div className="flex items-center gap-3 mt-1 pl-[30px] py-1 text-[12px]">
-                      {otherHidden > 0 && (
-                        <button
-                          type="button"
-                          onClick={() => handleExpandGroup(OTHER_KEY, "", otherSessions.length)}
-                          className="text-left text-t-ghost hover:text-neon transition-colors"
-                        >
-                          展开 +{Math.min(PER_GROUP_STEP, otherHidden)} 条
-                        </button>
-                      )}
-                      {otherIsExpanded && (
-                        <button
-                          type="button"
-                          onClick={() => handleCollapseGroup(OTHER_KEY)}
-                          className="text-left text-t-ghost hover:text-neon transition-colors"
-                        >
-                          收起
-                        </button>
-                      )}
-                    </div>
+                  {/* Other Threads：非 ws channel，平铺 */}
+                  {otherSessions.length > 0 && (
+                    <OtherThreadsSection
+                      otherVisible={otherVisible}
+                      otherHidden={otherHidden}
+                      otherIsExpanded={otherIsExpanded}
+                      currentSessionId={currentSessionId}
+                      hoveredSession={hoveredSession}
+                      loadingSessionId={loadingSessionId}
+                      showMargin={buckets.length > 0}
+                      onSwitch={handleSwitchSession}
+                      onHover={setHoveredSession}
+                      onMenu={showSessionMenu}
+                      onExpand={() => handleExpandGroup(OTHER_KEY, "", otherSessions.length)}
+                      onCollapse={() => handleCollapseGroup(OTHER_KEY)}
+                    />
                   )}
-                </div>
+                </>
               )}
             </>
           )}
-
-          {/* 工作区分组已各自分页（每组"展开 +N"按需拉取），不再需要全局加载更多 */}
         </div>
 
         {/* ── 底部动作区（设置）── */}
@@ -1232,6 +1319,202 @@ export function SessionPanel() {
       )}
 
     </TooltipProvider>
+  );
+}
+
+// ─── 排序模式切换按钮 ─────────────────────────────────────────────
+
+function SortModeToggle({
+  sortMode,
+  onToggle,
+}: {
+  sortMode: SessionSortMode;
+  onToggle: (mode: SessionSortMode) => void;
+}) {
+  return (
+    <div className="flex items-center gap-0.5">
+      <Tooltip content="按工作区分组">
+        <button
+          type="button"
+          onClick={() => onToggle("workspace")}
+          className={`p-1.5 rounded transition-colors ${
+            sortMode === "workspace"
+              ? "text-t-primary bg-hover"
+              : "text-t-faint hover:text-t-secondary hover:bg-hover"
+          }`}
+        >
+          <FolderOpen size={16} />
+        </button>
+      </Tooltip>
+      <Tooltip content="按时间排序">
+        <button
+          type="button"
+          onClick={() => onToggle("time")}
+          className={`p-1.5 rounded transition-colors ${
+            sortMode === "time"
+              ? "text-t-primary bg-hover"
+              : "text-t-faint hover:text-t-secondary hover:bg-hover"
+          }`}
+        >
+          <History size={16} />
+        </button>
+      </Tooltip>
+    </div>
+  );
+}
+
+// ─── time 模式：平铺会话列表 ──────────────────────────────────────
+
+function FlatSessionList({
+  flatVisible,
+  flatHidden,
+  flatHasMoreInBackend,
+  flatIsExpanded,
+  loadingMore,
+  currentSessionId,
+  hoveredSession,
+  loadingSessionId,
+  onSwitch,
+  onHover,
+  onMenu,
+  onExpand,
+  onCollapse,
+}: {
+  flatVisible: SessionSummary[];
+  flatHidden: number;
+  flatHasMoreInBackend: boolean;
+  flatIsExpanded: boolean;
+  loadingMore: boolean;
+  currentSessionId: string | null;
+  hoveredSession: string | null;
+  loadingSessionId: string | null;
+  onSwitch: (sessionId: string) => void;
+  onHover: (sessionId: string | null) => void;
+  onMenu: (e: React.MouseEvent, session: SessionSummary) => void;
+  onExpand: () => void;
+  onCollapse: () => void;
+}) {
+  return (
+    <div className="space-y-px">
+      {flatVisible.map((session) => (
+        <SessionRow
+          key={session.session_id}
+          session={session}
+          isActive={stripPrefix(session.session_id) === stripPrefix(currentSessionId || "")}
+          isHovered={hoveredSession === session.session_id}
+          isLoading={loadingSessionId === session.session_id}
+          isPinned={false}
+          onClick={() => onSwitch(session.session_id)}
+          onEnter={() => onHover(session.session_id)}
+          onLeave={() => onHover(null)}
+          onMenu={(e) => onMenu(e, session)}
+        />
+      ))}
+      {(flatHidden > 0 || flatHasMoreInBackend || flatIsExpanded) && (
+        <div className="flex items-center gap-3 mt-1 pl-[30px] py-1 text-[12px]">
+          {(flatHidden > 0 || flatHasMoreInBackend) && (
+            <button
+              type="button"
+              onClick={onExpand}
+              disabled={loadingMore}
+              className="text-left text-t-ghost hover:text-neon transition-colors disabled:opacity-50"
+            >
+              {loadingMore
+                ? "加载中..."
+                : flatHasMoreInBackend
+                  ? "加载更多"
+                  : `展开 +${Math.min(20, flatHidden)} 条`}
+            </button>
+          )}
+          {flatIsExpanded && (
+            <button
+              type="button"
+              onClick={onCollapse}
+              className="text-left text-t-ghost hover:text-neon transition-colors"
+            >
+              收起
+            </button>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── Other Threads：非 ws channel 平铺段（workspace / time 模式共用） ──
+
+function OtherThreadsSection({
+  otherVisible,
+  otherHidden,
+  otherIsExpanded,
+  currentSessionId,
+  hoveredSession,
+  loadingSessionId,
+  showMargin,
+  onSwitch,
+  onHover,
+  onMenu,
+  onExpand,
+  onCollapse,
+}: {
+  otherVisible: SessionSummary[];
+  otherHidden: number;
+  otherIsExpanded: boolean;
+  currentSessionId: string | null;
+  hoveredSession: string | null;
+  loadingSessionId: string | null;
+  showMargin: boolean;
+  onSwitch: (sessionId: string) => void;
+  onHover: (sessionId: string | null) => void;
+  onMenu: (e: React.MouseEvent, session: SessionSummary) => void;
+  onExpand: () => void;
+  onCollapse: () => void;
+}) {
+  if (otherVisible.length === 0 && otherHidden === 0) return null;
+  return (
+    <div className={showMargin ? "mt-5" : ""}>
+      <div className="px-3 pb-1">
+        <span className="text-[12px] text-t-ghost font-medium">Other Threads</span>
+      </div>
+      <div className="space-y-px pl-[18px]">
+        {otherVisible.map((session) => (
+          <SessionRow
+            key={session.session_id}
+            session={session}
+            isActive={stripPrefix(session.session_id) === stripPrefix(currentSessionId || "")}
+            isHovered={hoveredSession === session.session_id}
+            isLoading={loadingSessionId === session.session_id}
+            isPinned={false}
+            onClick={() => onSwitch(session.session_id)}
+            onEnter={() => onHover(session.session_id)}
+            onLeave={() => onHover(null)}
+            onMenu={(e) => onMenu(e, session)}
+          />
+        ))}
+      </div>
+      {(otherHidden > 0 || otherIsExpanded) && (
+        <div className="flex items-center gap-3 mt-1 pl-[30px] py-1 text-[12px]">
+          {otherHidden > 0 && (
+            <button
+              type="button"
+              onClick={onExpand}
+              className="text-left text-t-ghost hover:text-neon transition-colors"
+            >
+              展开 +{Math.min(PER_GROUP_STEP, otherHidden)} 条
+            </button>
+          )}
+          {otherIsExpanded && (
+            <button
+              type="button"
+              onClick={onCollapse}
+              className="text-left text-t-ghost hover:text-neon transition-colors"
+            >
+              收起
+            </button>
+          )}
+        </div>
+      )}
+    </div>
   );
 }
 
