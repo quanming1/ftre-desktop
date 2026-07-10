@@ -265,9 +265,10 @@ function encodeSessionKey(sessionIdOrKey: string): string {
 export interface SessionMessage {
   id: string;
   session_id: string;
-  type: string;  // user_message / assistant_message_complete / tool_result / done / error / context_compact / external_message
+  type: string;  // user_message / assistant_message_complete / tool_result / step / external_message / context_compact
   data: Record<string, any>;
   timestamp: number;
+  turn_id: string;
 }
 
 /**
@@ -355,7 +356,7 @@ export interface TokenUsage {
     total_tokens: number;
     /** 锚点事件 timestamp（epoch 秒） */
     at: number;
-    source: "assistant_message_complete" | "done";
+    source: "assistant_message_complete";
   }
   | null;
   /** 锚点之后会进下次 prompt 但尚未实算的事件估算 */

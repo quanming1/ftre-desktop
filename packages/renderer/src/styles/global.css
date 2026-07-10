@@ -79,6 +79,33 @@
   animation: runningEllipsis 1.2s steps(1, end) infinite;
 }
 
+/* ===== Running 光线扫过 ===== */
+@keyframes runningShimmer {
+  0% {
+    background-position: 250% center;
+  }
+  100% {
+    background-position: -250% center;
+  }
+}
+
+.running-shimmer {
+  background: linear-gradient(
+    90deg,
+    var(--color-t-secondary, #475569) 0%,
+    var(--color-t-secondary, #475569) 40%,
+    #94a3b8 50%,
+    var(--color-t-secondary, #475569) 60%,
+    var(--color-t-secondary, #475569) 100%
+  );
+  background-size: 250% 100%;
+  background-position: 150% center;
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  animation: runningShimmer 5s linear infinite;
+}
+
 .running-banner-enter {
   animation: runningBannerEnter 180ms ease-out both;
 }

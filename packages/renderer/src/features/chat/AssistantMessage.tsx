@@ -340,14 +340,20 @@ export const AssistantMessage = memo(
     message,
     showActions = false,
     turnUsage,
+    turnAccumulatedUsage,
     turnTexts,
     turnFileChanges,
+    turnDurationSec,
+    turnModel,
   }: {
     message: ChatMessage;
     showActions?: boolean;
     turnUsage?: ChatMessage["usage"];
+    turnAccumulatedUsage?: ChatMessage["turnUsage"];
     turnTexts?: string[];
     turnFileChanges?: TurnFileChange[];
+    turnDurationSec?: number;
+    turnModel?: string;
   }) {
     const isStreaming = message.streaming ?? false;
     const mdRef = useRef<HTMLDivElement>(null);
@@ -407,27 +413,50 @@ export const AssistantMessage = memo(
                           {copied ? <Check size={15} className="text-green-500" /> : <Copy size={15} />}
                         </button>
                       </Tooltip>
-                      {(turnUsage ?? message.usage) && (
+                      {(turnAccumulatedUsage ?? turnUsage ?? message.usage) && (
                         <Tooltip
                           content={
                             <div className="text-[11px] leading-snug">
-                              <div>本轮输入: {(turnUsage ?? message.usage)?.prompt_tokens ?? "-"}</div>
-                              <div>本轮输出: {(turnUsage ?? message.usage)?.completion_tokens ?? "-"}</div>
-                              <div>本轮新增: {(turnUsage ?? message.usage)?.total_tokens ?? "-"}</div>
+                              {turnAccumulatedUsage ? (
+                                <>
+                                  <div>本轮 {turnAccumulatedUsage.llm_calls} 次调用累计</div>
+                                  <div>输入 {fmtTokens(turnAccumulatedUsage.prompt_tokens)}（缓存命中 {fmtTokens(turnAccumulatedUsage.cached_tokens)}）</div>
+                                  <div>输出 {fmtTokens(turnAccumulatedUsage.completion_tokens)}</div>
+                                </>
+                              ) : (
+                                <>
+                                  <div>本轮输入: {(turnUsage ?? message.usage)?.prompt_tokens ?? "-"}</div>
+                                  <div>本轮输出: {(turnUsage ?? message.usage)?.completion_tokens ?? "-"}</div>
+                                  <div>本轮新增: {(turnUsage ?? message.usage)?.total_tokens ?? "-"}</div>
+                                </>
+                              )}
                             </div>
                           }
                           side="top"
                         >
                           <span className="ml-1 inline-flex items-center h-8 px-2 text-[11px] font-mono text-t-ghost rounded-md hover:bg-hover hover:text-t-secondary transition-colors cursor-default">
                             {(() => {
+                              if (turnAccumulatedUsage) {
+                                return `${fmtTokens(turnAccumulatedUsage.prompt_tokens + turnAccumulatedUsage.completion_tokens)}`;
+                              }
                               const u = turnUsage ?? message.usage;
                               if (!u) return null;
-                              if (u.completion_tokens != null) return `${u.completion_tokens} tok`;
-                              if (u.total_tokens != null) return `${u.total_tokens} tok`;
-                              return `${u.prompt_tokens ?? 0}+${u.completion_tokens ?? 0} tok`;
+                              if (u.completion_tokens != null) return `${fmtTokens(u.completion_tokens)}`;
+                              if (u.total_tokens != null) return `${fmtTokens(u.total_tokens)}`;
+                              return `${fmtTokens(u.prompt_tokens ?? 0)}+${fmtTokens(u.completion_tokens ?? 0)}`;
                             })()}
                           </span>
                         </Tooltip>
+                      )}
+                      {typeof turnDurationSec === "number" && turnDurationSec >= 0 && (
+                        <span className="ml-1 inline-flex items-center h-8 px-2 text-[11px] font-mono text-t-ghost rounded-md hover:bg-hover hover:text-t-secondary transition-colors cursor-default">
+                          {formatDuration(turnDurationSec)}
+                        </span>
+                      )}
+                      {turnModel && (
+                        <span className="ml-1 inline-flex items-center h-8 px-2 text-[11px] font-mono text-t-ghost rounded-md hover:bg-hover hover:text-t-secondary transition-colors cursor-default">
+                          {turnModel}
+                        </span>
                       )}
                     </TooltipProvider>
                   </div>
@@ -447,6 +476,9 @@ export const AssistantMessage = memo(
     if (prev.turnUsage !== next.turnUsage) return false;
     if (prev.turnTexts !== next.turnTexts) return false;
     if (prev.turnFileChanges !== next.turnFileChanges) return false;
+    if (prev.turnDurationSec !== next.turnDurationSec) return false;
+    if (prev.turnModel !== next.turnModel) return false;
+    if (prev.turnAccumulatedUsage !== next.turnAccumulatedUsage) return false;
 
     // Compare blocks
     const ab = prev.message.blocks, bb = next.message.blocks;
@@ -472,3 +504,16 @@ export const AssistantMessage = memo(
     return true;
   },
 );
+
+function formatDuration(sec: number): string {
+  if (sec < 60) return `${sec}秒`;
+  const m = Math.floor(sec / 60);
+  const s = sec % 60;
+  return s > 0 ? `${m}分${s}秒` : `${m}分钟`;
+}
+
+function fmtTokens(n: number): string {
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
+  if (n >= 1_000) return `${(n / 1_000).toFixed(1)}k`;
+  return String(n);
+}
