@@ -441,7 +441,14 @@ html[data-theme="dark"] .tool-highlight .hljs-type {
 [data-assistant-message]:has(+ [data-assistant-message]) {
   margin-block-end: 2px;
 }
-""  
+
+/* User ↔ Assistant 之间增大间距（不影响 user↔user 和附件紧贴气泡） */
+[data-assistant-message] + [data-msg-role="user"] {
+  padding-top: 0.75rem;
+}
+[data-msg-role="user"]:has(+ [data-assistant-message]) {
+  padding-bottom: 0.75rem;
+}
 "/* ===== Sonner Toast ��ʽ���� (�޸���) ===== */"  
 "[data-sonner-toaster] {"  
 "  --normal-bg: var(--ftre-bg-elevated, #1a1b1d) !important;"  
