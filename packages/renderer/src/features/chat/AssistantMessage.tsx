@@ -5,6 +5,7 @@ import { CodeBlock, StreamingContext } from "./CodeBlock";
 import { useThrottledValue } from "@/hooks/useThrottledValue";
 import { splitBlocks } from "./streamingMarkdown";
 import { InlineToolCallCard } from "./InlineToolCallCard";
+import { TurnFileChanges, type TurnFileChange } from "./TurnFileChanges";
 import { ChevronRight, Copy, Check } from "lucide-react";
 import { Tooltip, TooltipProvider } from "@ftre/ui";
 import { useNotification } from "@/stores/notification";
@@ -340,11 +341,13 @@ export const AssistantMessage = memo(
     showActions = false,
     turnUsage,
     turnTexts,
+    turnFileChanges,
   }: {
     message: ChatMessage;
     showActions?: boolean;
     turnUsage?: ChatMessage["usage"];
     turnTexts?: string[];
+    turnFileChanges?: TurnFileChange[];
   }) {
     const isStreaming = message.streaming ?? false;
     const mdRef = useRef<HTMLDivElement>(null);
@@ -388,6 +391,10 @@ export const AssistantMessage = memo(
                     <ThinkAwareContent text={message.content} live={isStreaming} anchor={mdRef} />
                   </div>
                 ) : null}
+
+                {turnFileChanges && turnFileChanges.length > 0 && !isStreaming && (
+                  <TurnFileChanges changes={turnFileChanges} />
+                )}
 
                 {showActions && !isStreaming && !message.isError && (
                   <div className="mt-2 flex items-center gap-1">
@@ -439,6 +446,7 @@ export const AssistantMessage = memo(
     if (prev.showActions !== next.showActions) return false;
     if (prev.turnUsage !== next.turnUsage) return false;
     if (prev.turnTexts !== next.turnTexts) return false;
+    if (prev.turnFileChanges !== next.turnFileChanges) return false;
 
     // Compare blocks
     const ab = prev.message.blocks, bb = next.message.blocks;
