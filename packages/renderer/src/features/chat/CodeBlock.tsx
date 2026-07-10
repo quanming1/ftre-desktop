@@ -69,6 +69,42 @@ const LANG_DISPLAY: Record<string, string> = {
   svelte: "Svelte",
 };
 
+/** 语言别名/回退：hljs/lib/common 未注册的语言映射到已注册的近亲语言 */
+const LANG_FALLBACK: Record<string, string> = {
+  tsx: "typescript",
+  jsx: "javascript",
+  dockerfile: "bash",
+  docker: "bash",
+  vue: "xml",
+  svelte: "xml",
+  bat: "bash",
+  cmd: "bash",
+  ps1: "bash",
+  pwsh: "bash",
+  yml: "yaml",
+  rs: "rust",
+  kt: "kotlin",
+  cs: "csharp",
+  "c++": "cpp",
+  sh: "bash",
+  shell: "bash",
+  zsh: "bash",
+  fish: "bash",
+  text: "plaintext",
+  plaintext: "plaintext",
+};
+
+function resolveLanguage(lang: string): string {
+  const key = lang.toLowerCase();
+  // 已注册的直接用
+  if (hljs.getLanguage(key)) return key;
+  // 尝试回退
+  const fallback = LANG_FALLBACK[key];
+  if (fallback && hljs.getLanguage(fallback)) return fallback;
+  // 兜底：plaintext
+  return "plaintext";
+}
+
 function displayName(lang: string): string {
   if (!lang) return "Text";
   const key = lang.toLowerCase();
@@ -85,7 +121,7 @@ export const CodeBlock = memo(
     const highlightedHtml = useMemo(() => {
       if (isStreaming || !code) return null;
       try {
-        const lang = language || "text";
+        const lang = resolveLanguage(language || "text");
         const result = hljs.highlight(code, { language: lang, ignoreIllegals: true });
         return result.value;
       } catch {
