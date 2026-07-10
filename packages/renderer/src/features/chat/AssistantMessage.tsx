@@ -418,17 +418,43 @@ export const AssistantMessage = memo(
                           content={
                             <div className="text-[11px] leading-snug">
                               {turnAccumulatedUsage ? (
-                                <>
-                                  <div>本轮 {turnAccumulatedUsage.llm_calls} 次调用累计</div>
-                                  <div>输入 {fmtTokens(turnAccumulatedUsage.prompt_tokens)}（缓存命中 {fmtTokens(turnAccumulatedUsage.cached_tokens)}）</div>
-                                  <div>输出 {fmtTokens(turnAccumulatedUsage.completion_tokens)}</div>
-                                </>
+                                <table className="border-collapse">
+                                  <tbody>
+                                    <tr>
+                                      <td className="pr-3 text-t-muted">调用次数</td>
+                                      <td className="text-right font-mono text-t-secondary">{turnAccumulatedUsage.llm_calls}</td>
+                                    </tr>
+                                    <tr>
+                                      <td className="pr-3 text-t-muted">输入</td>
+                                      <td className="text-right font-mono text-t-secondary">{fmtTokens(turnAccumulatedUsage.prompt_tokens)}</td>
+                                    </tr>
+                                    <tr>
+                                      <td className="pr-3 text-t-muted">缓存命中</td>
+                                      <td className="text-right font-mono text-t-secondary">{fmtTokens(turnAccumulatedUsage.cached_tokens)}</td>
+                                    </tr>
+                                    <tr>
+                                      <td className="pr-3 text-t-muted">输出</td>
+                                      <td className="text-right font-mono text-t-secondary">{fmtTokens(turnAccumulatedUsage.completion_tokens)}</td>
+                                    </tr>
+                                  </tbody>
+                                </table>
                               ) : (
-                                <>
-                                  <div>本轮输入: {(turnUsage ?? message.usage)?.prompt_tokens ?? "-"}</div>
-                                  <div>本轮输出: {(turnUsage ?? message.usage)?.completion_tokens ?? "-"}</div>
-                                  <div>本轮新增: {(turnUsage ?? message.usage)?.total_tokens ?? "-"}</div>
-                                </>
+                                <table className="border-collapse">
+                                  <tbody>
+                                    <tr>
+                                      <td className="pr-3 text-t-muted">输入</td>
+                                      <td className="text-right font-mono text-t-secondary">{(turnUsage ?? message.usage)?.prompt_tokens ?? "-"}</td>
+                                    </tr>
+                                    <tr>
+                                      <td className="pr-3 text-t-muted">输出</td>
+                                      <td className="text-right font-mono text-t-secondary">{(turnUsage ?? message.usage)?.completion_tokens ?? "-"}</td>
+                                    </tr>
+                                    <tr>
+                                      <td className="pr-3 text-t-muted">新增</td>
+                                      <td className="text-right font-mono text-t-secondary">{(turnUsage ?? message.usage)?.total_tokens ?? "-"}</td>
+                                    </tr>
+                                  </tbody>
+                                </table>
                               )}
                             </div>
                           }
@@ -437,13 +463,11 @@ export const AssistantMessage = memo(
                           <span className="ml-1 inline-flex items-center h-8 px-2 text-[11px] font-mono text-t-ghost rounded-md hover:bg-hover hover:text-t-secondary transition-colors cursor-default">
                             {(() => {
                               if (turnAccumulatedUsage) {
-                                return `${fmtTokens(turnAccumulatedUsage.prompt_tokens + turnAccumulatedUsage.completion_tokens)}`;
+                                return `${fmtTokens(turnAccumulatedUsage.completion_tokens)}`;
                               }
                               const u = turnUsage ?? message.usage;
                               if (!u) return null;
-                              if (u.completion_tokens != null) return `${fmtTokens(u.completion_tokens)}`;
-                              if (u.total_tokens != null) return `${fmtTokens(u.total_tokens)}`;
-                              return `${fmtTokens(u.prompt_tokens ?? 0)}+${fmtTokens(u.completion_tokens ?? 0)}`;
+                              return `${fmtTokens(u.completion_tokens ?? 0)}`;
                             })()}
                           </span>
                         </Tooltip>
