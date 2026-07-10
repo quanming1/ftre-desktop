@@ -1,5 +1,5 @@
 import { useState, useMemo, memo, useCallback, createContext, useContext } from "react";
-import { Copy, Check } from "lucide-react";
+import { Copy, Check, WrapText } from "lucide-react";
 import hljs from "highlight.js/lib/common";
 
 /**
@@ -114,6 +114,7 @@ function displayName(lang: string): string {
 export const CodeBlock = memo(
   function CodeBlock({ language, code }: CodeBlockProps) {
     const [copied, setCopied] = useState(false);
+    const [wordWrap, setWordWrap] = useState(false);
     const isStreaming = useContext(StreamingContext);
 
     // 预计算高亮 HTML：非 streaming 时一次性算好，避免 highlightElement 后替换 DOM 导致高度抖动。
@@ -154,6 +155,13 @@ export const CodeBlock = memo(
           </span>
           <div className="flex items-center gap-1">
             <IconButton
+              label={wordWrap ? "关闭自动换行" : "开启自动换行"}
+              onClick={() => setWordWrap((v) => !v)}
+              active={wordWrap}
+            >
+              <WrapText size={16} strokeWidth={1.75} />
+            </IconButton>
+            <IconButton
               label={copied ? "Copied" : "Copy"}
               onClick={handleCopy}
               active={copied}
@@ -166,7 +174,7 @@ export const CodeBlock = memo(
 
         {/* Code body */}
         {highlightedHtml ? (
-          <pre className="overflow-x-auto">
+          <pre className={wordWrap ? "whitespace-pre-wrap break-words" : "overflow-x-auto"}>
             <code
               className={`language-${langSlug} text-[13px] leading-[1.7] font-mono`}
               dangerouslySetInnerHTML={{ __html: highlightedHtml }}
@@ -174,7 +182,7 @@ export const CodeBlock = memo(
             />
           </pre>
         ) : (
-          <pre className="overflow-x-auto">
+          <pre className={wordWrap ? "whitespace-pre-wrap break-words" : "overflow-x-auto"}>
             <code
               className={`language-${langSlug} text-[13px] leading-[1.7] font-mono`}
               data-testid="code-content"
