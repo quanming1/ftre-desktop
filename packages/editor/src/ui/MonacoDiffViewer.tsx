@@ -12,6 +12,8 @@ import {
 import type { editor } from "monaco-editor";
 import type * as Monaco from "monaco-editor";
 import { registerFtreTheme } from "./theme-registry";
+import { initTextMateGrammars } from "./textmate-registry";
+import "./textmate-grammars"; // 注册所有 grammar（副作用 import）
 import { getActiveThemeId } from "./themes";
 import type { DiffEntry } from "../store/types";
 
@@ -278,13 +280,17 @@ export const MonacoDiffViewer = memo(forwardRef<
   const { request: revealRequest, onDiffComputed, stop: revealStop } = useReveal(editorRef);
   const { init: decorInit, attachListener: decorAttach, cleanup: decorCleanup } = useDiffDecorations(onDiffComputed);
 
-  // ─── beforeMount：仅注册主题 ───────────────────────────────────
+  // ─── beforeMount：注册主题 + 初始化 TextMate grammar ──────────
   const handleBeforeMount = useCallback(
     (monaco: typeof Monaco) => {
       const themeId = theme ?? getActiveThemeId();
       if (themeId !== "vs" && themeId !== "vs-dark") {
         registerFtreTheme(monaco, themeId);
       }
+      // 初始化 TextMate grammar（幂等，异步不阻塞）
+      initTextMateGrammars(monaco).catch((e) => {
+        console.warn("[TextMate] grammar init failed:", e);
+      });
     },
     [theme],
   );
