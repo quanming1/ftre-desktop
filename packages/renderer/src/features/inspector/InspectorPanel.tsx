@@ -3,10 +3,20 @@
  *
  * Tab 渲染通过 tabRegistry 分发，新增 tab 类型只需注册 renderer。
  */
-import { useState, useEffect, useCallback, useRef, memo } from "react";
+import {
+  useState,
+  useEffect,
+  useCallback,
+  useRef,
+  useMemo,
+  memo,
+  type PointerEvent as ReactPointerEvent,
+  type ReactNode,
+} from "react";
 import { X, FileText, Loader2, ListTree } from "lucide-react";
 import { GitCompareArrows } from "lucide-react";
 import { OverlayScrollbarsComponent, type OverlayScrollbarsComponentRef } from "overlayscrollbars-react";
+import { ErrorBoundary } from "@ftre/ui";
 import { useInspector, type InspectorTab } from "@/stores/inspector";
 import { ContextMenu, type ContextMenuItem } from "@/components/ContextMenu";
 import { ResizeHandle } from "@/components/ResizeHandle";
@@ -15,6 +25,7 @@ import { FileTreeSidebar } from "./FileTreeSidebar";
 import { FileIconView } from "@/components/FileIconView";
 import { getTabMeta } from "./tabRegistry";
 import { useRipple, RippleLayer } from "@/components/Ripple";
+import { useSmoothTabReorder, compareByMountOrder } from "./useSmoothTabReorder";
 
 export function InspectorPanel() {
   const tabs = useInspector((s) => s.tabs);
@@ -24,12 +35,14 @@ export function InspectorPanel() {
   const closeOtherTabs = useInspector((s) => s.closeOtherTabs);
   const closeTabsToRight = useInspector((s) => s.closeTabsToRight);
   const closeAllTabs = useInspector((s) => s.closeAllTabs);
+  const reorderTabs = useInspector((s) => s.reorderTabs);
   const openFilePreview = useInspector((s) => s.openFilePreview);
   const fileTreeOpen = useInspector((s) => s.fileTreeOpen);
   const toggleFileTree = useInspector((s) => s.toggleFileTree);
   const wordWrap = useInspector((s) => s.wordWrap);
   const fileTreeWidth = useLayout((s) => s.fileTreeWidth);
   const setFileTreeWidth = useLayout((s) => s.setFileTreeWidth);
+  const contentTabs = useMemo(() => [...tabs].sort(compareByMountOrder), [tabs]);
 
   return (
     <div className="h-full flex flex-col overflow-hidden bg-surface">
@@ -44,6 +57,7 @@ export function InspectorPanel() {
         onOpenOriginalFile={openFilePreview}
         fileTreeOpen={fileTreeOpen}
         onToggleFileTree={toggleFileTree}
+        onReorder={reorderTabs}
       />
       <div className="flex-1 min-h-0 flex overflow-hidden">
             <div
@@ -74,7 +88,7 @@ export function InspectorPanel() {
           {tabs.length === 0 ? (
             <EmptyState />
           ) : (
-            tabs.map((tab) => (
+            contentTabs.map((tab) => (
               <div
                 key={tab.id}
                 className="absolute inset-0"
@@ -85,7 +99,9 @@ export function InspectorPanel() {
                 }}
               >
                 <div className="h-full w-full">
-                  <InspectorTabContent tab={tab} active={tab.id === activeTabId} wordWrap={wordWrap} />
+                  <TabErrorBoundary tabId={tab.id}>
+                    <InspectorTabContent tab={tab} active={tab.id === activeTabId} wordWrap={wordWrap} />
+                  </TabErrorBoundary>
                 </div>
               </div>
             ))
@@ -107,6 +123,7 @@ function InspectorTabBar({
   onOpenOriginalFile,
   fileTreeOpen,
   onToggleFileTree,
+  onReorder,
 }: {
   tabs: InspectorTab[];
   activeTabId: string | null;
@@ -118,6 +135,7 @@ function InspectorTabBar({
   onOpenOriginalFile: (toolCallId: string, path: string, title?: string, revealLine?: number, revealEndLine?: number, content?: string) => void;
   fileTreeOpen: boolean;
   onToggleFileTree: () => void;
+  onReorder: (fromId: string, toIndex: number) => void;
 }) {
   const overlayRef = useRef<OverlayScrollbarsComponentRef | null>(null);
   const activeTabRef = useRef<HTMLButtonElement | null>(null);
@@ -125,6 +143,8 @@ function InspectorTabBar({
     position: { x: number; y: number };
     tabId: string;
   } | null>(null);
+
+  const tabDrag = useSmoothTabReorder(tabs, onReorder);
 
   const getScrollElement = useCallback((): HTMLElement | null => {
     const osInstance = overlayRef.current?.osInstance();
@@ -273,7 +293,7 @@ function InspectorTabBar({
   );
 
   return (
-    <div className="h-[38px] flex items-end shrink-0 border-b border-border" style={{ background: "#f9fafb" }}>
+    <div className="h-[34px] flex items-end shrink-0 border-b border-border" style={{ background: "#f9fafb" }}>
       <button
         onClick={onToggleFileTree}
         title="文件树"
@@ -297,17 +317,32 @@ function InspectorTabBar({
           onScroll={updateScrollState}
         >
           <div className="flex items-end justify-start h-full min-w-max">
-            {tabs.map((tab) => (
-              <TabButton
-                key={tab.id}
-                tab={tab}
-                isActive={tab.id === activeTabId}
-                activeRef={activeTabRef}
-                onActivate={onActivate}
-                onClose={onClose}
-                onContextMenu={handleContextMenu}
-              />
-            ))}
+            <div
+              ref={tabDrag.containerRef}
+              className="flex items-end justify-start h-full"
+            >
+              {tabs.map((tab, index) => (
+                <div
+                  key={tab.id}
+                  data-tab-id={tab.id}
+                  className="h-full shrink-0"
+                  style={tabDrag.getItemStyle(tab.id, index)}
+                >
+                  <TabButton
+                    tab={tab}
+                    isActive={tab.id === activeTabId}
+                    activeRef={activeTabRef}
+                    onActivate={onActivate}
+                    onClose={onClose}
+                    onContextMenu={handleContextMenu}
+                    onDragPointerDown={tabDrag.handlePointerDown}
+                    onDragPointerMove={tabDrag.handlePointerMove}
+                    onDragPointerUp={tabDrag.handlePointerUp}
+                    shouldSuppressClick={tabDrag.shouldSuppressClick}
+                  />
+                </div>
+              ))}
+            </div>
           </div>
         </OverlayScrollbarsComponent>
         {hiddenLeft > 0 && (
@@ -341,6 +376,10 @@ const TabButton = memo(function TabButton({
   onActivate,
   onClose,
   onContextMenu,
+  onDragPointerDown,
+  onDragPointerMove,
+  onDragPointerUp,
+  shouldSuppressClick,
 }: {
   tab: InspectorTab;
   isActive: boolean;
@@ -348,6 +387,10 @@ const TabButton = memo(function TabButton({
   onActivate: (id: string) => void;
   onClose: (id: string) => void;
   onContextMenu: (e: React.MouseEvent, tabId: string) => void;
+  onDragPointerDown: (e: ReactPointerEvent<HTMLElement>, tabId: string) => void;
+  onDragPointerMove: (e: ReactPointerEvent<HTMLElement>) => void;
+  onDragPointerUp: (e: ReactPointerEvent<HTMLElement>) => void;
+  shouldSuppressClick: () => boolean;
 }) {
   const { ripples, trigger, remove } = useRipple();
   const meta = getTabMeta(tab.type);
@@ -357,7 +400,17 @@ const TabButton = memo(function TabButton({
     <button
       data-tab-btn
       ref={isActive ? activeRef : undefined}
+      draggable={false}
+      onPointerDown={(e) => onDragPointerDown(e, tab.id)}
+      onPointerMove={onDragPointerMove}
+      onPointerUp={onDragPointerUp}
+      onPointerCancel={onDragPointerUp}
       onClick={(e) => {
+        if (shouldSuppressClick()) {
+          e.preventDefault();
+          e.stopPropagation();
+          return;
+        }
         trigger(e);
         onActivate(tab.id);
       }}
@@ -388,6 +441,7 @@ const TabButton = memo(function TabButton({
       {meta?.icon(tab) ?? <FileIconView path={filePath} size={16} />}
       <span className="max-w-[180px] truncate">{meta?.title(tab) ?? tab.title}</span>
       <span
+        onPointerDown={(e) => e.stopPropagation()}
         onClick={(e) => {
           e.stopPropagation();
           onClose(tab.id);
@@ -412,6 +466,23 @@ const InspectorTabContent = memo(function InspectorTabContent(props: { tab: Insp
   if (!meta) return null;
   return <>{meta.renderer(props)}</>;
 });
+
+/**
+ * TabErrorBoundary — 捕获 Monaco InstantiationService disposed 等致命错误，
+ * 提供重试按钮，重试时通过递增 key 强制重新挂载 Monaco 编辑器。
+ */
+function TabErrorBoundary({ tabId, children }: { tabId: string; children: ReactNode }) {
+  const [resetKey, setResetKey] = useState(0);
+  return (
+    <ErrorBoundary
+      key={`${tabId}-${resetKey}`}
+      level="region"
+      onReset={() => setResetKey((k) => k + 1)}
+    >
+      {children}
+    </ErrorBoundary>
+  );
+}
 
 function EmptyState() {
   return (

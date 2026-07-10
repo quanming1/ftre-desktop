@@ -91,6 +91,8 @@ export interface InspectorState {
   closeTabsToRight: (id: string) => void;
   /** 关闭全部 tab */
   closeAllTabs: () => void;
+  /** 拖拽重排 tab */
+  reorderTabs: (fromId: string, toIndex: number) => void;
   /** 切换文件树侧边栏 */
   toggleFileTree: () => void;
   /** wordWrap 开关 */
@@ -205,6 +207,17 @@ export const useInspector = create<InspectorState>((set, get) => ({
   },
 
   closeAllTabs: () => set({ tabs: [], activeTabId: null }),
+
+  reorderTabs: (fromId, toIndex) => {
+    const tabs = get().tabs;
+    const from = tabs.findIndex((t) => t.id === fromId);
+    const to = Math.max(0, Math.min(toIndex, tabs.length - 1));
+    if (from === -1 || from === to) return;
+    const next = [...tabs];
+    const [moved] = next.splice(from, 1);
+    next.splice(to, 0, moved);
+    set({ tabs: next });
+  },
 
   toggleFileTree: () => set((s) => ({ fileTreeOpen: !s.fileTreeOpen })),
 
