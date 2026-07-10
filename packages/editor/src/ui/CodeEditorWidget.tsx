@@ -32,6 +32,8 @@ import {
   type ICodeEditorPaneFactoryOptions,
 } from "./CodeEditorPaneFactory";
 import { registerFtreTheme } from "./theme-registry";
+import { initTextMateGrammars } from "./textmate-registry";
+import "./textmate-grammars"; // 注册所有 grammar（副作用 import）
 import { getActiveThemeId } from "./themes";
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -261,6 +263,11 @@ export const CodeEditorWidget = memo(
       if (theme && theme !== "vs" && theme !== "vs-dark") {
         registerFtreTheme(monaco, theme);
       }
+
+      // 初始化 TextMate grammar（幂等，异步不阻塞）
+      initTextMateGrammars(monaco).catch((e) => {
+        console.warn("[TextMate] grammar init failed:", e);
+      });
 
       // 初始化 TextModelResolverService
       const modelService = getTextModelResolverService();

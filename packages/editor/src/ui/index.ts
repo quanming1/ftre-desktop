@@ -1,4 +1,5 @@
 export { registerFtreTheme } from "./theme-registry";
+export { initTextMateGrammars, registerGrammar } from "./textmate-registry";
 export { MonacoDiffViewer, type MonacoDiffViewerHandle } from "./MonacoDiffViewer";
 export { DiffBar, computeDiffStats } from "./DiffBar";
 
