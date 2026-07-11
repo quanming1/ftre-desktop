@@ -165,6 +165,8 @@ interface SessionState {
   /** 切换排序模式 */
   setSortMode: (mode: SessionSortMode) => void;
   switchSession: (sessionId: string) => Promise<void>;
+  /** 重连后重新拉取当前 session 的历史，保证消息不丢失 */
+  reconnectSession: (sessionId: string) => Promise<void>;
   /** 加载更早一页消息（基于当前桶最早事件的 timestamp 作 before_ts）。返回是否真的拉到内容。 */
   loadEarlierMessages: (sessionId: string) => Promise<boolean>;
   openTab: (sessionId: string) => void;
@@ -376,6 +378,26 @@ export const useSession = create<SessionState>((set, get) => ({
       .finally(() => {
         if (get().loadingSessionId === sessionId) set({ loadingSessionId: null });
       });
+  },
+
+  reconnectSession: async (sessionId) => {
+    // WS 重连后重新拉取 DB 历史，重建消息列表和去重窗口。
+    // 不走 subscribeOnly（WS client onopen 已重发 attach），
+    // 不走 clearSessionCache（保留 bucket 状态，避免 UI 闪烁）。
+    try {
+      const page = await fetchSessionMessagesPage(sessionId, { limitTurns: FIRST_PAGE_TURNS });
+      if (!page) return;
+      useChat.getState().loadSessionMessages(
+        sessionId,
+        historyToMessages(page.messages),
+        page.hasMore,
+        page.status,
+      );
+      useChat.getState().setSessionStatus(sessionId, page.status);
+      useChat.getState().switchTo(sessionId);
+    } catch (err) {
+      console.error("[Session] reconnectSession fetch error:", err);
+    }
   },
 
   loadEarlierMessages: async (sessionId) => {

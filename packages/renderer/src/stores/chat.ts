@@ -8,6 +8,7 @@ import { wsClient } from "@/services/websocket-client";
 import type { WsConnectionStatus, ServerMessage } from "@/services/websocket-client";
 import { createSessionRemote, API_BASE, fetchChatAgents, updateAgent } from "@/services/api";
 import type { ChatAgent } from "@/services/api";
+import { ty, slen, eq, keysStr } from "@/utils/diffDebug";
 
 // ─── Types ───────────────────────────────────────────────────────────
 
@@ -394,6 +395,24 @@ export function applyEvent(b: Bucket, ev: BusEvent): void {
     case "tool_result": {
       const id = d.id;
       const isErr = !!d.error;
+      const rawMeta = d.metadata;
+      console.log("[DIFF-DBG] tool_result event received", {
+        id,
+        name: d.name,
+        isErr,
+        metadataExists: rawMeta !== undefined && rawMeta !== null,
+        metadataType: ty(rawMeta),
+        metadataKeys: keysStr(rawMeta),
+        beforeType: ty(rawMeta?.before),
+        beforeLen: slen(rawMeta?.before),
+        afterType: ty(rawMeta?.after),
+        afterLen: slen(rawMeta?.after),
+        beforeEqAfter: eq(rawMeta?.before, rawMeta?.after),
+        file: rawMeta?.file,
+        additions: rawMeta?.additions,
+        deletions: rawMeta?.deletions,
+        diffLen: slen(rawMeta?.diff),
+      });
       const result: ToolResult = {
         id,
         name: d.name || "",
@@ -735,7 +754,17 @@ if (!(globalThis as any)[__wsBoundFlag]) {
     }
   });
 
-  wsClient.onConnect(() => useChat.setState({ connected: true, wsStatus: "connected" }));
+  wsClient.onConnect(() => {
+    useChat.setState({ connected: true, wsStatus: "connected" });
+    // 重连后重新拉取当前 session 的全量历史，保证断线期间的消息不丢失。
+    // WS client 的 onopen 已经重发了 attach 帧，这里只需 HTTP 补数据 + 重建去重窗口。
+    const { sessionId } = useChat.getState();
+    if (sessionId) {
+      import("../stores/session").then(({ useSession }) =>
+        useSession.getState().reconnectSession(sessionId),
+      );
+    }
+  });
   wsClient.onStatusChange((s) => useChat.setState({ wsStatus: s, connected: s === "connected" }));
   wsClient.onDisconnect(() => {
     // 鏂嚎锛氬叧鎺夋墍鏈?bucket 鐨?streaming 鐘舵€侊紝淇濈暀娑堟伅
