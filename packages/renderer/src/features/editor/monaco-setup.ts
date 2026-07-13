@@ -23,33 +23,24 @@ import jsonWorker from "monaco-editor/esm/vs/language/json/json.worker?worker";
 import cssWorker from "monaco-editor/esm/vs/language/css/css.worker?worker";
 import htmlWorker from "monaco-editor/esm/vs/language/html/html.worker?worker";
 
-// Worker 实例缓存，避免重复创建
-const workerCache = new Map<string, Worker>();
-
-function getOrCreateWorker(label: string): Worker {
-  const cached = workerCache.get(label);
-  if (cached) return cached;
-
-  let worker: Worker;
-  if (label === "typescript" || label === "javascript") {
-    worker = new tsWorker();
-  } else if (label === "json") {
-    worker = new jsonWorker();
-  } else if (label === "css" || label === "scss" || label === "less") {
-    worker = new cssWorker();
-  } else if (label === "html" || label === "handlebars" || label === "razor") {
-    worker = new htmlWorker();
-  } else {
-    worker = new editorWorker();
-  }
-
-  workerCache.set(label, worker);
-  return worker;
-}
+// Worker 实例缓存已移除：Monaco 0.55 的 EditorWorkerClient 有自己的 worker 生命周期管理
+// （STOP_WORKER_DELTA_TIME_MS 空闲后 dispose）。如果这里缓存 Worker 实例返回同一个 Worker，
+// 多个 diff editor 会共享同一个 worker proxy，导致 computeDiff 消息路由混乱，
+// 部分 diff editor 永远收不到结果 → onDidUpdateDiff 不触发 → diff 行不显示（偶现根因）。
 
 self.MonacoEnvironment = {
   getWorker(_, label) {
-    return getOrCreateWorker(label);
+    if (label === "typescript" || label === "javascript") {
+      return new tsWorker();
+    } else if (label === "json") {
+      return new jsonWorker();
+    } else if (label === "css" || label === "scss" || label === "less") {
+      return new cssWorker();
+    } else if (label === "html" || label === "handlebars" || label === "razor") {
+      return new htmlWorker();
+    } else {
+      return new editorWorker();
+    }
   },
 };
 
@@ -63,28 +54,22 @@ let prewarmed = false;
 /**
  * 预热 Monaco Editor（在应用空闲时调用）
  *
- * 预创建最常用的 Workers，避免首次打开文件时的延迟：
- * - TypeScript Worker (~1-2MB，最重)
- * - Editor Worker (基础编辑功能)
- *
- * 建议在 requestIdleCallback 或用户悬停文件树时调用。
+ * 创建一个临时的 TypeScript Worker 让 Vite 预先编译 worker bundle，
+ * 避免首次打开文件时的延迟。Worker 创建后即丢弃，不影响后续使用。
  */
 export function prewarmMonaco(): void {
   if (prewarmed) return;
   prewarmed = true;
 
-  // 使用 requestIdleCallback 在浏览器空闲时预热
   const prewarmTask = () => {
-    // 预创建 TypeScript Worker（最耗时）
-    getOrCreateWorker("typescript");
-    // 预创建基础 Editor Worker
-    getOrCreateWorker("editor");
+    // 预编译 TypeScript Worker bundle（创建后立即 terminate）
+    const w = new tsWorker();
+    w.terminate();
   };
 
   if ("requestIdleCallback" in window) {
     requestIdleCallback(prewarmTask, { timeout: 3000 });
   } else {
-    // Fallback: 延迟 1 秒后执行
     setTimeout(prewarmTask, 1000);
   }
 }
@@ -94,11 +79,4 @@ export function prewarmMonaco(): void {
  */
 export function isMonacoPrewarmed(): boolean {
   return prewarmed;
-}
-
-/**
- * 获取已缓存的 Worker 数量（用于调试/性能监控）
- */
-export function getWorkerCacheSize(): number {
-  return workerCache.size;
 }

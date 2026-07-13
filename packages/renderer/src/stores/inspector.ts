@@ -149,10 +149,27 @@ export const useInspector = create<InspectorState>((set, get) => ({
   },
 
   openDiffPreview: (toolCallId, filePath, before, after, additions, deletions, title) => {
+    console.log(
+      `[DIFF-DBG] openDiffPreview called: toolCallId=${toolCallId}, file=${filePath}` +
+        `, beforeLen=${before?.length ?? -1}, afterLen=${after?.length ?? -1}` +
+        `, beforeEqAfter=${before === after}, additions=${additions}, deletions=${deletions}, title=${title ?? "none"}`,
+    );
     const existing = get().tabs.find(
       (t) => t.toolCallId === toolCallId,
     );
+    const tabsInfo = get().tabs.map((t) => `${t.id}(${t.type})`).join(", ");
+    console.log(
+      `[DIFF-DBG] dedup check: toolCallId=${toolCallId}, existingFound=${!!existing}` +
+        `, existingType=${existing?.type ?? "none"}, existingId=${existing?.id ?? "none"}` +
+        `, tabsCount=${get().tabs.length}, tabs=[${tabsInfo}]`,
+    );
     if (existing && existing.type === "diff") {
+      console.log(
+        `[DIFF-DBG] REUSING existing diff tab: tabId=${existing.id}` +
+          `, oldBeforeLen=${existing.before?.length ?? -1}, newBeforeLen=${before?.length ?? -1}` +
+          `, oldAfterLen=${existing.after?.length ?? -1}, newAfterLen=${after?.length ?? -1}` +
+          `, beforeChanged=${existing.before !== before}, afterChanged=${existing.after !== after}`,
+      );
       set({
         activeTabId: existing.id,
         tabs: get().tabs.map((t) =>
@@ -161,7 +178,16 @@ export const useInspector = create<InspectorState>((set, get) => ({
             : t,
         ),
       });
+      console.log(
+        `[DIFF-DBG] tab reused, state updated: activeTabId=${get().activeTabId}` +
+          `, beforeLen=${before?.length ?? -1}, afterLen=${after?.length ?? -1}`,
+      );
       return;
+    }
+    if (existing && existing.type !== "diff") {
+      console.log(
+        `[DIFF-DBG] WARNING — existing tab found but type mismatch! existingType=${existing.type}, expected=diff, toolCallId=${toolCallId}`,
+      );
     }
     const tab: DiffTab = {
       id: nextId(),
@@ -175,10 +201,18 @@ export const useInspector = create<InspectorState>((set, get) => ({
       deletions,
       revealNonce: 0,
     };
+    console.log(
+      `[DIFF-DBG] CREATING new diff tab: tabId=${tab.id}, toolCallId=${tab.toolCallId}` +
+        `, file=${tab.filePath}, beforeLen=${tab.before?.length ?? -1}, afterLen=${tab.after?.length ?? -1}` +
+        `, beforeEqAfter=${tab.before === tab.after}`,
+    );
     set({
       tabs: [...get().tabs, tab],
       activeTabId: tab.id,
     });
+    console.log(
+      `[DIFF-DBG] new tab created: activeTabId=${get().activeTabId}, tabsCount=${get().tabs.length}`,
+    );
   },
 
   setActiveTab: (id) => set({ activeTabId: id }),

@@ -26,6 +26,14 @@ export function DiffRenderer({ tab, wordWrap }: TabRendererProps) {
   const displayPath = filePath.replace(/\\/g, "/");
   const language = useMemo(() => detectLanguage(displayPath), [displayPath]);
 
+  console.log(
+    `[DIFF-DBG] DiffRenderer render: tabId=${tab.id}, toolCallId=${tab.toolCallId}, file=${filePath}` +
+      `, beforeLen=${before?.length ?? -1}, afterLen=${after?.length ?? -1}` +
+      `, beforeEqAfter=${before === after}, beforeIsNull=${before === null}, afterIsNull=${after === null}` +
+      `, beforeIsUndefined=${before === undefined}, afterIsUndefined=${after === undefined}` +
+      `, additions=${additions}, deletions=${deletions}, revealNonce=${revealNonce}, wordWrap=${wordWrap}`,
+  );
+
   // renderSideBySide 状态：每个 diff tab 独立控制
   const [renderSideBySide, setRenderSideBySide] = useState(false);
   const toggleSideBySide = () => setRenderSideBySide((v) => !v);
@@ -35,15 +43,23 @@ export function DiffRenderer({ tab, wordWrap }: TabRendererProps) {
   // ⚠️ memoize diff 对象：切 tab 时 InspectorPanel re-render，
   // 如果 diff 对象每次新建，memo(MonacoDiffViewer) 的浅比较失效，
   // 导致内部 hooks 重跑 → @monaco-editor/react 收到新 options 引用 → wordWrap 闪烁
-  const diff = useMemo(() => ({
-    id: tab.id,
-    filePath,
-    tabPath: filePath,
-    originalContent: before,
-    newContent: after,
-    toolName: "edit" as const,
-    isApproximate: false,
-  }), [tab.id, filePath, before, after]);
+  const diff = useMemo(() => {
+    const d = {
+      id: tab.id,
+      filePath,
+      tabPath: filePath,
+      originalContent: before,
+      newContent: after,
+      toolName: "edit" as const,
+      isApproximate: false,
+    };
+    console.log(
+      `[DIFF-DBG] useMemo diff (re)computed: tabId=${tab.id}` +
+        `, origLen=${d.originalContent?.length ?? -1}, newLen=${d.newContent?.length ?? -1}` +
+        `, origEqNew=${d.originalContent === d.newContent}`,
+    );
+    return d;
+  }, [tab.id, filePath, before, after]);
 
   return (
     <div className="flex flex-col h-full min-h-0 bg-surface">
@@ -89,7 +105,15 @@ export function DiffRenderer({ tab, wordWrap }: TabRendererProps) {
         </div>
       </div>
       <div className="flex-1 min-h-0 relative bg-surface">
-        {before !== null && after !== null && (
+        {(() => {
+          const shouldRender = before !== null && after !== null;
+          console.log(
+            `[DIFF-DBG] render gate: tabId=${tab.id}, beforeNotNull=${before !== null}` +
+              `, afterNotNull=${after !== null}, shouldRender=${shouldRender}` +
+              `, beforeLen=${before?.length ?? -1}, afterLen=${after?.length ?? -1}`,
+          );
+          return shouldRender;
+        })() && (
           <MonacoDiffViewer
             diff={diff}
             language={language}

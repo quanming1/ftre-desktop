@@ -232,6 +232,14 @@ const BlocksRenderer = memo(function BlocksRenderer({
   for (const k of aKeys) {
     const x = ar[k], y = br[k];
     if (!y || x.status !== y.status || x.result !== y.result || x.error !== y.error) return false;
+    // [DIFF-DBG] 检测：metadata 引用变了但 status/result/error 没变 → memo 会跳过 re-render
+    if (x.metadata !== y.metadata) {
+      console.log(
+        `[DIFF-DBG] AssistantMessage memo: metadata ref changed but status/result/error same` +
+          `, toolCallId=${k}, prevMetaKeys=${x.metadata ? Object.keys(x.metadata).join(",") : "none"}` +
+          `, nextMetaKeys=${y.metadata ? Object.keys(y.metadata).join(",") : "none"}, memoWillSkip=true`,
+      );
+    }
   }
   return true;
 });
@@ -403,7 +411,7 @@ export const AssistantMessage = memo(
                 )}
 
                 {showActions && !isStreaming && !message.isError && (
-                  <div className="mt-2 flex items-center gap-1">
+                  <div className="mt-2 flex items-center gap-2">
                     <TooltipProvider>
                       <Tooltip content={copied ? "已复制" : "复制"} side="top">
                         <button

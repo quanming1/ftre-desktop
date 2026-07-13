@@ -8,7 +8,6 @@ import { wsClient } from "@/services/websocket-client";
 import type { WsConnectionStatus, ServerMessage } from "@/services/websocket-client";
 import { createSessionRemote, API_BASE, fetchChatAgents, updateAgent } from "@/services/api";
 import type { ChatAgent } from "@/services/api";
-import { ty, slen, eq, keysStr } from "@/utils/diffDebug";
 
 // ─── Types ───────────────────────────────────────────────────────────
 
@@ -396,23 +395,18 @@ export function applyEvent(b: Bucket, ev: BusEvent): void {
       const id = d.id;
       const isErr = !!d.error;
       const rawMeta = d.metadata;
-      console.log("[DIFF-DBG] tool_result event received", {
-        id,
-        name: d.name,
-        isErr,
-        metadataExists: rawMeta !== undefined && rawMeta !== null,
-        metadataType: ty(rawMeta),
-        metadataKeys: keysStr(rawMeta),
-        beforeType: ty(rawMeta?.before),
-        beforeLen: slen(rawMeta?.before),
-        afterType: ty(rawMeta?.after),
-        afterLen: slen(rawMeta?.after),
-        beforeEqAfter: eq(rawMeta?.before, rawMeta?.after),
-        file: rawMeta?.file,
-        additions: rawMeta?.additions,
-        deletions: rawMeta?.deletions,
-        diffLen: slen(rawMeta?.diff),
-      });
+      console.log(
+        `[DIFF-DBG] tool_result event: id=${id}, name=${d.name}, isErr=${isErr}` +
+          `, metaExists=${rawMeta != null}` +
+          `, metaKeys=${rawMeta ? Object.keys(rawMeta).join(",") : "none"}` +
+          `, beforeLen=${rawMeta?.before?.length ?? -1}` +
+          `, afterLen=${rawMeta?.after?.length ?? -1}` +
+          `, beforeEqAfter=${rawMeta?.before === rawMeta?.after}` +
+          `, file=${rawMeta?.file}` +
+          `, additions=${rawMeta?.additions}` +
+          `, deletions=${rawMeta?.deletions}` +
+          `, diffLen=${rawMeta?.diff?.length ?? -1}`,
+      );
       const result: ToolResult = {
         id,
         name: d.name || "",
