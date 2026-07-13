@@ -161,13 +161,20 @@ function useReveal(
 
   const doReveal = useCallback(() => {
     const diffEditor = editorRef.current;
-    if (!diffEditor) return;
+    if (!diffEditor) {
+      console.log("[DIFF-DBG] doReveal: editorRef.current is null, cannot reveal");
+      return;
+    }
     const changes = diffEditor.getLineChanges();
+    console.log(`[DIFF-DBG] doReveal called: hasChanges=${!!changes}, changesCount=${changes?.length ?? 0}`);
     if (changes && changes.length > 0) {
       // VS Code 的 _goTo: setPosition + revealLineInCenter
       const firstLine = changes[0].modifiedStartLineNumber;
+      console.log(`[DIFF-DBG] doReveal: revealing first diff line=${firstLine}`);
       diffEditor.getModifiedEditor().setPosition({ lineNumber: firstLine, column: 1 });
       diffEditor.getModifiedEditor().revealLineInCenter(firstLine);
+    } else {
+      console.log("[DIFF-DBG] doReveal: no changes found, nothing to reveal");
     }
   }, [editorRef]);
 
@@ -192,22 +199,42 @@ function useReveal(
     revealPendingRef.current = true;
     stop();
     let attempts = 0;
+    console.log(
+      `[DIFF-DBG] revealRequest: polling STARTED, editorReady=${!!editorRef.current}` +
+        `, maxAttempts=${REVEAL_POLL_MAX}, pollMs=${REVEAL_POLL_MS}`,
+    );
     revealIntervalRef.current = setInterval(() => {
       const diffEditor = editorRef.current;
       if (!diffEditor) {
         attempts++;
-        if (attempts >= REVEAL_POLL_MAX) stop();
+        if (attempts % 50 === 0) {
+          console.log(`[DIFF-DBG] poll: editorRef still null, attempts=${attempts}`);
+        }
+        if (attempts >= REVEAL_POLL_MAX) {
+          console.log(`[DIFF-DBG] poll: GIVE UP — editorRef null, attempts=${attempts}`);
+          stop();
+        }
         return;
       }
       const changes = diffEditor.getLineChanges();
+      if (attempts % 50 === 0 || attempts < 3) {
+        console.log(`[DIFF-DBG] poll: attempts=${attempts}, hasChanges=${!!changes}, changesCount=${changes?.length ?? 0}`);
+      }
       if (changes && changes.length > 0) {
+        console.log(`[DIFF-DBG] poll: FOUND changes, calling doReveal, attempts=${attempts}, changesCount=${changes.length}`);
         doReveal();
         revealPendingRef.current = false;
         stop();
         return;
       }
       attempts++;
-      if (attempts >= REVEAL_POLL_MAX) stop();
+      if (attempts >= REVEAL_POLL_MAX) {
+        console.log(
+          `[DIFF-DBG] poll: GIVE UP — no changes found, attempts=${attempts}` +
+            `, hasChanges=${!!changes}, changesCount=${changes?.length ?? 0}`,
+        );
+        stop();
+      }
     }, REVEAL_POLL_MS);
   }, [editorRef, doReveal, stop]);
 
@@ -231,19 +258,33 @@ function useDiffDecorations(
   const init = useCallback((diffEditor: editor.IStandaloneDiffEditor) => {
     // createDecorationsCollection 替代废弃的 deltaDecorations（见坑 6）
     decorationsRef.current = diffEditor.getModifiedEditor().createDecorationsCollection();
+    console.log(`[DIFF-DBG] decorInit called: hasDecorationsCollection=${!!decorationsRef.current}, diffEditorReady=${!!diffEditor}`);
   }, []);
 
   const attachListener = useCallback((diffEditor: editor.IStandaloneDiffEditor, monaco: typeof Monaco) => {
+    console.log(
+      `[DIFF-DBG] decorAttach called: diffEditorReady=${!!diffEditor}, monacoReady=${!!monaco}, existingListener=${!!listenerRef.current}`,
+    );
     listenerRef.current?.dispose();
     // 不 dispose —— 保持存活，每次 diff 重算都应用装饰（见坑 4）
     listenerRef.current = diffEditor.onDidUpdateDiff(() => {
       const changes = diffEditor.getLineChanges();
+      const preview = changes?.slice(0, 3).map((c) =>
+        `(${c.originalStartLineNumber}-${c.originalEndLineNumber}→${c.modifiedStartLineNumber}-${c.modifiedEndLineNumber})`,
+      ).join(", ") ?? "none";
+      console.log(
+        `[DIFF-DBG] onDidUpdateDiff FIRED: hasChanges=${!!changes}, changesCount=${changes?.length ?? 0}, preview=${preview}`,
+      );
       if (decorationsRef.current) {
         applyDiffDecorations(monaco, changes ?? [], decorationsRef.current);
       }
       // 主路径 reveal：diff 计算完成时检查 pending（见坑 11）
       onDiffComputed();
     });
+    console.log(`[DIFF-DBG] decorAttach: listener REGISTERED, listenerRefSet=${!!listenerRef.current}`);
+    const origModel = diffEditor.getOriginalEditor().getModel();
+    const modModel = diffEditor.getModifiedEditor().getModel();
+    console.log(`[DIFF-DBG] model check: origExists=${!!origModel}, modExists=${!!modModel}, origLen=${origModel ? origModel.getValue().length : -1}, modLen=${modModel ? modModel.getValue().length : -1}`);
   }, [onDiffComputed]);
 
   const cleanup = useCallback(() => {
@@ -276,6 +317,14 @@ export const MonacoDiffViewer = memo(forwardRef<
   const monacoRef = useRef<typeof Monaco | null>(null);
   const actionDisposablesRef = useRef<Monaco.IDisposable[]>([]);
 
+  console.log(
+    `[DIFF-DBG] MonacoDiffViewer render: diffId=${diff.id}, file=${diff.filePath}` +
+      `, origLen=${diff.originalContent?.length ?? -1}, newLen=${diff.newContent?.length ?? -1}` +
+      `, origEqNew=${diff.originalContent === diff.newContent}` +
+      `, origIsNull=${diff.originalContent === null}, newIsNull=${diff.newContent === null}` +
+      `, lang=${monacoLang}, sideBySide=${renderSideBySide}, revealNonce=${revealNonce}, wordWrap=${wordWrap}`,
+  );
+
   // ⚠️ 解构出 stable callbacks，不直接把返回对象放进 deps（见坑 3）
   const { request: revealRequest, onDiffComputed, stop: revealStop } = useReveal(editorRef);
   const { init: decorInit, attachListener: decorAttach, cleanup: decorCleanup } = useDiffDecorations(onDiffComputed);
@@ -299,11 +348,15 @@ export const MonacoDiffViewer = memo(forwardRef<
   // deps 全为 stable callbacks + 不变的 props，实际只执行一次（见坑 9）
   const handleMount = useCallback(
     (diffEditor: editor.IStandaloneDiffEditor, monaco: typeof Monaco) => {
+      console.log(`[DIFF-DBG] handleMount FIRED: diffId=${diff.id}, editorReady=${!!diffEditor}, monacoReady=${!!monaco}`);
       editorRef.current = diffEditor;
       monacoRef.current = monaco;
 
+      console.log("[DIFF-DBG] handleMount: calling decorInit");
       decorInit(diffEditor);
+      console.log("[DIFF-DBG] handleMount: calling decorAttach");
       decorAttach(diffEditor, monaco);
+      console.log("[DIFF-DBG] handleMount: decorInit + decorAttach DONE");
 
       // ⚠️ inline 模式配置必须在 mount 时立即设置（见坑 2）
       // 如果只放在 useEffect 里，effect 在 mount 后才跑，
@@ -342,6 +395,13 @@ export const MonacoDiffViewer = memo(forwardRef<
       actionDisposablesRef.current.push(origEditor.addAction(actionOpts));
 
       // 场景 1：新 tab 首次挂载，请求 reveal（主路径 onDidUpdateDiff + 兜底轮询）
+      // 先检查 diff 是否在 listener 注册前就已经计算完成
+      const immediateChanges = diffEditor.getLineChanges();
+      const layoutInfo = diffEditor.getModifiedEditor().getLayoutInfo();
+      // @ts-ignore - 内部 API
+      const dm = diffEditor._diffModel?.get();
+      console.log(`[DIFF-DBG] handleMount: immediate getLineChanges: hasChanges=${!!immediateChanges}, changesCount=${immediateChanges?.length ?? 0}, containerW=${diffEditor.getContainerDomNode().offsetWidth}, containerH=${diffEditor.getContainerDomNode().offsetHeight}, modViewW=${layoutInfo.width}, modViewH=${layoutInfo.height}`);
+
       revealRequest();
     },
     [decorInit, decorAttach, revealRequest, renderSideBySide],
@@ -455,6 +515,8 @@ export const MonacoDiffViewer = memo(forwardRef<
       language={monacoLang}
       original={diff.originalContent}
       modified={diff.newContent}
+      originalModelPath={`diff-orig-${diff.id}`}
+      modifiedModelPath={`diff-mod-${diff.id}`}
       theme={resolvedTheme}
       beforeMount={handleBeforeMount}
       onMount={handleMount}

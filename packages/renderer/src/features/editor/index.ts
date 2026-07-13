@@ -11,6 +11,5 @@ export { Breadcrumb } from "./Breadcrumb";
 export {
   prewarmMonaco,
   isMonacoPrewarmed,
-  getWorkerCacheSize,
 } from "./monaco-setup";
 export { initEditorHostBridge } from "./editor-host-bridge";
