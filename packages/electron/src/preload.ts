@@ -29,6 +29,8 @@ const api: DesktopAPI = {
       ipcRenderer.invoke("fs:delete", { targetPath, isDir }),
     revealInExplorer: (targetPath: string) =>
       ipcRenderer.invoke("fs:revealInExplorer", { targetPath }),
+    stat: (filePath: string) =>
+      ipcRenderer.invoke("fs:stat", { filePath }),
     watch: (filePath: string) => ipcRenderer.invoke("fs:watch", { filePath }),
     unwatch: (filePath: string) =>
       ipcRenderer.invoke("fs:unwatch", { filePath }),

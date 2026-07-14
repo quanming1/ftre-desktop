@@ -7,6 +7,7 @@
  * Tab 类型使用 discriminated union，严格区分 file / diff / image。
  */
 import { create } from "zustand";
+import { filePreviewCache } from "@/features/inspector/filePreviewCache";
 
 // ─── Tab 类型（discriminated union）──────────────────────────────
 
@@ -125,7 +126,7 @@ export const useInspector = create<InspectorState>((set, get) => ({
         activeTabId: existing.id,
         tabs: get().tabs.map((t) =>
           t.id === existing.id && t.type === "file"
-            ? { ...t, revealLine, revealEndLine, content: content ?? t.content, revealNonce: t.revealNonce + 1 }
+            ? { ...t, revealLine, revealEndLine, content: content ?? null, revealNonce: t.revealNonce + 1 }
             : t,
         ),
       });
@@ -218,6 +219,10 @@ export const useInspector = create<InspectorState>((set, get) => ({
   setActiveTab: (id) => set({ activeTabId: id }),
 
   closeTab: (id) => {
+    const closing = get().tabs.find((t) => t.id === id);
+    if (closing?.type === "file") {
+      filePreviewCache.delete(closing.filePath);
+    }
     const tabs = get().tabs.filter((t) => t.id !== id);
     const activeTabId = get().activeTabId === id
       ? (tabs.length > 0 ? tabs[tabs.length - 1].id : null)
@@ -226,6 +231,8 @@ export const useInspector = create<InspectorState>((set, get) => ({
   },
 
   closeOtherTabs: (id) => {
+    const removed = get().tabs.filter((t) => t.id !== id);
+    removed.forEach((t) => { if (t.type === "file") filePreviewCache.delete(t.filePath); });
     const tabs = get().tabs.filter((t) => t.id === id);
     set({ tabs, activeTabId: tabs.length > 0 ? id : null });
   },
@@ -233,6 +240,8 @@ export const useInspector = create<InspectorState>((set, get) => ({
   closeTabsToRight: (id) => {
     const idx = get().tabs.findIndex((t) => t.id === id);
     if (idx < 0) return;
+    const removed = get().tabs.slice(idx + 1);
+    removed.forEach((t) => { if (t.type === "file") filePreviewCache.delete(t.filePath); });
     const tabs = get().tabs.slice(0, idx + 1);
     const activeTabId = get().tabs.some((t) => t.id === get().activeTabId && tabs.some((tt) => tt.id === t.id))
       ? get().activeTabId
@@ -240,7 +249,10 @@ export const useInspector = create<InspectorState>((set, get) => ({
     set({ tabs, activeTabId });
   },
 
-  closeAllTabs: () => set({ tabs: [], activeTabId: null }),
+  closeAllTabs: () => {
+    get().tabs.forEach((t) => { if (t.type === "file") filePreviewCache.delete(t.filePath); });
+    set({ tabs: [], activeTabId: null });
+  },
 
   reorderTabs: (fromId, toIndex) => {
     const tabs = get().tabs;

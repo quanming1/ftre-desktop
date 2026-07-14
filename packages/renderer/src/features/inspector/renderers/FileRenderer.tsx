@@ -2,18 +2,17 @@
  * FileRenderer — 文件预览渲染器
  *
  * 优先使用 content 快照（来自 read 工具 metadata），
- * 无快照时从磁盘读取。fileCache 缓存已加载文件，切回时秒切。
+ * 无快照时从磁盘读取。filePreviewCache 缓存已加载文件，切回时秒切。
+ * 轮询校验 mtime，文件被外部修改时自动清除缓存并重载。
  * 文件加载完成后，如果有 revealLine 则自动跳转并选中。
  */
-import { useState, useEffect, useCallback, useMemo } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { Loader2, WrapText } from "lucide-react";
 import { CodeEditorWidget, type CodeEditorFile } from "@ftre/editor";
 import { useInspector } from "@/stores/inspector";
+import { filePreviewCache } from "../filePreviewCache";
 import type { TabRendererProps } from "../tabRegistry";
 import type { FileTab } from "@/stores/inspector";
-
-/** path → CodeEditorFile 内存缓存，切回已加载的 tab 秒切 */
-const fileCache = new Map<string, CodeEditorFile>();
 
 function detectLanguage(filePath: string): string {
   const ext = filePath.match(/\.([a-z0-9]+)$/i)?.[1]?.toLowerCase() ?? "";
@@ -42,18 +41,28 @@ export function FileRenderer({ tab, wordWrap }: TabRendererProps) {
     };
   }, [content, filePath]);
 
-  const [file, setFile] = useState<CodeEditorFile | null>(
-    () => snapshotFile ?? fileCache.get(filePath) ?? null,
-  );
+  const [file, setFile] = useState<CodeEditorFile | null>(() => {
+    if (snapshotFile) return snapshotFile;
+    const cached = filePreviewCache.get(filePath);
+    if (cached) {
+      const name = filePath.replace(/\\/g, "/").split("/").pop() ?? filePath;
+      return { path: filePath, name, language: cached.language, content: cached.content, loaded: true };
+    }
+    return null;
+  });
   const [loading, setLoading] = useState(
-    snapshotFile == null && !fileCache.has(filePath),
+    snapshotFile == null && !filePreviewCache.has(filePath),
   );
   const [error, setError] = useState<string | null>(null);
+  // 用于强制重新加载（mtime 变化时）
+  const [reloadNonce, setReloadNonce] = useState(0);
 
   const loadFile = useCallback(async (path: string) => {
-    const cached = fileCache.get(path);
+    // 先查缓存（乐观返回）
+    const cached = filePreviewCache.get(path);
     if (cached) {
-      setFile(cached);
+      const name = path.replace(/\\/g, "/").split("/").pop() ?? path;
+      setFile({ path, name, language: cached.language, content: cached.content, loaded: true });
       setLoading(false);
       setError(null);
       return;
@@ -66,15 +75,15 @@ export function FileRenderer({ tab, wordWrap }: TabRendererProps) {
         setError(result.error);
       } else {
         const name = path.replace(/\\/g, "/").split("/").pop() ?? path;
-        const f: CodeEditorFile = {
-          path,
-          name,
-          language: result.language || "plaintext",
+        const lang = result.language || detectLanguage(path);
+        // 读取 mtime 存入缓存
+        const stat = await window.desktop.fs.stat(path);
+        filePreviewCache.set(path, {
           content: result.content ?? "",
-          loaded: true,
-        };
-        fileCache.set(path, f);
-        setFile(f);
+          language: lang,
+          mtime: stat.mtime ?? 0,
+        });
+        setFile({ path, name, language: lang, content: result.content ?? "", loaded: true });
       }
     } catch (e) {
       setError(`无法读取文件: ${e instanceof Error ? e.message : String(e)}`);
@@ -83,6 +92,7 @@ export function FileRenderer({ tab, wordWrap }: TabRendererProps) {
     }
   }, []);
 
+  // 加载文件：snapshot 优先，否则从磁盘读
   useEffect(() => {
     if (snapshotFile) {
       setFile(snapshotFile);
@@ -91,9 +101,22 @@ export function FileRenderer({ tab, wordWrap }: TabRendererProps) {
     } else {
       loadFile(filePath);
     }
-  }, [filePath, loadFile, snapshotFile]);
+  }, [filePath, loadFile, snapshotFile, revealNonce, reloadNonce]);
 
-  // 文件加载完成后，如果有 revealLine 则跳转并选中；revealNonce 变化时也重新定位
+  // 监听缓存失效（mtime 变化），触发重载
+  const reloadRef = useRef(setReloadNonce);
+  reloadRef.current = setReloadNonce;
+  useEffect(() => {
+    const unsubscribe = filePreviewCache.onInvalidate((changedPath) => {
+      if (changedPath === filePath && snapshotFile == null) {
+        // 当前文件被外部修改，强制重载
+        reloadRef.current((n) => n + 1);
+      }
+    });
+    return unsubscribe;
+  }, [filePath, snapshotFile]);
+
+  // 文件加载完成后，如果有 revealLine 则跳转并选中
   useEffect(() => {
     if (!file || !revealLine || revealLine <= 0) return;
     const timer = setTimeout(() => {

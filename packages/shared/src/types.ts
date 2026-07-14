@@ -34,6 +34,7 @@ export interface DesktopFS {
     isDir: boolean,
   ): Promise<{ success: boolean; error?: string }>;
   revealInExplorer(targetPath: string): Promise<void>;
+  stat(filePath: string): Promise<{ mtime: number | null }>;
   watch(filePath: string): Promise<void>;
   unwatch(filePath: string): Promise<void>;
   onFileChanged(callback: (filePath: string) => void): () => void;
