@@ -5,7 +5,7 @@
  * （applyEvent），不维护第二份转换逻辑。
  */
 import { create } from "zustand";
-import { useChat, applyEvent, type ChatMessage, type BusEvent } from "./chat";
+import { useChat, applyEvent, type ChatMessage, type BusEvent, type PlanData } from "./chat";
 import type { SessionSummary } from "@/services/api";
 import {
   fetchSessionPage,
@@ -28,7 +28,7 @@ export type { SessionSummary };
  * 唯一区别：历史回放后所有消息强制 streaming=false（applyEvent 处理
  * assistant_message_complete 时已经设 streaming=false，但保险起见再 seal 一次）。
  */
-function historyToMessages(records: any[]): ChatMessage[] {
+function historyToMessages(records: any[]): { messages: ChatMessage[]; turnStartTs: number | null } {
   // 用一个临时 bucket 收集 applyEvent 的结果
   const b = {
     messages: [] as ChatMessage[],
@@ -60,7 +60,7 @@ function historyToMessages(records: any[]): ChatMessage[] {
     if (m.streaming) m.streaming = false;
   }
 
-  return b.messages;
+  return { messages: b.messages, turnStartTs: b.turnStartTs };
 }
 
 // ─── Storage Keys ───────────────────────────────────────────────────
@@ -360,11 +360,15 @@ export const useSession = create<SessionState>((set, get) => ({
     fetchSessionMessagesPage(sessionId, { limitTurns: FIRST_PAGE_TURNS, signal } as any)
       .then((page) => {
         if (!page) return;
+        const { messages, turnStartTs } = historyToMessages(page.messages);
+        const plan = (page.metadata?.plan as PlanData) || null;
         useChat.getState().loadSessionMessages(
           sessionId,
-          historyToMessages(page.messages),
+          messages,
           page.hasMore,
           page.status,
+          turnStartTs,
+          plan,
         );
         useChat.getState().setSessionStatus(sessionId, page.status);
         // HTTP 完成后再 WS attach：replay/live 统一追加到 DB 历史后面，
@@ -387,14 +391,16 @@ export const useSession = create<SessionState>((set, get) => ({
     try {
       const page = await fetchSessionMessagesPage(sessionId, { limitTurns: FIRST_PAGE_TURNS });
       if (!page) return;
+      const { messages, turnStartTs } = historyToMessages(page.messages);
+      const plan = (page.metadata?.plan as PlanData) || null;
       useChat.getState().loadSessionMessages(
         sessionId,
-        historyToMessages(page.messages),
+        messages,
         page.hasMore,
         page.status,
+        turnStartTs,
+        plan,
       );
-      useChat.getState().setSessionStatus(sessionId, page.status);
-      useChat.getState().switchTo(sessionId);
     } catch (err) {
       console.error("[Session] reconnectSession fetch error:", err);
     }
@@ -411,9 +417,10 @@ export const useSession = create<SessionState>((set, get) => ({
         limitTurns: FIRST_PAGE_TURNS,
         beforeTs: earliestTs,
       });
+      const { messages } = historyToMessages(page.messages);
       chat.prependSessionMessages(
         sessionId,
-        historyToMessages(page.messages),
+        messages,
         page.hasMore,
       );
       return page.messages.length > 0;

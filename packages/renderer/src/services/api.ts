@@ -307,6 +307,8 @@ export interface SessionMessagesPage {
   /** session 当前消息总数（不分页时给的全量） */
   total: number;
   status: "idle" | "running" | "compacting";
+  /** session 级元数据（含 plan 等） */
+  metadata: Record<string, any>;
 }
 
 /**
@@ -332,17 +334,18 @@ export async function fetchSessionMessagesPage(
     (qs ? `?${qs}` : "");
   try {
     const res = await fetch(url);
-    if (!res.ok) return { messages: [], hasMore: false, total: 0, status: "idle" };
+    if (!res.ok) return { messages: [], hasMore: false, total: 0, status: "idle", metadata: {} };
     const data = await res.json();
     return {
       messages: data.messages || [],
       hasMore: !!data.has_more,
       total: typeof data.total === "number" ? data.total : 0,
       status: data.status === "running" || data.status === "compacting" ? data.status : "idle",
+      metadata: data.metadata || {},
     };
   } catch (e) {
     console.error("[API] fetchSessionMessagesPage error:", e);
-    return { messages: [], hasMore: false, total: 0, status: "idle" };
+    return { messages: [], hasMore: false, total: 0, status: "idle", metadata: {} };
   }
 }
 

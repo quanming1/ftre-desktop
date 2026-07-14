@@ -110,6 +110,22 @@
   animation: runningBannerEnter 180ms ease-out both;
 }
 
+/* ===== Plan row 入场 ===== */
+@keyframes planRowEnter {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.plan-row-enter {
+  animation: planRowEnter 200ms ease-out both;
+}
+
 /* ===== 水波纹效果（通用） ===== */
 @keyframes ftreRipple {
   from {
