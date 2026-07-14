@@ -97,6 +97,17 @@ export interface RetryState {
   message: string;
 }
 
+export interface PlanStep {
+  id: string;
+  content: string;
+  status: "pending" | "in_progress" | "completed";
+}
+
+export interface PlanData {
+  goal: string;
+  steps: PlanStep[];
+}
+
 // 鈹€鈹€鈹€ Per-session buckets (module-private) 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
 
 interface Bucket {
@@ -112,6 +123,8 @@ interface Bucket {
   retryState: RetryState | null;
   /** turn_start 的 timestamp（秒），turn_end 时用于计算耗时 */
   turnStartTs: number | null;
+  /** 当前 session 的执行计划（从 session.metadata.plan 提取） */
+  plan: PlanData | null;
 }
 
 const buckets = new Map<string, Bucket>();
@@ -132,6 +145,7 @@ const emptyBucket = (): Bucket => ({
   error: null,
   retryState: null,
   turnStartTs: null,
+  plan: null,
 });
 function bucket(sid: string): Bucket {
   let b = buckets.get(sid);
@@ -167,6 +181,7 @@ function mirror(sid: string): void {
     retryState: b.retryState,
     lastUserInputTs: b.lastUserInputTs,
     turnStartTs: b.turnStartTs,
+    plan: b.plan,
   });
 }
 
@@ -784,6 +799,7 @@ interface ChatState {
   messages: ChatMessage[];
   lastUserInputTs: number | null;
   turnStartTs: number | null;
+  plan: PlanData | null;
   sessionStatus: SessionStatus;
   isBusy: boolean;
   error: string | null;
@@ -844,6 +860,8 @@ interface ChatState {
     messages: ChatMessage[],
     hasMoreHistory: boolean,
     status: SessionStatus,
+    turnStartTs?: number | null,
+    plan?: PlanData | null,
   ) => void;
   /**
    * Prepend earlier ChatMessage[] to the session, deduping by message id.
@@ -875,6 +893,7 @@ export const useChat = create<ChatState>((set, get) => ({
   messages: [],
   lastUserInputTs: null,
   turnStartTs: null,
+  plan: null,
   sessionStatus: "idle",
   isBusy: false,
   error: null,
@@ -994,12 +1013,12 @@ export const useChat = create<ChatState>((set, get) => ({
 
   newChat: () => {
     wsClient.subscribeOnly(null);
-    set({ sessionId: null, messages: [], lastUserInputTs: null, turnStartTs: null, sessionStatus: "idle", isBusy: false, error: null, retryState: null, contextTokens: 0, tokenUsage: null, pendingWorkspace: _defaultWsCache });
+    set({ sessionId: null, messages: [], lastUserInputTs: null, turnStartTs: null, plan: null, sessionStatus: "idle", isBusy: false, error: null, retryState: null, contextTokens: 0, tokenUsage: null, pendingWorkspace: _defaultWsCache });
   },
 
   switchTo: (sessionId) => {
     const b = bucket(sessionId);
-    set({ sessionId, messages: b.messages, lastUserInputTs: b.lastUserInputTs, turnStartTs: b.turnStartTs, sessionStatus: b.sessionStatus, isBusy: b.isBusy, error: b.error, retryState: b.retryState, contextTokens: 0, tokenUsage: null });
+    set({ sessionId, messages: b.messages, lastUserInputTs: b.lastUserInputTs, turnStartTs: b.turnStartTs, plan: b.plan, sessionStatus: b.sessionStatus, isBusy: b.isBusy, error: b.error, retryState: b.retryState, contextTokens: 0, tokenUsage: null });
     void get().refreshTokenUsage(sessionId);
   },
 
@@ -1024,7 +1043,7 @@ export const useChat = create<ChatState>((set, get) => ({
     mirror(sessionId);
   },
 
-  loadSessionMessages: (sessionId, messages, hasMoreHistory, status) => {
+  loadSessionMessages: (sessionId, messages, hasMoreHistory, status, turnStartTs, plan) => {
     const b = bucket(sessionId);
     const visibleCompactMessages = b.messages.filter((m) => m.compact && m.compact.status !== "running");
     b.messages = messages;
@@ -1048,6 +1067,8 @@ export const useChat = create<ChatState>((set, get) => ({
     b.isBusy = status === "running";
     b.error = null;
     b.retryState = null;
+    b.turnStartTs = turnStartTs ?? null;
+    b.plan = plan ?? null;
     if (visibleCompactMessages.length > 0 && !b.messages.some((m) => m.compact)) {
       b.messages = [...b.messages, ...visibleCompactMessages];
     }

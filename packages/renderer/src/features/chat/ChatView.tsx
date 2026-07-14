@@ -7,8 +7,8 @@
  * - Falls back to streamManager directly if store is empty/unavailable
  */
 import { useState, useEffect, useMemo } from "react";
-import { Loader2, FileEdit, FilePlus2, ChevronDown, ChevronUp } from "lucide-react";
-import { useChat, type RetryState } from "@/stores/chat";
+import { Loader2, FileEdit, FilePlus2, ChevronDown, ChevronUp, Check, Circle, Target } from "lucide-react";
+import { useChat, type RetryState, type PlanData } from "@/stores/chat";
 import { useSession } from "@/stores/session";
 import { wsClient } from "@/services/websocket-client";
 import { ChatMessageList } from "./ChatMessageList";
@@ -40,6 +40,7 @@ export function ChatView() {
   const isBusy = useChat((s) => s.isBusy);
   const sessionStatus = useChat((s) => s.sessionStatus);
   const turnStartTs = useChat((s) => s.turnStartTs);
+  const plan = useChat((s) => s.plan);
   const storeModel = useChat((s) => s.model);
   const retryState = useChat((s) => s.retryState);
   const connected = useChat((s) => s.connected);
@@ -231,6 +232,7 @@ export function ChatView() {
                         runningDuration={runningDuration}
                         retryState={retryState}
                         fileChanges={activeTurnFileChanges}
+                        plan={plan}
                       />
                     </div>
                   </div>
@@ -275,17 +277,25 @@ function RunningBannerContent({
   runningDuration,
   retryState,
   fileChanges,
+  plan,
 }: {
   bannerLabel: string;
   turnModel: string | null;
   runningDuration: string | null;
   retryState: RetryState | null;
   fileChanges: TurnFileChange[];
+  plan: PlanData | null;
 }) {
   const [changesExpanded, setChangesExpanded] = useState(false);
+  const [planExpanded, setPlanExpanded] = useState(false);
   const hasChanges = fileChanges.length > 0;
   const totalAdd = fileChanges.reduce((s, c) => s + c.additions, 0);
   const totalDel = fileChanges.reduce((s, c) => s + c.deletions, 0);
+
+  const planSteps = plan?.steps ?? [];
+  const completedCount = planSteps.filter((s) => s.status === "completed").length;
+  const allDone = planSteps.length > 0 && completedCount === planSteps.length;
+  const pct = planSteps.length > 0 ? (completedCount / planSteps.length) * 100 : 0;
 
   const handleClick = (c: TurnFileChange) => {
     useInspector.getState().openDiffPreview(
@@ -298,6 +308,7 @@ function RunningBannerContent({
 
   return (
     <>
+      {/* Row 1: status + model + file changes */}
       <div className="flex items-center gap-2.5 px-4 py-2.5 text-[13px] font-medium text-t-secondary">
         {retryState ? (
           <>
@@ -313,22 +324,18 @@ function RunningBannerContent({
           </>
         ) : (
           <>
-            {/* 状态 + 时间 */}
             <span className={`shrink-0 ${bannerLabel === "Running" ? "running-shimmer" : ""}`}>
               {bannerLabel}
             </span>
             {runningDuration && (
               <span className="shrink-0 tabular-nums text-[12px] text-t-muted">{runningDuration}</span>
             )}
-            {/* 模型 badge */}
             {turnModel && (
               <span className="shrink-0 inline-flex items-center rounded-full bg-black/[0.05] px-2 py-0.5 text-[10px] font-mono text-t-faint leading-none">
                 {turnModel}
               </span>
             )}
-            {/* 撑开 */}
             <span className="flex-1" />
-            {/* 变更按钮 */}
             {hasChanges && (
               <button
                 onClick={() => setChangesExpanded((v) => !v)}
@@ -342,6 +349,72 @@ function RunningBannerContent({
           </>
         )}
       </div>
+
+      {/* Row 2: plan goal + progress (only when plan exists) */}
+      {plan && planSteps.length > 0 && (
+        <div className="plan-row-enter border-t border-black/5">
+          <button
+            onClick={() => setPlanExpanded((v) => !v)}
+            className="flex w-full items-center gap-2.5 px-4 py-2 text-left transition-colors hover:bg-black/[0.02]"
+          >
+            <Target size={13} className={`shrink-0 ${allDone ? "text-green-500" : "text-neon"}`} strokeWidth={2} />
+            <span className="min-w-0 flex-1 truncate text-[12px] text-t-muted" title={plan.goal}>
+              {plan.goal}
+            </span>
+            {/* Progress bar */}
+            <div className="h-1 w-14 shrink-0 overflow-hidden rounded-full bg-black/8">
+              <div
+                className={`h-full rounded-full transition-all duration-500 ${allDone ? "bg-green-500" : "bg-neon"}`}
+                style={{ width: `${pct}%` }}
+              />
+            </div>
+            <span className="shrink-0 text-[10px] font-mono tabular-nums text-t-faint">
+              {completedCount}/{planSteps.length}
+            </span>
+            <ChevronDown
+              size={12}
+              className={`shrink-0 text-t-faint transition-transform duration-200 ${planExpanded ? "rotate-180" : ""}`}
+            />
+          </button>
+
+          {/* Steps list — grid 高度动画 */}
+          <div
+            className={`grid transition-all duration-200 ease-out ${planExpanded ? "grid-rows-[1fr] opacity-100" : "grid-rows-[0fr] opacity-0"}`}
+          >
+            <div className="overflow-hidden">
+              <div className="border-t border-black/5">
+                <div className="max-h-[140px] overflow-y-auto px-4 py-1.5">
+                  {planSteps.map((s) => (
+                    <div key={s.id} className="flex items-start gap-2.5 py-1">
+                      <span className="mt-0.5 flex shrink-0 items-center justify-center" style={{ width: 13, height: 13 }}>
+                        {s.status === "completed" ? (
+                          <Check size={13} className="text-green-500" strokeWidth={2.5} />
+                        ) : s.status === "in_progress" ? (
+                          <Loader2 size={13} className="text-neon animate-spin" />
+                        ) : (
+                          <Circle size={13} className="text-t-faint/40" strokeWidth={2} />
+                        )}
+                      </span>
+                      <span className="min-w-0 flex-1 text-[12px] leading-relaxed">
+                        <span className="text-t-faint font-mono mr-1.5">{s.id}.</span>
+                        <span className={
+                          s.status === "completed" ? "text-t-faint line-through"
+                          : s.status === "in_progress" ? "text-t-primary font-medium"
+                          : "text-t-muted"
+                        }>
+                          {s.content}
+                        </span>
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Expanded file changes */}
       {hasChanges && changesExpanded && (
         <div className="border-t border-black/5">
           <div className="max-h-[80px] overflow-y-auto px-2.5 pb-2">
