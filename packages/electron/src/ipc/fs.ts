@@ -238,4 +238,16 @@ export function registerFsIPC(): void {
       shell.showItemInFolder(targetPath);
     },
   );
+
+  ipcMain.handle(
+    "fs:stat",
+    async (_event, { filePath }: { filePath: string }) => {
+      try {
+        const stat = await fs.promises.stat(expandHome(filePath));
+        return { mtime: stat.mtimeMs };
+      } catch {
+        return { mtime: null };
+      }
+    },
+  );
 }
