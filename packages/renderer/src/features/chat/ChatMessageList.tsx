@@ -370,7 +370,7 @@ const CompactBubble = memo(function CompactBubble({
 }: {
   compact: NonNullable<ChatMessage["compact"]>;
 }) {
-  const { status, tokensBefore, summaryPreview, reason } = compact;
+  const { status, mode, tokensBefore, tokensAfter, summaryPreview, eventsCleared, reason } = compact;
   const [open, setOpen] = useState(false);
 
   if (status === "running") {
@@ -378,7 +378,7 @@ const CompactBubble = memo(function CompactBubble({
       <div className="flex items-center justify-center py-2">
         <span className="inline-flex items-center gap-1.5 text-[11px] text-t-ghost">
           <Loader2 size={12} className="animate-spin" />
-          压缩上下文中…
+          {mode === "fast" ? "快速压缩中…" : "压缩上下文中…"}
         </span>
       </div>
     );
@@ -395,7 +395,18 @@ const CompactBubble = memo(function CompactBubble({
     );
   }
 
-  // status === "done"：一条克制的分隔线 + 可展开摘要
+  // status === "done"
+  const isFast = mode === "fast";
+  const label = isFast ? "快速压缩完成" : "历史已压缩";
+  const tokensStr = typeof tokensBefore === "number" && typeof tokensAfter === "number"
+    ? `${formatTokens(tokensBefore)} → ${formatTokens(tokensAfter)} tokens`
+    : typeof tokensBefore === "number"
+      ? `${formatTokens(tokensBefore)} tokens`
+      : "";
+  const eventsStr = typeof eventsCleared === "number" ? `${eventsCleared} 条工具输出` : "";
+  const detailParts = [tokensStr, eventsStr].filter(Boolean);
+  const detailStr = detailParts.length > 0 ? ` · ${detailParts.join(" · ")}` : "";
+
   return (
     <div className="py-1.5">
       <button
@@ -405,8 +416,7 @@ const CompactBubble = memo(function CompactBubble({
         <span className="flex-1 h-px bg-border/60" />
         <span className="inline-flex items-center gap-1 text-[10.5px] text-t-faint group-hover:text-t-ghost transition-colors whitespace-nowrap">
           <Archive size={11} />
-          历史已压缩
-          {typeof tokensBefore === "number" ? ` · ${formatTokens(tokensBefore)} tokens` : ""}
+          {label}{detailStr}
           {summaryPreview ? (
             <ChevronRight
               size={11}

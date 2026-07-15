@@ -71,8 +71,11 @@ export interface ChatMessage {
   externalFrom?: string;
   compact?: {
     status: "running" | "done" | "failed";
+    mode?: "summary" | "fast";
     tokensBefore?: number;
+    tokensAfter?: number;
     summaryPreview?: string;
+    eventsCleared?: number;
     reason?: string;
   };
   eventIds?: string[];
@@ -514,7 +517,7 @@ export function applyEvent(b: Bucket, ev: BusEvent): void {
 
     case "context_compact_done": {
       if (d.silent === true) return;
-      // 鎵炬渶鍚庝竴鏉?running 鐨勫帇缂╂秷鎭紝鏍囪涓?done
+      let foundRunning = false;
       for (let i = b.messages.length - 1; i >= 0; i--) {
         const m = b.messages[i];
         if (m.compact?.status === "running") {
@@ -524,14 +527,38 @@ export function applyEvent(b: Bucket, ev: BusEvent): void {
               ...m,
               compact: {
                 status: "done",
+                mode: typeof d.mode === "string" ? d.mode : "summary",
                 tokensBefore: typeof d.tokens_before === "number" ? d.tokens_before : m.compact.tokensBefore,
+                tokensAfter: typeof d.tokens_after === "number" ? d.tokens_after : undefined,
                 summaryPreview: typeof d.summary === "string" ? d.summary : undefined,
+                eventsCleared: typeof d.events === "number" ? d.events : undefined,
               },
             },
             ...b.messages.slice(i + 1),
           ];
+          foundRunning = true;
           break;
         }
+      }
+      // fast 模式没有 start，直接创建一条 done 气泡
+      if (!foundRunning) {
+        b.messages = [
+          ...b.messages,
+          {
+            id: nextId("compact"),
+            role: "system" as Role,
+            content: null,
+            timestamp: ev.timestamp ?? Date.now(),
+            compact: {
+              status: "done",
+              mode: typeof d.mode === "string" ? d.mode : "summary",
+              tokensBefore: typeof d.tokens_before === "number" ? d.tokens_before : undefined,
+              tokensAfter: typeof d.tokens_after === "number" ? d.tokens_after : undefined,
+              summaryPreview: typeof d.summary === "string" ? d.summary : undefined,
+              eventsCleared: typeof d.events === "number" ? d.events : undefined,
+            },
+          },
+        ];
       }
       return;
     }
@@ -563,13 +590,9 @@ export function applyEvent(b: Bucket, ev: BusEvent): void {
       return;
     }
 
-    // 鈹€鈹€鈹€ 鍘嗗彶鍥炴斁锛歝ontext_compact 浜嬩欢 鈹€鈹€鈹€
     case "context_compact": {
-      // 鍘嗗彶鍥炴斁鏃堕亣鍒板帇缂╀簨浠讹細silent 鏍囪鐨勫帇缂╋紙鍚庡彴/raw 鍏滃簳锛変笉鍦ㄥ巻鍙查噷
-      // 鏄惧紡娓叉煋姘旀场鈥斺€斿悗绔?silent 宸茬粡钀藉埌 payload 涓婏紝鍓嶇杩欓噷鐩存帴璺宠繃銆?
-      // 鐢ㄦ埛涓诲姩 /compact 鎵嶄細鐣欎笅鍙姘旀场銆?
       if (d.silent === true) return;
-      // 涔嬪墠鐨勫巻鍙叉秷鎭繚鐣欏彲瑙侊紙鍓嶇鍙仛"鎻愮ず杩欓噷鍘嬬缉杩囦簡"锛屼笉鍋氬疄闄呮姌鍙狅級
+      const mode = typeof d.mode === "string" ? d.mode : "summary";
       const summary = typeof d.summary === "string" ? d.summary : "";
       b.messages = [
         ...b.messages,
@@ -580,7 +603,9 @@ export function applyEvent(b: Bucket, ev: BusEvent): void {
           timestamp: ts,
           compact: {
             status: "done",
+            mode,
             summaryPreview: summary,
+            eventsCleared: typeof d.events === "number" ? d.events : undefined,
           },
         },
       ];
@@ -814,7 +839,7 @@ interface ChatState {
   agentId: string;
   agents: ChatAgent[];
   fetchAgents: () => Promise<void>;
-  updateAgentLlm: (provider: string, model: string) => Promise<void>;
+  updateAgentLlm: (provider: string, model: string, reasoningEffort?: string) => Promise<void>;
   /** 褰撳墠浼氳瘽鐨勬€?token 鐢ㄩ噺鏄庣粏銆?   *  鐢卞悗绔?GET /api/sessions/{id}/token_usage 鎻愪緵锛屽湪鍒囨崲 session銆佹祦寮?done
    *  鍜?external_message 鍒拌揪鏃跺埛鏂般€?   *  - anchor: 鏈€杩戜竴娆?LLM 瀹炵畻鐨?usage锛堟棤鍒?null锛?   *  - pending_estimated: 閿氱偣涔嬪悗鏈疄绠楃殑浜嬩欢浼扮畻
    *  - total: anchor.total_tokens + pending_estimated */
@@ -1129,10 +1154,12 @@ export const useChat = create<ChatState>((set, get) => ({
     set({ agents: list });
   },
 
-  updateAgentLlm: async (provider, model) => {
+  updateAgentLlm: async (provider, model, reasoningEffort) => {
     const { agentId } = get();
     if (!agentId) return;
-    const ok = await updateAgent(agentId, { llm: { provider, model } });
+    const patch: { llm: { provider?: string; model?: string; reasoning_effort?: string } } = { llm: { provider, model } };
+    if (reasoningEffort !== undefined) patch.llm.reasoning_effort = reasoningEffort;
+    const ok = await updateAgent(agentId, patch);
     if (ok) {
       set({ model, provider });
       await get().fetchAgents();
