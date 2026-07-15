@@ -6,7 +6,7 @@
  * 轮询校验 mtime，文件被外部修改时自动清除缓存并重载。
  * 文件加载完成后，如果有 revealLine 则自动跳转并选中。
  */
-import { useState, useEffect, useCallback, useMemo, useRef } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import { Loader2, WrapText } from "lucide-react";
 import { CodeEditorWidget, type CodeEditorFile } from "@ftre/editor";
 import { useInspector } from "@/stores/inspector";
@@ -41,8 +41,16 @@ export function FileRenderer({ tab, wordWrap }: TabRendererProps) {
     };
   }, [content, filePath]);
 
+  // mtime 失效后，放弃 snapshot 从磁盘重载（解决 read 快照过期问题）
+  const [snapshotInvalidated, setSnapshotInvalidated] = useState(false);
+  const effectiveSnapshot = snapshotInvalidated ? null : snapshotFile;
+
+  // 非 snapshot 场景下，invalidation 后 effectiveSnapshot 不变（null→null），
+  // load effect 不会重跑。用 reloadNonce 强制重跑。
+  const [reloadNonce, setReloadNonce] = useState(0);
+
   const [file, setFile] = useState<CodeEditorFile | null>(() => {
-    if (snapshotFile) return snapshotFile;
+    if (effectiveSnapshot) return effectiveSnapshot;
     const cached = filePreviewCache.get(filePath);
     if (cached) {
       const name = filePath.replace(/\\/g, "/").split("/").pop() ?? filePath;
@@ -51,21 +59,29 @@ export function FileRenderer({ tab, wordWrap }: TabRendererProps) {
     return null;
   });
   const [loading, setLoading] = useState(
-    snapshotFile == null && !filePreviewCache.has(filePath),
+    effectiveSnapshot == null && !filePreviewCache.has(filePath),
   );
   const [error, setError] = useState<string | null>(null);
-  // 用于强制重新加载（mtime 变化时）
-  const [reloadNonce, setReloadNonce] = useState(0);
 
   const loadFile = useCallback(async (path: string) => {
-    // 先查缓存（乐观返回）
+    // 先查缓存，但校验 mtime 防止脏读
     const cached = filePreviewCache.get(path);
     if (cached) {
-      const name = path.replace(/\\/g, "/").split("/").pop() ?? path;
-      setFile({ path, name, language: cached.language, content: cached.content, loaded: true });
-      setLoading(false);
-      setError(null);
-      return;
+      try {
+        const stat = await window.desktop.fs.stat(path);
+        if (stat.mtime !== null && stat.mtime === cached.mtime) {
+          // mtime 一致，使用缓存
+          const name = path.replace(/\\/g, "/").split("/").pop() ?? path;
+          setFile({ path, name, language: cached.language, content: cached.content, loaded: true });
+          setLoading(false);
+          setError(null);
+          return;
+        }
+        // mtime 不一致，清除缓存继续从磁盘读取
+        filePreviewCache.delete(path);
+      } catch {
+        filePreviewCache.delete(path);
+      }
     }
     setLoading(true);
     setError(null);
@@ -92,29 +108,55 @@ export function FileRenderer({ tab, wordWrap }: TabRendererProps) {
     }
   }, []);
 
-  // 加载文件：snapshot 优先，否则从磁盘读
+  // 加载文件：effectiveSnapshot 优先，否则从磁盘读
   useEffect(() => {
-    if (snapshotFile) {
-      setFile(snapshotFile);
+    if (effectiveSnapshot) {
+      setFile(effectiveSnapshot);
       setLoading(false);
       setError(null);
     } else {
       loadFile(filePath);
     }
-  }, [filePath, loadFile, snapshotFile, revealNonce, reloadNonce]);
+  }, [filePath, loadFile, effectiveSnapshot, revealNonce, reloadNonce]);
+
+  // snapshot 文件注册到 filePreviewCache，使 mtime 轮询能检测到外部修改
+  // 没有 this，snapshot 文件不在缓存中，轮询不会监控它，onInvalidate 永远不触发
+  useEffect(() => {
+    if (!effectiveSnapshot) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const stat = await window.desktop.fs.stat(filePath);
+        if (!cancelled && !filePreviewCache.has(filePath)) {
+          filePreviewCache.set(filePath, {
+            content: effectiveSnapshot.content,
+            language: effectiveSnapshot.language,
+            mtime: stat.mtime ?? 0,
+          });
+        }
+      } catch {
+        // stat 失败（文件不存在等），无法监控
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [effectiveSnapshot, filePath]);
 
   // 监听缓存失效（mtime 变化），触发重载
-  const reloadRef = useRef(setReloadNonce);
-  reloadRef.current = setReloadNonce;
   useEffect(() => {
     const unsubscribe = filePreviewCache.onInvalidate((changedPath) => {
-      if (changedPath === filePath && snapshotFile == null) {
-        // 当前文件被外部修改，强制重载
-        reloadRef.current((n) => n + 1);
+      if (changedPath === filePath) {
+        // 文件被外部修改（含 edit 工具），放弃 snapshot 并强制从磁盘重载
+        setSnapshotInvalidated(true);
+        setReloadNonce((n) => n + 1);
       }
     });
     return unsubscribe;
-  }, [filePath, snapshotFile]);
+  }, [filePath]);
+
+  // filePath 变化时重置 invalidation 标记
+  useEffect(() => {
+    setSnapshotInvalidated(false);
+  }, [filePath]);
 
   // 文件加载完成后，如果有 revealLine 则跳转并选中
   useEffect(() => {

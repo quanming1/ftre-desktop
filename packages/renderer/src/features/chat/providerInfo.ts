@@ -57,6 +57,7 @@ export function buildProviderInfos(
                         context_window:
                             typeof m.context_window === "number" ? m.context_window : null,
                         vision: !!m.vision,
+                        reasoning_effort_values: Array.isArray(m.reasoning_effort_values) ? m.reasoning_effort_values : undefined,
                     };
                 },
             );

@@ -594,6 +594,7 @@ export function applyEvent(b: Bucket, ev: BusEvent): void {
       if (d.silent === true) return;
       const mode = typeof d.mode === "string" ? d.mode : "summary";
       const summary = typeof d.summary === "string" ? d.summary : "";
+      const eventsArr = Array.isArray(d.events) ? d.events : [];
       b.messages = [
         ...b.messages,
         {
@@ -605,7 +606,9 @@ export function applyEvent(b: Bucket, ev: BusEvent): void {
             status: "done",
             mode,
             summaryPreview: summary,
-            eventsCleared: typeof d.events === "number" ? d.events : undefined,
+            eventsCleared: eventsArr.length || undefined,
+            tokensBefore: typeof d.tokens_before === "number" ? d.tokens_before : undefined,
+            tokensAfter: typeof d.tokens_after === "number" ? d.tokens_after : undefined,
           },
         },
       ];
