@@ -14,7 +14,6 @@ import {
   Loader2,
   Copy,
   Check,
-  Box,
   ChevronDown,
   ChevronUp,
 } from "lucide-react";
@@ -26,18 +25,6 @@ import { fetchSessionMessages } from "@/services/api";
 import { RollbackConfirmDialog } from "./RollbackConfirmDialog";
 import { ContextMenu, type ContextMenuItem } from "@/components/ContextMenu";
 import { Tooltip, TooltipProvider, ImageViewer } from "@ftre/ui";
-
-function SkillChip({ data }: { data: string }) {
-  return (
-    <span
-      className="relative top-[2px] inline-flex items-center gap-1.5 mx-0.5 px-0 py-0 text-[13px] leading-6 font-semibold text-[#1a7f37] align-baseline max-w-full"
-      title={`Skill: ${data}`}
-    >
-      <Box size={14} strokeWidth={2} className="shrink-0" />
-      <span className="truncate max-w-[220px]">{data}</span>
-    </span>
-  );
-}
 
 /**
  * 渲染 parts 数组为 inline 内容
@@ -56,9 +43,6 @@ function PartsContent({ parts }: { parts: MessagePart[] }) {
         if (part.type === "email") {
           return <EmailCard key={i} data={part.data} />;
         }
-        if (part.type === "skill") {
-          return <SkillChip key={i} data={part.data} />;
-        }
         return null;
       })}
     </>
@@ -71,7 +55,6 @@ function getMessageText(message: ChatMessage): string {
     return message.parts
       .map((part) => {
         if (part.type === "text") return part.text ?? (part as any).data ?? "";
-        if (part.type === "skill") return `[Skill: ${part.data}]`;
         return "";
       })
       .join("");
