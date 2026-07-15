@@ -222,6 +222,18 @@ export const CodeEditorWidget = memo(
         return;
       }
 
+      // TextModelResolverService 是全局单例，同一个 path 可能有别的 tab 创建的旧 model。
+      // 如果旧 model 内容和当前 contentStore 不一致（文件已被修改），销毁旧 model，
+      // 使 _resolveModel 走 createModelReference 新建路径，从 contentStore 读取最新内容。
+      const service = getTextModelResolverService();
+      if (service.hasModel(newFile.path)) {
+        const model = service.getModel(newFile.path);
+        const expected = newFile.content ?? "";
+        if (model && model.getValue() !== expected) {
+          service.disposeModel(newFile.path);
+        }
+      }
+
       // 创建 FileEditorInput
       const input = new FileEditorInput({
         path: newFile.path,
@@ -454,6 +466,39 @@ export const CodeEditorWidget = memo(
       switchToFile(file);
     }, [file.path, file.loaded, switchToFile]);
 
+    // 内容更新 effect：同一路径但 content 变化时，销毁旧 model 并重建
+    // 绕过 4 层"同路径跳过"缓存：switchToFile / _doSetInput / setInput / _resolveModel
+    const lastContentRef = useRef<string | undefined>(undefined);
+    useEffect(() => {
+      if (!initializedRef.current || !file.loaded) return;
+
+      // 首次记录，不触发重建（switchToFile 已处理初始加载）
+      if (lastContentRef.current === undefined) {
+        lastContentRef.current = file.content;
+        return;
+      }
+
+      // 同路径 + 内容变化 → 销毁旧 model，重置 pane 状态，重新 switchToFile
+      if (lastContentRef.current !== file.content) {
+        const service = getTextModelResolverService();
+        service.disposeModel(file.path);
+
+        // 重置 pane 状态（_input, _currentResource, editor model 全部清空）
+        const pane = getActivePane();
+        if (pane) {
+          pane.clearInput();
+        }
+
+        // 重置路径 ref，使 switchToFile 不跳过
+        currentFilePathRef.current = null;
+
+        // 重建 model（contentStore 已指向最新 file.content）
+        switchToFile(file);
+        lastContentRef.current = file.content;
+      }
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [file.content, file.path, file.loaded]);
+
     // minimap 设置变化
     useEffect(() => {
       const pane = getActivePane();
@@ -630,7 +675,8 @@ export const CodeEditorWidget = memo(
       prevProps.wordWrap === nextProps.wordWrap &&
       prevProps.file.loaded === nextProps.file.loaded &&
       prevProps.file.path === nextProps.file.path &&
-      prevProps.file.language === nextProps.file.language
+      prevProps.file.language === nextProps.file.language &&
+      prevProps.file.content === nextProps.file.content
     );
   },
 );

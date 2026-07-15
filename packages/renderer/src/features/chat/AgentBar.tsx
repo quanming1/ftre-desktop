@@ -6,6 +6,7 @@
  */
 import { useState, useEffect, useRef, useCallback } from "react";
 import { Check, ChevronDown } from "lucide-react";
+import { Select } from "@/components/Select";
 import { motion, AnimatePresence } from "framer-motion";
 import { useChat } from "@/stores/chat";
 import { useSession } from "@/stores/session";
@@ -113,6 +114,17 @@ export function AgentBar() {
     }
     return model.length > 20 ? model.slice(0, 18) + "…" : model;
   })();
+
+  // 当前模型的 reasoning_effort_values（可选值列表）
+  const currentModelEffortValues = (() => {
+    if (!model || !provider) return [];
+    const p = providers.find((x) => x.name === provider);
+    const m = p?.models.find((mm) => mm.id === model);
+    return m?.reasoning_effort_values ?? [];
+  })();
+
+  // 当前选中的 reasoning_effort（从 agent 信息读取）
+  const currentEffort = current?.reasoning_effort || "";
 
   const resolveModelName = (providerName: string | undefined, modelId: string | undefined): string => {
     if (!modelId) return "";
@@ -301,6 +313,24 @@ export function AgentBar() {
                   )}
                 />
               </div>
+
+              {/* Reasoning Effort 选择器 */}
+              {currentModelEffortValues.length > 0 && (
+                <div className="flex items-center justify-between gap-3">
+                  <div className={`${sectionLabel} shrink-0 whitespace-nowrap`}>思考强度</div>
+                  <Select
+                    options={currentModelEffortValues.map((v) => ({
+                      value: v,
+                      label: v === "" ? "默认" : v,
+                    }))}
+                    value={currentEffort}
+                    onChange={(v) => {
+                      updateAgentLlm(provider || "", model || "", v);
+                    }}
+                    className="min-w-0 flex-1 max-w-[160px]"
+                  />
+                </div>
+              )}
 
               {/* 工具权限 */}
               <div>

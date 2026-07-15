@@ -414,6 +414,8 @@ export interface ModelItem {
   max_output?: number | null;
   /** 是否支持视觉输入（图片） */
   vision?: boolean;
+  /** 可选的 reasoning effort 值列表（"" 表示"默认/关闭"） */
+  reasoning_effort_values?: string[];
 }
 
 export async function updateSession(
@@ -853,6 +855,7 @@ export interface ChatAgent {
   name: string;
   model?: string;
   provider?: string;
+  reasoning_effort?: string;
   workspace?: string;
   tools_allow?: string[] | null;
   tools_deny?: string[] | null;
@@ -876,6 +879,7 @@ export async function fetchChatAgents(
       name: a.name || a.id,
       model: a.model,
       provider: a.provider,
+      reasoning_effort: a.reasoning_effort,
       workspace: a.workspace,
       tools_allow: a.tools_allow,
       tools_deny: a.tools_deny,
@@ -893,7 +897,7 @@ export async function fetchChatAgents(
 
 export async function updateAgent(
   agentId: string,
-  patch: { llm?: { provider: string; model: string }; name?: string; workspace?: string },
+  patch: { llm?: { provider?: string; model?: string; reasoning_effort?: string }; name?: string; workspace?: string },
 ): Promise<boolean> {
   try {
     const res = await fetch(`${API_BASE}/api/agents/${encodeURIComponent(agentId)}`, {
