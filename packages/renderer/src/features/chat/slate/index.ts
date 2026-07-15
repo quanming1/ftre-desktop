@@ -17,8 +17,6 @@ export { renderElement } from "./renderer";
 export type {
   MentionRef,
   MentionChipElement,
-  SkillRef,
-  SkillChipElement,
   ImageRef,
   CustomElement,
   CustomText,

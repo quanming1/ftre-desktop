@@ -8,12 +8,6 @@ export interface MentionRef {
   color: string;
 }
 
-export interface SkillRef {
-  id: string;
-  name: string;
-  description: string;
-}
-
 export interface ImageRef {
   id: string;
   mimeType: string;
@@ -33,16 +27,9 @@ export interface MentionChipElement {
   children: [{ text: "" }];
 }
 
-export interface SkillChipElement {
-  type: "skill-chip";
-  skillRef: SkillRef;
-  children: [{ text: "" }];
-}
-
 export type CustomElement =
   | ParagraphElement
-  | MentionChipElement
-  | SkillChipElement;
+  | MentionChipElement;
 
 export type CustomText = { text: string };
 

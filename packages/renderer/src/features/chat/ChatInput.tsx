@@ -10,11 +10,11 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useState, useRef } from "react";
 import { Slate, Editable, ReactEditor } from "slate-react";
 import { Range } from "slate";
-import { ArrowUp, Box, ChevronRight, Paperclip, Plus, Puzzle, Search, Terminal, X } from "lucide-react";
+import { ArrowUp, Box, ChevronRight, Paperclip, Plus, Terminal, X } from "lucide-react";
 import { useChat } from "@/stores/chat";
 import { useLayout } from "@/stores/layout";
 import { useNotification } from "@/stores/notification";
-import { fetchSkills, fetchCommands, type SkillDef, type CommandDef } from "@/services/api";
+import { fetchCommands, type CommandDef } from "@/services/api";
 import { saveSessionDraft, getSessionDraft, deleteSessionDraft as removeDraft } from "./sessionDrafts";
 import { AgentBar } from "./AgentBar";
 import { TokenRing } from "./TokenRing";
@@ -26,7 +26,6 @@ import {
   type ImageRef,
   type ImageAttachmentDTO,
 } from "./slate";
-import type { SkillRef } from "./slate";
 import {
   fileToImageRef,
   extractImageFiles,
@@ -43,10 +42,10 @@ function SlashDropdown({
   onSelectSkill,
 }: {
   commands: CommandDef[];
-  skills: SkillDef[];
+  skills: CommandDef[];
   selectedIndex: number;
   onSelectCommand: (cmd: CommandDef) => void;
-  onSelectSkill: (skill: SkillDef) => void;
+  onSelectSkill: (cmd: CommandDef) => void;
 }) {
   const listRef = useRef<HTMLDivElement>(null);
 
@@ -104,7 +103,7 @@ function SlashDropdown({
             const idx = commands.length + i;
             return (
               <button
-                key={skill.id}
+                key={skill.command}
                 data-slash-index={idx}
                 onMouseDown={(e) => {
                   e.preventDefault();
@@ -118,7 +117,7 @@ function SlashDropdown({
               >
                 <Box size={14} strokeWidth={1.9} className="shrink-0 text-t-secondary" />
                 <span className="shrink-0 text-[13px] leading-5 font-medium text-t-primary truncate max-w-[240px]">
-                  {skill.name}
+                  {skill.command.replace("/skill:", "")}
                 </span>
                 {skill.description && (
                   <span className="min-w-0 flex-1 truncate text-[13px] leading-5 text-t-muted">
@@ -192,18 +191,12 @@ function AttachmentBar({
 // ─── 「+」附件/技能菜单 ────────────────────────────────────────────
 
 function AddMenu({
-  skills,
   onPickLocal,
-  onPickSkill,
   onClose,
 }: {
-  skills: SkillDef[];
   onPickLocal: () => void;
-  onPickSkill: (skill: SkillDef) => void;
   onClose: () => void;
 }) {
-  const [skillOpen, setSkillOpen] = useState(false);
-  const [search, setSearch] = useState("");
   const rootRef = useRef<HTMLDivElement>(null);
 
   // 点击外部关闭
@@ -217,82 +210,15 @@ function AddMenu({
     return () => document.removeEventListener("mousedown", handler);
   }, [onClose]);
 
-  const filtered = useMemo(() => {
-    const q = search.trim().toLowerCase();
-    if (!q) return skills;
-    return skills.filter(
-      (s) =>
-        s.name.toLowerCase().includes(q) ||
-        s.description.toLowerCase().includes(q),
-    );
-  }, [skills, search]);
-
   return (
-    <div ref={rootRef} className="absolute bottom-full left-0 mb-2 z-50 flex items-end gap-2">
-      {/* 主菜单 */}
+    <div ref={rootRef} className="absolute bottom-full left-0 mb-2 z-50">
       <div className="w-[230px] shrink-0 bg-surface border border-border-subtle rounded-2xl shadow-[0_12px_40px_rgba(0,0,0,0.16)] py-1.5">
         <MenuItem
           icon={<Paperclip size={16} strokeWidth={1.8} />}
           label="从本地文件添加"
           onClick={() => { onPickLocal(); onClose(); }}
         />
-        <MenuItem
-          icon={<Puzzle size={16} strokeWidth={1.8} />}
-          label="使用技能"
-          chevron
-          active={skillOpen}
-          onClick={() => setSkillOpen((v) => !v)}
-        />
       </div>
-
-      {/* 技能二级面板 */}
-      {skillOpen && (
-        <div className="w-[300px] shrink-0 bg-surface border border-border-subtle rounded-2xl shadow-[0_12px_40px_rgba(0,0,0,0.16)] overflow-hidden">
-          {/* 搜索 */}
-          <div className="flex items-center gap-2 px-3 py-2.5 border-b border-border-subtle">
-            <Search size={15} className="shrink-0 text-t-ghost" />
-            <input
-              autoFocus
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder="搜索技能"
-              className="flex-1 bg-transparent text-[13px] text-t-primary placeholder:text-t-ghost outline-none"
-            />
-          </div>
-          {/* 列表 */}
-          <div className="max-h-[260px] overflow-y-auto py-1">
-            {filtered.length === 0 ? (
-              <div className="px-3 py-6 text-center text-[12px] text-t-ghost">
-                没有匹配的技能
-              </div>
-            ) : (
-              filtered.map((skill) => (
-                <button
-                  key={skill.id}
-                  onMouseDown={(e) => {
-                    e.preventDefault();
-                    onPickSkill(skill);
-                    onClose();
-                  }}
-                  className="w-full flex items-start gap-2.5 px-3 py-2 text-left hover:bg-hover transition-colors"
-                >
-                  <Box size={15} strokeWidth={1.8} className="shrink-0 mt-0.5 text-[#1a7f37]" />
-                  <div className="min-w-0 flex-1">
-                    <div className="text-[13px] font-medium text-t-primary truncate">
-                      {skill.name}
-                    </div>
-                    {skill.description && (
-                      <div className="text-[12px] text-t-muted truncate mt-0.5">
-                        {skill.description}
-                      </div>
-                    )}
-                  </div>
-                </button>
-              ))
-            )}
-          </div>
-        </div>
-      )}
     </div>
   );
 }
@@ -358,7 +284,6 @@ export function ChatInput() {
   // 细粒度选择器：仅订阅各自需要的字段，避免无关状态变化触发重渲染
   const isBusy = useChat((s) => s.isBusy);
   const sessionId = useChat((s) => s.sessionId);
-  const agentId = useChat((s) => s.agentId);
   const autoFollow = useLayout((s) => s.autoFollowFiles);
   const toggleAutoFollow = useLayout((s) => s.toggleAutoFollowFiles);
 
@@ -401,25 +326,20 @@ export function ChatInput() {
     range: Range;
   } | null>(null);
   const [skillIndex, setSkillIndex] = useState(0);
-  const [skillList, setSkillList] = useState<SkillDef[]>([]);
   const [commandList, setCommandList] = useState<CommandDef[]>([]);
-
-  // 加载 skill 列表（全局 + 当前 agent 私有）
-  useEffect(() => {
-    fetchSkills(agentId).then(setSkillList);
-  }, [agentId]);
 
   // 加载指令列表（全局，与工作区无关）
   useEffect(() => {
     fetchCommands().then(setCommandList);
   }, []);
 
-  // 过滤候选指令（/ 面板顶部）
+  // 过滤候选指令（/ 面板顶部，排除 /skill: 开头的指令——它们归入技能分组）
   const commandCandidates = useMemo(() => {
     if (!skillSearch) return [];
     const q = skillSearch.search.toLowerCase();
     return commandList.filter(
       (c) => {
+        if (c.command.startsWith("/skill:")) return false;
         // /cancel 仅在 session running 时展示
         if (c.command === "/cancel" && !isBusy) return false;
         return (
@@ -430,16 +350,17 @@ export function ChatInput() {
     );
   }, [skillSearch, commandList, isBusy]);
 
-  // 过滤候选 skill
+  // 过滤候选 skill（从指令列表中筛选 /skill: 开头的）
   const skillCandidates = useMemo(() => {
     if (!skillSearch) return [];
     const q = skillSearch.search.toLowerCase();
-    return skillList.filter(
-      (s) =>
-        s.name.toLowerCase().includes(q) ||
-        s.description.toLowerCase().includes(q),
+    return commandList.filter(
+      (c) =>
+        c.command.startsWith("/skill:") &&
+        (c.command.toLowerCase().includes(q) ||
+          c.description.toLowerCase().includes(q)),
     );
-  }, [skillSearch, skillList]);
+  }, [skillSearch, commandList]);
 
   // 合并候选总数（指令在前，技能在后），键盘导航用统一索引
   const slashTotal = commandCandidates.length + skillCandidates.length;
@@ -448,22 +369,6 @@ export function ChatInput() {
   useEffect(() => {
     setSkillIndex(0);
   }, [slashTotal]);
-
-  // 插入 skill chip
-  const handleInsertSkill = useCallback(
-    (skill: SkillDef) => {
-      if (!skillSearch) return;
-      const ref: SkillRef = {
-        id: skill.id,
-        name: skill.name,
-        description: skill.description,
-      };
-      inputEditor.insertSkillChip(ref, skillSearch.range);
-      setSkillSearch(null);
-      setSkillIndex(0);
-    },
-    [inputEditor, skillSearch],
-  );
 
   // ── Slate onChange ──
   const handleSlateChange = useCallback(
@@ -663,10 +568,10 @@ export function ChatInput() {
       if (idx < commandCandidates.length) {
         handleSelectCommand(commandCandidates[idx]);
       } else {
-        handleInsertSkill(skillCandidates[idx - commandCandidates.length]);
+        handleSelectCommand(skillCandidates[idx - commandCandidates.length]);
       }
     },
-    [commandCandidates, skillCandidates, handleSelectCommand, handleInsertSkill],
+    [commandCandidates, skillCandidates, handleSelectCommand],
   );
 
   const onKeyDown = useCallback(
@@ -763,7 +668,7 @@ export function ChatInput() {
               skills={skillCandidates}
               selectedIndex={skillIndex}
               onSelectCommand={handleSelectCommand}
-              onSelectSkill={handleInsertSkill}
+              onSelectSkill={handleSelectCommand}
             />
           )}
 
@@ -783,7 +688,7 @@ export function ChatInput() {
               renderElement={renderElement}
               onKeyDown={onKeyDown}
               onPaste={handlePaste}
-              placeholder="描述你想要做什么... 输入 / 选择 Skill"
+              placeholder="描述你想要做什么... 输入 / 选择指令"
               className="w-full bg-transparent text-[var(--text-md)] text-t-primary outline-none resize-none px-5 py-4 font-sans overflow-y-auto overflow-x-hidden"
               style={{
                 minHeight: 64,
@@ -819,7 +724,7 @@ export function ChatInput() {
                 <button
                   type="button"
                   onClick={() => setAddMenuOpen((v) => !v)}
-                  title="添加文件 / 技能"
+                  title="添加文件"
                   className={`h-8 w-8 flex items-center justify-center rounded-full transition-colors ${
                     addMenuOpen
                       ? "bg-[#e7e7e8] text-t-primary"
@@ -830,15 +735,7 @@ export function ChatInput() {
                 </button>
                 {addMenuOpen && (
                   <AddMenu
-                    skills={skillList}
                     onPickLocal={handlePickImages}
-                    onPickSkill={(skill) =>
-                      inputEditor.insertSkillChipAtEnd({
-                        id: skill.id,
-                        name: skill.name,
-                        description: skill.description,
-                      })
-                    }
                     onClose={() => setAddMenuOpen(false)}
                   />
                 )}

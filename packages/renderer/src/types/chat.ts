@@ -1,10 +1,5 @@
 export type MessageRole = "user" | "assistant" | "tool" | "system";
 
-export interface SkillRefData {
-  id: string;
-  name: string;
-}
-
 export interface EmailPartData {
   from_name: string;
   from_agent_id: string;
@@ -17,7 +12,6 @@ export interface EmailPartData {
 export type MessagePart =
   | { type: "text"; text: string }
   | { type: "email"; data: EmailPartData }
-  | { type: "skill"; data: string }
   | {
       type: "image";
       data: {

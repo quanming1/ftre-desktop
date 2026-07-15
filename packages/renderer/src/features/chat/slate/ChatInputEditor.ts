@@ -8,8 +8,6 @@ import {
 } from "slate";
 import { withReact, ReactEditor } from "slate-react";
 import { withHistory } from "slate-history";
-import { withSkillChips } from "./plugins";
-import type { SkillRef, SkillChipElement } from "./types";
 import type { MessagePart } from "@/types/chat";
 
 export const IMAGE_MIME_WHITELIST: readonly string[] = [
@@ -30,7 +28,6 @@ export interface ImageAttachmentDTO {
 
 export interface SerializedInput {
   text: string;
-  skillRefs: SkillRef[];
   parts: MessagePart[];
 }
 
@@ -38,22 +35,12 @@ const EMPTY_VALUE: Descendant[] = [
   { type: "paragraph", children: [{ text: "" }] },
 ];
 
-type RestorablePart =
-  | MessagePart
-  | { type: "text"; data: string }
-  | { type: "skill"; data: string };
-
-function partText(part: RestorablePart): string {
-  if (part.type !== "text") return "";
-  return String("text" in part ? part.text : part.data || "");
-}
-
 export class ChatInputEditor {
   readonly editor: Editor;
   private _value: Descendant[] = EMPTY_VALUE;
 
   constructor() {
-    this.editor = withSkillChips(withHistory(withReact(createEditor())));
+    this.editor = withHistory(withReact(createEditor()));
   }
 
   get value(): Descendant[] {
@@ -94,34 +81,6 @@ export class ChatInputEditor {
     return { search, range: { anchor: slashPoint, focus: start } };
   }
 
-  insertSkillChip(ref: SkillRef, targetRange: Range): void {
-    const chip: SkillChipElement = {
-      type: "skill-chip",
-      skillRef: ref,
-      children: [{ text: "" }],
-    };
-
-    Transforms.select(this.editor, targetRange);
-    Transforms.delete(this.editor);
-    Transforms.insertNodes(this.editor, chip);
-    Transforms.move(this.editor);
-    Transforms.insertText(this.editor, " ");
-  }
-
-  insertSkillChipAtEnd(ref: SkillRef): void {
-    const chip: SkillChipElement = {
-      type: "skill-chip",
-      skillRef: ref,
-      children: [{ text: "" }],
-    };
-    ReactEditor.focus(this.editor as ReactEditor);
-    const end = Editor.end(this.editor, []);
-    Transforms.select(this.editor, end);
-    Transforms.insertNodes(this.editor, chip);
-    Transforms.move(this.editor);
-    Transforms.insertText(this.editor, " ");
-  }
-
   replaceRange(targetRange: Range, text: string): void {
     Transforms.select(this.editor, targetRange);
     Transforms.delete(this.editor);
@@ -142,20 +101,12 @@ export class ChatInputEditor {
     ReactEditor.focus(this.editor as ReactEditor);
   }
 
-  setContent(parts: RestorablePart[]): void {
+  setContent(parts: Array<{ type: string; text?: string; data?: unknown }>): void {
     this.clear();
     for (const part of parts) {
       if (part.type === "text") {
-        const text = partText(part);
+        const text = "text" in part ? String(part.text || "") : String(part.data || "");
         if (text) Transforms.insertText(this.editor, text);
-      } else if (part.type === "skill") {
-        const data = String(part.data || "");
-        if (!data) continue;
-        this.insertSkillChipAtEnd({
-          id: data,
-          name: data,
-          description: "",
-        });
       }
     }
     this.focus();
@@ -166,13 +117,12 @@ export class ChatInputEditor {
   }
 
   get isEmpty(): boolean {
-    const { text, skillRefs } = this.serialize();
-    return text.length === 0 && skillRefs.length === 0;
+    const { text } = this.serialize();
+    return text.length === 0;
   }
 
   static serializeValue(nodes: Descendant[]): SerializedInput {
     const textParts: string[] = [];
-    const skillRefs: SkillRef[] = [];
     const parts: MessagePart[] = [];
 
     for (const node of nodes) {
@@ -189,15 +139,7 @@ export class ChatInputEditor {
       };
 
       for (const child of node.children) {
-        if (SlateElement.isElement(child) && child.type === "skill-chip") {
-          const chip = child as SkillChipElement;
-          skillRefs.push(chip.skillRef);
-          flush();
-          parts.push({
-            type: "skill",
-            data: chip.skillRef.name || chip.skillRef.id,
-          });
-        } else if ("text" in child) {
+        if ("text" in child) {
           pendingText += (child as { text: string }).text;
         }
       }
@@ -227,7 +169,6 @@ export class ChatInputEditor {
 
     return {
       text: fullText,
-      skillRefs,
       parts:
         mergedParts.length > 0
           ? mergedParts
