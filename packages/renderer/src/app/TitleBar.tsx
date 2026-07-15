@@ -4,7 +4,6 @@ import { PixelLogo } from "@/components/PixelLogo";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { Tooltip, TooltipProvider } from "@ftre/ui";
 import { useEditor } from "@/stores/editor";
-import { useWorkspace } from "@/stores/workspace";
 import { useLayout } from "@/stores/layout";
 import { useGitService } from "@/services/git-service";
 import { buildMenuDefinitions, type MenuItem, type ConfirmAction } from "@/lib/menu-definitions";
@@ -19,7 +18,6 @@ export function TitleBar() {
   const [hoveredMenu, setHoveredMenu] = useState<string | null>(null);
   const [confirmAction, setConfirmAction] = useState<ConfirmAction | null>(null);
 
-  const rootPath = useWorkspace((s) => s.rootPath);
   const terminalOpen = useLayout((s) => s.terminalDropdownOpen);
   const toggleTerminal = useLayout((s) => s.toggleTerminalDropdown);
   const mcpPopoverOpen = useLayout((s) => s.mcpPopoverOpen);
@@ -29,8 +27,6 @@ export function TitleBar() {
   const togglePanelVisible = useLayout((s) => s.togglePanelVisible);
   const mcpAreaRef = useRef<HTMLDivElement>(null);
   const gitInfo = useGitService((s) => s.getInfo());
-
-  const projectName = rootPath ? rootPath.split("/").pop() || rootPath.split("\\").pop() : "Ftre";
 
   const menuDefinitions = useMemo(() => buildMenuDefinitions(setConfirmAction), []);
   const menuAreaRef = useRef<HTMLDivElement>(null);
@@ -149,10 +145,8 @@ export function TitleBar() {
         )}
       </div>
 
-      {/* ── 中间: 项目名（Agent 模式无编辑器，不再显示文件名） ── */}
-      <div className="flex-1 flex items-center justify-center gap-2 min-w-0">
-        <span className="text-[13px] text-t-ghost font-sans truncate">{projectName}</span>
-      </div>
+      {/* ── 中间: 可拖拽留白 ── */}
+      <div className="flex-1" />
 
       {/* ── 右侧: 悬浮窗 + 窗口控制 ── */}
       <div className="flex items-center shrink-0 h-full gap-2" style={noDrag}>
