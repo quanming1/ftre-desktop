@@ -308,7 +308,7 @@ async function main() {
   const ftreDeps = parseTomlDeps(path.join(PROJECT_ROOT, "pyproject.toml"));
 
   // 合并去重，过滤自有的包（不在 PyPI 上，源码通过 sync 同步）
-  const ownPkgs = ["ftre-agent-core", "ftre"];
+  const ownPkgs = ["ftre-agent-core", "ftre", "litellm"];
   const allDeps = [...new Set([...agentCoreDeps, ...ftreDeps])]
     .filter((d) => !ownPkgs.some((p) => d.startsWith(p)));
   const depsHash = crypto.createHash("md5").update(allDeps.join("\n")).digest("hex");
@@ -327,6 +327,24 @@ async function main() {
   } else {
     log("✓ Python 依赖无变化，跳过");
   }
+
+  // =========================================================================
+  // 2.5. 清理构建工具（pip/setuptools/wheel 占 ~27MB，安装完依赖后不再需要）
+  // =========================================================================
+  log("清理构建工具（pip/setuptools/wheel）...");
+  try {
+    execSync(
+      `"${pythonExe}" -m pip uninstall -y pip setuptools wheel 2>&1`,
+      { stdio: "pipe", cwd: pythonDir },
+    );
+  } catch {
+    // 忽略：可能已经卸载
+  }
+  // 清理 __pycache__ 和 .pyc 文件
+  const sitePackages = path.join(pythonDir, "Lib", "site-packages");
+  cleanPycache(sitePackages);
+  // 清理 Scripts 目录（pip 入口脚本）
+  rmrf(path.join(pythonDir, "Scripts"));
 
   // =========================================================================
   // 4. 同步后端源码（增量复制 src/ftre/ → server/ftre/）
@@ -387,6 +405,24 @@ function getDirSize(dir) {
     }
   }
   return size;
+}
+
+/** 递归删除 __pycache__ 目录和 .pyc 文件 */
+function cleanPycache(dir) {
+  if (!fs.existsSync(dir)) return;
+  const items = fs.readdirSync(dir, { withFileTypes: true });
+  for (const item of items) {
+    const fullPath = path.join(dir, item.name);
+    if (item.isDirectory()) {
+      if (item.name === "__pycache__") {
+        rmrf(fullPath);
+      } else {
+        cleanPycache(fullPath);
+      }
+    } else if (item.name.endsWith(".pyc")) {
+      fs.unlinkSync(fullPath);
+    }
+  }
 }
 
 main().catch((err) => {
