@@ -11,6 +11,12 @@ nul
 # Spec-Kit 工作文件
 specs/*/
 
+# AI assistant / tool configs
+.claude/
+.taskmaster/
+.kiro/
+.mcp.json
+
 # 操作系统文件
 .DS_Store
 .DS_Store?
