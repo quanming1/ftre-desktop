@@ -19,13 +19,13 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: quanming1/ftre
-          path: ../ftre
+          path: ftre
 
       - name: Checkout ftre-agent-core
         uses: actions/checkout@v4
         with:
           repository: quanming1/ftre-agent-core
-          path: ../ftre-agent-core
+          path: ftre-agent-core
 
       - name: Set up Node.js
         uses: actions/setup-node@v4
@@ -47,8 +47,8 @@ jobs:
 
       - name: Bundle backend (Python + ftre + agent-core)
         env:
-          FTRE_ROOT: ${{ github.workspace }}\..\ftre
-          FTRE_AGENT_CORE_ROOT: ${{ github.workspace }}\..\ftre-agent-core
+          FTRE_ROOT: ${{ github.workspace }}\ftre
+          FTRE_AGENT_CORE_ROOT: ${{ github.workspace }}\ftre-agent-core
         run: node scripts/bundle-backend.js --clean
 
       - name: Build and package
