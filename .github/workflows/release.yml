@@ -52,7 +52,7 @@ jobs:
         run: node scripts/bundle-backend.js --clean
 
       - name: Build and package
-        run: npm run dist:full
+        run: npm run dist:full -- --publish never
 
       - name: Upload to GitHub Releases
         uses: softprops/action-gh-release@v2
