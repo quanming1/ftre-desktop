@@ -63,6 +63,10 @@ export interface ITextCodeEditorOptions {
   smoothScrolling?: boolean;
   /** 只读模式 */
   readOnly?: boolean;
+  /** 滚动条配置 */
+  scrollbar?: { verticalScrollbarSize?: number; horizontalScrollbarSize?: number };
+  /** 自动换行 */
+  wordWrap?: "on" | "off" | "wordWrapColumn" | "bounded";
 }
 
 /**

@@ -35,6 +35,7 @@ export interface DesktopFS {
   ): Promise<{ success: boolean; error?: string }>;
   revealInExplorer(targetPath: string): Promise<void>;
   stat(filePath: string): Promise<{ mtime: number | null }>;
+  readImageBase64(filePath: string): Promise<{ data: string; error?: string }>;
   watch(filePath: string): Promise<void>;
   unwatch(filePath: string): Promise<void>;
   onFileChanged(callback: (filePath: string) => void): () => void;
@@ -97,6 +98,8 @@ export interface DesktopGit {
     staged: boolean,
     oldPath?: string,
   ): Promise<{ original: string; modified: string; error?: string }>;
+  numstat(rootPath: string): Promise<{ files: { file: string; added: number; deleted: number }[]; error?: string }>;
+  poll(rootPath: string, lastEtag?: string, force?: boolean): Promise<{ etag: string | null; changed: boolean; status?: any; numstat?: any; error?: string }>;
 }
 
 export interface DesktopTerminal {
