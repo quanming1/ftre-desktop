@@ -14,6 +14,10 @@
   "asarUnpack": ["node_modules/node-pty/**/*"],
   "extraResources": [
     {
+      "from": "backend/",
+      "to": "backend/"
+    },
+    {
       "from": "scripts/start-gateway.bat",
       "to": "start-gateway.bat"
     }
