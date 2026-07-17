@@ -1,0 +1,61 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout desktop
+        uses: actions/checkout@v4
+
+      - name: Checkout ftre
+        uses: actions/checkout@v4
+        with:
+          repository: quanming1/ftre
+          path: ../ftre
+
+      - name: Checkout ftre-agent-core
+        uses: actions/checkout@v4
+        with:
+          repository: quanming1/ftre-agent-core
+          path: ../ftre-agent-core
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pnpm install --no-frozen-lockfile
+
+      - name: Bundle backend (Python + ftre + agent-core)
+        env:
+          FTRE_ROOT: ${{ github.workspace }}\..\ftre
+          FTRE_AGENT_CORE_ROOT: ${{ github.workspace }}\..\ftre-agent-core
+        run: node scripts/bundle-backend.js --clean
+
+      - name: Build and package
+        run: npm run dist:full
+
+      - name: Upload to GitHub Releases
+        uses: softprops/action-gh-release@v2
+        with:
+          files: release/**
+          generate_release_notes: true
