@@ -57,5 +57,7 @@ jobs:
       - name: Upload to GitHub Releases
         uses: softprops/action-gh-release@v2
         with:
-          files: release/**
+          files: |
+            release/ftre Setup *.exe
+            release/ftre Setup *.exe.blockmap
           generate_release_notes: true
