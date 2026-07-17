@@ -58,6 +58,6 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           files: |
-            release/ftre Setup *.exe
-            release/ftre Setup *.exe.blockmap
+            release/*Setup*.exe
+            release/*Setup*.exe.blockmap
           generate_release_notes: true
