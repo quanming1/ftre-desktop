@@ -286,43 +286,46 @@ async function main() {
     });
     fs.unlinkSync(getPipPath);
 
+    // 安装 setuptools + wheel（嵌入式 Python 不自带，构建需要）
+    log("安装 setuptools + wheel...");
+    execSync(
+      `"${pythonExe}" -m pip install setuptools wheel --no-warn-script-location --no-cache-dir -q`,
+      { stdio: "inherit", cwd: pythonDir },
+    );
+
     // 首次安装，强制安装依赖
-    state.ftreHash = null;
-    state.agentCoreHash = null;
+    state.ftreDepsHash = null;
+    state.agentCoreDepsHash = null;
   } else {
     log("✓ Python 运行时已存在，跳过");
   }
 
   // =========================================================================
-  // 2. ftre-agent-core（只在代码变化时重新安装）
+  // 2. pip 依赖（从 pyproject.toml 解析依赖列表，直接 pip install）
   // =========================================================================
-  const currentAgentCoreHash = dirHash(path.join(AGENT_CORE_ROOT, "src"));
-  newState.agentCoreHash = currentAgentCoreHash;
+  const { parseTomlDeps } = require("./parse-deps");
+  const agentCoreDeps = parseTomlDeps(path.join(AGENT_CORE_ROOT, "pyproject.toml"));
+  const ftreDeps = parseTomlDeps(path.join(PROJECT_ROOT, "pyproject.toml"));
 
-  if (currentAgentCoreHash !== state.agentCoreHash) {
-    log("安装 ftre-agent-core（代码已变化）...");
-    execSync(
-      `"${pythonExe}" -m pip install "${AGENT_CORE_ROOT}" --no-warn-script-location --no-cache-dir -q`,
-      { stdio: "inherit", cwd: pythonDir },
-    );
+  // 合并去重，过滤自有的包（不在 PyPI 上，源码通过 sync 同步）
+  const ownPkgs = ["ftre-agent-core", "ftre"];
+  const allDeps = [...new Set([...agentCoreDeps, ...ftreDeps])]
+    .filter((d) => !ownPkgs.some((p) => d.startsWith(p)));
+  const depsHash = crypto.createHash("md5").update(allDeps.join("\n")).digest("hex");
+  newState.depsHash = depsHash;
+
+  if (depsHash !== state.depsHash) {
+    log("安装 Python 依赖（从 pyproject.toml 解析）...");
+    log(`  依赖列表: ${allDeps.join(", ")}`);
+    for (const dep of allDeps) {
+      log(`  pip install ${dep}`);
+      execSync(
+        `"${pythonExe}" -m pip install ${dep} --no-warn-script-location --no-cache-dir -q --only-binary :all:`,
+        { stdio: "inherit", cwd: pythonDir },
+      );
+    }
   } else {
-    log("✓ ftre-agent-core 无变化，跳过");
-  }
-
-  // =========================================================================
-  // 3. ftre 后端（只在代码变化时重新安装）
-  // =========================================================================
-  const currentFtreHash = dirHash(path.join(PROJECT_ROOT, "src"));
-  newState.ftreHash = currentFtreHash;
-
-  if (currentFtreHash !== state.ftreHash) {
-    log("安装 ftre（代码已变化）...");
-    execSync(
-      `"${pythonExe}" -m pip install "${PROJECT_ROOT}" --no-warn-script-location --no-cache-dir -q`,
-      { stdio: "inherit", cwd: pythonDir },
-    );
-  } else {
-    log("✓ ftre 无变化，跳过");
+    log("✓ Python 依赖无变化，跳过");
   }
 
   // =========================================================================
@@ -336,6 +339,14 @@ async function main() {
   if (fs.existsSync(ftreSrcDir)) {
     log("  - src/ftre/");
     syncDirIncremental(ftreSrcDir, ftreDestDir);
+  }
+
+  // 同步 ftre-agent-core 源码
+  const agentCoreSrcDir = path.join(AGENT_CORE_ROOT, "src", "ftre_agent_core");
+  const agentCoreDestDir = path.join(serverDir, "ftre_agent_core");
+  if (fs.existsSync(agentCoreSrcDir)) {
+    log("  - src/ftre_agent_core/");
+    syncDirIncremental(agentCoreSrcDir, agentCoreDestDir);
   }
 
   // 同步 pyproject.toml（用于版本信息）
