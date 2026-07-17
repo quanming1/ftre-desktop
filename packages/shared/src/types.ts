@@ -164,6 +164,12 @@ export interface DesktopMemory {
   getUsage(): Promise<MemoryUsage>;
 }
 
+/** 内嵌后端 API — 接收 Python 进程的 stdout/stderr 日志和退出事件 */
+export interface BackendAPI {
+  onLog(callback: (line: string) => void): () => void;
+  onExit(callback: (code: number | null) => void): () => void;
+}
+
 export interface DesktopAPI {
   platform: string;
   isElectron: boolean;
@@ -174,6 +180,7 @@ export interface DesktopAPI {
   window: DesktopWindow;
   terminal: DesktopTerminal;
   memory: DesktopMemory;
+  backend?: BackendAPI;
 }
 
 declare global {

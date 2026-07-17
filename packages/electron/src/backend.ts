@@ -1,16 +1,11 @@
-import { app } from 'electron';
+import { app, ipcMain, BrowserWindow } from 'electron';
 import { spawn, ChildProcess } from 'child_process';
 import * as path from 'path';
 import * as fs from 'fs';
-import * as http from 'http';
-
-const BACKEND_PORT = 9988;
-const BACKEND_URL = `http://localhost:${BACKEND_PORT}`;
 
 let pythonProcess: ChildProcess | null = null;
 
 function getBackendPaths() {
-  // 使用 app.isPackaged 判断是否为打包模式
   if (!app.isPackaged) return null;
 
   const resourcesDir = process.resourcesPath;
@@ -43,30 +38,46 @@ export function startPythonBackend(): void {
   env.PYTHONPATH = serverDir;
 
   pythonProcess = spawn(pythonExe, [
-    '-m', 'uvicorn', 'app.main:app',
-    '--host', '127.0.0.1',
-    '--port', String(BACKEND_PORT),
+    '-m', 'ftre.main', 'gateway',
   ], {
     cwd: serverDir,
     stdio: ['ignore', 'pipe', 'pipe'],
     env,
   });
 
+  const sendLog = (line: string) => {
+    for (const win of BrowserWindow.getAllWindows()) {
+      win.webContents.send('backend:log', line);
+    }
+  };
+
   pythonProcess.stdout?.on('data', (data: Buffer) => {
-    console.log(`[python] ${data.toString().trim()}`);
+    const text = data.toString().trim();
+    if (text) {
+      console.log(`[python] ${text}`);
+      sendLog(text);
+    }
   });
 
   pythonProcess.stderr?.on('data', (data: Buffer) => {
-    console.log(`[python:err] ${data.toString().trim()}`);
+    const text = data.toString().trim();
+    if (text) {
+      console.log(`[python:err] ${text}`);
+      sendLog(text);
+    }
   });
 
   pythonProcess.on('close', (code: number | null) => {
     console.log(`[python] 进程退出，code=${code}`);
     pythonProcess = null;
+    for (const win of BrowserWindow.getAllWindows()) {
+      win.webContents.send('backend:exit', code);
+    }
   });
 
   pythonProcess.on('error', (err: Error) => {
     console.error(`[python] 启动失败:`, err.message);
+    sendLog(`[启动失败] ${err.message}`);
   });
 }
 
@@ -84,31 +95,4 @@ export function stopPythonBackend(): void {
     }
     pythonProcess = null;
   }
-}
-
-export function waitForBackend(retries = 30, interval = 1000): Promise<void> {
-  return new Promise((resolve, reject) => {
-    let attempts = 0;
-    const check = () => {
-      attempts++;
-      http.get(`${BACKEND_URL}/health`, (res) => {
-        if (res.statusCode === 200) {
-          console.log(`[desktop] 后端就绪 (第 ${attempts} 次检测)`);
-          resolve();
-        } else {
-          retry();
-        }
-      }).on('error', retry);
-    };
-
-    const retry = () => {
-      if (attempts >= retries) {
-        reject(new Error(`后端未就绪，已重试 ${retries} 次`));
-      } else {
-        setTimeout(check, interval);
-      }
-    };
-
-    check();
-  });
 }
