@@ -125,6 +125,19 @@ const api: DesktopAPI = {
       return () => ipcRenderer.removeListener("pty:exit", handler);
     },
   },
+
+  backend: {
+    onLog: (callback: (line: string) => void) => {
+      const handler = (_event: any, line: string) => callback(line);
+      ipcRenderer.on("backend:log", handler);
+      return () => ipcRenderer.removeListener("backend:log", handler);
+    },
+    onExit: (callback: (code: number | null) => void) => {
+      const handler = (_event: any, code: number | null) => callback(code);
+      ipcRenderer.on("backend:exit", handler);
+      return () => ipcRenderer.removeListener("backend:exit", handler);
+    },
+  },
 };
 
 contextBridge.exposeInMainWorld("desktop", api);

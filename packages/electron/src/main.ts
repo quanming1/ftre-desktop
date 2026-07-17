@@ -1,6 +1,7 @@
 import { app, BrowserWindow, ipcMain, shell } from "electron";
 import { isDev, setMainWindow, getMainWindow } from "./app-state";
 import { createWindow } from "./window";
+import { startPythonBackend, stopPythonBackend } from "./backend";
 import { registerFsIPC } from "./ipc/fs";
 import { registerGitIPC } from "./ipc/git";
 import { registerTerminalIPC } from "./ipc/terminal";
@@ -62,6 +63,9 @@ app.whenReady().then(() => {
   registerWatcherIPC();
   registerMemoryIPC();
 
+  // 启动内嵌 Python 后端（打包模式）
+  startPythonBackend();
+
   // 创建窗口
   const win = createWindow();
   setMainWindow(win);
@@ -80,4 +84,5 @@ app.on("window-all-closed", () => {
 
 app.on("before-quit", () => {
   workerManager.dispose();
+  stopPythonBackend();
 });
