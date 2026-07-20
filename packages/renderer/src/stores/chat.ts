@@ -126,6 +126,8 @@ interface Bucket {
   retryState: RetryState | null;
   /** turn_start 的 timestamp（秒），turn_end 时用于计算耗时 */
   turnStartTs: number | null;
+  /** 当前命中指令名（command_matched 时设置，turn_start 时清除） */
+  commandName: string | null;
   /** 当前 session 的执行计划（从 session.metadata.plan 提取） */
   plan: PlanData | null;
 }
@@ -148,6 +150,7 @@ const emptyBucket = (): Bucket => ({
   error: null,
   retryState: null,
   turnStartTs: null,
+  commandName: null,
   plan: null,
 });
 function bucket(sid: string): Bucket {
@@ -184,6 +187,7 @@ function mirror(sid: string): void {
     retryState: b.retryState,
     lastUserInputTs: b.lastUserInputTs,
     turnStartTs: b.turnStartTs,
+    commandName: b.commandName,
     plan: b.plan,
   });
 }
@@ -451,11 +455,33 @@ export function applyEvent(b: Bucket, ev: BusEvent): void {
 
     case "step": {
       const phase = d.phase;
+      if (phase === "pipeline_start") {
+        // pipeline 开始：立即标记忙
+        b.isBusy = true;
+        b.sessionStatus = "running";
+        b.error = null;
+        return;
+      }
+      if (phase === "pipeline_end") {
+        // pipeline 结束：恢复空闲，清除 Turn 级临时状态
+        b.isBusy = false;
+        b.sessionStatus = "idle";
+        b.commandName = null;
+        return;
+      }
+      if (phase === "command_matched") {
+        // 指令命中：状态栏更新为"执行指令..."
+        b.isBusy = true;
+        b.sessionStatus = "running";
+        b.commandName = d.command_name ?? null;
+        return;
+      }
       if (phase === "turn_start") {
         b.isBusy = true;
         b.sessionStatus = "running";
         b.error = null;
         b.retryState = null;
+        b.commandName = null; // 进入 agent 执行，清除指令标记
         b.turnStartTs = ts ?? null;
         return;
       }
@@ -827,6 +853,7 @@ interface ChatState {
   messages: ChatMessage[];
   lastUserInputTs: number | null;
   turnStartTs: number | null;
+  commandName: string | null;
   plan: PlanData | null;
   sessionStatus: SessionStatus;
   isBusy: boolean;
@@ -921,6 +948,7 @@ export const useChat = create<ChatState>((set, get) => ({
   messages: [],
   lastUserInputTs: null,
   turnStartTs: null,
+  commandName: null,
   plan: null,
   sessionStatus: "idle",
   isBusy: false,
@@ -1041,12 +1069,12 @@ export const useChat = create<ChatState>((set, get) => ({
 
   newChat: () => {
     wsClient.subscribeOnly(null);
-    set({ sessionId: null, messages: [], lastUserInputTs: null, turnStartTs: null, plan: null, sessionStatus: "idle", isBusy: false, error: null, retryState: null, contextTokens: 0, tokenUsage: null, pendingWorkspace: _defaultWsCache });
+    set({ sessionId: null, messages: [], lastUserInputTs: null, turnStartTs: null, commandName: null, plan: null, sessionStatus: "idle", isBusy: false, error: null, retryState: null, contextTokens: 0, tokenUsage: null, pendingWorkspace: _defaultWsCache });
   },
 
   switchTo: (sessionId) => {
     const b = bucket(sessionId);
-    set({ sessionId, messages: b.messages, lastUserInputTs: b.lastUserInputTs, turnStartTs: b.turnStartTs, plan: b.plan, sessionStatus: b.sessionStatus, isBusy: b.isBusy, error: b.error, retryState: b.retryState, contextTokens: 0, tokenUsage: null });
+    set({ sessionId, messages: b.messages, lastUserInputTs: b.lastUserInputTs, turnStartTs: b.turnStartTs, commandName: b.commandName, plan: b.plan, sessionStatus: b.sessionStatus, isBusy: b.isBusy, error: b.error, retryState: b.retryState, contextTokens: 0, tokenUsage: null });
     void get().refreshTokenUsage(sessionId);
   },
 
