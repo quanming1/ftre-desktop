@@ -28,7 +28,7 @@ export type { SessionSummary };
  * 唯一区别：历史回放后所有消息强制 streaming=false（applyEvent 处理
  * assistant_message_complete 时已经设 streaming=false，但保险起见再 seal 一次）。
  */
-function historyToMessages(records: any[]): { messages: ChatMessage[]; turnStartTs: number | null } {
+function historyToMessages(records: any[]): { messages: ChatMessage[]; turnStartTs: number | null; commandName: string | null } {
   // 用一个临时 bucket 收集 applyEvent 的结果
   const b = {
     messages: [] as ChatMessage[],
@@ -42,6 +42,8 @@ function historyToMessages(records: any[]): { messages: ChatMessage[]; turnStart
     error: null as string | null,
     retryState: null,
     turnStartTs: null as number | null,
+    commandName: null as string | null,
+    plan: null as PlanData | null,
   };
 
   for (const r of records) {
@@ -60,7 +62,7 @@ function historyToMessages(records: any[]): { messages: ChatMessage[]; turnStart
     if (m.streaming) m.streaming = false;
   }
 
-  return { messages: b.messages, turnStartTs: b.turnStartTs };
+  return { messages: b.messages, turnStartTs: b.turnStartTs, commandName: b.commandName };
 }
 
 // ─── Storage Keys ───────────────────────────────────────────────────
@@ -360,7 +362,7 @@ export const useSession = create<SessionState>((set, get) => ({
     fetchSessionMessagesPage(sessionId, { limitTurns: FIRST_PAGE_TURNS, signal } as any)
       .then((page) => {
         if (!page) return;
-        const { messages, turnStartTs } = historyToMessages(page.messages);
+        const { messages, turnStartTs, commandName } = historyToMessages(page.messages);
         const plan = (page.metadata?.plan as PlanData) || null;
         useChat.getState().loadSessionMessages(
           sessionId,
@@ -369,6 +371,7 @@ export const useSession = create<SessionState>((set, get) => ({
           page.status,
           turnStartTs,
           plan,
+          commandName,
         );
         useChat.getState().setSessionStatus(sessionId, page.status);
         // HTTP 完成后再 WS attach：replay/live 统一追加到 DB 历史后面，
@@ -391,7 +394,7 @@ export const useSession = create<SessionState>((set, get) => ({
     try {
       const page = await fetchSessionMessagesPage(sessionId, { limitTurns: FIRST_PAGE_TURNS });
       if (!page) return;
-      const { messages, turnStartTs } = historyToMessages(page.messages);
+      const { messages, turnStartTs, commandName } = historyToMessages(page.messages);
       const plan = (page.metadata?.plan as PlanData) || null;
       useChat.getState().loadSessionMessages(
         sessionId,
@@ -400,6 +403,7 @@ export const useSession = create<SessionState>((set, get) => ({
         page.status,
         turnStartTs,
         plan,
+        commandName,
       );
     } catch (err) {
       console.error("[Session] reconnectSession fetch error:", err);

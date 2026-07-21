@@ -917,6 +917,7 @@ interface ChatState {
     status: SessionStatus,
     turnStartTs?: number | null,
     plan?: PlanData | null,
+    commandName?: string | null,
   ) => void;
   /**
    * Prepend earlier ChatMessage[] to the session, deduping by message id.
@@ -1099,7 +1100,7 @@ export const useChat = create<ChatState>((set, get) => ({
     mirror(sessionId);
   },
 
-  loadSessionMessages: (sessionId, messages, hasMoreHistory, status, turnStartTs, plan) => {
+  loadSessionMessages: (sessionId, messages, hasMoreHistory, status, turnStartTs, plan, commandName) => {
     const b = bucket(sessionId);
     const visibleCompactMessages = b.messages.filter((m) => m.compact && m.compact.status !== "running");
     b.messages = messages;
@@ -1125,6 +1126,7 @@ export const useChat = create<ChatState>((set, get) => ({
     b.retryState = null;
     b.turnStartTs = turnStartTs ?? null;
     b.plan = plan ?? null;
+    b.commandName = commandName ?? null;
     if (visibleCompactMessages.length > 0 && !b.messages.some((m) => m.compact)) {
       b.messages = [...b.messages, ...visibleCompactMessages];
     }
