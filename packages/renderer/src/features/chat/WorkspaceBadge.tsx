@@ -17,7 +17,7 @@ import {
   useRef,
   useState,
 } from "react";
-import { ChevronDown, ExternalLink, Folder, FolderOpen } from "lucide-react";
+import { ChevronDown, ExternalLink, Folder, FolderOpen, GitBranch } from "lucide-react";
 import { useSession } from "@/stores/session";
 import { useChat, useSessionId } from "@/stores/chat";
 import { useNotification } from "@/stores/notification";
@@ -135,6 +135,55 @@ function WorkspaceEditor({
   );
 }
 
+/**
+ * GitBranchBadge — 只读展示当前工作区的 git 分支名
+ *
+ * 直接调 window.desktop.git.info(workspace) 查询，不依赖全局 gitService
+ * （gitService 绑定的是 explorer 的 rootPath，可能与 session workspace 不同）。
+ *
+ * 边界：workspace 为空 / 非 git 仓库 / 加载中 / detached HEAD 均正确处理。
+ * 刷新时机：workspace 变化时重新查询；分支 checkout 不主动感知（只读展示，可接受）。
+ */
+function GitBranchBadge({ workspace }: { workspace: string }) {
+  const [info, setInfo] = useState<{
+    branch: string | null;
+    isGitRepo: boolean;
+  } | null>(null);
+
+  useEffect(() => {
+    if (!workspace) {
+      setInfo(null);
+      return;
+    }
+    let cancelled = false;
+    window.desktop?.git
+      ?.info?.(workspace)
+      .then((result) => {
+        if (cancelled) return;
+        setInfo({ branch: result.branch, isGitRepo: result.isGitRepo });
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setInfo(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [workspace]);
+
+  if (!info || !info.isGitRepo || !info.branch) return null;
+
+  return (
+    <div
+      className="flex items-center gap-1 h-8 px-2 text-[12px] text-t-dim font-mono select-none"
+      title={`分支: ${info.branch}`}
+    >
+      <GitBranch size={11} strokeWidth={1.5} className="opacity-70" />
+      <span className="truncate max-w-[200px]">{info.branch}</span>
+    </div>
+  );
+}
+
 export function WorkspaceBadge() {
   const sessionId = useSessionId();
   const sessions = useSession((s) => s.sessions);
@@ -231,7 +280,7 @@ export function WorkspaceBadge() {
   const display = hasWorkspace ? basename(workspace) : "未设置工作区";
 
   return (
-    <div ref={containerRef} className="relative">
+    <div ref={containerRef} className="relative flex items-center">
       <div
         className={`group relative flex items-center h-8 rounded-full transition-colors ${
           editing ? "bg-[#e7e7e8]" : "hover:bg-[#e7e7e8]"
@@ -266,6 +315,8 @@ export function WorkspaceBadge() {
           </button>
         )}
       </div>
+
+      <GitBranchBadge workspace={workspace} />
 
       {editing && (
         <div
