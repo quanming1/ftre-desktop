@@ -26,13 +26,6 @@ export function DiffRenderer({ tab, wordWrap }: TabRendererProps) {
   const displayPath = filePath.replace(/\\/g, "/");
   const language = useMemo(() => detectLanguage(displayPath), [displayPath]);
 
-  console.log(
-    `[DIFF-DBG] DiffRenderer render: tabId=${tab.id}, toolCallId=${tab.toolCallId}, file=${filePath}` +
-      `, beforeLen=${before?.length ?? -1}, afterLen=${after?.length ?? -1}` +
-      `, beforeEqAfter=${before === after}, beforeIsNull=${before === null}, afterIsNull=${after === null}` +
-      `, beforeIsUndefined=${before === undefined}, afterIsUndefined=${after === undefined}` +
-      `, additions=${additions}, deletions=${deletions}, revealNonce=${revealNonce}, wordWrap=${wordWrap}`,
-  );
 
   // renderSideBySide 状态：每个 diff tab 独立控制
   const [renderSideBySide, setRenderSideBySide] = useState(false);
@@ -53,11 +46,6 @@ export function DiffRenderer({ tab, wordWrap }: TabRendererProps) {
       toolName: "edit" as const,
       isApproximate: false,
     };
-    console.log(
-      `[DIFF-DBG] useMemo diff (re)computed: tabId=${tab.id}` +
-        `, origLen=${d.originalContent?.length ?? -1}, newLen=${d.newContent?.length ?? -1}` +
-        `, origEqNew=${d.originalContent === d.newContent}`,
-    );
     return d;
   }, [tab.id, filePath, before, after]);
 
@@ -105,15 +93,7 @@ export function DiffRenderer({ tab, wordWrap }: TabRendererProps) {
         </div>
       </div>
       <div className="flex-1 min-h-0 relative bg-surface">
-        {(() => {
-          const shouldRender = before !== null && after !== null;
-          console.log(
-            `[DIFF-DBG] render gate: tabId=${tab.id}, beforeNotNull=${before !== null}` +
-              `, afterNotNull=${after !== null}, shouldRender=${shouldRender}` +
-              `, beforeLen=${before?.length ?? -1}, afterLen=${after?.length ?? -1}`,
-          );
-          return shouldRender;
-        })() && (
+        {before !== null && after !== null && (
           <MonacoDiffViewer
             diff={diff}
             language={language}
