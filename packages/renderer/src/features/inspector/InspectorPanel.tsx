@@ -44,10 +44,6 @@ export function InspectorPanel() {
   const setFileTreeWidth = useLayout((s) => s.setFileTreeWidth);
   const contentTabs = useMemo(() => [...tabs].sort(compareByMountOrder), [tabs]);
 
-  console.log(
-    `[DIFF-DBG] InspectorPanel render: tabsCount=${tabs.length}, activeTabId=${activeTabId}` +
-      `, tabs=[${tabs.map((t) => `${t.id}(${t.type})`).join(", ")}], wordWrap=${wordWrap}`,
-  );
 
   return (
     <div className="h-full flex flex-col overflow-hidden bg-surface">
@@ -468,15 +464,7 @@ const TabButton = memo(function TabButton({
 // 避免所有 tab 同时 re-render → MonacoDiffViewer 即使自己 memo 了也会被调用
 const InspectorTabContent = memo(function InspectorTabContent(props: { tab: InspectorTab; active: boolean; wordWrap: boolean }) {
   const meta = getTabMeta(props.tab.type);
-  const diffInfo = props.tab.type === "diff"
-    ? `, beforeLen=${(props.tab as any).before?.length ?? -1}, afterLen=${(props.tab as any).after?.length ?? -1}, beforeEqAfter=${(props.tab as any).before === (props.tab as any).after}`
-    : "";
-  console.log(
-    `[DIFF-DBG] InspectorTabContent render: tabId=${props.tab.id}, tabType=${props.tab.type}` +
-      `, toolCallId=${props.tab.toolCallId}, active=${props.active}, hasRenderer=${!!meta}${diffInfo}`,
-  );
   if (!meta) {
-    console.log(`[DIFF-DBG] InspectorTabContent: NO RENDERER for type=${props.tab.type}, tabId=${props.tab.id}`);
     return null;
   }
   return <>{meta.renderer(props)}</>;

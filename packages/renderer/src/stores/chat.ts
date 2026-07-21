@@ -416,19 +416,6 @@ export function applyEvent(b: Bucket, ev: BusEvent): void {
     case "tool_result": {
       const id = d.id;
       const isErr = !!d.error;
-      const rawMeta = d.metadata;
-      console.log(
-        `[DIFF-DBG] tool_result event: id=${id}, name=${d.name}, isErr=${isErr}` +
-          `, metaExists=${rawMeta != null}` +
-          `, metaKeys=${rawMeta ? Object.keys(rawMeta).join(",") : "none"}` +
-          `, beforeLen=${rawMeta?.before?.length ?? -1}` +
-          `, afterLen=${rawMeta?.after?.length ?? -1}` +
-          `, beforeEqAfter=${rawMeta?.before === rawMeta?.after}` +
-          `, file=${rawMeta?.file}` +
-          `, additions=${rawMeta?.additions}` +
-          `, deletions=${rawMeta?.deletions}` +
-          `, diffLen=${rawMeta?.diff?.length ?? -1}`,
-      );
       const result: ToolResult = {
         id,
         name: d.name || "",
