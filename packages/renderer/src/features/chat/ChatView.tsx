@@ -43,6 +43,7 @@ export function ChatView() {
   const plan = useChat((s) => s.plan);
   const storeModel = useChat((s) => s.model);
   const retryState = useChat((s) => s.retryState);
+  const commandName = useChat((s) => s.commandName);
   const connected = useChat((s) => s.connected);
 
   // Auto-connect on mount
@@ -78,7 +79,7 @@ export function ChatView() {
   const runningDuration = turnStartTs
     ? formatRunningDuration(now - turnStartTs)
     : null;
-  const shouldShowRunningBanner = sessionStatus === "running" && canSend;
+  const shouldShowRunningBanner = (sessionStatus === "running" || sessionStatus === "compacting") && canSend;
 
   // 本轮使用的模型：优先取本轮最后一条 assistant 消息的 model，兜底 store 选中的 model
   const turnModel = useMemo(() => {
@@ -91,9 +92,11 @@ export function ChatView() {
 
   const bannerLabel = retryState
     ? `Retrying ${retryState.attempt}/${retryState.maxAttempts}`
-    : turnStartTs
-      ? "Running"
-      : "Preparing";
+    : commandName
+      ? `执行 ${commandName}`
+      : turnStartTs
+        ? "Running"
+        : "Preparing";
 
   // 会话进行中：收集当前轮次的文件变更，传给输入框横幅展示
   const activeTurnFileChanges = useMemo<TurnFileChange[]>(() => {
@@ -169,7 +172,7 @@ export function ChatView() {
   useEffect(() => {
     if (!isStorybook) return;
     const unsub = wsClient.onMessage((msg) => {
-      const time = new Date().toLocaleTimeString("en-US", { hour12: false, fractionalSecondDigits: 3 });
+      const time = new Date().toLocaleTimeString("en-US", { hour12: false, fractionalSecondDigits: 3 } as Intl.DateTimeFormatOptions);
       setLogEntries((prev) => [...prev, {
         time,
         direction: "recv" as const,
