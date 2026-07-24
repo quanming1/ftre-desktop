@@ -553,18 +553,14 @@ export const InlineToolCallCard = memo(
           disabled={!hasResult && !isError && !hasArgs}
           className="flex items-center gap-2 text-left flex-1 min-w-0 py-1 disabled:cursor-default"
         >
-          {hasResult || isError || hasArgs ? (
-            <span className="text-t-ghost shrink-0 w-3.5">
-              <ChevronRight size={13} className={`transition-transform duration-200 ${expanded ? "rotate-90" : ""}`} />
-            </span>
-          ) : (
-            <span className="w-3.5 shrink-0" />
-          )}
           <SummaryLine summary={summary} className="flex-1" />
           {isPending && <Loader2 size={12} className="text-t-ghost animate-spin shrink-0" />}
           {isRunning && <Loader2 size={12} className="text-neon animate-spin shrink-0" />}
           {status === "completed" && <Check size={12} className="text-green-600 shrink-0" />}
           {isError && <X size={12} className="text-red-500 shrink-0" />}
+          {(hasResult || isError || hasArgs) && (
+            <ChevronRight size={13} className={`text-t-ghost shrink-0 transition-transform duration-200 ${expanded ? "rotate-90" : ""}`} />
+          )}
         </button>
         )}
         </div>
@@ -1097,10 +1093,6 @@ function InlineEditDiff({
           onClick={() => setExpanded((v) => !v)}
           className="flex items-center gap-2 text-left flex-1 min-w-0 py-1 group"
         >
-          <ChevronDown
-            size={13}
-            className={`shrink-0 text-t-ghost transition-transform duration-150 ${expanded ? "" : "-rotate-90"}`}
-          />
           <span className="text-[13px] font-mono text-t-secondary font-medium shrink-0">Edited</span>
           <FileIconView path={filePath} size={16} />
           <span className="truncate group-hover:text-t-primary">{basename(filePath)}</span>
@@ -1110,6 +1102,10 @@ function InlineEditDiff({
           {deletions > 0 && (
             <span className="text-[12px] font-mono text-red-500 shrink-0">-{deletions}</span>
           )}
+          <ChevronDown
+            size={13}
+            className={`shrink-0 text-t-ghost transition-transform duration-150 ${expanded ? "" : "-rotate-90"}`}
+          />
         </button>
         <button
           onClick={onOpenInPanel}
@@ -1120,7 +1116,7 @@ function InlineEditDiff({
         </button>
       </div>
       {expanded && (
-        <div className="ml-[22px] mt-1 mb-2 rounded-lg overflow-hidden border border-border">
+        <div className="mt-1 mb-2 rounded-md overflow-hidden border border-border">
           <CodeDiff
             oldValue={before}
             newValue={after}
@@ -1132,7 +1128,7 @@ function InlineEditDiff({
             showDiffOnly
             wrapLines={false}
             contextLines={3}
-            style={{ maxHeight: 400 }}
+            style={{ maxHeight: 800 }}
           />
         </div>
       )}

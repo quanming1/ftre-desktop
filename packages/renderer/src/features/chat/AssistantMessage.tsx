@@ -118,12 +118,12 @@ const ThoughtBlock = memo(
           onClick={() => setExpanded((p) => !p)}
           className="flex items-center gap-1.5 w-full text-[13px] font-mono text-left group py-1"
         >
+          <span className="shrink-0 text-t-secondary font-medium">{label}</span>
+          {!expanded && <span className="flex-1 truncate text-t-dim group-hover:text-t-secondary transition-colors">{previewLine}</span>}
           <ChevronRight
             size={13}
             className={`shrink-0 text-t-ghost transition-transform duration-200 ${expanded ? "rotate-90" : ""}`}
           />
-          <span className="shrink-0 text-t-secondary font-medium">{label}</span>
-          {!expanded && <span className="flex-1 truncate text-t-dim group-hover:text-t-secondary transition-colors">{previewLine}</span>}
         </button>
         <div
           className="grid transition-[grid-template-rows] duration-200 ease-out"
