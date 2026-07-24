@@ -4,11 +4,11 @@
  * 优先使用 content 快照（来自 read 工具 metadata），
  * 无快照时从磁盘读取。filePreviewCache 缓存已加载文件，切回时秒切。
  * 轮询校验 mtime，文件被外部修改时自动清除缓存并重载。
- * 文件加载完成后，如果有 revealLine 则自动跳转并选中。
+ * 使用 @jiang_quan_ming/react-code-diff 的 preview 模式展示文件内容。
  */
 import { useState, useEffect, useCallback, useMemo } from "react";
 import { Loader2, WrapText } from "lucide-react";
-import { CodeEditorWidget, type CodeEditorFile } from "@ftre/editor";
+import { CodeDiff } from "@jiang_quan_ming/react-code-diff";
 import { useInspector } from "@/stores/inspector";
 import { filePreviewCache } from "../filePreviewCache";
 import type { TabRendererProps } from "../tabRegistry";
@@ -17,28 +17,26 @@ import type { FileTab } from "@/stores/inspector";
 function detectLanguage(filePath: string): string {
   const ext = filePath.match(/\.([a-z0-9]+)$/i)?.[1]?.toLowerCase() ?? "";
   const map: Record<string, string> = {
-    ts: "typescript", tsx: "typescript", js: "javascript", jsx: "javascript",
+    ts: "typescript", tsx: "tsx", js: "javascript", jsx: "jsx",
     py: "python", json: "json", md: "markdown", go: "go", rs: "rust",
-    java: "java", c: "c", cpp: "cpp", sh: "shell", yml: "yaml", yaml: "yaml",
-    html: "html", css: "css", xml: "xml", sql: "sql", toml: "ini",
+    java: "java", c: "c", cpp: "cpp", sh: "bash", yml: "yaml", yaml: "yaml",
+    html: "html", css: "css", xml: "xml", sql: "sql", toml: "toml",
   };
-  return map[ext] ?? "plaintext";
+  return map[ext] ?? ext ?? "plaintext";
+}
+
+interface LoadedFile {
+  content: string;
+  language: string;
 }
 
 export function FileRenderer({ tab, wordWrap }: TabRendererProps) {
-  const { filePath, content, revealLine, revealEndLine, revealNonce } = tab as FileTab;
+  const { filePath, content, revealNonce } = tab as FileTab;
 
   // 有 content 快照时直接使用，不走磁盘读取和缓存
-  const snapshotFile = useMemo<CodeEditorFile | null>(() => {
+  const snapshotFile = useMemo<LoadedFile | null>(() => {
     if (content == null) return null;
-    const name = filePath.replace(/\\/g, "/").split("/").pop() ?? filePath;
-    return {
-      path: filePath,
-      name,
-      language: detectLanguage(filePath),
-      content,
-      loaded: true,
-    };
+    return { content, language: detectLanguage(filePath) };
   }, [content, filePath]);
 
   // mtime 失效后，放弃 snapshot 从磁盘重载（解决 read 快照过期问题）
@@ -49,12 +47,11 @@ export function FileRenderer({ tab, wordWrap }: TabRendererProps) {
   // load effect 不会重跑。用 reloadNonce 强制重跑。
   const [reloadNonce, setReloadNonce] = useState(0);
 
-  const [file, setFile] = useState<CodeEditorFile | null>(() => {
+  const [file, setFile] = useState<LoadedFile | null>(() => {
     if (effectiveSnapshot) return effectiveSnapshot;
     const cached = filePreviewCache.get(filePath);
     if (cached) {
-      const name = filePath.replace(/\\/g, "/").split("/").pop() ?? filePath;
-      return { path: filePath, name, language: cached.language, content: cached.content, loaded: true };
+      return { content: cached.content, language: cached.language };
     }
     return null;
   });
@@ -71,8 +68,7 @@ export function FileRenderer({ tab, wordWrap }: TabRendererProps) {
         const stat = await window.desktop.fs.stat(path);
         if (stat.mtime !== null && stat.mtime === cached.mtime) {
           // mtime 一致，使用缓存
-          const name = path.replace(/\\/g, "/").split("/").pop() ?? path;
-          setFile({ path, name, language: cached.language, content: cached.content, loaded: true });
+          setFile({ content: cached.content, language: cached.language });
           setLoading(false);
           setError(null);
           return;
@@ -90,7 +86,6 @@ export function FileRenderer({ tab, wordWrap }: TabRendererProps) {
       if (result.error) {
         setError(result.error);
       } else {
-        const name = path.replace(/\\/g, "/").split("/").pop() ?? path;
         const lang = result.language || detectLanguage(path);
         // 读取 mtime 存入缓存
         const stat = await window.desktop.fs.stat(path);
@@ -99,7 +94,7 @@ export function FileRenderer({ tab, wordWrap }: TabRendererProps) {
           language: lang,
           mtime: stat.mtime ?? 0,
         });
-        setFile({ path, name, language: lang, content: result.content ?? "", loaded: true });
+        setFile({ content: result.content ?? "", language: lang });
       }
     } catch (e) {
       setError(`无法读取文件: ${e instanceof Error ? e.message : String(e)}`);
@@ -158,32 +153,14 @@ export function FileRenderer({ tab, wordWrap }: TabRendererProps) {
     setSnapshotInvalidated(false);
   }, [filePath]);
 
-  // 文件加载完成后，如果有 revealLine 则跳转并选中
-  useEffect(() => {
-    if (!file || !revealLine || revealLine <= 0) return;
-    const timer = setTimeout(() => {
-      window.dispatchEvent(
-        new CustomEvent("ftre:goto-line", {
-          detail: {
-            filePath,
-            line: revealLine,
-            col: 1,
-            endLine: revealEndLine && revealEndLine > 0 ? revealEndLine : undefined,
-          },
-        }),
-      );
-    }, 100);
-    return () => clearTimeout(timer);
-  }, [file, filePath, revealLine, revealEndLine, revealNonce]);
-
   const displayPath = filePath.replace(/\\/g, "/");
 
   return (
-    <div className="flex flex-col h-full bg-surface relative">
+    <div className="flex flex-col h-full bg-surface relative p-2 gap-2">
       {/* 文件信息 */}
-      <div className="px-3 py-1.5 shrink-0 flex items-center gap-2 bg-surface overflow-hidden shadow-[0_1px_3px_rgba(0,0,0,0.08)] z-[1]">
+      <div className="px-3 py-1.5 shrink-0 flex items-center gap-2 bg-surface overflow-hidden rounded-md border border-border">
         <span className="text-[12px] font-mono text-t-ghost truncate min-w-0" title={filePath}>
-          {displayPath}
+          {displayPath.split("/").pop()}
         </span>
         <div className="ml-auto flex items-center gap-1 shrink-0">
           {/* 换行切换 */}
@@ -197,16 +174,19 @@ export function FileRenderer({ tab, wordWrap }: TabRendererProps) {
         </div>
       </div>
 
-      {/* Monaco 编辑器 */}
-      <div className="flex-1 overflow-hidden bg-surface">
+      {/* 代码预览 */}
+      <div className="flex-1 min-h-0 bg-surface">
         {file ? (
-          <CodeEditorWidget
-            file={file}
-            minimapEnabled
-            readOnly
-            renderLineHighlight="none"
-            theme="ftre-light"
-            wordWrap={wordWrap}
+          <CodeDiff
+            oldValue=""
+            newValue={file.content}
+            language={file.language}
+            fileName={displayPath}
+            viewMode="preview"
+            theme="light"
+            showToolbar={false}
+            wrapLines={wordWrap}
+            style={{ height: "100%" }}
           />
         ) : (
           <div className="h-full flex items-center justify-center">
