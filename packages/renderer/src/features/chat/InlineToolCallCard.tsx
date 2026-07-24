@@ -1099,7 +1099,7 @@ function InlineEditDiff({
         >
           <ChevronDown
             size={13}
-            className={`shrink-0 text-t-ghost transition-transform duration-200 ${expanded ? "" : "-rotate-90"}`}
+            className={`shrink-0 text-t-ghost transition-transform duration-150 ${expanded ? "" : "-rotate-90"}`}
           />
           <span className="text-[13px] font-mono text-t-secondary font-medium shrink-0">Edited</span>
           <FileIconView path={filePath} size={16} />
@@ -1119,28 +1119,23 @@ function InlineEditDiff({
           <ExternalLink size={13} />
         </button>
       </div>
-      <div
-        className="grid transition-[grid-template-rows] duration-200 ease-out"
-        style={{ gridTemplateRows: expanded ? "1fr" : "0fr" }}
-      >
-        <div className="overflow-hidden">
-          <div className="ml-[22px] mt-1 mb-2 rounded-lg overflow-hidden border border-border">
-            <CodeDiff
-              oldValue={before}
-              newValue={after}
-              language={language}
-              fileName={displayPath.split("/").pop() ?? displayPath}
-              viewMode="unified"
-              theme="light"
-              showToolbar={false}
-              showDiffOnly
-              wrapLines={false}
-              contextLines={3}
-              style={{ maxHeight: 400 }}
-            />
-          </div>
+      {expanded && (
+        <div className="ml-[22px] mt-1 mb-2 rounded-lg overflow-hidden border border-border">
+          <CodeDiff
+            oldValue={before}
+            newValue={after}
+            language={language}
+            fileName={displayPath.split("/").pop() ?? displayPath}
+            viewMode="unified"
+            theme="light"
+            showToolbar
+            showDiffOnly
+            wrapLines={false}
+            contextLines={3}
+            style={{ maxHeight: 400 }}
+          />
         </div>
-      </div>
+      )}
     </div>
   );
 }
