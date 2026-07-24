@@ -28,8 +28,9 @@ import {
   type TraceSummary,
 } from "@/services/api";
 import { JsonTree } from "./JsonTree";
-import { useLayout } from "@/stores/layout";
 
+import { useLayout } from "@/stores/layout";
+import { createManagedPoller } from "@/services/visibility-manager";
 const POLL_INTERVAL_MS = 3000;
 const TRACE_PAGE_SIZE = 100;
 const MAX_DISPLAY_CHARS = 120_000;
@@ -299,8 +300,8 @@ export function TracePanel() {
 
   useEffect(() => {
     void refreshList(true);
-    const timer = window.setInterval(() => void refreshList(false), POLL_INTERVAL_MS);
-    return () => window.clearInterval(timer);
+    const cancel = createManagedPoller(() => void refreshList(false), POLL_INTERVAL_MS);
+    return () => cancel();
   }, [refreshList]);
 
   const selectTrace = useCallback(async (traceId: string) => {
@@ -432,7 +433,18 @@ export function TracePanel() {
                 </div>
               </div>
 
-              {selectedRun.run_type === "llm" && <div className="mt-4 grid grid-cols-3 gap-2"><DetailStat label="Finish Reason" value={String(selectedRun.outputs?.finish_reason || "unknown")} /><DetailStat label="Tool Calls" value={String(selectedRun.outputs?.tool_call_count ?? (selectedRun.outputs?.tool_calls as unknown[])?.length ?? 0)} /><DetailStat label="Response Model" value={String((selectedRun.outputs?.response_metadata as Record<string, unknown>)?.model || "-")} /></div>}
+              {selectedRun.run_type === "llm" && (() => {
+                const ttftEvent = selectedRun.events?.find((e) => e.name === "ttft");
+                const ttftMs = ttftEvent ? Number(ttftEvent.data?.ms) : null;
+                return (
+                  <div className="mt-4 grid grid-cols-4 gap-2">
+                    <DetailStat label="TTFT" value={ttftMs != null ? formatDuration(ttftMs) : "-"} />
+                    <DetailStat label="Finish Reason" value={String(selectedRun.outputs?.finish_reason || "unknown")} />
+                    <DetailStat label="Tool Calls" value={String(selectedRun.outputs?.tool_call_count ?? (selectedRun.outputs?.tool_calls as unknown[])?.length ?? 0)} />
+                    <DetailStat label="Response Model" value={String((selectedRun.outputs?.response_metadata as Record<string, unknown>)?.model || "-")} />
+                  </div>
+                );
+              })()}
               {selectedRun.error && <div className="mt-4 rounded-lg border border-red-500/30 bg-red-500/10 p-3 text-[11px] text-red-500">{selectedRun.error}</div>}
 
               <div className="mt-5 inline-flex items-center gap-1 rounded-lg bg-elevated/45 p-1">

@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { fetchTasks, type TaskItem } from '@/services/api';
+import { createManagedPoller } from '@/services/visibility-manager';
 
 // ─── 类型 ──────────────────────────────────────────────────────────
 
@@ -23,7 +24,7 @@ export interface TaskState {
   filters: TaskFilters;
   page: number;           // 当前页码（从 1 开始）
   pageSize: PageSize;     // 每页条数
-  _pollTimer: ReturnType<typeof setInterval> | null;
+  _pollTimer: (() => void) | null;
   _fetching: boolean;     // 并发 guard，防止请求堆积
 
   loadTasks: (showLoading?: boolean) => Promise<void>;
@@ -88,17 +89,14 @@ export const useTaskStore = create<TaskState>((set, get) => ({
 
   startPolling: () => {
     get().stopPolling();
-    get().loadTasks(true);
-    const timer = setInterval(() => {
-      get().loadTasks(false);
-    }, 3000);
-    set({ _pollTimer: timer });
+    const cancel = createManagedPoller(() => get().loadTasks(false), 3000);
+    set({ _pollTimer: cancel });
   },
 
   stopPolling: () => {
-    const timer = get()._pollTimer;
-    if (timer) {
-      clearInterval(timer);
+    const cancel = get()._pollTimer;
+    if (cancel) {
+      cancel();
       set({ _pollTimer: null });
     }
   },

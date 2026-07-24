@@ -78,6 +78,7 @@ import type { SessionSummary } from "@/services/api";
 
 // ─── 水波纹（从共享组件导入） ──────────────────────────────────────
 import { useRipple, RippleLayer, type RippleItem } from "@/components/Ripple";
+import { createManagedPoller } from "@/services/visibility-manager";
 export { useRipple, RippleLayer };
 export type { RippleItem };
 
@@ -342,12 +343,8 @@ export function SessionPanel() {
     loadAllSessions();
   }, [loadAllSessions]);
   useEffect(() => {
-    const tick = () => {
-      if (typeof document !== "undefined" && document.hidden) return;
-      loadAllSessions();
-    };
-    const id = setInterval(tick, 5000);
-    return () => clearInterval(id);
+    const cancel = createManagedPoller(() => loadAllSessions(), 5000);
+    return () => cancel();
   }, [loadAllSessions]);
 
   /**

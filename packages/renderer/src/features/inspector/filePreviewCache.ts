@@ -6,6 +6,8 @@
  * - mtime 不一致 → 清除缓存 → 触发 onInvalidate 回调
  * - delete(path)：关闭 tab 时主动清理
  */
+import { createManagedInterval } from "@/services/visibility-manager";
+
 export interface CacheEntry {
   content: string;
   language: string;
@@ -20,19 +22,19 @@ const POLL_INTERVAL_MS = 3000;
 class FilePreviewCache {
   private cache = new Map<string, CacheEntry>();
   private listeners = new Set<InvalidateListener>();
-  private pollTimer: ReturnType<typeof setInterval> | null = null;
+  private cancelPoll: (() => void) | null = null;
 
   /** 启动轮询。在首个 entry 写入时自动启动。 */
   private startPolling() {
-    if (this.pollTimer) return;
-    this.pollTimer = setInterval(() => this.poll(), POLL_INTERVAL_MS);
+    if (this.cancelPoll) return;
+    this.cancelPoll = createManagedInterval(() => this.poll(), POLL_INTERVAL_MS);
   }
 
   /** 停止轮询。在 cache 清空时自动停止。 */
   private stopPolling() {
-    if (this.pollTimer) {
-      clearInterval(this.pollTimer);
-      this.pollTimer = null;
+    if (this.cancelPoll) {
+      this.cancelPoll();
+      this.cancelPoll = null;
     }
   }
 
