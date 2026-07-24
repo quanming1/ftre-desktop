@@ -44,9 +44,13 @@ export function ResizeHandle({
       onResizeStartRef.current?.();
       startPos.current = isH ? e.clientX : e.clientY;
 
-      const onMove = (ev: MouseEvent) => {
-        const current = isH ? ev.clientX : ev.clientY;
-        const delta = current - startPos.current;
+      // rAF 节流：每帧最多调用一次 onResize，避免高频 mousemove 触发多余 reflow
+      let rafId: number | null = null;
+      let lastPos = startPos.current;
+
+      const flush = () => {
+        rafId = null;
+        const delta = lastPos - startPos.current;
         if (delta === 0) return;
         const applied = onResizeRef.current(delta);
         // If the consumer reports the actually applied delta (e.g. after
@@ -56,7 +60,18 @@ export function ResizeHandle({
         startPos.current += effective;
       };
 
+      const onMove = (ev: MouseEvent) => {
+        lastPos = isH ? ev.clientX : ev.clientY;
+        if (rafId === null) {
+          rafId = requestAnimationFrame(flush);
+        }
+      };
+
       const onUp = () => {
+        if (rafId !== null) {
+          cancelAnimationFrame(rafId);
+          flush();
+        }
         setDragging(false);
         document.removeEventListener("mousemove", onMove);
         document.removeEventListener("mouseup", onUp);

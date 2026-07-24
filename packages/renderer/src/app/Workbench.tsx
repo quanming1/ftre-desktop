@@ -30,8 +30,6 @@ import { performanceMetrics } from "@/services/performance-metrics";
 export function Workbench() {
   const [filePaletteOpen, setFilePaletteOpen] = useState(false);
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
-  /** 是否正在拖拽分隔条；拖拽时关闭 sessions 的 width transition，避免每帧补间造成的拖泥带水。 */
-  const [resizing, setResizing] = useState(false);
   const resolvedMode = useTheme((s) => s.resolvedMode);
 
   // Layout store state
@@ -49,6 +47,51 @@ export function Workbench() {
   const activeLeftPanel = useLayout((s) => s.activeLeftPanel);
 
   const containerRef = useRef<HTMLDivElement>(null);
+
+  // ── Live resize: drag directly manipulates DOM width, commit to store on release ──
+  // 拖动期间不更新 store 也不触发 React 重渲染，直接改 DOM style.width；
+  // 松手时一次性把最终宽度写回 store。chat 是 flex:1，自动跟随填充。
+  // transition/will-change 也通过直接 DOM 操作控制，避免 setResizing 触发整树重渲染。
+  const sessionsRef = useRef<HTMLDivElement>(null);
+  const inspectorRef = useRef<HTMLDivElement>(null);
+  const dragStateRef = useRef<
+    { target: "sessions" | "inspector"; currentWidth: number } | null
+  >(null);
+
+  const startLiveDrag = useCallback(
+    (target: "sessions" | "inspector") => {
+      const state = useLayout.getState();
+      dragStateRef.current = {
+        target,
+        currentWidth:
+          target === "sessions" ? state.sessionsWidth : state.inspectorWidth,
+      };
+      // 直接操作 DOM：关闭过渡动画 + 提示浏览器为 width 变化预创建合成层
+      const ref = target === "sessions" ? sessionsRef : inspectorRef;
+      if (ref.current) {
+        ref.current.style.transition = "none";
+        ref.current.style.willChange = "width";
+      }
+    },
+    [],
+  );
+
+  const endLiveDrag = useCallback(() => {
+    const drag = dragStateRef.current;
+    if (drag) {
+      const ref = drag.target === "sessions" ? sessionsRef : inspectorRef;
+      if (ref.current) {
+        ref.current.style.transition = "";
+        ref.current.style.willChange = "";
+      }
+      if (drag.target === "sessions") {
+        useLayout.getState().setSessionsWidth(drag.currentWidth);
+      } else {
+        useLayout.getState().setInspectorWidth(drag.currentWidth);
+      }
+      dragStateRef.current = null;
+    }
+  }, []);
 
   // Register global keyboard shortcut listener
   useGlobalShortcuts();
@@ -180,24 +223,28 @@ export function Workbench() {
 
   // Compute flex style for each panel
   // sessions and sidebar use fixed width, editor and chat share remaining space
+  // transition 恒为 "width 160ms ease"（折叠/展开动画）；拖动时由 startLiveDrag 直接操作 DOM 覆盖为 none
+  // contain: layout 隔离面板间 reflow 传播（chat 内消息列表 DOM 最多，隔离收益最大）
   const getPanelStyle = (id: PanelId): React.CSSProperties => {
     if (id === "sessions") {
       return {
         width: sessionsCollapsed ? 48 : sessionsWidth,
         flexShrink: 0,
         order: getOrder(id),
-        transition: resizing ? undefined : "width 160ms ease",
+        transition: "width 160ms ease",
+        contain: "layout",
       };
     }
     if (id === "sidebar") {
-      return { width: sidebarWidth, flexShrink: 0, order: getOrder(id) };
+      return { width: sidebarWidth, flexShrink: 0, order: getOrder(id), contain: "layout" };
     }
     if (id === "inspector") {
       return {
         width: inspectorWidth,
         flexShrink: 0,
         order: getOrder(id),
-        transition: resizing ? undefined : "width 160ms ease",
+        transition: "width 160ms ease",
+        contain: "layout",
       };
     }
     // For editor and chat, use flex-grow with ratio
@@ -206,11 +253,11 @@ export function Workbench() {
     );
     const flexIndex = flexPanels.indexOf(id);
     if (flexPanels.length === 1) {
-      return { flex: 1, order: getOrder(id) };
+      return { flex: 1, order: getOrder(id), contain: "layout" };
     }
     // Use flex-grow to distribute remaining space proportionally
     const flexGrow = flexIndex === 0 ? centerRatio : 100 - centerRatio;
-    return { flex: `${flexGrow} 1 0%`, order: getOrder(id) };
+    return { flex: `${flexGrow} 1 0%`, order: getOrder(id), contain: "layout" };
   };
 
   // Check if a resize handle should be visible
@@ -228,8 +275,13 @@ export function Workbench() {
     (targetPanel: "sessions" | "sidebar" | "inspector", afterPanelId: PanelId) => {
       return (delta: number): number => {
         const state = useLayout.getState();
-        const currentWidth =
-          targetPanel === "sessions" ? state.sessionsWidth
+        const drag = dragStateRef.current;
+        const isLiveDrag = drag?.target === targetPanel;
+
+        // Live drag 时从 dragState 取实时宽度（store 未更新），否则从 store 取
+        const currentWidth = isLiveDrag
+          ? drag.currentWidth
+          : targetPanel === "sessions" ? state.sessionsWidth
           : targetPanel === "sidebar" ? state.sidebarWidth
           : state.inspectorWidth;
         const setWidth =
@@ -250,7 +302,19 @@ export function Workbench() {
           ),
         );
         const appliedAdjusted = clampedWidth - currentWidth;
-        setWidth(clampedWidth);
+
+        if (isLiveDrag) {
+          // 拖动期间直接操作 DOM，不触发 React 重渲染
+          drag.currentWidth = clampedWidth;
+          const ref =
+            targetPanel === "sessions" ? sessionsRef : inspectorRef;
+          if (ref.current) {
+            ref.current.style.width = `${clampedWidth}px`;
+          }
+        } else {
+          // 非拖动场景（如 sidebar）走 store 更新
+          setWidth(clampedWidth);
+        }
         return reverse ? -appliedAdjusted : appliedAdjusted;
       };
     },
@@ -342,6 +406,7 @@ export function Workbench() {
         {/* Sessions Panel — 在所有模式下保持挂载（顶部内化了模式切换） */}
         {panelVisible.sessions && (
           <div
+            ref={sessionsRef}
             className="h-full overflow-hidden py-1 pl-1.5"
             style={getPanelStyle("sessions")}
           >
@@ -361,8 +426,8 @@ export function Workbench() {
               <ResizeHandle
                 direction="horizontal"
                 onResize={getResizeHandler("sessions")}
-                onResizeStart={() => setResizing(true)}
-                onResizeEnd={() => setResizing(false)}
+                onResizeStart={() => startLiveDrag("sessions")}
+                onResizeEnd={() => endLiveDrag()}
               />
             </div>
           )}
@@ -481,14 +546,15 @@ export function Workbench() {
               <ResizeHandle
                 direction="horizontal"
                 onResize={getResizeHandler("chat")}
-                onResizeStart={() => setResizing(true)}
-                onResizeEnd={() => setResizing(false)}
+                onResizeStart={() => startLiveDrag("inspector")}
+                onResizeEnd={() => endLiveDrag()}
               />
             </div>
           )}
 
         {/* Inspector Panel — 右侧扩展面板（CSS 隐藏，不销毁组件，保持文件树状态） */}
         <div
+          ref={inspectorRef}
           className="h-full overflow-hidden"
           style={
             (panelVisible.inspector && activeLeftPanel === "chat")
@@ -512,8 +578,8 @@ export function Workbench() {
               <ResizeHandle
                 direction="horizontal"
                 onResize={getResizeHandler("inspector")}
-                onResizeStart={() => setResizing(true)}
-                onResizeEnd={() => setResizing(false)}
+                onResizeStart={() => startLiveDrag("inspector")}
+                onResizeEnd={() => endLiveDrag()}
               />
             </div>
           )}
