@@ -216,8 +216,6 @@ function scopeToMonacoToken(scopes: string[]): string {
       return "identifier";
     case "punctuation":
       return "delimiter";
-    case "string":
-      return "string";
     default:
       return "identifier";
   }
