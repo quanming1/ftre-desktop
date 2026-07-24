@@ -1,7 +1,7 @@
 import { app, BrowserWindow, ipcMain, shell } from "electron";
 import { isDev, setMainWindow, getMainWindow } from "./app-state";
 import { createWindow } from "./window";
-import { startPythonBackend, stopPythonBackend } from "./backend";
+import { startPythonBackend, stopPythonBackend, restartPythonBackend } from "./backend";
 import { registerFsIPC } from "./ipc/fs";
 import { registerGitIPC } from "./ipc/git";
 import { registerTerminalIPC } from "./ipc/terminal";
@@ -49,6 +49,11 @@ ipcMain.handle(
 // --- Shell ---
 ipcMain.handle("shell:openExternal", (_event, url: string) => {
   return shell.openExternal(url);
+});
+
+// --- Backend ---
+ipcMain.handle("backend:restart", async () => {
+  return restartPythonBackend();
 });
 
 // --- 生命周期 ---
