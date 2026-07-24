@@ -51,6 +51,7 @@ import "@ftre/ui/styles.css";
 import "overlayscrollbars/styles/overlayscrollbars.css";
 import "sonner/dist/styles.css";
 import "katex/dist/katex.min.css";
+import "@jiang_quan_ming/react-code-diff/style.css";
 
 // 初始化编辑器 host bridge
 initEditorHostBridge();
@@ -114,4 +115,9 @@ textModelService.init(monaco);
       </TooltipProvider>
     </React.StrictMode>,
   );
+
+  // 7. 空闲时预热 refractor 语法（避免首次打开文件预览时卡顿）
+  requestIdleCallback(() => {
+    import("@jiang_quan_ming/react-code-diff").then(({ prewarm }) => prewarm());
+  });
 })();

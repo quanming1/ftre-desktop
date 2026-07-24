@@ -4,4 +4,7 @@ allowBuilds:
   electron: true
   esbuild: true
   node-pty: true
+publicHoistPattern:
+  - node-pty
 enablePrePostScripts: true
+minimumReleaseAge: 0
