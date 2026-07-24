@@ -140,7 +140,6 @@ const defaults: PersistedLayoutData = {
     autoFollowFiles: true,
     layoutMode: DEFAULT_LAYOUT_MODE,
     activeLeftPanel: 'chat' as LeftPanelType,
-    inspectorWidth: INSPECTOR_WIDTH_DEFAULT,
     fileTreeWidth: FILE_TREE_WIDTH_DEFAULT,
 };
 
