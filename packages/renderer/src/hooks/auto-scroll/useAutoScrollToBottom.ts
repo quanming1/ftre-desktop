@@ -61,11 +61,19 @@ export function useAutoScrollToBottom(
       lockRef.current = dist < LOCK_THRESHOLD;
     };
 
+    // ResizeObserver: 内容高度变化时（如 CodeDiff 异步展开），若锁定在底部则自动跟随
+    const ro = new ResizeObserver(() => {
+      if (!lockRef.current) return;
+      el.scrollTo({ top: el.scrollHeight, behavior: "instant" });
+    });
+    ro.observe(el);
+
     el.addEventListener("scroll", onScroll, { passive: true });
     el.addEventListener("wheel", onWheel, { passive: true });
     return () => {
       el.removeEventListener("scroll", onScroll);
       el.removeEventListener("wheel", onWheel);
+      ro.disconnect();
     };
   }, []);
 
