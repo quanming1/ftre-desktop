@@ -9,6 +9,36 @@
 import { create } from "zustand";
 import { filePreviewCache } from "@/features/inspector/filePreviewCache";
 
+// ─── localStorage 持久化（全局偏好）─────────────────────────────
+
+const PREFS_KEY = "ftre-inspector-prefs";
+
+interface InspectorPrefs {
+  wordWrap: boolean;
+  renderSideBySide: boolean;
+  showDiffOnly: boolean;
+}
+
+function loadPrefs(): Partial<InspectorPrefs> {
+  try {
+    const raw = localStorage.getItem(PREFS_KEY);
+    if (raw) return JSON.parse(raw) as Partial<InspectorPrefs>;
+  } catch {
+    // localStorage 不可用或解析失败
+  }
+  return {};
+}
+
+function savePrefs(prefs: InspectorPrefs) {
+  try {
+    localStorage.setItem(PREFS_KEY, JSON.stringify(prefs));
+  } catch {
+    // localStorage 写入失败
+  }
+}
+
+const initialPrefs = loadPrefs();
+
 // ─── Tab 类型（discriminated union）──────────────────────────────
 
 export type InspectorTabType = "file" | "diff" | "image";
@@ -99,6 +129,12 @@ export interface InspectorState {
   /** wordWrap 开关 */
   wordWrap: boolean;
   toggleWordWrap: () => void;
+  /** 分栏视图开关（diff） */
+  renderSideBySide: boolean;
+  toggleSideBySide: () => void;
+  /** 只看变更行开关（diff） */
+  showDiffOnly: boolean;
+  toggleDiffOnly: () => void;
 }
 
 let tabSeq = 0;
@@ -115,7 +151,9 @@ export const useInspector = create<InspectorState>((set, get) => ({
   tabs: [],
   activeTabId: null,
   fileTreeOpen: false,
-  wordWrap: true,
+  wordWrap: initialPrefs.wordWrap ?? true,
+  renderSideBySide: initialPrefs.renderSideBySide ?? false,
+  showDiffOnly: initialPrefs.showDiffOnly ?? false,
 
   openFilePreview: (toolCallId, path, title, revealLine, revealEndLine, content) => {
     const existing = get().tabs.find(
@@ -233,7 +271,20 @@ export const useInspector = create<InspectorState>((set, get) => ({
 
   toggleFileTree: () => set((s) => ({ fileTreeOpen: !s.fileTreeOpen })),
 
-  toggleWordWrap: () => set((s) => ({ wordWrap: !s.wordWrap })),
+  toggleWordWrap: () => {
+    set((s) => ({ wordWrap: !s.wordWrap }));
+    savePrefs({ wordWrap: get().wordWrap, renderSideBySide: get().renderSideBySide, showDiffOnly: get().showDiffOnly });
+  },
+
+  toggleSideBySide: () => {
+    set((s) => ({ renderSideBySide: !s.renderSideBySide }));
+    savePrefs({ wordWrap: get().wordWrap, renderSideBySide: get().renderSideBySide, showDiffOnly: get().showDiffOnly });
+  },
+
+  toggleDiffOnly: () => {
+    set((s) => ({ showDiffOnly: !s.showDiffOnly }));
+    savePrefs({ wordWrap: get().wordWrap, renderSideBySide: get().renderSideBySide, showDiffOnly: get().showDiffOnly });
+  },
 
   openImagePreview: (toolCallId, path, title) => {
     const existing = get().tabs.find(
