@@ -168,6 +168,7 @@ export interface DesktopMemory {
 export interface BackendAPI {
   onLog(callback: (line: string) => void): () => void;
   onExit(callback: (code: number | null) => void): () => void;
+  restart(): Promise<{ ok: boolean; error?: string }>;
 }
 
 export interface DesktopAPI {

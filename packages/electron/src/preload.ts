@@ -137,6 +137,7 @@ const api: DesktopAPI = {
       ipcRenderer.on("backend:exit", handler);
       return () => ipcRenderer.removeListener("backend:exit", handler);
     },
+    restart: () => ipcRenderer.invoke("backend:restart"),
   },
 };
 

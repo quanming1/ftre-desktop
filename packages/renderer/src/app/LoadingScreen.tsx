@@ -1,11 +1,16 @@
 import { useState, useEffect, useRef, useCallback } from "react";
+import { ChevronDown, AlertTriangle, RotateCw } from "lucide-react";
+import { PixelLogo } from "@/components/PixelLogo";
+import { useWsStatus } from "@/stores/chat";
 
 export function LoadingScreen() {
+  const wsStatus = useWsStatus();
   const [logs, setLogs] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [logsExpanded, setLogsExpanded] = useState(false);
+  const [restarting, setRestarting] = useState(false);
   const logEndRef = useRef<HTMLDivElement>(null);
 
-  // 订阅后端日志和退出事件
   useEffect(() => {
     const cleanups: (() => void)[] = [];
 
@@ -20,7 +25,8 @@ export function LoadingScreen() {
 
       const offExit = window.desktop.backend.onExit((code: number | null) => {
         if (code !== 0 && code !== null) {
-          setError(`后端进程异常退出 (code=${code})。请检查 ~/.ftre/config.json 中的 API Key 是否正确配置。`);
+          setError("后端进程异常退出，请检查 ~/.ftre/config.json 中的 API Key 是否正确配置。");
+          setLogsExpanded(true);
         }
       });
       cleanups.push(offExit);
@@ -29,7 +35,6 @@ export function LoadingScreen() {
     return () => cleanups.forEach((fn) => fn());
   }, []);
 
-  // 自动滚到底部
   const scrollToBottom = useCallback(() => {
     logEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, []);
@@ -38,101 +43,91 @@ export function LoadingScreen() {
     scrollToBottom();
   }, [logs, scrollToBottom]);
 
+  const handleRestart = async () => {
+    if (!window.desktop?.backend?.restart) return;
+    setRestarting(true);
+    setError(null);
+    try {
+      await window.desktop.backend.restart();
+    } catch (e) {
+      console.error("[loading] 重启后端失败:", e);
+    }
+    setTimeout(() => setRestarting(false), 3000);
+  };
+
+  const statusText = () => {
+    if (error) return "启动失败";
+    if (restarting) return "正在重启后端...";
+    if (wsStatus === "reconnecting") return "正在重新连接...";
+    return "正在启动后端...";
+  };
+
+  const hasLogs = logs.length > 0;
+
   return (
-    <div
-      style={{
-        position: "fixed",
-        inset: 0,
-        display: "flex",
-        flexDirection: "column",
-        alignItems: "center",
-        justifyContent: "center",
-        gap: 24,
-        backgroundColor: "var(--ftre-bg-base)",
-        color: "var(--ftre-text-primary)",
-        fontFamily: "var(--font-sans)",
-        zIndex: 9999,
-      }}
-    >
-      {/* Spinner + 标题 */}
-      <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 16 }}>
-        {!error ? (
-          <div
-            style={{
-              width: 36,
-              height: 36,
-              borderRadius: "50%",
-              border: "3px solid var(--ftre-border-default)",
-              borderTopColor: "var(--ftre-accent-default)",
-              animation: "ftre-spin 0.8s linear infinite",
-            }}
-          />
-        ) : (
-          <div style={{ width: 36, height: 36, fontSize: 28, color: "var(--ftre-status-error)" }}>!</div>
-        )}
-        <div style={{ fontSize: 15, fontWeight: 500 }}>
-          {error ? "启动失败" : "正在启动后端..."}
+    <div className="fixed inset-0 flex flex-col items-center justify-center gap-8 bg-[var(--ftre-bg-base)] text-[var(--ftre-text-primary)] z-[9999] font-sans">
+      {/* Logo + 状态 */}
+      <div className="flex flex-col items-center gap-5">
+        <div className={`${error ? "" : "animate-pulse"}`}>
+          {error ? (
+            <div className="w-10 h-10 rounded-full flex items-center justify-center bg-[var(--ftre-accent-dim)] border border-[var(--ftre-status-error)]">
+              <AlertTriangle size={20} className="text-[var(--ftre-status-error)]" />
+            </div>
+          ) : (
+            <PixelLogo size={3} />
+          )}
+        </div>
+        <div className="text-[15px] font-medium text-[var(--ftre-text-secondary)]">
+          {statusText()}
         </div>
       </div>
 
-      {/* 日志区 */}
-      <div
-        style={{
-          width: "min(560px, 90vw)",
-          maxHeight: 240,
-          overflowY: "auto",
-          borderRadius: 8,
-          backgroundColor: "rgba(0, 0, 0, 0.15)",
-          border: "1px solid var(--ftre-border-subtle)",
-          padding: 12,
-        }}
-      >
-        {logs.length === 0 && !error ? (
-          <div style={{ color: "var(--ftre-text-faint)", fontSize: 12, textAlign: "center" }}>
-            等待后端输出...
-          </div>
-        ) : (
-          <pre
-            style={{
-              margin: 0,
-              fontFamily: "var(--font-mono)",
-              fontSize: 11,
-              lineHeight: 1.5,
-              color: "var(--ftre-text-muted)",
-              whiteSpace: "pre-wrap",
-              wordBreak: "break-all",
-            }}
+      {/* 日志区（可折叠） */}
+      {hasLogs && (
+        <div className="w-[min(560px,90vw)]">
+          <button
+            onClick={() => setLogsExpanded(!logsExpanded)}
+            className="flex items-center gap-1.5 text-[12px] text-[var(--ftre-text-dim)] hover:text-[var(--ftre-text-secondary)] transition-colors"
           >
-            {logs.join("\n")}
-            <div ref={logEndRef} />
-          </pre>
-        )}
-      </div>
-
-      {/* 错误提示 */}
-      {error && (
-        <div
-          style={{
-            width: "min(560px, 90vw)",
-            padding: 12,
-            borderRadius: 8,
-            backgroundColor: "var(--ftre-accent-dim)",
-            border: "1px solid var(--ftre-status-error)",
-            fontSize: 12,
-            color: "var(--ftre-text-secondary)",
-            lineHeight: 1.6,
-          }}
-        >
-          {error}
+            <ChevronDown size={13} className={`transition-transform duration-200 ${logsExpanded ? "rotate-180" : ""}`} />
+            后端日志 ({logs.length})
+          </button>
+          {logsExpanded && (
+            <div className="mt-2 max-h-[240px] overflow-y-auto rounded-lg bg-[var(--ftre-bg-elevated)] border border-[var(--ftre-border-subtle)] p-3">
+              <pre className="m-0 font-mono text-[11px] leading-[1.5] text-[var(--ftre-text-muted)] whitespace-pre-wrap break-all">
+                {logs.join("\n")}
+                <div ref={logEndRef} />
+              </pre>
+            </div>
+          )}
         </div>
       )}
 
-      {/* 旋转动画 keyframes（内联注入） */}
-      <style>{`
-        @keyframes ftre-spin {
-          to { transform: rotate(360deg); }
-        }
-      `}</style>
+      {/* 错误态 + 重启按钮 */}
+      {error && (
+        <div className="flex flex-col items-center gap-3 w-[min(560px,90vw)]">
+          <div className="w-full p-3 rounded-lg bg-[var(--ftre-accent-dim)] border border-[var(--ftre-status-error)] text-[12px] text-[var(--ftre-text-secondary)] leading-[1.6]">
+            {error}
+          </div>
+          {window.desktop?.backend?.restart && (
+            <button
+              onClick={handleRestart}
+              disabled={restarting}
+              className="flex items-center gap-2 h-9 px-5 rounded-md text-[13px] font-medium bg-[var(--ftre-accent-default)] text-[var(--ftre-bg-base)] hover:bg-[var(--ftre-accent-hover)] active:scale-[0.96] transition-[background-color,transform] disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              <RotateCw size={13} className={restarting ? "animate-spin" : ""} />
+              {restarting ? "重启中..." : "重启后端"}
+            </button>
+          )}
+        </div>
+      )}
+
+      {/* 等待输出提示 */}
+      {!hasLogs && !error && (
+        <div className="text-[12px] text-[var(--ftre-text-faint)]">
+          等待后端输出...
+        </div>
+      )}
     </div>
   );
 }

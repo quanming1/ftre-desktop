@@ -1,9 +1,14 @@
-import { app, ipcMain, BrowserWindow } from 'electron';
+import { app, BrowserWindow } from 'electron';
 import { spawn, ChildProcess } from 'child_process';
 import * as path from 'path';
 import * as fs from 'fs';
 
 let pythonProcess: ChildProcess | null = null;
+let isQuitting = false;
+let isRestarting = false;
+let crashRetryCount = 0;
+const MAX_CRASH_RETRIES = 3;
+const CRASH_RETRY_DELAY = 2000;
 
 function getBackendPaths() {
   if (!app.isPackaged) return null;
@@ -16,7 +21,13 @@ function getBackendPaths() {
   return { backendDir, pythonExe, serverDir };
 }
 
-export function startPythonBackend(): void {
+const sendLog = (line: string) => {
+  for (const win of BrowserWindow.getAllWindows()) {
+    win.webContents.send('backend:log', line);
+  }
+};
+
+function spawnBackend(): void {
   const paths = getBackendPaths();
   if (!paths) {
     console.log('[desktop] 开发模式，跳过自动启动后端');
@@ -45,12 +56,6 @@ export function startPythonBackend(): void {
     env,
   });
 
-  const sendLog = (line: string) => {
-    for (const win of BrowserWindow.getAllWindows()) {
-      win.webContents.send('backend:log', line);
-    }
-  };
-
   pythonProcess.stdout?.on('data', (data: Buffer) => {
     const text = data.toString().trim();
     if (text) {
@@ -70,8 +75,23 @@ export function startPythonBackend(): void {
   pythonProcess.on('close', (code: number | null) => {
     console.log(`[python] 进程退出，code=${code}`);
     pythonProcess = null;
+
     for (const win of BrowserWindow.getAllWindows()) {
       win.webContents.send('backend:exit', code);
+    }
+
+    if (isRestarting) return;
+
+    if (isQuitting) return;
+
+    if (crashRetryCount < MAX_CRASH_RETRIES) {
+      crashRetryCount++;
+      console.log(`[desktop] 后端意外退出，${CRASH_RETRY_DELAY}ms 后自动重启 (第 ${crashRetryCount}/${MAX_CRASH_RETRIES} 次)`);
+      sendLog(`[desktop] 后端意外退出，自动重启中 (${crashRetryCount}/${MAX_CRASH_RETRIES})...`);
+      setTimeout(() => spawnBackend(), CRASH_RETRY_DELAY);
+    } else {
+      console.error('[desktop] 后端连续崩溃超过上限，不再自动重启');
+      sendLog('[desktop] 后端连续崩溃超过上限，不再自动重启。请检查配置后手动重启。');
     }
   });
 
@@ -81,7 +101,13 @@ export function startPythonBackend(): void {
   });
 }
 
+export function startPythonBackend(): void {
+  crashRetryCount = 0;
+  spawnBackend();
+}
+
 export function stopPythonBackend(): void {
+  isQuitting = true;
   if (pythonProcess) {
     console.log('[desktop] 关闭 Python 后端...');
     try {
@@ -95,4 +121,35 @@ export function stopPythonBackend(): void {
     }
     pythonProcess = null;
   }
+}
+
+export async function restartPythonBackend(): Promise<{ ok: boolean; error?: string }> {
+  if (!app.isPackaged) {
+    return { ok: false, error: '开发模式下不支持重启后端，请手动重启 ftre gateway' };
+  }
+
+  isRestarting = true;
+  crashRetryCount = 0;
+
+  if (pythonProcess) {
+    console.log('[desktop] 重启后端：停止旧进程...');
+    try {
+      if (process.platform === 'win32') {
+        spawn('taskkill', ['/pid', String(pythonProcess.pid), '/f', '/t'], { stdio: 'ignore' });
+      } else {
+        pythonProcess.kill('SIGTERM');
+      }
+    } catch (e: any) {
+      console.error('[desktop] 杀旧进程失败:', e.message);
+    }
+    pythonProcess = null;
+
+    await new Promise((resolve) => setTimeout(resolve, 1500));
+  }
+
+  isRestarting = false;
+  console.log('[desktop] 重启后端：启动新进程...');
+  spawnBackend();
+
+  return { ok: true };
 }

@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { RefreshCw } from "lucide-react";
+import { RefreshCw, Power } from "lucide-react";
 import { DEFAULT_WS_URL, normalizeGatewayUrl, wsClient } from "@/services/websocket-client";
 import { useWsStatus } from "@/stores/chat";
 
@@ -9,6 +9,7 @@ export function GatewaySettings() {
   const wsStatus = useWsStatus();
   const [url, setUrl] = useState(wsClient.url);
   const [saved, setSaved] = useState(false);
+  const [restarting, setRestarting] = useState(false);
 
   useEffect(() => {
     if (window.desktop?.store) {
@@ -41,6 +42,17 @@ export function GatewaySettings() {
   const handleReset = () => setUrl(DEFAULT_WS_URL);
   const handleReconnect = () => wsClient.reconnect();
 
+  const handleRestartBackend = async () => {
+    if (!window.desktop?.backend?.restart) return;
+    setRestarting(true);
+    try {
+      await window.desktop.backend.restart();
+    } catch (e) {
+      console.error("[settings] 重启后端失败:", e);
+    }
+    setTimeout(() => setRestarting(false), 3000);
+  };
+
   const statusLabel = () => {
     switch (wsStatus) {
       case "connected": return "已连接";
@@ -52,6 +64,7 @@ export function GatewaySettings() {
 
   const isConnected = wsStatus === "connected";
   const isTransitioning = wsStatus === "connecting" || wsStatus === "reconnecting";
+  const isPackaged = !!window.desktop?.backend;
 
   return (
     <div className="space-y-6">
@@ -69,6 +82,21 @@ export function GatewaySettings() {
           </button>
         )}
       </div>
+
+      {isPackaged && (
+        <div className="flex items-center gap-3 px-4 py-3 rounded-xl bg-black/[0.01] border border-black/[0.06]">
+          <Power size={14} className="text-black/40" />
+          <span className="text-[13px] text-black/70">后端进程</span>
+          <button
+            onClick={handleRestartBackend}
+            disabled={restarting}
+            className="ml-auto flex items-center gap-1.5 text-[12px] text-black/40 hover:text-black active:scale-[0.96] transition-[color,transform] disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            <RefreshCw size={12} className={restarting ? "animate-spin" : ""} />
+            {restarting ? "重启中..." : "重启后端"}
+          </button>
+        </div>
+      )}
 
       <div>
         <div className="text-[12px] font-semibold text-black/70 mb-2">WebSocket 地址</div>
