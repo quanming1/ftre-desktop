@@ -22,6 +22,13 @@ export default defineConfig(({ mode }) => {
         ),
       },
     },
+    optimizeDeps: {
+      include: [
+        "@jiang_quan_ming/react-code-diff",
+        "refractor",
+        "diff",
+      ],
+    },
     server: {
       // 端口由根 scripts/dev.mjs 解析 ~/.ftre/config.json 的 servers.frontend.port
       // 后通过 FTRE_FRONTEND_PORT 注入；直接跑本包时回退 48651。

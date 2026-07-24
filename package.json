@@ -7,13 +7,6 @@
   "dependencies": {
     "node-pty": "^1.1.0"
   },
-  "pnpm": {
-    "onlyBuiltDependencies": [
-      "electron",
-      "esbuild",
-      "node-pty"
-    ]
-  },
   "scripts": {
     "dev": "node scripts/dev.mjs",
     "storybook": "pnpm --filter @ftre/renderer storybook",
