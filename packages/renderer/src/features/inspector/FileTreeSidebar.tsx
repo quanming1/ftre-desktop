@@ -11,6 +11,7 @@ import { useSession } from "@/stores/session";
 import { useChat, useSessionId } from "@/stores/chat";
 import { useInspector } from "@/stores/inspector";
 import { fetchAppConfig } from "@/services/api";
+import { createManagedPoller } from "@/services/visibility-manager";
 import { ContextMenu, type ContextMenuItem } from "@/components/ContextMenu";
 import { FileIconView } from "@/components/FileIconView";
 
@@ -477,7 +478,6 @@ export function FileTreeSidebar() {
   const [gitStatusMap, setGitStatusMap] = useState<Map<string, GitStatus> | null>(null);
   const [changedFiles, setChangedFiles] = useState<GitFileStatus[]>([]);
   const gitEtagRef = useRef<string>("");
-  const pollCountRef = useRef(0);
   const [contextMenu, setContextMenu] = useState<{
     position: { x: number; y: number };
     path: string;
@@ -589,14 +589,15 @@ export function FileTreeSidebar() {
     // 立即拉一次
     poll(true);
     // 1s 轮询，每 5 次强制走 Phase 2（兜底：外部编辑器改文件不触发 git index 更新）
-    const interval = setInterval(() => {
-      pollCountRef.current += 1;
-      poll(pollCountRef.current % 5 === 0);
+    let pollCount = 0;
+    const cancel = createManagedPoller(() => {
+      pollCount += 1;
+      poll(pollCount % 5 === 0);
     }, 1000);
 
     return () => {
       cancelled = true;
-      clearInterval(interval);
+      cancel();
     };
   }, [workspace]);
 

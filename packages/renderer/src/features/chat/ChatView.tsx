@@ -11,6 +11,7 @@ import { Loader2, FileEdit, FilePlus2, ChevronDown, ChevronUp, Check, Circle, Ta
 import { useChat, type RetryState, type PlanData } from "@/stores/chat";
 import { useSession } from "@/stores/session";
 import { wsClient } from "@/services/websocket-client";
+import { createManagedPoller } from "@/services/visibility-manager";
 import { ChatMessageList } from "./ChatMessageList";
 import { ChatInput } from "./ChatInput";
 import { WelcomeView } from "./WelcomeView";
@@ -147,8 +148,8 @@ export function ChatView() {
   useEffect(() => {
     if (!shouldShowRunningBanner) return;
     setNow(Date.now());
-    const timer = window.setInterval(() => setNow(Date.now()), 1000);
-    return () => window.clearInterval(timer);
+    const cancel = createManagedPoller(() => setNow(Date.now()), 1000);
+    return () => cancel();
   }, [shouldShowRunningBanner, turnStartTs]);
 
   useEffect(() => {
@@ -225,7 +226,7 @@ export function ChatView() {
                 <div className="px-6">
                   <div className="mx-auto mb-[-12px] w-full max-w-[800px]">
                     <div
-                      className={`mx-6 overflow-hidden rounded-t-xl rounded-b-none border border-b-0 border-black/10 bg-[#f6f7f9]/65 shadow-[0_4px_14px_rgba(15,23,42,0.05),inset_0_1px_0_rgba(255,255,255,0.6)] backdrop-blur-md backdrop-saturate-150 ${
+                      className={`overflow-hidden rounded-t-xl rounded-b-none border border-b-0 border-black/10 bg-[#f6f7f9]/65 shadow-[0_4px_14px_rgba(15,23,42,0.05),inset_0_1px_0_rgba(255,255,255,0.6)] backdrop-blur-md backdrop-saturate-150 ${
                         runningBannerExiting ? "running-banner-exit" : "running-banner-enter"
                       }`}
                     >

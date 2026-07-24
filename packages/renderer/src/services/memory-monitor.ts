@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import { getTextModelResolverService } from "@ftre/editor";
+import { createManagedInterval } from "@/services/visibility-manager";
 
 // ══════════════════════════════════════════════════
 //  类型定义
@@ -51,7 +52,7 @@ export interface MemoryMonitorState {
 // ══════════════════════════════════════════════════
 
 /** 定时器 ID，用于 start/stop 管理 */
-let _timerId: ReturnType<typeof setInterval> | null = null;
+let _timerId: (() => void) | null = null;
 
 // ══════════════════════════════════════════════════
 //  Chrome-only performance.memory 类型守卫
@@ -160,7 +161,7 @@ export const useMemoryMonitor = create<MemoryMonitorState>((set, get) => ({
     get().collectNow();
 
     // 设置定时采集
-    _timerId = setInterval(() => {
+    _timerId = createManagedInterval(() => {
       get().collectNow();
     }, state.intervalMs);
 
@@ -169,7 +170,7 @@ export const useMemoryMonitor = create<MemoryMonitorState>((set, get) => ({
 
   stop() {
     if (_timerId !== null) {
-      clearInterval(_timerId);
+      _timerId();
       _timerId = null;
     }
     set({ running: false });
@@ -180,7 +181,7 @@ export const useMemoryMonitor = create<MemoryMonitorState>((set, get) => ({
 
     // 先停止旧定时器
     if (_timerId !== null) {
-      clearInterval(_timerId);
+      _timerId();
       _timerId = null;
     }
 
@@ -188,7 +189,7 @@ export const useMemoryMonitor = create<MemoryMonitorState>((set, get) => ({
 
     // 如果之前在运行，用新间隔重新启动
     if (wasRunning) {
-      _timerId = setInterval(() => {
+      _timerId = createManagedInterval(() => {
         get().collectNow();
       }, ms);
       set({ running: true });
