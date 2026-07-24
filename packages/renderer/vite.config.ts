@@ -25,8 +25,6 @@ export default defineConfig(({ mode }) => {
     optimizeDeps: {
       include: [
         "@jiang_quan_ming/react-code-diff",
-        "refractor",
-        "diff",
       ],
     },
     server: {
