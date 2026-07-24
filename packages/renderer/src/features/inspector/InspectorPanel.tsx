@@ -20,7 +20,7 @@ import { ErrorBoundary } from "@ftre/ui";
 import { useInspector, type InspectorTab } from "@/stores/inspector";
 import { ContextMenu, type ContextMenuItem } from "@/components/ContextMenu";
 import { ResizeHandle } from "@/components/ResizeHandle";
-import { useLayout } from "@/stores/layout";
+import { useLayout, FILE_TREE_WIDTH_MIN, FILE_TREE_WIDTH_MAX } from "@/stores/layout";
 import { FileTreeSidebar } from "./FileTreeSidebar";
 import { FileIconView } from "@/components/FileIconView";
 import { getTabMeta } from "./tabRegistry";
@@ -44,6 +44,48 @@ export function InspectorPanel() {
   const setFileTreeWidth = useLayout((s) => s.setFileTreeWidth);
   const contentTabs = useMemo(() => [...tabs].sort(compareByMountOrder), [tabs]);
 
+  // ── LRU keep-alive: 最多保留 MAX_KEEP_ALIVE 个 tab 在 DOM 中 ──
+  // 超出的 LRU tab 被卸载，切回时重新挂载（state 丢失，但 DOM 开销可控）
+  const MAX_KEEP_ALIVE = 5;
+  const prevLruRef = useRef<string[]>([]);
+  const lruOrder = useMemo(() => {
+    const prev = prevLruRef.current;
+    const tabIds = new Set(tabs.map((t) => t.id));
+    const order: string[] = [];
+    // active tab 始终是最新
+    if (activeTabId && tabIds.has(activeTabId)) {
+      order.push(activeTabId);
+    }
+    // 按 LRU 顺序补充其余 tab
+    for (const id of prev) {
+      if (id !== activeTabId && tabIds.has(id)) {
+        order.push(id);
+      }
+    }
+    // 新开的 tab（不在 prev 中）追加到末尾
+    for (const tab of tabs) {
+      if (!order.includes(tab.id)) {
+        order.push(tab.id);
+      }
+    }
+    prevLruRef.current = order;
+    return order;
+  }, [tabs, activeTabId]);
+
+  const keepAliveIds = useMemo(
+    () => new Set(lruOrder.slice(0, MAX_KEEP_ALIVE)),
+    [lruOrder],
+  );
+  const renderableTabs = useMemo(
+    () => contentTabs.filter((tab) => keepAliveIds.has(tab.id)),
+    [contentTabs, keepAliveIds],
+  );
+
+  // ── Live resize: fileTree 拖动直接操作 DOM，松手时 commit 到 store ──
+  const fileTreeOuterRef = useRef<HTMLDivElement>(null);
+  const fileTreeInnerRef = useRef<HTMLDivElement>(null);
+  const fileTreeDragRef = useRef<number | null>(null);
+
 
   return (
     <div className="h-full flex flex-col overflow-hidden bg-surface">
@@ -62,6 +104,7 @@ export function InspectorPanel() {
       />
       <div className="flex-1 min-h-0 flex overflow-hidden">
             <div
+              ref={fileTreeOuterRef}
               className="shrink-0 border-r border-border overflow-hidden"
               style={{
                 width: fileTreeOpen ? fileTreeWidth : 0,
@@ -70,16 +113,42 @@ export function InspectorPanel() {
                 overflow: "hidden",
               }}
             >
-              <div style={{ width: fileTreeWidth, height: "100%" }}>
+              <div ref={fileTreeInnerRef} style={{ width: fileTreeWidth, height: "100%" }}>
                 <FileTreeSidebar />
               </div>
             </div>
             {fileTreeOpen && (
               <ResizeHandle
                 direction="horizontal"
+                onResizeStart={() => {
+                  fileTreeDragRef.current = useLayout.getState().fileTreeWidth;
+                }}
                 onResize={(delta) => {
+                  if (fileTreeDragRef.current !== null) {
+                    const oldW = fileTreeDragRef.current;
+                    const w = Math.max(
+                      FILE_TREE_WIDTH_MIN,
+                      Math.min(FILE_TREE_WIDTH_MAX, oldW + delta),
+                    );
+                    fileTreeDragRef.current = w;
+                    const px = `${w}px`;
+                    if (fileTreeOuterRef.current) {
+                      fileTreeOuterRef.current.style.width = px;
+                      fileTreeOuterRef.current.style.minWidth = px;
+                    }
+                    if (fileTreeInnerRef.current) {
+                      fileTreeInnerRef.current.style.width = px;
+                    }
+                    return w - oldW;
+                  }
                   setFileTreeWidth(fileTreeWidth + delta);
                   return delta;
+                }}
+                onResizeEnd={() => {
+                  if (fileTreeDragRef.current !== null) {
+                    setFileTreeWidth(fileTreeDragRef.current);
+                    fileTreeDragRef.current = null;
+                  }
                 }}
               />
             )}
@@ -89,7 +158,7 @@ export function InspectorPanel() {
           {tabs.length === 0 ? (
             <EmptyState />
           ) : (
-            contentTabs.map((tab) => (
+            renderableTabs.map((tab) => (
               <div
                 key={tab.id}
                 className="absolute inset-0"
