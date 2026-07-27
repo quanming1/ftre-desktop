@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
-import { useSession } from "./session";
+import { historyToMessages, useSession } from "./session";
 import { useChat } from "./chat";
 
 // Mock the API module
@@ -74,6 +74,39 @@ beforeEach(() => {
 });
 
 describe("session store — basic operations", () => {
+  it("builds history directly from persisted Msg snapshots", () => {
+    const { messages } = historyToMessages([
+      {
+        id: "reply-1",
+        session_id: "ws::s1",
+        name: "assistant",
+        role: "assistant",
+        content: [
+          { type: "text", id: "text-1", text: "hello" },
+          { type: "tool_call", id: "call-1", name: "read", arguments: { path: "a.txt" } },
+          { type: "tool_result", id: "call-1", name: "read", output: "contents", state: "success" },
+        ],
+        metadata: {},
+        created_at: "2026-07-27T10:00:00",
+        usage: { input_tokens: 10, output_tokens: 2 },
+        finished_at: "2026-07-27T10:00:01",
+        finished_reason: "completed",
+        structured_output: null,
+        error: null,
+        timestamp: 1785146400,
+      },
+    ]);
+
+    expect(messages).toHaveLength(1);
+    expect(messages[0].content).toBe("hello");
+    expect(messages[0].blocks?.find((block) => block.type === "toolCall")).toMatchObject({
+      id: "call-1",
+      name: "read",
+    });
+    expect(messages[0].toolResults?.["call-1"].result).toBe("contents");
+    expect(messages[0].usage?.total_tokens).toBe(12);
+  });
+
   it("starts with empty sessions", () => {
     expect(useSession.getState().sessions).toEqual([]);
     expect(useSession.getState().allSessions).toEqual([]);

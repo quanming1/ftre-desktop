@@ -258,24 +258,47 @@ function encodeSessionKey(sessionIdOrKey: string): string {
   return encodeURIComponent(key);
 }
 
-/**
- * 后端事件消息格式（新）。
- * 每条消息: {id, session_id, type, data, timestamp}
- */
+export interface SessionContentBlock {
+  type: "text" | "thinking" | "data" | "hint" | "tool_call" | "tool_result";
+  id: string;
+  text?: string;
+  thinking?: string;
+  name?: string;
+  source?: {
+    type: "base64" | "url";
+    data?: string;
+    url?: string;
+    media_type: string;
+  };
+  arguments?: Record<string, any>;
+  output?: unknown;
+  state?: string;
+  metadata?: Record<string, any>;
+  hint?: unknown;
+}
+
+/** 后端持久化的 Msg 快照；流式 Event 不通过这个 API 返回。 */
 export interface SessionMessage {
   id: string;
   session_id: string;
-  type: string;  // user_message / assistant_message_complete / tool_result / step / external_message / context_compact
-  data: Record<string, any>;
+  name: string;
+  role: "user" | "assistant" | "system";
+  content: SessionContentBlock[];
+  metadata: Record<string, any>;
+  created_at: string;
+  usage: { input_tokens: number; output_tokens: number } | null;
+  finished_at: string | null;
+  finished_reason: string | null;
+  structured_output: Record<string, any> | null;
+  error: Record<string, any> | null;
   timestamp: number;
-  turn_id: string;
 }
 
 /**
  * Fetch messages for a session from REST API.
- * 新后端返回格式: { messages: [{id, session_id, type, data, timestamp}], has_more, total }
+ * 后端返回格式: { messages: Msg[], has_more, status, metadata }
  *
- * 不传 opts → 一次性拿全（向后兼容；用于历史回放等需要全量上下文的场景）。
+ * 不传 opts → 一次性拿全。
  */
 export async function fetchSessionMessages(
   sessionId: string,
@@ -359,7 +382,7 @@ export interface TokenUsage {
     total_tokens: number;
     /** 锚点事件 timestamp（epoch 秒） */
     at: number;
-    source: "assistant_message_complete";
+    source: "MODEL_CALL_END" | "msg";
   }
   | null;
   /** 锚点之后会进下次 prompt 但尚未实算的事件估算 */

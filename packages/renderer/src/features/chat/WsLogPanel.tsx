@@ -28,11 +28,24 @@ export interface LogEntry {
 
 const ROLE_COLORS: Record<string, string> = {
   control: "text-gray-400",
-  "assistant.delta": "text-blue-400",
-  assistant: "text-cyan-400",
-  "tool_call.delta": "text-orange-300",
-  tool_call: "text-orange-400",
-  tool_result: "text-green-400",
+  REPLY_START: "text-cyan-300",
+  REPLY_END: "text-cyan-400",
+  TEXT_BLOCK_START: "text-blue-300",
+  TEXT_BLOCK_DELTA: "text-blue-400",
+  TEXT_BLOCK_END: "text-blue-500",
+  THINKING_BLOCK_START: "text-violet-300",
+  THINKING_BLOCK_DELTA: "text-violet-400",
+  THINKING_BLOCK_END: "text-violet-500",
+  TOOL_CALL_START: "text-orange-300",
+  TOOL_CALL_DELTA: "text-orange-400",
+  TOOL_CALL_END: "text-orange-500",
+  TOOL_RESULT_START: "text-green-300",
+  TOOL_RESULT_TEXT_DELTA: "text-green-400",
+  TOOL_RESULT_DATA_DELTA: "text-green-400",
+  TOOL_RESULT_END: "text-green-500",
+  MODEL_CALL_START: "text-fuchsia-300",
+  MODEL_CALL_END: "text-fuchsia-400",
+  CUSTOM: "text-slate-400",
   user: "text-purple-400",
   "chat.send": "text-purple-300",
 };
@@ -69,7 +82,7 @@ function groupLogEntries(entries: LogEntry[]): LogGroup[] {
   let currentDeltaRole = "";
 
   for (const entry of entries) {
-    const isDelta = entry.role === "assistant.delta" || entry.role === "tool_call.delta";
+    const isDelta = entry.role?.endsWith("_DELTA") === true;
     if (isDelta) {
       if (currentDeltaGroup && currentDeltaRole === entry.role) {
         currentDeltaGroup.push(entry);

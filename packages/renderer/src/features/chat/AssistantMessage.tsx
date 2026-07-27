@@ -200,6 +200,32 @@ const BlocksRenderer = memo(function BlocksRenderer({
       continue;
     }
 
+    if (block.type === "data") {
+      const src = block.url || `data:${block.mediaType};base64,${block.data}`;
+      rendered.push(
+        block.mediaType.startsWith("image/")
+          ? (
+            <img
+              key={`data-${block.blockId}`}
+              src={src}
+              alt="Generated content"
+              className="my-2 max-h-96 max-w-full rounded-lg object-contain"
+            />
+          )
+          : (
+            <a
+              key={`data-${block.blockId}`}
+              href={src}
+              download={`attachment-${block.blockId}`}
+              className="text-accent underline"
+            >
+              Download {block.mediaType}
+            </a>
+          ),
+      );
+      continue;
+    }
+
     // text block
     rendered.push(
       <TextPart
@@ -222,6 +248,7 @@ const BlocksRenderer = memo(function BlocksRenderer({
     if (a.type !== b.type) return false;
     if (a.type === "text" && b.type === "text" && a.text !== b.text) return false;
     if (a.type === "thinking" && b.type === "thinking" && a.thinking !== b.thinking) return false;
+    if (a.type === "data" && b.type === "data" && (a.data !== b.data || a.mediaType !== b.mediaType)) return false;
     if (a.type === "toolCall" && b.type === "toolCall" && a.id !== b.id) return false;
   }
   // Compare toolResults

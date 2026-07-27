@@ -1,13 +1,13 @@
-﻿/**
+/**
  * WebSocket Client — 连接 ftre gateway
  *
  * 协议：
  *   上行（client → server）: { frame_id, type: "user_message", data, metadata }
- *   下行（server → client）: { frame_id, type, data: AgentEvent, metadata }
+ *   下行（server → client）: { frame_id, type, data: AgentStreamEvent, metadata }
  *
- * AgentEvent.data.type:
- *   assistant_message, assistant_message_complete, reasoning, tool_call, tool_result,
- *   tool_call_streaming, external_message, done, error, retry, usage_update
+ * Agent events follow ftre-agent-core's flat AgentStreamEvent protocol:
+ *   REPLY_*, MODEL_CALL_*, TEXT_BLOCK_*, THINKING_BLOCK_*,
+ *   TOOL_CALL_*, TOOL_RESULT_*, DATA_BLOCK_*, HINT_BLOCK, retry, CUSTOM.
  */
 
 // ─── Types ──────────────────────────────────────────────────────────
@@ -16,17 +16,19 @@
 export interface ServerMessage {
   frame_id: string;
   type: string; // "agent_event"
-  data: AgentEvent;
+  data: AgentStreamEvent;
   metadata: Record<string, unknown>;
 }
 
 /** Agent 事件（嵌套在 ServerMessage.data 中） */
-export interface AgentEvent {
-  type: string; // EventType enum value
-  event_id?: string;
-  timestamp?: number;
-  turn_id?: string;
-  data: Record<string, unknown>;
+export interface AgentStreamEvent {
+  type: string;
+  id?: string;
+  created_at?: string;
+  reply_id?: string;
+  metadata?: Record<string, unknown>;
+  data?: Record<string, unknown>;
+  [key: string]: unknown;
 }
 
 export type WsConnectionStatus =

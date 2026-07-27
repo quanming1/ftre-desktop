@@ -1,12 +1,12 @@
 /**
  * Session store — tracks known chat sessions (local state).
  *
- * History 加载：把后端记录转成 BusEvent，走 chat store 的统一 reducer
- * （applyEvent），不维护第二份转换逻辑。
+ * History 加载：后端返回持久化 Msg 快照，直接转成 ChatMessage。
+ * WebSocket 的 AgentStreamEvent 只用于实时流式更新。
  */
 import { create } from "zustand";
-import { useChat, applyEvent, type ChatMessage, type BusEvent, type PlanData } from "./chat";
-import type { SessionSummary } from "@/services/api";
+import { useChat, type ChatMessage, type ContentBlock, type MessageAttachment, type PlanData, type ToolResult } from "./chat";
+import type { SessionMessage, SessionSummary } from "@/services/api";
 import {
   fetchSessionPage,
   fetchWorkspaces,
@@ -19,50 +19,127 @@ import { wsClient } from "@/services/websocket-client";
 
 export type { SessionSummary };
 
-// ─── History → BusEvent ─────────────────────────────────────────────
+// ─── Persisted Msg → ChatMessage ────────────────────────────────────
 
-/**
- * 把后端 HTTP 历史记录转成 BusEvent 序列，喂给 applyEvent 统一处理。
- *
- * 不在此做语义合并 / 拆分 — 与 ws 实时事件保持同一份逻辑。
- * 唯一区别：历史回放后所有消息强制 streaming=false（applyEvent 处理
- * assistant_message_complete 时已经设 streaming=false，但保险起见再 seal 一次）。
- */
-function historyToMessages(records: any[]): { messages: ChatMessage[]; turnStartTs: number | null; commandName: string | null } {
-  // 用一个临时 bucket 收集 applyEvent 的结果
-  const b = {
-    messages: [] as ChatMessage[],
-    events: [] as BusEvent[],
-    seenEventIds: new Set<string>(),
-    earliestTs: null as number | null,
-    hasMoreHistory: false,
-    lastUserInputTs: null as number | null,
-    sessionStatus: "idle" as const,
-    isBusy: false,
-    error: null as string | null,
-    retryState: null,
-    turnStartTs: null as number | null,
-    commandName: null as string | null,
-    plan: null as PlanData | null,
-  };
+function dataUrl(source: SessionMessage["content"][number]["source"]): string | null {
+  if (!source) return null;
+  if (source.type === "base64") {
+    return `data:${source.media_type};base64,${source.data ?? ""}`;
+  }
+  return source.url ?? null;
+}
 
-  for (const r of records) {
-    const ts = r.timestamp ? r.timestamp * 1000 : Date.now();
-    const ev: BusEvent = {
-      type: r.type,
-      data: r.data ?? {},
-      ts,
-      eventId: r.id,
+function toolOutputText(output: unknown): string {
+  if (typeof output === "string") return output;
+  if (Array.isArray(output) && output.every((part) => part?.type === "text")) {
+    return output.map((part) => String(part.text ?? "")).join("");
+  }
+  return JSON.stringify(output ?? "", null, 2);
+}
+
+function persistedMessageToChat(record: SessionMessage): ChatMessage | null {
+  if (record.role === "system" || record.metadata?.hide === true) return null;
+  const timestamp = record.timestamp ? record.timestamp * 1000 : Date.parse(record.created_at);
+  const text = record.content
+    .filter((block) => block.type === "text")
+    .map((block) => String(block.text ?? ""))
+    .join("\n");
+
+  if (record.role === "user") {
+    const attachments: MessageAttachment[] = record.content
+      .filter((block) => block.type === "data")
+      .flatMap((block) => {
+        const url = dataUrl(block.source);
+        return url
+          ? [{
+              type: "image" as const,
+              url,
+              mime: block.source?.media_type,
+              name: block.name,
+            }]
+          : [];
+      });
+    return {
+      id: record.id,
+      role: "user",
+      content: text,
+      timestamp,
+      metadata: record.metadata,
+      ...(attachments.length > 0 ? { attachments } : {}),
     };
-    applyEvent(b, ev);
   }
 
-  // 保险：确保所有消息都是 sealed 状态
-  for (const m of b.messages) {
-    if (m.streaming) m.streaming = false;
+  const blocks: ContentBlock[] = [];
+  const toolResults: Record<string, ToolResult> = {};
+  for (const block of record.content) {
+    if (block.type === "text") {
+      blocks.push({ type: "text", text: String(block.text ?? ""), blockId: block.id });
+    } else if (block.type === "thinking") {
+      blocks.push({ type: "thinking", thinking: String(block.thinking ?? ""), blockId: block.id });
+    } else if (block.type === "data" && block.source) {
+      blocks.push({
+        type: "data",
+        data: block.source.data ?? "",
+        url: block.source.type === "url" ? block.source.url : undefined,
+        mediaType: block.source.media_type ?? "application/octet-stream",
+        blockId: block.id,
+      });
+    } else if (block.type === "tool_call") {
+      blocks.push({
+        type: "toolCall",
+        id: block.id,
+        name: block.name ?? "",
+        arguments: block.arguments ?? {},
+      });
+    } else if (block.type === "tool_result") {
+      const failed = ["error", "interrupted", "denied"].includes(block.state ?? "");
+      toolResults[block.id] = {
+        id: block.id,
+        name: block.name ?? "",
+        result: failed ? null : toolOutputText(block.output),
+        error: failed ? toolOutputText(block.output) : null,
+        status: block.state === "interrupted" || block.state === "denied"
+          ? "cancelled"
+          : failed ? "error" : "completed",
+        metadata: block.metadata,
+      };
+    }
   }
+  const external = record.metadata?.external === true;
+  const fromChannel = String(record.metadata?.from_channel ?? "");
+  const fromSession = String(record.metadata?.from_session ?? "");
+  return {
+    id: record.id,
+    role: "assistant",
+    content: text || null,
+    timestamp,
+    blocks,
+    toolResults,
+    streaming: false,
+    metadata: record.metadata,
+    usage: record.usage
+      ? {
+          prompt_tokens: record.usage.input_tokens,
+          completion_tokens: record.usage.output_tokens,
+          total_tokens: record.usage.input_tokens + record.usage.output_tokens,
+        }
+      : undefined,
+    isError: record.finished_reason === "error" || !!record.error,
+    external,
+    externalFrom: external && (fromChannel || fromSession)
+      ? `${fromChannel}::${fromSession}`
+      : undefined,
+  };
+}
 
-  return { messages: b.messages, turnStartTs: b.turnStartTs, commandName: b.commandName };
+export function historyToMessages(records: SessionMessage[]): { messages: ChatMessage[]; turnStartTs: number | null; commandName: string | null } {
+  return {
+    messages: records
+      .map(persistedMessageToChat)
+      .filter((message): message is ChatMessage => message !== null),
+    turnStartTs: null,
+    commandName: null,
+  };
 }
 
 // ─── Storage Keys ───────────────────────────────────────────────────
@@ -358,7 +435,7 @@ export const useSession = create<SessionState>((set, get) => ({
     useChat.getState().switchTo(sessionId);
     try { localStorage.setItem(sessionStorageKey(), sessionId); } catch { }
 
-    // HTTP 先行：拉 DB 历史（最近 5 轮），loadSessionMessages 重建消息
+    // HTTP 先行：拉 DB 中的 Msg 历史（最近 5 轮）
     fetchSessionMessagesPage(sessionId, { limitTurns: FIRST_PAGE_TURNS, signal } as any)
       .then((page) => {
         if (!page) return;
@@ -374,8 +451,7 @@ export const useSession = create<SessionState>((set, get) => ({
           commandName,
         );
         useChat.getState().setSessionStatus(sessionId, page.status);
-        // HTTP 完成后再 WS attach：replay/live 统一追加到 DB 历史后面，
-        // 重叠帧由 chat reducer 按 event_id 去重。
+        // HTTP 完成后再 WS attach：之后的流式 Event 只负责实时更新。
         wsClient.subscribeOnly(sessionId);
       })
       .catch((err) => {

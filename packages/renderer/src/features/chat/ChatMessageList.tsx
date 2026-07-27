@@ -1,4 +1,4 @@
-﻿/**
+/**
  * ChatMessageList — Standalone message list component.
  *
  * Pure presentational: renders ChatMessage[] without any store dependency.
@@ -114,7 +114,9 @@ export const ChatMessageList = memo(function ChatMessageList({
                 ? `t${b.id}`
                 : b.type === "thinking"
                   ? `r${b.thinking.length}`
-                  : `x${b.text.length}`,
+                  : b.type === "data"
+                    ? `d${b.data.length}`
+                    : `x${b.text.length}`,
             )
             .join("|") ?? ""
         }:${

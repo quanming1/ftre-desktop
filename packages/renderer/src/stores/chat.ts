@@ -16,9 +16,10 @@ export type SessionStatus = "idle" | "running" | "compacting";
 
 /** 协议级 content block（assistant 消息的最小内容单元） */
 export type ContentBlock =
-  | { type: "thinking"; thinking: string; event_id?: string }
-  | { type: "text"; text: string; event_id?: string }
-  | { type: "toolCall"; id: string; name: string; arguments: Record<string, any>; event_id?: string };
+  | { type: "thinking"; thinking: string; blockId: string }
+  | { type: "text"; text: string; blockId: string }
+  | { type: "data"; data: string; url?: string; mediaType: string; blockId: string }
+  | { type: "toolCall"; id: string; name: string; arguments: Record<string, any>; argumentsText?: string };
 
 /** 工具执行结果（与 toolCall block 的 id 配对） */
 export interface ToolResult {
@@ -81,7 +82,7 @@ export interface ChatMessage {
   eventIds?: string[];
   /** 本轮耗时（秒），turn_end 时计算写入 */
   durationSec?: number;
-  /** 产生该消息的模型 ID（从 assistant_message_complete.metadata.model 提取） */
+  /** 产生该消息的模型 ID（从 MODEL_CALL_START.model_name 提取） */
   model?: string;
   /** 本轮累积 token 用量（从 turn_end 的 token_usage 提取） */
   turnUsage?: {
@@ -133,7 +134,14 @@ interface Bucket {
 }
 
 const buckets = new Map<string, Bucket>();
-const STREAM_TYPES = new Set(["assistant_message"]);
+const STREAM_TYPES = new Set([
+  "TEXT_BLOCK_DELTA",
+  "DATA_BLOCK_DELTA",
+  "THINKING_BLOCK_DELTA",
+  "TOOL_CALL_DELTA",
+  "TOOL_RESULT_TEXT_DELTA",
+  "TOOL_RESULT_DATA_DELTA",
+]);
 const _wsFlushTimers = new Map<string, ReturnType<typeof setTimeout>>();
 const _wsBatches = new Map<string, BusEvent[]>();
 const WS_BATCH_WINDOW_MS = 30;
@@ -161,13 +169,24 @@ function bucket(sid: string): Bucket {
 
 const last = <T>(arr: T[]): T | undefined => arr[arr.length - 1];
 
-/** Extract text + eventIds from content blocks (no transformation) */
+function appendBase64Chunk(current: string, incoming: string): string {
+  if (!current) return incoming;
+  if (!incoming) return current;
+  try {
+    return btoa(atob(current) + atob(incoming));
+  } catch {
+    // Keep the raw stream visible even if a provider sends non-base64 data.
+    return current + incoming;
+  }
+}
+
+/** Extract rendered text + stable block IDs from content blocks. */
 function extractFromBlocks(blocks: ContentBlock[]): { text: string; eventIds: string[] } {
   let text = "";
   const eventIds: string[] = [];
   for (const b of blocks) {
     if (b.type === "text") text += b.text;
-    if (b.event_id) eventIds.push(b.event_id);
+    if (b.type !== "toolCall") eventIds.push(b.blockId);
   }
   return { text, eventIds };
 }
@@ -214,8 +233,6 @@ export interface BusEvent {
 function eventDedupKey(ev: BusEvent): string | null {
   const topLevel = ev.eventId;
   if (typeof topLevel === "string" && topLevel) return topLevel;
-  const dataEventId = ev.data?.event_id;
-  if (typeof dataEventId === "string" && dataEventId) return dataEventId;
   return typeof ev.frameId === "string" && ev.frameId ? ev.frameId : null;
 }
 
@@ -265,7 +282,7 @@ export function applyEvent(b: Bucket, ev: BusEvent): void {
     b.messages = [
       ...b.messages,
       {
-        id: ev.frameId ?? nextId("ast"),
+        id: d.reply_id ?? ev.eventId ?? ev.frameId ?? nextId("ast"),
         role: "assistant",
         content: null,
         timestamp: ts,
@@ -274,6 +291,94 @@ export function applyEvent(b: Bucket, ev: BusEvent): void {
         toolResults: {},
       },
     ];
+  };
+
+  const appendTextBlock = (
+    kind: "text" | "thinking",
+    blockId: string,
+    delta = "",
+  ): void => {
+    ensure();
+    replaceTail((message) => {
+      const blocks = [...(message.blocks || [])];
+      const index = blocks.findIndex(
+        (block) => block.type === kind && block.blockId === blockId,
+      );
+      if (index < 0) {
+        blocks.push(
+          kind === "text"
+            ? { type: "text", text: delta, blockId }
+            : { type: "thinking", thinking: delta, blockId },
+        );
+      } else {
+        const block = blocks[index];
+        blocks[index] = block.type === "text"
+          ? { ...block, text: block.text + delta }
+          : block.type === "thinking"
+            ? { ...block, thinking: block.thinking + delta }
+            : block;
+      }
+      const { text, eventIds } = extractFromBlocks(blocks);
+      return { ...message, blocks, content: text || null, eventIds };
+    });
+  };
+
+  const appendDataBlock = (
+    blockId: string,
+    mediaType: string,
+    delta = "",
+  ): void => {
+    ensure();
+    replaceTail((message) => {
+      const blocks = [...(message.blocks || [])];
+      const index = blocks.findIndex(
+        (block) => block.type === "data" && block.blockId === blockId,
+      );
+      if (index < 0) {
+        blocks.push({ type: "data", data: delta, mediaType, blockId });
+      } else {
+        const block = blocks[index];
+        if (block.type === "data") {
+          blocks[index] = {
+            ...block,
+            data: appendBase64Chunk(block.data, delta),
+            mediaType: mediaType || block.mediaType,
+          };
+        }
+      }
+      const { text, eventIds } = extractFromBlocks(blocks);
+      return { ...message, blocks, content: text || null, eventIds };
+    });
+  };
+
+  const updateToolResult = (
+    toolCallId: string,
+    mutate: (current: ToolResult) => ToolResult,
+  ): void => {
+    for (let index = b.messages.length - 1; index >= 0; index--) {
+      const message = b.messages[index];
+      const toolCall = message.blocks?.find(
+        (block) => block.type === "toolCall" && block.id === toolCallId,
+      );
+      if (!toolCall || toolCall.type !== "toolCall") continue;
+      const current = message.toolResults?.[toolCallId] ?? {
+        id: toolCallId,
+        name: toolCall.name,
+        result: "",
+        error: null,
+        status: "completed" as const,
+      };
+      const messages = [...b.messages];
+      messages[index] = {
+        ...message,
+        toolResults: {
+          ...(message.toolResults || {}),
+          [toolCallId]: mutate(current),
+        },
+      };
+      b.messages = messages;
+      return;
+    }
   };
 
   const attachHiddenImageToLatestReadTool = (): void => {
@@ -361,31 +466,185 @@ export function applyEvent(b: Bucket, ev: BusEvent): void {
       return;
     }
 
-    // 鈹€鈹€鈹€ 娴佸紡鏂囨湰鐗囨 鈹€鈹€鈹€
-    case "assistant_message":
-    case "assistant_message_complete": {
-      const isComplete = ev.type === "assistant_message_complete";
+    case "REPLY_START": {
       ensure();
-      if (!isComplete && b.retryState) b.retryState = null;
+      b.isBusy = true;
+      b.sessionStatus = "running";
+      b.retryState = null;
+      return;
+    }
 
-      const blocks: ContentBlock[] = (Array.isArray(d.content) ? d.content : []) as ContentBlock[];
-      const { text, eventIds } = extractFromBlocks(blocks);
-      const metadata = isComplete ? (d.metadata || {}) : {};
-
-      replaceTail((m) => ({
-        ...m,
-        // 流式阶段不更新 id：每次 assistant_message 的 ev.frameId 不同，
-        // 会导致 React key 变化、组件销毁重建、useState 状态丢失。
-        // 只在 complete 时设置最终 id。
-        ...(isComplete ? { id: ev.frameId ?? m.id } : {}),
-        blocks,
-        content: text || null,
-        streaming: !isComplete,
-        ...(metadata.usage ? { usage: metadata.usage } : {}),
-        ...(metadata.kind ? { metadata } : {}),
-        ...(isComplete && typeof metadata.model === "string" && metadata.model ? { model: metadata.model } : {}),
-        ...(eventIds.length > 0 ? { eventIds } : {}),
+    case "REPLY_END": {
+      replaceTail((message) => ({
+        ...message,
+        id: d.reply_id || message.id,
+        streaming: false,
       }));
+      b.retryState = null;
+      if (d.error) {
+        b.error = typeof d.error === "string"
+          ? d.error
+          : String(d.error.message || d.error.code || "Agent reply failed");
+      }
+      return;
+    }
+
+    case "TEXT_BLOCK_START":
+      appendTextBlock("text", d.block_id);
+      return;
+
+    case "TEXT_BLOCK_DELTA":
+      appendTextBlock("text", d.block_id, d.delta || "");
+      return;
+
+    case "TEXT_BLOCK_END":
+      return;
+
+    case "DATA_BLOCK_START":
+      appendDataBlock(d.block_id, d.media_type || "application/octet-stream");
+      return;
+
+    case "DATA_BLOCK_DELTA":
+      appendDataBlock(
+        d.block_id,
+        d.media_type || "application/octet-stream",
+        d.data || "",
+      );
+      return;
+
+    case "DATA_BLOCK_END":
+      return;
+
+    case "THINKING_BLOCK_START":
+      appendTextBlock("thinking", d.block_id);
+      return;
+
+    case "THINKING_BLOCK_DELTA":
+      appendTextBlock("thinking", d.block_id, d.delta || "");
+      return;
+
+    case "THINKING_BLOCK_END":
+      return;
+
+    case "HINT_BLOCK":
+      // HintBlock 是 Agent 内部续跑/调度提示，会进入下一次模型上下文，
+      // 但不属于面向用户的 assistant 输出。
+      return;
+
+    case "MODEL_CALL_START":
+      ensure();
+      if (typeof d.model_name === "string" && d.model_name) {
+        replaceTail((message) => ({ ...message, model: d.model_name }));
+      }
+      return;
+
+    case "MODEL_CALL_END":
+      ensure();
+      replaceTail((message) => {
+        const prompt = (message.usage?.prompt_tokens || 0) + (d.input_tokens || 0);
+        const completion = (message.usage?.completion_tokens || 0) + (d.output_tokens || 0);
+        return {
+          ...message,
+          usage: {
+            prompt_tokens: prompt,
+            completion_tokens: completion,
+            total_tokens: prompt + completion,
+          },
+        };
+      });
+      return;
+
+    case "TOOL_CALL_START":
+      ensure();
+      replaceTail((message) => ({
+        ...message,
+        blocks: [
+          ...(message.blocks || []),
+          {
+            type: "toolCall",
+            id: d.tool_call_id,
+            name: d.tool_call_name || "",
+            arguments: {},
+            argumentsText: "",
+          },
+        ],
+      }));
+      return;
+
+    case "TOOL_CALL_DELTA":
+      ensure();
+      replaceTail((message) => ({
+        ...message,
+        blocks: (message.blocks || []).map((block) => {
+          if (block.type !== "toolCall" || block.id !== d.tool_call_id) return block;
+          const argumentsText = (block.argumentsText || "") + (d.delta || "");
+          let args = block.arguments;
+          try {
+            const parsed = JSON.parse(argumentsText);
+            if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) args = parsed;
+          } catch {
+            // Partial JSON is expected while arguments are streaming.
+          }
+          return { ...block, arguments: args, argumentsText };
+        }),
+      }));
+      return;
+
+    case "TOOL_CALL_END":
+      replaceTail((message) => ({
+        ...message,
+        blocks: (message.blocks || []).map((block) => {
+          if (block.type !== "toolCall" || block.id !== d.tool_call_id) return block;
+          const { argumentsText: _argumentsText, ...finished } = block;
+          return finished;
+        }),
+      }));
+      return;
+
+    case "TOOL_RESULT_START":
+      return;
+
+    case "TOOL_RESULT_TEXT_DELTA":
+      updateToolResult(d.tool_call_id, (current) => ({
+        ...current,
+        result: (current.result || "") + (d.delta || ""),
+      }));
+      return;
+
+    case "TOOL_RESULT_DATA_DELTA": {
+      const payload = d.data ?? d.url;
+      if (payload != null) {
+        updateToolResult(d.tool_call_id, (current) => ({
+          ...current,
+          result: (current.result || "") + String(payload),
+        }));
+      }
+      return;
+    }
+
+    case "TOOL_RESULT_END":
+      updateToolResult(d.tool_call_id, (current) => {
+        const isError = d.state === "error";
+        const isCancelled = d.state === "interrupted";
+        const metadata = d.metadata || {};
+        return {
+          ...current,
+          error: isError
+            ? String(metadata.error || metadata.message || current.result || "Tool execution failed")
+            : null,
+          status: isCancelled ? "cancelled" : isError ? "error" : "completed",
+          metadata,
+        };
+      });
+      return;
+
+    case "EXCEED_MAX_ITERS": {
+      const message = "Agent exceeded the maximum number of iterations";
+      b.messages = [
+        ...b.messages,
+        { id: ev.eventId ?? nextId("err"), role: "assistant", content: message, timestamp: ts, isError: true },
+      ];
+      b.error = message;
       return;
     }
 
@@ -398,7 +657,7 @@ export function applyEvent(b: Bucket, ev: BusEvent): void {
         role: "assistant",
         content: text,
         timestamp: ts,
-        blocks: text ? [{ type: "text", text }] : [],
+        blocks: text ? [{ type: "text", text, blockId: ev.eventId ?? ev.frameId ?? nextId("ext-block") }] : [],
         toolResults: {},
         external: true,
         externalFrom: fromCh || fromSid ? `${fromCh}::${fromSid}` : undefined,
@@ -413,57 +672,31 @@ export function applyEvent(b: Bucket, ev: BusEvent): void {
 
 
     // 鈹€鈹€鈹€ 宸ュ叿缁撴灉锛氫粠灏鹃儴寰€鍓嶆壘鍒板搴?tc 鍐欏叆 鈹€鈹€鈹€
-    case "tool_result": {
-      const id = d.id;
-      const isErr = !!d.error;
-      const result: ToolResult = {
-        id,
-        name: d.name || "",
-        result: isErr ? null : (d.result ?? ""),
-        error: isErr ? d.error : null,
-        status: isErr ? "error" : "completed",
-        metadata: d.metadata,
-      };
-      for (let i = b.messages.length - 1; i >= 0; i--) {
-        const msg = b.messages[i];
-        if (!msg.blocks) continue;
-        const hasBlock = msg.blocks.some((bl) => bl.type === "toolCall" && bl.id === id);
-        if (!hasBlock) continue;
-        const next = b.messages.slice();
-        next[i] = {
-          ...msg,
-          toolResults: { ...(msg.toolResults || {}), [id]: result },
-        };
-        b.messages = next;
-        return;
-      }
-      return;
-    }
-
-    case "step": {
-      const phase = d.phase;
-      if (phase === "pipeline_start") {
+    case "CUSTOM": {
+      const phase = d.name;
+      const phaseData = d.value || {};
+      if (phase === "PIPELINE_START") {
         // pipeline 开始：立即标记忙
         b.isBusy = true;
         b.sessionStatus = "running";
         b.error = null;
         return;
       }
-      if (phase === "pipeline_end") {
+      if (phase === "PIPELINE_END") {
         // pipeline 结束：恢复空闲，清除 Turn 级临时状态
         b.isBusy = false;
         b.sessionStatus = "idle";
         b.commandName = null;
         return;
       }
-      if (phase === "command_matched") {
+      if (phase === "COMMAND_MATCHED") {
         // 指令命中：状态栏更新为"执行指令..."
         b.isBusy = true;
         b.sessionStatus = "running";
-        b.commandName = d.command_name ?? null;
+        b.commandName = phaseData.command_name ?? null;
         return;
       }
-      if (phase === "turn_start") {
+      if (phase === "TURN_START") {
         b.isBusy = true;
         b.sessionStatus = "running";
         b.error = null;
@@ -472,7 +705,8 @@ export function applyEvent(b: Bucket, ev: BusEvent): void {
         b.turnStartTs = ts ?? null;
         return;
       }
-      // phase === "turn_end"
+      if (phase !== "TURN_END") return;
+
       replaceTail((m) => m.streaming ? { ...m, streaming: false } : m);
       b.isBusy = false;
       b.sessionStatus = "idle";
@@ -481,7 +715,7 @@ export function applyEvent(b: Bucket, ev: BusEvent): void {
       // 计算耗时并写入本轮最后一条 assistant 消息
       if (b.turnStartTs != null && ts != null) {
         const durationSec = Math.round((ts - b.turnStartTs) / 1000);
-        const turnUsage = d.token_usage ?? undefined;
+        const turnUsage = phaseData.token_usage ?? undefined;
         for (let i = b.messages.length - 1; i >= 0; i--) {
           if (b.messages[i].role === "assistant" && !b.messages[i].streaming) {
             b.messages[i] = { ...b.messages[i], durationSec, ...(turnUsage ? { turnUsage } : {}) };
@@ -491,9 +725,9 @@ export function applyEvent(b: Bucket, ev: BusEvent): void {
         b.turnStartTs = null;
       }
 
-      if (d.reason === "error" && d.error_message) {
-        const msg: string = d.error_message;
-        const code = d.error_code;
+      if (phaseData.reason === "error" && phaseData.error_message) {
+        const msg: string = phaseData.error_message;
+        const code = phaseData.error_code;
         b.messages = [
           ...b.messages,
           { id: ev.frameId ?? nextId("err"), role: "assistant", content: msg, timestamp: ts, isError: true },
@@ -561,7 +795,7 @@ export function applyEvent(b: Bucket, ev: BusEvent): void {
             id: nextId("compact"),
             role: "system" as Role,
             content: null,
-            timestamp: ev.timestamp ?? Date.now(),
+            timestamp: ev.ts ?? Date.now(),
             compact: {
               status: "done",
               mode: typeof d.mode === "string" ? d.mode : "summary",
@@ -758,12 +992,20 @@ if (!(globalThis as any)[__wsBoundFlag]) {
     const sid = msg.metadata?.session_id as string | undefined;
     if (!sid) return;
 
+    const isCoreEvent =
+      ev.type === "retry" ||
+      ev.type === "CUSTOM" ||
+      /^[A-Z]+(?:_[A-Z]+)+$/.test(ev.type);
     const b = bucket(sid);
     const busEvent: BusEvent = {
       type: ev.type,
-      eventId: ev.event_id,
-      data: ev.data,
-      ts: typeof ev.timestamp === "number" ? ev.timestamp * 1000 : undefined,
+      eventId: ev.id,
+      data: isCoreEvent ? ev : ((ev.data as Record<string, unknown> | undefined) || {}),
+      ts: typeof ev.created_at === "string"
+        ? Date.parse(ev.created_at)
+        : typeof ev.timestamp === "number"
+          ? ev.timestamp * 1000
+          : undefined,
       frameId: msg.frame_id,
       metadata: msg.metadata,
     };
@@ -775,16 +1017,16 @@ if (!(globalThis as any)[__wsBoundFlag]) {
     } else {
       _enqueueWsEvent(sid, b, busEvent);
     }
-    // assistant_message_complete: metadata.usage carries real usage data
-    if (ev.type === "assistant_message_complete" && useChat.getState().sessionId === sid) {
-      const u = (ev.data as any)?.metadata?.usage;
-      if (u && typeof u.total_tokens === "number") {
+    if (ev.type === "MODEL_CALL_END" && useChat.getState().sessionId === sid) {
+      const promptTokens = Number(ev.input_tokens || 0);
+      const completionTokens = Number(ev.output_tokens || 0);
+      if (promptTokens || completionTokens) {
         const newAnchor = {
-          prompt_tokens: u.prompt_tokens ?? 0,
-          completion_tokens: u.completion_tokens ?? 0,
-          total_tokens: u.total_tokens,
+          prompt_tokens: promptTokens,
+          completion_tokens: completionTokens,
+          total_tokens: promptTokens + completionTokens,
           at: Date.now() / 1000,
-          source: "assistant_message_complete" as const,
+          source: "MODEL_CALL_END" as const,
         };
         const pending_estimated = 0;
         const total = newAnchor.total_tokens + pending_estimated;
@@ -799,7 +1041,16 @@ if (!(globalThis as any)[__wsBoundFlag]) {
       }
     }
     // 鍏朵粬浜嬩欢锛氶渶瑕侀噸绠?pending_estimated 绛夛紝璋?API
-    if ((ev.type === "step" || ev.type === "external_message" || ev.type === "context_compact_done" || ev.type === "context_compact_enabled") && useChat.getState().sessionId === sid) {
+    if (
+      (
+        ev.type === "CUSTOM" ||
+        ev.type === "REPLY_END" ||
+        ev.type === "external_message" ||
+        ev.type === "context_compact_done" ||
+        ev.type === "context_compact_enabled"
+      ) &&
+      useChat.getState().sessionId === sid
+    ) {
       useChat.getState().refreshTokenUsage(sid);
     }
   });
@@ -866,7 +1117,7 @@ interface ChatState {
       completion_tokens: number;
       total_tokens: number;
       at: number;
-      source: "assistant_message_complete";
+      source: "MODEL_CALL_END" | "msg";
     } | null;
     pending_estimated: number;
     total: number;
