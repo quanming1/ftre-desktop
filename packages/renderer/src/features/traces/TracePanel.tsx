@@ -313,7 +313,7 @@ export function TracePanel() {
 
   useEffect(() => {
     if (!traceFocusSessionId || traces.length === 0) return;
-    const normalize = (value: string) => value.split("::").pop() || value;
+    const normalize = (value: string) => value.split("_sess_").pop() || value;
     const target = normalize(traceFocusSessionId);
     setQuery(traceFocusSessionId);
     const matched = traces.find((trace) =>
