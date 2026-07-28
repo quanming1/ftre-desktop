@@ -1,4 +1,4 @@
-/**
+﻿/**
  * API service — all communication goes through WebSocket.
  * This file provides a simple interface for components.
  * Functions that previously called HTTP endpoints are stubbed as no-ops or return defaults.
@@ -57,7 +57,7 @@ export type SessionChannel = KnownChannel | "unknown";
 
 export interface SessionSummary {
   session_id: string;
-  /** Original key from backend (e.g., "ws::sess_xxx") */
+  /** Original key from backend (e.g., "ws_sess_xxx") */
   key?: string;
   workspace?: string;
   agent_id?: string;
@@ -227,35 +227,18 @@ export async function fetchSessions(
   return page.sessions;
 }
 
-/**
- * Check if a string looks like a full session key with channel prefix.
- * e.g., "websocket:uuid" or "dmwork:xxx"
- */
-function hasChannelPrefix(str: string): boolean {
-  const colonIndex = str.indexOf(":");
-  if (colonIndex === -1) return false;
-  const prefix = str.substring(0, colonIndex);
-  return (SESSION_CHANNELS as readonly string[]).includes(prefix);
-}
 
 /**
  * Encode a session key for use in REST API URLs.
- * First checks the cache for the original key, then falls back to
- * assuming websocket channel prefix for unknown sessions.
+ * First checks the cache for the original key, then uses the ID directly.
+ * New format session_id (e.g. "ws_sess_xxx") is already URL-safe ([A-Za-z0-9_-]).
  */
 function encodeSessionKey(sessionIdOrKey: string): string {
-  // Check cache first - sessionIdOrKey might be a session_id with cached key
   const cachedKey = sessionKeyCache.get(sessionIdOrKey);
   if (cachedKey) {
     return encodeURIComponent(cachedKey);
   }
-  // If it has a known channel prefix, use it directly
-  // Otherwise, assume websocket channel for backward compatibility
-  const key = hasChannelPrefix(sessionIdOrKey)
-    ? sessionIdOrKey
-    : `websocket:${sessionIdOrKey}`;
-  // URL encode the key to handle special characters like ':'
-  return encodeURIComponent(key);
+  return encodeURIComponent(sessionIdOrKey);
 }
 
 export interface SessionContentBlock {

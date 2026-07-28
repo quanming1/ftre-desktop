@@ -127,7 +127,7 @@ function persistedMessageToChat(record: SessionMessage): ChatMessage | null {
     isError: record.finished_reason === "error" || !!record.error,
     external,
     externalFrom: external && (fromChannel || fromSession)
-      ? `${fromChannel}::${fromSession}`
+      ? `${fromChannel}/${fromSession}`
       : undefined,
   };
 }

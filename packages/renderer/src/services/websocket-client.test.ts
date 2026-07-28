@@ -44,12 +44,12 @@ describe("websocket-client protocol handling", () => {
     const ws = FakeWebSocket.instances[0];
     ws.onopen?.();
 
-    wsClient.subscribeOnly("ws::a");
-    wsClient.subscribeOnly("ws::b");
+    wsClient.subscribeOnly("ws_a");
+    wsClient.subscribeOnly("ws_b");
 
     const frames = ws.sent.map((payload) => JSON.parse(payload));
     expect(frames.map((frame) => frame.type)).toEqual(["attach", "detach", "attach"]);
-    expect(frames.map((frame) => frame.data.session_id)).toEqual(["ws::a", "ws::a", "ws::b"]);
+    expect(frames.map((frame) => frame.data.session_id)).toEqual(["ws_a", "ws_a", "ws_b"]);
   });
 
   it("forwards agent events without metadata-level deduplication", async () => {
@@ -64,7 +64,7 @@ describe("websocket-client protocol handling", () => {
       type: "agent_event",
       data: { type: "assistant_message", event_id: "evt_1", data: { content: "hello" } },
       metadata: {
-        session_id: "ws::a",
+        session_id: "ws_a",
       },
     };
 
@@ -76,7 +76,7 @@ describe("websocket-client protocol handling", () => {
     ws.onmessage?.({
       data: JSON.stringify({
         ...frame,
-        metadata: { ...frame.metadata, session_id: "ws::b" },
+        metadata: { ...frame.metadata, session_id: "ws_b" },
       }),
     });
 

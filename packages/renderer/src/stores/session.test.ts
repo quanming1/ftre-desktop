@@ -78,7 +78,7 @@ describe("session store — basic operations", () => {
     const { messages } = historyToMessages([
       {
         id: "reply-1",
-        session_id: "ws::s1",
+        session_id: "ws_s1",
         name: "assistant",
         role: "assistant",
         content: [

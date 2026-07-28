@@ -1,7 +1,7 @@
 /**
  * Chat Store 鈥?娑堣垂 ftre gateway WebSocket 浜嬩欢娴併€? *
  * 澶?session 妯″瀷锛? *   姣忎釜 session 鏈夌嫭绔?bucket锛坢essages/isBusy/error/retryState锛夈€? *   store 椤跺眰瀛楁鏄?active bucket 鐨勯暅鍍忥紙淇濈暀鏃ф秷璐?API: useChat((s)=>s.messages) 绛夛級銆? *   鍒?session 鏃剁洿鎺?hydrate锛涜繘琛屼腑鐨勬祦涓嶈鎵撴柇銆? *
- * 浜嬩欢婧愮粺涓€锛? *   ws 瀹炴椂浜嬩欢 鍜?history 鍥炴斁閮借蛋鍚屼竴涓?`applyEvent` reducer銆? */
+ * 事件源：ws 实时事件走 applyEvent reducer；history 加载走 historyToMessages 直接转换。 */
 import { create } from "zustand";
 import { useShallow } from "zustand/shallow";
 import { wsClient } from "@/services/websocket-client";
@@ -415,7 +415,7 @@ export function applyEvent(b: Bucket, ev: BusEvent): void {
   };
 
   switch (ev.type) {
-    // 鈹€鈹€鈹€ 鍘嗗彶鍥炴斁涓撶敤锛氱敤鎴锋秷鎭?鈹€鈹€鈹€
+    // ─── 实时 echo：后端保存 UserMsg 后回推给客户端 ───
     case "user_message": {
       if (d.metadata?.hide) {
         attachHiddenImageToLatestReadTool();
