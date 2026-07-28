@@ -12,7 +12,6 @@ vi.mock("@/services/api", () => ({
     total: 0,
     status: "idle",
   }),
-  fetchUsage: vi.fn().mockResolvedValue(0),
   deleteSessionRemote: vi.fn().mockResolvedValue(undefined),
 }));
 
@@ -59,7 +58,6 @@ function resetStores() {
     error: null,
     connected: false,
     model: null,
-    contextTokens: 0,
     mode: "chat",
     agentId: "default",
     retryState: null,
@@ -88,7 +86,10 @@ describe("session store — basic operations", () => {
         ],
         metadata: {},
         created_at: "2026-07-27T10:00:00",
-        usage: { input_tokens: 10, output_tokens: 2 },
+        token: {
+          usage: { prompt_tokens: 10, completion_tokens: 2, total_tokens: 12 },
+          last_call_usage: { prompt_tokens: 10, completion_tokens: 2, total_tokens: 12 },
+        },
         finished_at: "2026-07-27T10:00:01",
         finished_reason: "completed",
         structured_output: null,
@@ -104,7 +105,7 @@ describe("session store — basic operations", () => {
       name: "read",
     });
     expect(messages[0].toolResults?.["call-1"].result).toBe("contents");
-    expect(messages[0].usage?.total_tokens).toBe(12);
+    expect(messages[0].token?.usage.total_tokens).toBe(12);
   });
 
   it("starts with empty sessions", () => {

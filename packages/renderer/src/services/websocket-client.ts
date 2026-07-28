@@ -13,11 +13,36 @@
 // ─── Types ──────────────────────────────────────────────────────────
 
 /** 后端下行消息格式 */
-export interface ServerMessage {
+export interface ServerMessage<TData = AgentStreamEvent> {
   frame_id: string;
-  type: string; // "agent_event"
-  data: AgentStreamEvent;
+  type: string;
+  data: TData;
   metadata: Record<string, unknown>;
+}
+
+/** Gateway ReplyProjection attach/reconnect snapshot. */
+export interface ReplySnapshotItem {
+  reply_id: string;
+  revision: number;
+  /** Raw persisted Msg model; renderer converts it into ChatMessage. */
+  message: Record<string, unknown>;
+}
+
+export interface ReplySnapshotPayload {
+  session_id: string;
+  replies: ReplySnapshotItem[];
+}
+
+export type ReplySnapshotMessage = ServerMessage<ReplySnapshotPayload> & {
+  type: "reply_snapshot";
+};
+
+export function isReplySnapshotMessage(
+  message: ServerMessage,
+): message is ReplySnapshotMessage {
+  return message.type === "reply_snapshot"
+    && typeof (message.data as unknown as ReplySnapshotPayload)?.session_id === "string"
+    && Array.isArray((message.data as unknown as ReplySnapshotPayload)?.replies);
 }
 
 /** Agent 事件（嵌套在 ServerMessage.data 中） */

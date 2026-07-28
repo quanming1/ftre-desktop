@@ -28,7 +28,6 @@ function resetStore() {
     error: null,
     connected: false,
     model: null,
-    contextTokens: 0,
     mode: "chat",
     agentId: "default",
     retryState: null,
@@ -99,7 +98,6 @@ describe("chat store — clearMessages", () => {
     expect(s.messages).toHaveLength(0);
     expect(s.sessionId).toBeNull();
     expect(s.activeChatId).toBeNull();
-    expect(s.contextTokens).toBe(0);
   });
 });
 

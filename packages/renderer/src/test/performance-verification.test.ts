@@ -37,7 +37,6 @@ function resetStore() {
     error: null,
     connected: false,
     model: null,
-    contextTokens: 0,
     mode: "chat",
     agentId: "default",
     retryState: null,

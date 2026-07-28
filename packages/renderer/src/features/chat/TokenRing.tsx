@@ -6,10 +6,10 @@
  *
  * 数据来源：
  * - tokenUsage：后端 GET /api/sessions/{id}/token_usage 返回明细
- *   - anchor.total_tokens: 最近一次 LLM 实算
+ *   - last_call_usage.total_tokens: 最近一次 LLM 实算
  *   - pending_estimated:   锚点之后未计入事件的字符级粗估
- *                          （anchor 为 null 时是对全量事件估算）
- *   - total:               anchor 实算 + pending 估算（无 anchor 时即全量估算）
+ *                          （last_call_usage 为 null 时是对全量消息估算）
+ *   - total:               last_call_usage 实算 + pending 估算
  * - contextWindow：当前选中模型的 context_window，由 ModelSelector 同步进 chat store
  *
  * 没有 contextWindow 时退化为只显示压缩 token 数。
@@ -54,32 +54,32 @@ export function TokenRing() {
   }
 
   const total = usage.total;
-  const realPart = usage.anchor?.total_tokens ?? 0;
+  const realPart = usage.last_call_usage?.total_tokens ?? 0;
   const estPart = usage.pending_estimated;
-  const hasAnchor = !!usage.anchor;
+  const hasLastCallUsage = !!usage.last_call_usage;
 
   const hasWindow = typeof contextWindow === "number" && contextWindow > 0;
-  const pct = hasWindow ? Math.min((total / contextWindow!) * 100, 100) : 0;
+  const rawPct = hasWindow ? (total / contextWindow!) * 100 : 0;
 
   // 主要是为了不喧宾夺主：默认中性灰，超过 70% 才着警示色
   const colorClass =
-    pct >= 90
+    rawPct >= 90
       ? "text-red-500"
-      : pct >= 70
+      : rawPct >= 70
         ? "text-amber-500"
         : "text-t-muted hover:text-t-primary";
 
   // 显示文本：有窗口时百分比，没窗口时压缩 token 数
-  const label = hasWindow ? `${Math.round(pct)}%` : formatTokens(total);
+  const label = hasWindow ? `${Math.round(rawPct)}%` : formatTokens(total);
 
   // ─── Tooltip 详情 ───
   const tooltip = (
     <div className="text-[11.5px] leading-[1.6] min-w-[180px]">
       <div className="font-medium mb-1 text-t-primary">上下文用量</div>
 
-      {hasAnchor && (
+      {hasLastCallUsage && (
         <div className="flex items-center justify-between gap-3">
-          <span className="text-t-muted">实算 (LLM 上报)</span>
+          <span className="text-t-muted">最后一次调用</span>
           <span className="font-mono text-t-secondary">
             {realPart.toLocaleString()}
           </span>
@@ -88,7 +88,7 @@ export function TokenRing() {
 
       <div className="flex items-center justify-between gap-3">
         <span className="text-t-muted">
-          {hasAnchor ? "估算 (未实算部分)" : "估算 (全量)"}
+          {hasLastCallUsage ? "估算 (未实算部分)" : "估算 (全量)"}
         </span>
         <span className="font-mono text-t-secondary">
           ≈ {estPart.toLocaleString()}
@@ -115,7 +115,7 @@ export function TokenRing() {
           <div className="flex items-center justify-between gap-3 mt-0.5">
             <span className="text-t-muted">占比</span>
             <span className="font-mono font-medium text-t-primary">
-              {pct < 0.1 && total > 0 ? "< 0.1" : pct.toFixed(1)}%
+              {rawPct < 0.1 && total > 0 ? "< 0.1" : rawPct.toFixed(1)}%
             </span>
           </div>
         </>

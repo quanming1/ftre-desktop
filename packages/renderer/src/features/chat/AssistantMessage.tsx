@@ -366,8 +366,6 @@ export const AssistantMessage = memo(
   function AssistantMessage({
     message,
     showActions = false,
-    turnUsage,
-    turnAccumulatedUsage,
     turnTexts,
     turnFileChanges,
     turnDurationSec,
@@ -375,8 +373,6 @@ export const AssistantMessage = memo(
   }: {
     message: ChatMessage;
     showActions?: boolean;
-    turnUsage?: ChatMessage["usage"];
-    turnAccumulatedUsage?: ChatMessage["turnUsage"];
     turnTexts?: string[];
     turnFileChanges?: TurnFileChange[];
     turnDurationSec?: number;
@@ -440,62 +436,32 @@ export const AssistantMessage = memo(
                           {copied ? <Check size={15} className="text-green-500" /> : <Copy size={15} />}
                         </button>
                       </Tooltip>
-                      {(turnAccumulatedUsage ?? turnUsage ?? message.usage) && (
+                      {message.token?.usage && (
                         <Tooltip
                           content={
                             <div className="text-[11px] leading-snug">
-                              {turnAccumulatedUsage ? (
-                                <table className="border-collapse">
-                                  <tbody>
-                                    <tr>
-                                      <td className="pr-3 text-t-muted">调用次数</td>
-                                      <td className="text-right font-mono text-t-secondary">{turnAccumulatedUsage.llm_calls}</td>
-                                    </tr>
-                                    <tr>
-                                      <td className="pr-3 text-t-muted">输入</td>
-                                      <td className="text-right font-mono text-t-secondary">{fmtTokens(turnAccumulatedUsage.prompt_tokens)}</td>
-                                    </tr>
-                                    <tr>
-                                      <td className="pr-3 text-t-muted">缓存命中</td>
-                                      <td className="text-right font-mono text-t-secondary">{fmtTokens(turnAccumulatedUsage.cached_tokens)}</td>
-                                    </tr>
-                                    <tr>
-                                      <td className="pr-3 text-t-muted">输出</td>
-                                      <td className="text-right font-mono text-t-secondary">{fmtTokens(turnAccumulatedUsage.completion_tokens)}</td>
-                                    </tr>
-                                  </tbody>
-                                </table>
-                              ) : (
-                                <table className="border-collapse">
-                                  <tbody>
-                                    <tr>
-                                      <td className="pr-3 text-t-muted">输入</td>
-                                      <td className="text-right font-mono text-t-secondary">{(turnUsage ?? message.usage)?.prompt_tokens ?? "-"}</td>
-                                    </tr>
-                                    <tr>
-                                      <td className="pr-3 text-t-muted">输出</td>
-                                      <td className="text-right font-mono text-t-secondary">{(turnUsage ?? message.usage)?.completion_tokens ?? "-"}</td>
-                                    </tr>
-                                    <tr>
-                                      <td className="pr-3 text-t-muted">新增</td>
-                                      <td className="text-right font-mono text-t-secondary">{(turnUsage ?? message.usage)?.total_tokens ?? "-"}</td>
-                                    </tr>
-                                  </tbody>
-                                </table>
-                              )}
+                              <table className="border-collapse">
+                                <tbody>
+                                  <tr>
+                                    <td className="pr-3 text-t-muted">输入</td>
+                                    <td className="text-right font-mono text-t-secondary">{message.token.usage.prompt_tokens}</td>
+                                  </tr>
+                                  <tr>
+                                    <td className="pr-3 text-t-muted">输出</td>
+                                    <td className="text-right font-mono text-t-secondary">{message.token.usage.completion_tokens}</td>
+                                  </tr>
+                                  <tr>
+                                    <td className="pr-3 text-t-muted">合计</td>
+                                    <td className="text-right font-mono text-t-secondary">{message.token.usage.total_tokens}</td>
+                                  </tr>
+                                </tbody>
+                              </table>
                             </div>
                           }
                           side="top"
                         >
                           <span className="ml-1 inline-flex items-center h-8 px-2 text-[11px] font-mono text-t-ghost rounded-md hover:bg-hover hover:text-t-secondary transition-colors cursor-default">
-                            {(() => {
-                              if (turnAccumulatedUsage) {
-                                return `${fmtTokens(turnAccumulatedUsage.completion_tokens)}`;
-                              }
-                              const u = turnUsage ?? message.usage;
-                              if (!u) return null;
-                              return `${fmtTokens(u.completion_tokens ?? 0)}`;
-                            })()}
+                            {fmtTokens(message.token.usage.total_tokens)}
                           </span>
                         </Tooltip>
                       )}
@@ -522,14 +488,12 @@ export const AssistantMessage = memo(
   (prev, next) => {
     if (prev.message.content !== next.message.content) return false;
     if (prev.message.streaming !== next.message.streaming) return false;
-    if (prev.message.usage !== next.message.usage) return false;
+    if (prev.message.token !== next.message.token) return false;
     if (prev.showActions !== next.showActions) return false;
-    if (prev.turnUsage !== next.turnUsage) return false;
     if (prev.turnTexts !== next.turnTexts) return false;
     if (prev.turnFileChanges !== next.turnFileChanges) return false;
     if (prev.turnDurationSec !== next.turnDurationSec) return false;
     if (prev.turnModel !== next.turnModel) return false;
-    if (prev.turnAccumulatedUsage !== next.turnAccumulatedUsage) return false;
 
     // Compare blocks
     const ab = prev.message.blocks, bb = next.message.blocks;

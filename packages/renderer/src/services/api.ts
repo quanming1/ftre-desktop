@@ -260,6 +260,21 @@ export interface SessionContentBlock {
   hint?: unknown;
 }
 
+/** 单次或累计的 OpenAI-compatible token 用量 */
+export interface TokenUsage {
+  prompt_tokens: number;
+  completion_tokens: number;
+  total_tokens: number;
+}
+
+/** assistant Reply 的 token 用量快照 */
+export interface MessageToken {
+  /** 当前 Reply 内所有 LLM Call 的累计消费 */
+  usage: TokenUsage;
+  /** 最后一次成功的 LLM Call 返回的 usage */
+  last_call_usage: TokenUsage;
+}
+
 /** 后端持久化的 Msg 快照；流式 Event 不通过这个 API 返回。 */
 export interface SessionMessage {
   id: string;
@@ -269,7 +284,7 @@ export interface SessionMessage {
   content: SessionContentBlock[];
   metadata: Record<string, any>;
   created_at: string;
-  usage: { input_tokens: number; output_tokens: number } | null;
+  token: MessageToken | null;
   finished_at: string | null;
   finished_reason: string | null;
   structured_output: Record<string, any> | null;
@@ -356,26 +371,17 @@ export async function fetchSessionMessagesPage(
 }
 
 /** 后端 token_usage 响应（与 ftre/api/routes.py 对应） */
-export interface TokenUsage {
-  /** 最近一次 LLM 实算的 usage；从未跑过则为 null */
-  anchor:
-  | {
-    prompt_tokens: number;
-    completion_tokens: number;
-    total_tokens: number;
-    /** 锚点事件 timestamp（epoch 秒） */
-    at: number;
-    source: "MODEL_CALL_END" | "msg";
-  }
-  | null;
+export interface ContextTokenUsage {
+  /** 最后一次 LLM 实算的 usage；从未跑过则为 null */
+  last_call_usage: TokenUsage | null;
   /** 锚点之后会进下次 prompt 但尚未实算的事件估算 */
   pending_estimated: number;
-  /** anchor.total_tokens + pending_estimated；无锚点时退化为全量估算 */
+  /** last_call_usage.total_tokens + pending_estimated；无锚点时退化为全量估算 */
   total: number;
 }
 
 /** 拉取该 session 的 token 用量。失败抛出，由调用方决定是否保留上一次值。 */
-export async function fetchTokenUsage(sessionId: string): Promise<TokenUsage> {
+export async function fetchTokenUsage(sessionId: string): Promise<ContextTokenUsage> {
   const res = await fetch(
     `${API_BASE}/api/sessions/${encodeURIComponent(sessionId)}/token_usage`,
   );
@@ -384,23 +390,10 @@ export async function fetchTokenUsage(sessionId: string): Promise<TokenUsage> {
   }
   const data = await res.json();
   return {
-    anchor: data?.anchor ?? null,
+    last_call_usage: data?.last_call_usage ?? null,
     pending_estimated: Number(data?.pending_estimated) || 0,
     total: Number(data?.total) || 0,
   };
-}
-
-/**
- * @deprecated 历史接口；保留只是为了兼容旧调用，实际等价于 fetchTokenUsage().total。
- */
-export async function fetchUsage(sessionId: string): Promise<number> {
-  if (!sessionId) return 0;
-  try {
-    const usage = await fetchTokenUsage(sessionId);
-    return usage.total;
-  } catch {
-    return 0;
-  }
 }
 
 // ─── 模型 / 供应商类型（前端共用） ─────────────────────────────────

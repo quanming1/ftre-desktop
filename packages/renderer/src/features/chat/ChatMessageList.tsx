@@ -260,32 +260,11 @@ export const ChatMessageList = memo(function ChatMessageList({
             turnFileChanges = (!isBusy && fileMap.size > 0) ? Array.from(fileMap.values()) : undefined;
           }
 
-          let turnUsage: ChatMessage["usage"] | undefined;
-          if (msg.role === "assistant" && msg.usage) {
-            let prevTotal = 0;
-            for (let j = i - 1; j >= 0; j--) {
-              const prev = messages[j];
-              if (prev.role === "assistant" && prev.usage?.total_tokens != null) {
-                prevTotal = prev.usage.total_tokens;
-                break;
-              }
-            }
-            const cur = msg.usage;
-            turnUsage = {
-              prompt_tokens: cur.prompt_tokens,
-              completion_tokens: cur.completion_tokens,
-              total_tokens:
-                cur.total_tokens != null ? cur.total_tokens - prevTotal : undefined,
-            };
-          }
-
           return (
             <MessageItem
               key={msg.id}
               message={msg}
               showActions={isLastOfTurn}
-              turnUsage={turnUsage}
-              turnAccumulatedUsage={msg.turnUsage}
               turnTexts={turnTexts}
               turnFileChanges={turnFileChanges}
               turnDurationSec={msg.durationSec}
@@ -313,8 +292,6 @@ export const ChatMessageList = memo(function ChatMessageList({
 const MessageItem = memo(function MessageItem({
   message,
   showActions = false,
-  turnUsage,
-  turnAccumulatedUsage,
   turnTexts,
   turnFileChanges,
   turnDurationSec,
@@ -322,8 +299,6 @@ const MessageItem = memo(function MessageItem({
 }: {
   message: ChatMessage;
   showActions?: boolean;
-  turnUsage?: ChatMessage["usage"];
-  turnAccumulatedUsage?: ChatMessage["turnUsage"];
   /** 本轮所有 assistant 消息的纯文本列表（isLastOfTurn 时传入） */
   turnTexts?: string[];
   /** 本轮所有 edit/write 文件变更列表（isLastOfTurn 时传入） */
@@ -341,8 +316,6 @@ const MessageItem = memo(function MessageItem({
       <AssistantMessage
         message={message}
         showActions={showActions}
-        turnUsage={turnUsage}
-        turnAccumulatedUsage={turnAccumulatedUsage}
         turnTexts={turnTexts}
         turnFileChanges={turnFileChanges}
         turnDurationSec={turnDurationSec}

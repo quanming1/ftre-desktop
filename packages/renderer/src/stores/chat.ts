@@ -5,9 +5,14 @@
 import { create } from "zustand";
 import { useShallow } from "zustand/shallow";
 import { wsClient } from "@/services/websocket-client";
-import type { WsConnectionStatus, ServerMessage } from "@/services/websocket-client";
+import {
+  isReplySnapshotMessage,
+  type ReplySnapshotPayload,
+  type WsConnectionStatus,
+  type ServerMessage,
+} from "@/services/websocket-client";
 import { createSessionRemote, API_BASE, fetchChatAgents, updateAgent } from "@/services/api";
-import type { ChatAgent } from "@/services/api";
+import type { ChatAgent, MessageToken, ContextTokenUsage } from "@/services/api";
 
 // ─── Types ───────────────────────────────────────────────────────────
 
@@ -60,12 +65,7 @@ export interface ChatMessage {
   toolResults?: Record<string, ToolResult>;
   streaming?: boolean;
   attachments?: MessageAttachment[];
-  usage?: {
-    prompt_tokens?: number;
-    completion_tokens?: number;
-    total_tokens?: number;
-    [k: string]: any;
-  };
+  token?: MessageToken;
   metadata?: { kind?: "block" | "final"; [k: string]: any };
   isError?: boolean;
   external?: boolean;
@@ -84,13 +84,6 @@ export interface ChatMessage {
   durationSec?: number;
   /** 产生该消息的模型 ID（从 MODEL_CALL_START.model_name 提取） */
   model?: string;
-  /** 本轮累积 token 用量（从 turn_end 的 token_usage 提取） */
-  turnUsage?: {
-    prompt_tokens: number;
-    completion_tokens: number;
-    cached_tokens: number;
-    llm_calls: number;
-  };
 }
 
 let _defaultWsCache: string | null = null;
@@ -131,6 +124,8 @@ interface Bucket {
   commandName: string | null;
   /** 当前 session 的执行计划（从 session.metadata.plan 提取） */
   plan: PlanData | null;
+  /** reply_snapshot 的单调版本；防止较旧快照覆盖较新状态。 */
+  replyRevisions?: Map<string, number>;
 }
 
 const buckets = new Map<string, Bucket>();
@@ -189,6 +184,103 @@ function extractFromBlocks(blocks: ContentBlock[]): { text: string; eventIds: st
     if (b.type !== "toolCall") eventIds.push(b.blockId);
   }
   return { text, eventIds };
+}
+
+function toolOutputText(output: unknown): string {
+  if (typeof output === "string") return output;
+  if (Array.isArray(output) && output.every((part) => part?.type === "text")) {
+    return output.map((part) => String(part.text ?? "")).join("");
+  }
+  return JSON.stringify(output ?? "", null, 2);
+}
+
+/** 将 Gateway attach 帧中的原始 Msg 快照转换为客户端 ChatMessage。 */
+function replySnapshotToChatMessage(raw: any): ChatMessage | null {
+  if (!raw || raw.role !== "assistant" || !Array.isArray(raw.content) || !raw.id) {
+    return null;
+  }
+  const blocks: ContentBlock[] = [];
+  const toolResults: Record<string, ToolResult> = {};
+  for (const block of raw.content) {
+    if (block?.type === "text") {
+      blocks.push({ type: "text", text: String(block.text ?? ""), blockId: String(block.id ?? "") });
+    } else if (block?.type === "thinking") {
+      blocks.push({ type: "thinking", thinking: String(block.thinking ?? ""), blockId: String(block.id ?? "") });
+    } else if (block?.type === "data" && block.source) {
+      blocks.push({
+        type: "data",
+        data: String(block.source.data ?? ""),
+        url: block.source.type === "url" ? block.source.url : undefined,
+        mediaType: block.source.media_type ?? "application/octet-stream",
+        blockId: String(block.id ?? ""),
+      });
+    } else if (block?.type === "tool_call") {
+      blocks.push({
+        type: "toolCall",
+        id: String(block.id ?? ""),
+        name: String(block.name ?? ""),
+        arguments: block.arguments && typeof block.arguments === "object" ? block.arguments : {},
+      });
+    } else if (block?.type === "tool_result") {
+      const state = String(block.state ?? "success");
+      const failed = ["error", "interrupted", "denied"].includes(state);
+      const id = String(block.id ?? "");
+      toolResults[id] = {
+        id,
+        name: String(block.name ?? ""),
+        result: failed ? null : toolOutputText(block.output),
+        error: failed ? toolOutputText(block.output) : null,
+        status: state === "interrupted" || state === "denied"
+          ? "cancelled"
+          : failed ? "error" : "completed",
+        metadata: block.metadata,
+      };
+    }
+  }
+  const { text, eventIds } = extractFromBlocks(blocks);
+  const parsedTimestamp = typeof raw.created_at === "string" ? Date.parse(raw.created_at) : NaN;
+  return {
+    id: String(raw.id),
+    role: "assistant",
+    content: text || null,
+    timestamp: Number.isFinite(parsedTimestamp) ? parsedTimestamp : Date.now(),
+    blocks,
+    toolResults,
+    streaming: raw.finished_at == null,
+    metadata: raw.metadata && typeof raw.metadata === "object" ? raw.metadata : {},
+    token: raw.token ?? undefined,
+    isError: raw.finished_reason === "error" || !!raw.error,
+    eventIds,
+  };
+}
+
+/** 应用 attach/reconnect 的完整进行中 Msg 快照。 */
+export function applyReplySnapshot(b: Bucket, payload: ReplySnapshotPayload): void {
+  const replies = payload.replies;
+  const revisions = b.replyRevisions ?? (b.replyRevisions = new Map<string, number>());
+  for (const reply of replies) {
+    const replyId = reply.reply_id;
+    const revision = reply.revision;
+    const message = replySnapshotToChatMessage(reply.message);
+    if (!replyId || !message || !Number.isFinite(revision)) continue;
+    // The backend uses reply_id as the assistant Msg id.  Keep that invariant
+    // locally as well, so subsequent stream events always find this snapshot.
+    message.id = replyId;
+    const previousRevision = revisions.get(replyId);
+    if (previousRevision != null && revision < previousRevision) continue;
+    revisions.set(replyId, revision);
+
+    const index = b.messages.findIndex((item) => item.id === replyId);
+    if (index >= 0) {
+      const next = b.messages.slice();
+      next[index] = message;
+      b.messages = next;
+    } else {
+      b.messages = [...b.messages, message].sort((a, z) => a.timestamp - z.timestamp);
+    }
+    b.isBusy = message.streaming || b.isBusy;
+    if (message.streaming) b.sessionStatus = "running";
+  }
 }
 
 
@@ -259,6 +351,7 @@ export function applyEvent(b: Bucket, ev: BusEvent): void {
   if (!rememberEvent(b, ev)) return;
   const d = ev.data || {};
   const ts = ev.ts ?? Date.now();
+  const replyId = typeof d.reply_id === "string" && d.reply_id ? d.reply_id : null;
 
   /** 褰撳墠 streaming 灏鹃儴 assistant锛堣嫢瀛樺湪锛?*/
   const tail = (): ChatMessage | null => {
@@ -275,14 +368,26 @@ export function applyEvent(b: Bucket, ev: BusEvent): void {
     b.messages = next;
   };
 
+  const replyIndex = (): number => replyId == null
+    ? -1
+    : b.messages.findIndex((message) => message.id === replyId && message.role === "assistant");
+
+  const replaceReply = (mut: (m: ChatMessage) => ChatMessage): void => {
+    const index = replyIndex();
+    if (index < 0) return;
+    const next = b.messages.slice();
+    next[index] = mut(next[index]);
+    b.messages = next;
+  };
+
   /** Ensure tail is a streaming assistant; create one if missing or sealed. */
   const ensure = (): void => {
-    const t = tail();
-    if (t && t.role === "assistant" && t.streaming) return;
+    const index = replyIndex();
+    if (index >= 0) return;
     b.messages = [
       ...b.messages,
       {
-        id: d.reply_id ?? ev.eventId ?? ev.frameId ?? nextId("ast"),
+        id: replyId ?? ev.eventId ?? ev.frameId ?? nextId("ast"),
         role: "assistant",
         content: null,
         timestamp: ts,
@@ -299,7 +404,7 @@ export function applyEvent(b: Bucket, ev: BusEvent): void {
     delta = "",
   ): void => {
     ensure();
-    replaceTail((message) => {
+    replaceReply((message) => {
       const blocks = [...(message.blocks || [])];
       const index = blocks.findIndex(
         (block) => block.type === kind && block.blockId === blockId,
@@ -329,7 +434,7 @@ export function applyEvent(b: Bucket, ev: BusEvent): void {
     delta = "",
   ): void => {
     ensure();
-    replaceTail((message) => {
+    replaceReply((message) => {
       const blocks = [...(message.blocks || [])];
       const index = blocks.findIndex(
         (block) => block.type === "data" && block.blockId === blockId,
@@ -475,7 +580,8 @@ export function applyEvent(b: Bucket, ev: BusEvent): void {
     }
 
     case "REPLY_END": {
-      replaceTail((message) => ({
+      ensure();
+      replaceReply((message) => ({
         ...message,
         id: d.reply_id || message.id,
         streaming: false,
@@ -534,21 +640,30 @@ export function applyEvent(b: Bucket, ev: BusEvent): void {
     case "MODEL_CALL_START":
       ensure();
       if (typeof d.model_name === "string" && d.model_name) {
-        replaceTail((message) => ({ ...message, model: d.model_name }));
+        replaceReply((message) => ({ ...message, model: d.model_name }));
       }
       return;
 
     case "MODEL_CALL_END":
       ensure();
-      replaceTail((message) => {
-        const prompt = (message.usage?.prompt_tokens || 0) + (d.input_tokens || 0);
-        const completion = (message.usage?.completion_tokens || 0) + (d.output_tokens || 0);
+      replaceReply((message) => {
+        const current = {
+          prompt_tokens: d.prompt_tokens || 0,
+          completion_tokens: d.completion_tokens || 0,
+          total_tokens: d.total_tokens || 0,
+        };
+        const previous = message.token?.usage;
         return {
           ...message,
-          usage: {
-            prompt_tokens: prompt,
-            completion_tokens: completion,
-            total_tokens: prompt + completion,
+          token: {
+            usage: previous
+              ? {
+                  prompt_tokens: previous.prompt_tokens + current.prompt_tokens,
+                  completion_tokens: previous.completion_tokens + current.completion_tokens,
+                  total_tokens: previous.total_tokens + current.total_tokens,
+                }
+              : { ...current },
+            last_call_usage: { ...current },
           },
         };
       });
@@ -556,7 +671,7 @@ export function applyEvent(b: Bucket, ev: BusEvent): void {
 
     case "TOOL_CALL_START":
       ensure();
-      replaceTail((message) => ({
+      replaceReply((message) => ({
         ...message,
         blocks: [
           ...(message.blocks || []),
@@ -573,7 +688,7 @@ export function applyEvent(b: Bucket, ev: BusEvent): void {
 
     case "TOOL_CALL_DELTA":
       ensure();
-      replaceTail((message) => ({
+      replaceReply((message) => ({
         ...message,
         blocks: (message.blocks || []).map((block) => {
           if (block.type !== "toolCall" || block.id !== d.tool_call_id) return block;
@@ -591,7 +706,8 @@ export function applyEvent(b: Bucket, ev: BusEvent): void {
       return;
 
     case "TOOL_CALL_END":
-      replaceTail((message) => ({
+      ensure();
+      replaceReply((message) => ({
         ...message,
         blocks: (message.blocks || []).map((block) => {
           if (block.type !== "toolCall" || block.id !== d.tool_call_id) return block;
@@ -715,10 +831,9 @@ export function applyEvent(b: Bucket, ev: BusEvent): void {
       // 计算耗时并写入本轮最后一条 assistant 消息
       if (b.turnStartTs != null && ts != null) {
         const durationSec = Math.round((ts - b.turnStartTs) / 1000);
-        const turnUsage = phaseData.token_usage ?? undefined;
         for (let i = b.messages.length - 1; i >= 0; i--) {
           if (b.messages[i].role === "assistant" && !b.messages[i].streaming) {
-            b.messages[i] = { ...b.messages[i], durationSec, ...(turnUsage ? { turnUsage } : {}) };
+            b.messages[i] = { ...b.messages[i], durationSec };
             break;
           }
         }
@@ -949,6 +1064,16 @@ if (!(globalThis as any)[__wsBoundFlag]) {
       return;
     }
 
+    // attach/reconnect 同步进行中的完整 Msg；不是 AgentStreamEvent。
+    if (isReplySnapshotMessage(msg)) {
+      const sid = msg.data.session_id || msg.metadata?.session_id;
+      if (typeof sid !== "string" || !sid) return;
+      const b = bucket(sid);
+      applyReplySnapshot(b, msg.data);
+      mirror(sid);
+      return;
+    }
+
     // 鍚庣鍦ㄩ鏉＄敤鎴锋秷鎭悗寮傛鐢熸垚鏍囬锛涘墠绔湁鑷繁鐨勪細璇濆垪琛ㄨ疆璇紝
     // 鎷垮埌鏂?title 鏄繜鏃╃殑浜嬶紝涓嶉渶瑕佷笓闂ㄧ殑 push 閫氱煡銆?
     // global_event锛氬叏灞€鎺у埗淇″彿锛坰ession 杩愯鎬佺瓑锛夛紝涓嶈繘 agent 浜嬩欢娴?
@@ -1018,22 +1143,20 @@ if (!(globalThis as any)[__wsBoundFlag]) {
       _enqueueWsEvent(sid, b, busEvent);
     }
     if (ev.type === "MODEL_CALL_END" && useChat.getState().sessionId === sid) {
-      const promptTokens = Number(ev.input_tokens || 0);
-      const completionTokens = Number(ev.output_tokens || 0);
+      const promptTokens = Number(ev.prompt_tokens || 0);
+      const completionTokens = Number(ev.completion_tokens || 0);
+      const totalTokens = Number(ev.total_tokens || (promptTokens + completionTokens));
       if (promptTokens || completionTokens) {
-        const newAnchor = {
+        const last_call_usage = {
           prompt_tokens: promptTokens,
           completion_tokens: completionTokens,
-          total_tokens: promptTokens + completionTokens,
-          at: Date.now() / 1000,
-          source: "MODEL_CALL_END" as const,
+          total_tokens: totalTokens,
         };
         const pending_estimated = 0;
-        const total = newAnchor.total_tokens + pending_estimated;
+        const total = totalTokens + pending_estimated;
         useChat.setState({
-          contextTokens: total,
           tokenUsage: {
-            anchor: newAnchor,
+            last_call_usage,
             pending_estimated,
             total,
           },
@@ -1111,19 +1234,7 @@ interface ChatState {
   /** 褰撳墠浼氳瘽鐨勬€?token 鐢ㄩ噺鏄庣粏銆?   *  鐢卞悗绔?GET /api/sessions/{id}/token_usage 鎻愪緵锛屽湪鍒囨崲 session銆佹祦寮?done
    *  鍜?external_message 鍒拌揪鏃跺埛鏂般€?   *  - anchor: 鏈€杩戜竴娆?LLM 瀹炵畻鐨?usage锛堟棤鍒?null锛?   *  - pending_estimated: 閿氱偣涔嬪悗鏈疄绠楃殑浜嬩欢浼扮畻
    *  - total: anchor.total_tokens + pending_estimated */
-  tokenUsage: {
-    anchor: {
-      prompt_tokens: number;
-      completion_tokens: number;
-      total_tokens: number;
-      at: number;
-      source: "MODEL_CALL_END" | "msg";
-    } | null;
-    pending_estimated: number;
-    total: number;
-  } | null;
-  /** @deprecated 淇濈暀 contextTokens 鍏煎鏃?selector锛岀瓑浠蜂簬 tokenUsage?.total ?? 0 */
-  contextTokens: number;
+  tokenUsage: ContextTokenUsage | null;
   /** 褰撳墠閫変腑妯″瀷鐨勪笂涓嬫枃绐楀彛澶у皬锛坱oken 鏁帮級銆?   *  鐢?ModelSelector 鍦ㄩ€夋嫨妯″瀷 / 鍔犺浇榛樿鍊兼椂鍚屾杩涙潵锛涚敤浜?TokenRing 璁＄畻鐢ㄩ噺姣斾緥銆?   *  null 琛ㄧず灏氭湭閫夋嫨鎴栨ā鍨嬫湭閰嶇疆 context_window銆?*/
   contextWindow: number | null;
   /** 杩樻病鏈?sessionId 鏃讹紙娆㈣繋椤?/ 鏂板璇濓級鐢ㄦ埛棰勮鐨勫伐浣滃尯銆?   *  鍙戝嚭绗竴鏉℃秷鎭垱寤?session 鏃朵細浣滀负 query param 涓€璧蜂紶缁欏悗绔紝
@@ -1202,7 +1313,6 @@ export const useChat = create<ChatState>((set, get) => ({
     ? localStorage.getItem("ftre_agent_id") || "default"
     : "default",
   agents: [] as ChatAgent[],
-  contextTokens: 0,
   tokenUsage: null,
   contextWindow: null,
   pendingWorkspace: null,
@@ -1308,12 +1418,12 @@ export const useChat = create<ChatState>((set, get) => ({
 
   newChat: () => {
     wsClient.subscribeOnly(null);
-    set({ sessionId: null, messages: [], lastUserInputTs: null, turnStartTs: null, commandName: null, plan: null, sessionStatus: "idle", isBusy: false, error: null, retryState: null, contextTokens: 0, tokenUsage: null, pendingWorkspace: _defaultWsCache });
+    set({ sessionId: null, messages: [], lastUserInputTs: null, turnStartTs: null, commandName: null, plan: null, sessionStatus: "idle", isBusy: false, error: null, retryState: null, tokenUsage: null, pendingWorkspace: _defaultWsCache });
   },
 
   switchTo: (sessionId) => {
     const b = bucket(sessionId);
-    set({ sessionId, messages: b.messages, lastUserInputTs: b.lastUserInputTs, turnStartTs: b.turnStartTs, commandName: b.commandName, plan: b.plan, sessionStatus: b.sessionStatus, isBusy: b.isBusy, error: b.error, retryState: b.retryState, contextTokens: 0, tokenUsage: null });
+    set({ sessionId, messages: b.messages, lastUserInputTs: b.lastUserInputTs, turnStartTs: b.turnStartTs, commandName: b.commandName, plan: b.plan, sessionStatus: b.sessionStatus, isBusy: b.isBusy, error: b.error, retryState: b.retryState, tokenUsage: null });
     void get().refreshTokenUsage(sessionId);
   },
 
@@ -1457,7 +1567,7 @@ export const useChat = create<ChatState>((set, get) => ({
   refreshTokenUsage: async (sessionId) => {
     const sid = sessionId ?? get().sessionId;
     if (!sid) {
-      set({ contextTokens: 0, tokenUsage: null });
+      set({ tokenUsage: null });
       return;
     }
     try {
@@ -1466,7 +1576,7 @@ export const useChat = create<ChatState>((set, get) => ({
       const usage = await fetchTokenUsage(sid);
       // 鍒锋柊杩囩▼涓鏋滅敤鎴峰凡缁忓垏璧颁簡 session锛屼涪寮冭繖娆＄粨鏋?
       if (get().sessionId !== sid) return;
-      set({ contextTokens: usage.total, tokenUsage: usage });
+      set({ tokenUsage: usage });
     } catch (e) {
       // HTTP/缃戠粶澶辫触锛氫繚鐣欎笂涓€娆″€硷紝閬垮厤 UI 闂埌 0
       console.error("[chat] refreshTokenUsage failed:", e);

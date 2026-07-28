@@ -115,15 +115,9 @@ function persistedMessageToChat(record: SessionMessage): ChatMessage | null {
     timestamp,
     blocks,
     toolResults,
-    streaming: false,
+    streaming: record.finished_at == null,
     metadata: record.metadata,
-    usage: record.usage
-      ? {
-          prompt_tokens: record.usage.input_tokens,
-          completion_tokens: record.usage.output_tokens,
-          total_tokens: record.usage.input_tokens + record.usage.output_tokens,
-        }
-      : undefined,
+    token: record.token ?? undefined,
     isError: record.finished_reason === "error" || !!record.error,
     external,
     externalFrom: external && (fromChannel || fromSession)

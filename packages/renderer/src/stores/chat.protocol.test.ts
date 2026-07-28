@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { applyEvent, type BusEvent, type ChatMessage, type PlanData } from "./chat";
+import { applyEvent, applyReplySnapshot, type BusEvent, type ChatMessage, type PlanData } from "./chat";
 
 vi.mock("@/services/websocket-client", () => ({
   wsClient: {
@@ -72,8 +72,9 @@ describe("AgentStreamEvent reducer", () => {
       metadata: { file: "README.md" },
     }));
     applyEvent(bucket, coreEvent("MODEL_CALL_END", {
-      input_tokens: 10,
-      output_tokens: 5,
+      prompt_tokens: 10,
+      completion_tokens: 5,
+      total_tokens: 15,
     }));
     applyEvent(bucket, coreEvent("REPLY_END", { finished_reason: "completed" }));
 
@@ -82,7 +83,12 @@ describe("AgentStreamEvent reducer", () => {
     expect(message.content).toBe("Hello world");
     expect(message.streaming).toBe(false);
     expect(message.model).toBe("gpt-test");
-    expect(message.usage?.total_tokens).toBe(15);
+    expect(message.token?.usage).toEqual({
+      prompt_tokens: 10,
+      completion_tokens: 5,
+      total_tokens: 15,
+    });
+    expect(message.token?.last_call_usage).toEqual(message.token?.usage);
     expect(message.blocks?.find((block) => block.type === "toolCall")).toMatchObject({
       id: "call-1",
       name: "read",
@@ -110,5 +116,85 @@ describe("AgentStreamEvent reducer", () => {
     }));
     expect(bucket.isBusy).toBe(false);
     expect(bucket.sessionStatus).toBe("idle");
+  });
+
+  it("accumulates Reply usage and keeps the last model call separately", () => {
+    const bucket = createBucket();
+
+    applyEvent(bucket, coreEvent("REPLY_START", { name: "assistant" }));
+    applyEvent(bucket, coreEvent("MODEL_CALL_END", {
+      prompt_tokens: 100,
+      completion_tokens: 20,
+      total_tokens: 120,
+    }));
+    applyEvent(bucket, coreEvent("MODEL_CALL_END", {
+      prompt_tokens: 150,
+      completion_tokens: 30,
+      total_tokens: 180,
+    }));
+
+    expect(bucket.messages[0].token).toEqual({
+      usage: {
+        prompt_tokens: 250,
+        completion_tokens: 50,
+        total_tokens: 300,
+      },
+      last_call_usage: {
+        prompt_tokens: 150,
+        completion_tokens: 30,
+        total_tokens: 180,
+      },
+    });
+  });
+
+  it("replaces an open Reply with an attach snapshot then continues by reply_id", () => {
+    const bucket = createBucket();
+    applyReplySnapshot(bucket, {
+      replies: [{
+        reply_id: "reply-1",
+        revision: 4,
+        message: {
+          id: "reply-1",
+          role: "assistant",
+          content: [{ type: "text", id: "text-1", text: "already persisted" }],
+          metadata: {},
+          created_at: "2026-07-28T10:00:00Z",
+          finished_at: null,
+          finished_reason: null,
+          token: null,
+        },
+      }],
+    });
+
+    applyEvent(bucket, coreEvent("TEXT_BLOCK_DELTA", {
+      block_id: "text-1",
+      delta: " + live",
+    }));
+
+    expect(bucket.messages).toHaveLength(1);
+    expect(bucket.messages[0]).toMatchObject({
+      id: "reply-1",
+      content: "already persisted + live",
+      streaming: true,
+    });
+  });
+
+  it("does not let an older snapshot overwrite a newer one", () => {
+    const bucket = createBucket();
+    const snapshot = (revision: number, text: string) => ({
+      replies: [{
+        reply_id: "reply-1",
+        revision,
+        message: {
+          id: "reply-1", role: "assistant",
+          content: [{ type: "text", id: "text-1", text }],
+          metadata: {}, created_at: "2026-07-28T10:00:00Z",
+          finished_at: null, finished_reason: null, token: null,
+        },
+      }],
+    });
+    applyReplySnapshot(bucket, snapshot(5, "new"));
+    applyReplySnapshot(bucket, snapshot(4, "old"));
+    expect(bucket.messages[0].content).toBe("new");
   });
 });
