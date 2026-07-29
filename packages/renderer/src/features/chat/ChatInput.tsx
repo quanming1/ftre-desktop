@@ -283,6 +283,7 @@ export function ChatInput() {
 
   // 细粒度选择器：仅订阅各自需要的字段，避免无关状态变化触发重渲染
   const isBusy = useChat((s) => s.isBusy);
+  const sessionStatus = useChat((s) => s.sessionStatus);
   const sessionId = useChat((s) => s.sessionId);
   const autoFollow = useLayout((s) => s.autoFollowFiles);
   const toggleAutoFollow = useLayout((s) => s.toggleAutoFollowFiles);
@@ -393,6 +394,8 @@ export function ChatInput() {
   // ── 发送 ──
   const handleSend = useCallback(() => {
     const state = useChat.getState();
+    // 压缩期间后端会丢弃新输入；前端同步阻止发送，避免产生乐观消息残影。
+    if (state.sessionStatus === "compacting") return;
     const { text, parts } = inputEditor.serialize();
     const firstText =
       parts.length === 1 && parts[0].type === "text"
@@ -647,7 +650,9 @@ export function ChatInput() {
     return () => window.removeEventListener("ftre:plan-next-step", handler);
   }, []);
 
-  const canSend = !inputEditor.isEmpty || attachments.length > 0;
+  const canSend =
+    sessionStatus !== "compacting"
+    && (!inputEditor.isEmpty || attachments.length > 0);
 
   return (
     <div className="px-6 pb-4 pt-3">

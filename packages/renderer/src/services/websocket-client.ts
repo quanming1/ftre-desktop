@@ -20,7 +20,18 @@ export interface ServerMessage<TData = AgentStreamEvent> {
   metadata: Record<string, unknown>;
 }
 
-/** Gateway ReplyProjection attach/reconnect snapshot. */
+/** Gateway SessionProjection attach/reconnect snapshot. */
+export const CompactEventName = {
+  START: "context_compact_start",
+  DONE: "context_compact_done",
+  FAILED: "context_compact_failed",
+} as const;
+
+export const UserMessageEventType = "USER_MESSAGE" as const;
+
+export type CompactEventName =
+  (typeof CompactEventName)[keyof typeof CompactEventName];
+
 export interface ReplySnapshotItem {
   reply_id: string;
   revision: number;
@@ -31,6 +42,8 @@ export interface ReplySnapshotItem {
 export interface ReplySnapshotPayload {
   session_id: string;
   replies: ReplySnapshotItem[];
+  /** Projection 中仅驻内存的 session 级 active Event。 */
+  events?: AgentStreamEvent[];
 }
 
 export type ReplySnapshotMessage = ServerMessage<ReplySnapshotPayload> & {

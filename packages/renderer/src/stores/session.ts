@@ -38,6 +38,28 @@ function toolOutputText(output: unknown): string {
 }
 
 function persistedMessageToChat(record: SessionMessage): ChatMessage | null {
+  // compact 摘要 Msg：role=user, name=compact → 映射为 CompactBubble
+  // 用 record.id 作为气泡 id，与实时 context_compact_done 事件 id 一致，刷新不产生双气泡
+  if (record.role === "user" && record.name === "compact") {
+    const compactMeta = record.metadata?.context_compact ?? {};
+    const summaryText = record.content
+      .filter((block) => block.type === "text")
+      .map((block) => String(block.text ?? ""))
+      .join("\n");
+    return {
+      id: record.id,
+      role: "system",
+      content: null,
+      timestamp: record.timestamp ? record.timestamp * 1000 : Date.parse(record.created_at),
+      compact: {
+        status: "done",
+        mode: "summary",
+        tokensBefore: typeof compactMeta.tokens_before === "number" ? compactMeta.tokens_before : undefined,
+        tokensAfter: typeof compactMeta.tokens_after === "number" ? compactMeta.tokens_after : undefined,
+        summaryPreview: summaryText || undefined,
+      },
+    };
+  }
   if (record.role === "system" || record.metadata?.hide === true) return null;
   const timestamp = record.timestamp ? record.timestamp * 1000 : Date.parse(record.created_at);
   const text = record.content
@@ -117,8 +139,15 @@ function persistedMessageToChat(record: SessionMessage): ChatMessage | null {
     toolResults,
     streaming: record.finished_at == null,
     metadata: record.metadata,
+    model: typeof record.metadata?.model === "string" ? record.metadata.model : undefined,
     token: record.token ?? undefined,
     isError: record.finished_reason === "error" || !!record.error,
+    error: record.error && typeof record.error.message === "string"
+      ? {
+          code: typeof record.error.code === "string" ? record.error.code : undefined,
+          message: record.error.message,
+        }
+      : undefined,
     external,
     externalFrom: external && (fromChannel || fromSession)
       ? `${fromChannel}/${fromSession}`

@@ -399,31 +399,33 @@ export const AssistantMessage = memo(
     return (
       <div data-assistant-message="true" className="flex justify-start">
         <div className="w-full">
-          {message.isError ? (
-            <div className="px-3 py-2 rounded-lg text-[13px] text-t-dim italic leading-relaxed">
-              {message.content}
-            </div>
-          ) : (
-            <StreamingContext.Provider value={isStreaming}>
-              <div className="text-[var(--text-md)] leading-relaxed text-t-primary font-sans break-words">
-                {message.blocks && message.blocks.length > 0 ? (
-                  <div className="flex flex-col gap-2">
-                    <BlocksRenderer
-                      blocks={message.blocks}
-                      toolResults={message.toolResults || {}}
-                      streaming={isStreaming}
-                      mdRef={mdRef}
-                    />
-                  </div>
-                ) : message.content ? (
-                  <div className="flex flex-col gap-2">
-                    <ThinkAwareContent text={message.content} live={isStreaming} anchor={mdRef} />
-                  </div>
-                ) : null}
+          <StreamingContext.Provider value={isStreaming}>
+            <div className="text-[var(--text-md)] leading-relaxed text-t-primary font-sans break-words">
+              {message.blocks && message.blocks.length > 0 ? (
+                <div className="flex flex-col gap-2">
+                  <BlocksRenderer
+                    blocks={message.blocks}
+                    toolResults={message.toolResults || {}}
+                    streaming={isStreaming}
+                    mdRef={mdRef}
+                  />
+                </div>
+              ) : message.content ? (
+                <div className="flex flex-col gap-2">
+                  <ThinkAwareContent text={message.content} live={isStreaming} anchor={mdRef} />
+                </div>
+              ) : null}
 
-                {turnFileChanges && turnFileChanges.length > 0 && !isStreaming && (
-                  <TurnFileChanges changes={turnFileChanges} />
-                )}
+              {message.error && (
+                <div role="status" className="mt-3 px-3 py-2 rounded-lg text-[13px] text-t-dim italic leading-relaxed">
+                  {message.error.code && <span className="font-mono text-[11px]">[{message.error.code}] </span>}
+                  {message.error.message}
+                </div>
+              )}
+
+              {turnFileChanges && turnFileChanges.length > 0 && !isStreaming && (
+                <TurnFileChanges changes={turnFileChanges} />
+              )}
 
                 {showActions && !isStreaming && !message.isError && (
                   <div className="mt-2 flex items-center gap-2">
@@ -478,9 +480,8 @@ export const AssistantMessage = memo(
                     </TooltipProvider>
                   </div>
                 )}
-              </div>
-            </StreamingContext.Provider>
-          )}
+            </div>
+          </StreamingContext.Provider>
         </div>
       </div>
     );

@@ -6,6 +6,8 @@ import { create } from "zustand";
 import { useShallow } from "zustand/shallow";
 import { wsClient } from "@/services/websocket-client";
 import {
+  CompactEventName,
+  UserMessageEventType,
   isReplySnapshotMessage,
   type ReplySnapshotPayload,
   type WsConnectionStatus,
@@ -68,6 +70,8 @@ export interface ChatMessage {
   token?: MessageToken;
   metadata?: { kind?: "block" | "final"; [k: string]: any };
   isError?: boolean;
+  /** Reply 结束后的状态错误；正文仍按正常 content blocks 渲染。 */
+  error?: { code?: string; message: string };
   external?: boolean;
   externalFrom?: string;
   compact?: {
@@ -250,6 +254,9 @@ function replySnapshotToChatMessage(raw: any): ChatMessage | null {
     metadata: raw.metadata && typeof raw.metadata === "object" ? raw.metadata : {},
     token: raw.token ?? undefined,
     isError: raw.finished_reason === "error" || !!raw.error,
+    error: raw.error && typeof raw.error === "object" && typeof raw.error.message === "string"
+      ? { code: typeof raw.error.code === "string" ? raw.error.code : undefined, message: raw.error.message }
+      : undefined,
     eventIds,
   };
 }
@@ -280,6 +287,21 @@ export function applyReplySnapshot(b: Bucket, payload: ReplySnapshotPayload): vo
     }
     b.isBusy = message.streaming || b.isBusy;
     if (message.streaming) b.sessionStatus = "running";
+  }
+
+  // session 级 active Event（例如 context_compact_start）同样由 Projection
+  // 快照恢复。使用原 Event id 走正常 reducer，保证与实时帧使用相同去重语义。
+  for (const event of payload.events ?? []) {
+    if (!event?.type) continue;
+    const snapshotEvent: BusEvent = {
+      type: event.type,
+      eventId: typeof event.id === "string" ? event.id : undefined,
+      data: event,
+      ts: typeof event.created_at === "string" ? Date.parse(event.created_at) : undefined,
+    };
+    if (hasSeenEvent(b, snapshotEvent)) continue;
+    b.events.push(snapshotEvent);
+    applyEvent(b, snapshotEvent);
   }
 }
 
@@ -521,24 +543,25 @@ export function applyEvent(b: Bucket, ev: BusEvent): void {
 
   switch (ev.type) {
     // ─── 实时 echo：后端保存 UserMsg 后回推给客户端 ───
-    case "user_message": {
-      if (d.metadata?.hide) {
+    case UserMessageEventType: {
+      const input = d.data && typeof d.data === "object" ? d.data : {};
+      if (input.metadata?.hide) {
         attachHiddenImageToLatestReadTool();
         return;
       }
       const frameId = (ev.metadata?.frame_id as string | undefined) ?? "";
       b.lastUserInputTs = ts;
       if (frameId && b.messages.some((m) => m.id === frameId)) return;
-      const c = typeof d.content === "string"
-        ? d.content
-        : Array.isArray(d.content)
-          ? d.content
+      const c = typeof input.content === "string"
+        ? input.content
+        : Array.isArray(input.content)
+          ? input.content
               .filter((p: any) => p?.type === "text" || p?.type === "skill")
               .map((p: any) => String(p.text ?? p.data ?? "").trim())
               .join("\n")
               .trim()
           : "";
-      const rawAtts: any[] = Array.isArray(d.attachments) ? d.attachments : [];
+      const rawAtts: any[] = Array.isArray(input.attachments) ? input.attachments : [];
       const localAttachments: MessageAttachment[] = [];
       for (const a of rawAtts) {
         if (a && a.type === "image" && typeof a.mime_type === "string") {
@@ -561,7 +584,9 @@ export function applyEvent(b: Bucket, ev: BusEvent): void {
       b.messages = [
         ...b.messages,
         {
-          id: frameId || ev.frameId || nextId("user"),
+          id: typeof d.id === "string" && d.id
+            ? d.id
+            : frameId || ev.frameId || nextId("user"),
           role: "user",
           content: c,
           timestamp: ts,
@@ -821,6 +846,87 @@ export function applyEvent(b: Bucket, ev: BusEvent): void {
         b.turnStartTs = ts ?? null;
         return;
       }
+      // ── 上下文压缩事件（CustomEvent，与后端 compact done 投影的 Msg 同 id）──
+      if (phase === CompactEventName.START) {
+        b.isBusy = false;
+        b.sessionStatus = "compacting";
+        b.messages = [
+          ...b.messages,
+          {
+            id: ev.eventId ?? nextId("compact"),
+            role: "system" as Role,
+            content: null,
+            timestamp: ts,
+            compact: {
+              status: "running",
+              tokensBefore: typeof phaseData.tokens === "number" ? phaseData.tokens : undefined,
+            },
+          },
+        ];
+        return;
+      }
+      if (phase === CompactEventName.DONE) {
+        b.isBusy = false;
+        b.sessionStatus = "idle";
+        // 用 event id 作为气泡 id，与后端投影的 compact Msg id 一致
+        const compactId = ev.eventId ?? nextId("compact");
+        const doneCompact = {
+          status: "done" as const,
+          mode: typeof phaseData.mode === "string" ? phaseData.mode : "summary",
+          tokensBefore: typeof phaseData.tokens_before === "number" ? phaseData.tokens_before : undefined,
+          tokensAfter: typeof phaseData.tokens_after === "number" ? phaseData.tokens_after : undefined,
+          summaryPreview: typeof phaseData.summary_text === "string" ? phaseData.summary_text : undefined,
+          eventsCleared: typeof phaseData.tool_results === "number" ? phaseData.tool_results : undefined,
+        };
+        let foundRunning = false;
+        for (let i = b.messages.length - 1; i >= 0; i--) {
+          const m = b.messages[i];
+          if (m.compact?.status === "running") {
+            b.messages = [
+              ...b.messages.slice(0, i),
+              { ...m, id: compactId, compact: doneCompact },
+              ...b.messages.slice(i + 1),
+            ];
+            foundRunning = true;
+            break;
+          }
+        }
+        if (!foundRunning) {
+          b.messages = [
+            ...b.messages,
+            {
+              id: compactId,
+              role: "system" as Role,
+              content: null,
+              timestamp: ts,
+              compact: doneCompact,
+            },
+          ];
+        }
+        return;
+      }
+      if (phase === CompactEventName.FAILED) {
+        b.isBusy = false;
+        b.sessionStatus = "idle";
+        for (let i = b.messages.length - 1; i >= 0; i--) {
+          const m = b.messages[i];
+          if (m.compact?.status === "running") {
+            b.messages = [
+              ...b.messages.slice(0, i),
+              {
+                ...m,
+                compact: {
+                  status: "failed" as const,
+                  reason: typeof phaseData.reason === "string" ? phaseData.reason : "未知原因",
+                },
+              },
+              ...b.messages.slice(i + 1),
+            ];
+            break;
+          }
+        }
+        return;
+      }
       if (phase !== "TURN_END") return;
 
       replaceTail((m) => m.streaming ? { ...m, streaming: false } : m);
@@ -857,125 +963,6 @@ export function applyEvent(b: Bucket, ev: BusEvent): void {
       return;
     }
 
-    // 鈹€鈹€鈹€ 涓婁笅鏂囧帇缂╀簨浠?鈹€鈹€鈹€
-    case "context_compact_start": {
-      // 鍚庡彴绌洪棽鍘嬬缉 / 鍏抽敭璺緞 raw 鍏滃簳甯?silent=true锛屽墠绔笉娓叉煋姘旀场锛堟棤鎰燂級
-      if (d.silent === true) return;
-      b.messages = [
-        ...b.messages,
-        {
-          id: ev.frameId ?? nextId("compact"),
-          role: "system" as Role,
-          content: null,
-          timestamp: ts,
-          compact: {
-            status: "running",
-            tokensBefore: typeof d.tokens === "number" ? d.tokens : undefined,
-          },
-        },
-      ];
-      return;
-    }
-
-    case "context_compact_done": {
-      if (d.silent === true) return;
-      let foundRunning = false;
-      for (let i = b.messages.length - 1; i >= 0; i--) {
-        const m = b.messages[i];
-        if (m.compact?.status === "running") {
-          b.messages = [
-            ...b.messages.slice(0, i),
-            {
-              ...m,
-              compact: {
-                status: "done",
-                mode: typeof d.mode === "string" ? d.mode : "summary",
-                tokensBefore: typeof d.tokens_before === "number" ? d.tokens_before : m.compact.tokensBefore,
-                tokensAfter: typeof d.tokens_after === "number" ? d.tokens_after : undefined,
-                summaryPreview: typeof d.summary === "string" ? d.summary : undefined,
-                eventsCleared: typeof d.events === "number" ? d.events : undefined,
-              },
-            },
-            ...b.messages.slice(i + 1),
-          ];
-          foundRunning = true;
-          break;
-        }
-      }
-      // fast 模式没有 start，直接创建一条 done 气泡
-      if (!foundRunning) {
-        b.messages = [
-          ...b.messages,
-          {
-            id: nextId("compact"),
-            role: "system" as Role,
-            content: null,
-            timestamp: ev.ts ?? Date.now(),
-            compact: {
-              status: "done",
-              mode: typeof d.mode === "string" ? d.mode : "summary",
-              tokensBefore: typeof d.tokens_before === "number" ? d.tokens_before : undefined,
-              tokensAfter: typeof d.tokens_after === "number" ? d.tokens_after : undefined,
-              summaryPreview: typeof d.summary === "string" ? d.summary : undefined,
-              eventsCleared: typeof d.events === "number" ? d.events : undefined,
-            },
-          },
-        ];
-      }
-      return;
-    }
-
-    case "context_compact_failed": {
-      if (d.silent === true) return;
-      for (let i = b.messages.length - 1; i >= 0; i--) {
-        const m = b.messages[i];
-        if (m.compact?.status === "running") {
-          b.messages = [
-            ...b.messages.slice(0, i),
-            {
-              ...m,
-              compact: {
-                status: "failed",
-                reason: typeof d.reason === "string" ? d.reason : "鏈煡鍘熷洜",
-              },
-            },
-            ...b.messages.slice(i + 1),
-          ];
-          break;
-        }
-      }
-      return;
-    }
-
-    case "context_compact_enabled": {
-      // 鑷姩鍚敤 pending 鎽樿鍙奖鍝嶅悗绔笂涓嬫枃瑙嗗浘锛沀I 涓嶉澶栨覆鏌撴皵娉°€?
-      return;
-    }
-
-    case "context_compact": {
-      if (d.silent === true) return;
-      const mode = typeof d.mode === "string" ? d.mode : "summary";
-      const summary = typeof d.summary === "string" ? d.summary : "";
-      const eventsArr = Array.isArray(d.events) ? d.events : [];
-      b.messages = [
-        ...b.messages,
-        {
-          id: ev.frameId ?? nextId("compact"),
-          role: "system" as Role,
-          content: null,
-          timestamp: ts,
-          compact: {
-            status: "done",
-            mode,
-            summaryPreview: summary,
-            eventsCleared: eventsArr.length || undefined,
-            tokensBefore: typeof d.tokens_before === "number" ? d.tokens_before : undefined,
-            tokensAfter: typeof d.tokens_after === "number" ? d.tokens_after : undefined,
-          },
-        },
-      ];
-      return;
-    }
   }
 }
 
@@ -1168,9 +1155,7 @@ if (!(globalThis as any)[__wsBoundFlag]) {
       (
         ev.type === "CUSTOM" ||
         ev.type === "REPLY_END" ||
-        ev.type === "external_message" ||
-        ev.type === "context_compact_done" ||
-        ev.type === "context_compact_enabled"
+        ev.type === "external_message"
       ) &&
       useChat.getState().sessionId === sid
     ) {
@@ -1318,6 +1303,9 @@ export const useChat = create<ChatState>((set, get) => ({
   pendingWorkspace: null,
 
   sendMessage: (content, attachments, system) => {
+    // Session 正在压缩时禁止创建本地乐观消息；后端也有同样的竞态兜底。
+    if (get().sessionStatus === "compacting") return;
+
     // 褰掍竴鍖栵細string 鎴?parts 鏁扮粍
     const parts: Array<{ type: string; text?: string; data?: unknown }> =
       typeof content === "string"
@@ -1450,14 +1438,26 @@ export const useChat = create<ChatState>((set, get) => ({
 
   loadSessionMessages: (sessionId, messages, hasMoreHistory, status, turnStartTs, plan, commandName) => {
     const b = bucket(sessionId);
-    const visibleCompactMessages = b.messages.filter((m) => m.compact && m.compact.status !== "running");
-    b.messages = messages;
+    // onopen 会并行执行 HTTP 历史恢复和 WS attach snapshot。若 snapshot 先到，
+    // HTTP 不能把刚恢复的 active Reply / compact 状态覆盖掉。
+    const activeTransient = b.messages.filter((message) =>
+      (status === "running" && message.streaming === true)
+      || (status === "compacting" && message.compact?.status === "running"),
+    );
+    const historyIds = new Set(messages.map((message) => message.id));
+    b.messages = [
+      ...messages,
+      ...activeTransient.filter((message) => !historyIds.has(message.id)),
+    ].sort((left, right) => left.timestamp - right.timestamp);
     b.events = [];
     b.seenEventIds = new Set<string>();
     for (const m of messages) {
       if (m.eventIds) for (const eid of m.eventIds) b.seenEventIds.add(eid);
     }
-    b.earliestTs = messages.length > 0 ? messages[0].timestamp / 1000 : null;
+    // compact 气泡可能被后端补在当前分页之前；它是上下文锚点，不是分页游标。
+    // 游标必须指向该页最早的真实用户 turn，否则会跳过 compact 与本页之间的消息。
+    const firstUser = messages.find((message) => message.role === "user");
+    b.earliestTs = firstUser ? firstUser.timestamp / 1000 : null;
     b.hasMoreHistory = hasMoreHistory;
     // 恢复 lastUserInputTs：取最后一条 user 消息的时间戳
     let lastUserTs: number | null = null;
@@ -1475,9 +1475,8 @@ export const useChat = create<ChatState>((set, get) => ({
     b.turnStartTs = turnStartTs ?? null;
     b.plan = plan ?? null;
     b.commandName = commandName ?? null;
-    if (visibleCompactMessages.length > 0 && !b.messages.some((m) => m.compact)) {
-      b.messages = [...b.messages, ...visibleCompactMessages];
-    }
+    // compact 摘要 Msg 已在历史 messages 中（由 persistedMessageToChat 映射），
+    // 不再需要保留内存中的 compact 气泡。
     if (!last(b.messages)?.streaming) {
       b.isBusy = false;
       if (b.sessionStatus === "running") b.sessionStatus = "idle";
@@ -1500,7 +1499,8 @@ export const useChat = create<ChatState>((set, get) => ({
     for (const m of earlierMessages) {
       if (m.eventIds) for (const eid of m.eventIds) b.seenEventIds.add(eid);
     }
-    b.earliestTs = earlierMessages.length > 0 ? earlierMessages[0].timestamp / 1000 : b.earliestTs;
+    const firstUser = earlierMessages.find((message) => message.role === "user");
+    b.earliestTs = firstUser ? firstUser.timestamp / 1000 : b.earliestTs;
     b.hasMoreHistory = hasMoreHistory;
     mirror(sessionId);
   },

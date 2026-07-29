@@ -91,13 +91,15 @@ export function ChatView() {
     return storeModel ?? null;
   }, [isBusy, messages, storeModel]);
 
-  const bannerLabel = retryState
-    ? `Retrying ${retryState.attempt}/${retryState.maxAttempts}`
-    : commandName
-      ? `执行 ${commandName}`
-      : turnStartTs
-        ? "Running"
-        : "Preparing";
+  const bannerLabel = sessionStatus === "compacting"
+    ? "Compacting context"
+    : retryState
+      ? `Retrying ${retryState.attempt}/${retryState.maxAttempts}`
+      : commandName
+        ? `执行 ${commandName}`
+        : turnStartTs
+          ? "Running"
+          : "Preparing";
 
   // 会话进行中：收集当前轮次的文件变更，传给输入框横幅展示
   const activeTurnFileChanges = useMemo<TurnFileChange[]>(() => {
@@ -224,9 +226,11 @@ export function ChatView() {
             <div className="absolute bottom-0 left-0 right-0">
               {runningBannerVisible && (
                 <div className="px-6">
-                  <div className="mx-auto mb-[-12px] w-full max-w-[800px]">
+                  {/* 横幅底部增加 32px 裙边，并让输入框完整覆盖这段裙边。
+                      这样侧边能延伸到输入框圆角下方，但不会遮住横幅正文。 */}
+                  <div className="mx-auto mb-[-44px] w-full max-w-[800px]">
                     <div
-                      className={`overflow-hidden rounded-t-xl rounded-b-none border border-b-0 border-black/10 bg-[#f6f7f9]/65 shadow-[0_4px_14px_rgba(15,23,42,0.05),inset_0_1px_0_rgba(255,255,255,0.6)] backdrop-blur-md backdrop-saturate-150 ${
+                      className={`overflow-hidden rounded-t-xl rounded-b-none border border-b-0 border-black/10 bg-[#f6f7f9]/65 pb-8 shadow-[0_4px_14px_rgba(15,23,42,0.05),inset_0_1px_0_rgba(255,255,255,0.6)] backdrop-blur-md backdrop-saturate-150 ${
                         runningBannerExiting ? "running-banner-exit" : "running-banner-enter"
                       }`}
                     >

@@ -1,13 +1,21 @@
 import { describe, expect, it, vi } from "vitest";
-import { applyEvent, applyReplySnapshot, type BusEvent, type ChatMessage, type PlanData } from "./chat";
+import { applyEvent, applyReplySnapshot, useChat, type BusEvent, type ChatMessage, type PlanData } from "./chat";
+import { wsClient } from "@/services/websocket-client";
 
 vi.mock("@/services/websocket-client", () => ({
+  CompactEventName: {
+    START: "context_compact_start",
+    DONE: "context_compact_done",
+    FAILED: "context_compact_failed",
+  },
+  UserMessageEventType: "USER_MESSAGE",
   wsClient: {
     onMessage: vi.fn(),
     onDisconnect: vi.fn(),
     onConnect: vi.fn(),
     onStatusChange: vi.fn(),
     connect: vi.fn(),
+    sendChat: vi.fn(),
     connected: false,
     status: "disconnected",
   },
@@ -41,6 +49,35 @@ function coreEvent(type: string, data: Record<string, unknown>): BusEvent {
 }
 
 describe("AgentStreamEvent reducer", () => {
+  it("does not create or send a user message while compacting", () => {
+    useChat.setState({
+      sessionId: "ws_sess_compacting",
+      sessionStatus: "compacting",
+      isBusy: false,
+      messages: [],
+    });
+
+    useChat.getState().sendMessage("should be dropped");
+
+    expect(useChat.getState().messages).toEqual([]);
+    expect(wsClient.sendChat).not.toHaveBeenCalled();
+  });
+
+  it("renders a core USER_MESSAGE event", () => {
+    const bucket = createBucket();
+    applyEvent(bucket, coreEvent("USER_MESSAGE", {
+      id: "user-msg-1",
+      data: { content: "hello" },
+    }));
+
+    expect(bucket.messages).toHaveLength(1);
+    expect(bucket.messages[0]).toMatchObject({
+      id: "user-msg-1",
+      role: "user",
+      content: "hello",
+    });
+  });
+
   it("assembles text, tool calls, tool results and reply lifecycle", () => {
     const bucket = createBucket();
 
@@ -150,6 +187,7 @@ describe("AgentStreamEvent reducer", () => {
   it("replaces an open Reply with an attach snapshot then continues by reply_id", () => {
     const bucket = createBucket();
     applyReplySnapshot(bucket, {
+      session_id: "ws_sess_test",
       replies: [{
         reply_id: "reply-1",
         revision: 4,
@@ -176,6 +214,28 @@ describe("AgentStreamEvent reducer", () => {
       id: "reply-1",
       content: "already persisted + live",
       streaming: true,
+    });
+  });
+
+  it("restores an active compact event from attach snapshot", () => {
+    const bucket = createBucket();
+    applyReplySnapshot(bucket, {
+      session_id: "ws_sess_test",
+      replies: [],
+      events: [{
+        type: "CUSTOM",
+        id: "compact-start-1",
+        created_at: "2026-07-28T10:00:00Z",
+        name: "context_compact_start",
+        value: { tokens: 2000 },
+      }],
+    });
+
+    expect(bucket.sessionStatus).toBe("compacting");
+    expect(bucket.messages).toHaveLength(1);
+    expect(bucket.messages[0].compact).toMatchObject({
+      status: "running",
+      tokensBefore: 2000,
     });
   });
 
