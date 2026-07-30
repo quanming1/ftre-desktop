@@ -6,13 +6,13 @@
  */
 import { useState, useEffect, useRef, useCallback } from "react";
 import { Check, ChevronDown } from "lucide-react";
-import { Select } from "@/components/Select";
 import { motion, AnimatePresence } from "framer-motion";
 import { useChat } from "@/stores/chat";
 import { useSession } from "@/stores/session";
 import { fetchAppConfig } from "@/services/api";
 import { ModelPicker, type ProviderInfo } from "./ModelPicker";
 import { buildProviderInfos } from "./providerInfo";
+import { ReasoningEffortControl } from "./ReasoningEffortControl";
 import { useLayout } from "@/stores/layout";
 
 export function AgentBar() {
@@ -316,20 +316,13 @@ export function AgentBar() {
 
               {/* Reasoning Effort 选择器 */}
               {currentModelEffortValues.length > 0 && (
-                <div className="flex items-center justify-between gap-3">
-                  <div className={`${sectionLabel} shrink-0 whitespace-nowrap`}>思考强度</div>
-                  <Select
-                    options={currentModelEffortValues.map((v) => ({
-                      value: v,
-                      label: v === "" ? "默认" : v,
-                    }))}
-                    value={currentEffort}
-                    onChange={(v) => {
-                      updateAgentLlm(provider || "", model || "", v);
-                    }}
-                    className="min-w-0 flex-1 max-w-[160px]"
-                  />
-                </div>
+                <ReasoningEffortControl
+                  values={currentModelEffortValues}
+                  value={currentEffort}
+                  onChange={(effort) => {
+                    updateAgentLlm(provider || "", model || "", effort);
+                  }}
+                />
               )}
 
               {/* 工具权限 */}

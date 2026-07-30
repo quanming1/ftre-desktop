@@ -1,3 +1,24 @@
+.reasoning-effort-range::-webkit-slider-thumb {
+  appearance: none;
+  width: 30px;
+  height: 30px;
+  border-radius: 9999px;
+  border: 1px solid var(--ftre-border-default);
+  background: var(--ftre-bg-surface);
+  box-shadow: 0 2px 7px rgba(15, 23, 42, 0.16);
+  transition: transform 150ms ease, box-shadow 150ms ease;
+}
+
+.reasoning-effort-range:hover::-webkit-slider-thumb,
+.reasoning-effort-range:focus-visible::-webkit-slider-thumb {
+  box-shadow: 0 3px 10px rgba(15, 23, 42, 0.22);
+  transform: scale(1.04);
+}
+
+.reasoning-effort-range:focus-visible {
+  outline: none;
+}
+
 /* ===== 动画 ===== */
 @keyframes thinking {
   0%,
