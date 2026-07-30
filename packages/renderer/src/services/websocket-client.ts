@@ -51,7 +51,7 @@ export type ReplySnapshotMessage = ServerMessage<ReplySnapshotPayload> & {
 };
 
 export function isReplySnapshotMessage(
-  message: ServerMessage,
+  message: ServerMessage<any>,
 ): message is ReplySnapshotMessage {
   return message.type === "reply_snapshot"
     && typeof (message.data as unknown as ReplySnapshotPayload)?.session_id === "string"

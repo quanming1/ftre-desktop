@@ -1,18 +1,43 @@
-import '@testing-library/jest-dom';
+import "@testing-library/jest-dom";
 
-// jsdom 不实现 IntersectionObserver — 给测试环境一个最小 stub
-if (typeof globalThis.IntersectionObserver === 'undefined') {
-    class IO {
-        observe() { }
-        unobserve() { }
-        disconnect() { }
-        takeRecords() {
-            return [] as IntersectionObserverEntry[];
-        }
-        root = null;
-        rootMargin = '';
-        thresholds = [] as ReadonlyArray<number>;
+// Browser APIs used by layout components are not implemented by jsdom.
+if (typeof globalThis.IntersectionObserver === "undefined") {
+  class IntersectionObserverStub implements IntersectionObserver {
+    readonly root = null;
+    readonly rootMargin = "";
+    readonly thresholds: ReadonlyArray<number> = [];
+    disconnect() {}
+    observe() {}
+    takeRecords(): IntersectionObserverEntry[] {
+      return [];
     }
-    // @ts-expect-error 测试 stub
-    globalThis.IntersectionObserver = IO;
+    unobserve() {}
+  }
+  globalThis.IntersectionObserver = IntersectionObserverStub;
+}
+
+if (typeof globalThis.ResizeObserver === "undefined") {
+  class ResizeObserverStub implements ResizeObserver {
+    disconnect() {}
+    observe() {}
+    unobserve() {}
+  }
+  globalThis.ResizeObserver = ResizeObserverStub;
+}
+
+if (typeof document.queryCommandSupported !== "function") {
+  document.queryCommandSupported = () => false;
+}
+
+if (typeof window.matchMedia !== "function") {
+  window.matchMedia = (query: string): MediaQueryList => ({
+    matches: false,
+    media: query,
+    onchange: null,
+    addEventListener() {},
+    removeEventListener() {},
+    addListener() {},
+    removeListener() {},
+    dispatchEvent: () => true,
+  });
 }

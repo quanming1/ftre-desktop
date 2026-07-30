@@ -48,9 +48,18 @@ export const useNotification = create<NotificationState>((set) => ({
     // 记录 sonner id 映射
     sonnerMap.set(id, sonnerId as string);
 
-    set((state) => ({
-      notifications: [...state.notifications, item].slice(-10),
-    }));
+    set((state) => {
+      const notifications = [...state.notifications, item];
+      if (notifications.length <= 10) return { notifications };
+
+      // Errors remain visible until explicitly dismissed. When the soft limit is
+      // exceeded, evict the oldest lower-priority notification instead.
+      const evictIndex = notifications.findIndex(
+        (candidate) => candidate.level !== "error",
+      );
+      if (evictIndex >= 0) notifications.splice(evictIndex, 1);
+      return { notifications };
+    });
 
     return id;
   },

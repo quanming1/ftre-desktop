@@ -11,6 +11,15 @@ import { Tooltip, TooltipProvider } from "@ftre/ui";
 import { useNotification } from "@/stores/notification";
 import { remarkPlugins, rehypePlugins } from "@/lib/markdown-plugins";
 import { useAutoScrollToBottom } from "@/hooks/auto-scroll";
+import {
+  assistantMessagePropsEqual,
+  contentBlocksEqual,
+  toolResultsEqual,
+} from "./assistantMessageEquality";
+import {
+  collapsedAssistantBlocks,
+  lastDisplayTextBlock,
+} from "./assistantMessageDisplay";
 
 const markdownComponents = {
   // 围栏代码块（带 language-）的外层 <pre> 透传：把样式控制权交给 <CodeBlock />，
@@ -241,26 +250,8 @@ const BlocksRenderer = memo(function BlocksRenderer({
 },
 (prev, next) => {
   if (prev.streaming !== next.streaming) return false;
-  if (prev.blocks === next.blocks && prev.toolResults === next.toolResults) return true;
-  if (prev.blocks.length !== next.blocks.length) return false;
-  for (let i = 0; i < prev.blocks.length; i++) {
-    const a = prev.blocks[i], b = next.blocks[i];
-    if (a.type !== b.type) return false;
-    if (a.type === "text" && b.type === "text" && a.text !== b.text) return false;
-    if (a.type === "thinking" && b.type === "thinking" && a.thinking !== b.thinking) return false;
-    if (a.type === "data" && b.type === "data" && (a.data !== b.data || a.mediaType !== b.mediaType)) return false;
-    if (a.type === "toolCall" && b.type === "toolCall" && a.id !== b.id) return false;
-  }
-  // Compare toolResults
-  const ar = prev.toolResults, br = next.toolResults;
-  if (ar === br) return true;
-  const aKeys = Object.keys(ar), bKeys = Object.keys(br);
-  if (aKeys.length !== bKeys.length) return false;
-  for (const k of aKeys) {
-    const x = ar[k], y = br[k];
-    if (!y || x.status !== y.status || x.result !== y.result || x.error !== y.error) return false;
-  }
-  return true;
+  return contentBlocksEqual(prev.blocks, next.blocks)
+    && toolResultsEqual(prev.toolResults, next.toolResults);
 });
 
 /**
@@ -366,7 +357,6 @@ export const AssistantMessage = memo(
   function AssistantMessage({
     message,
     showActions = false,
-    turnTexts,
     turnFileChanges,
     turnDurationSec,
     turnModel,
@@ -380,13 +370,23 @@ export const AssistantMessage = memo(
   }) {
     const isStreaming = message.streaming ?? false;
     const mdRef = useRef<HTMLDivElement>(null);
+    // 正在执行的 turn 默认展开，让用户直接看到 thinking/tool 等过程；
+    // TURN 结束后自动折叠，只保留最终 text。之后用户仍可手动展开。
+    const [processExpanded, setProcessExpanded] = useState(isStreaming);
+    useEffect(() => {
+      setProcessExpanded(isStreaming);
+    }, [isStreaming]);
+    const allBlocks = message.blocks ?? [];
+    const collapsedBlocks = collapsedAssistantBlocks(allBlocks);
+    const hasProcess = allBlocks.length > collapsedBlocks.length;
+    const displayBlocks = processExpanded ? allBlocks : collapsedBlocks;
+    const finalText = lastDisplayTextBlock(allBlocks)?.text;
 
     // 复制
     const [copied, setCopied] = useState(false);
     const handleCopy = useCallback(async () => {
-      const text = (turnTexts && turnTexts.length > 0)
-        ? turnTexts.join("\n\n")
-        : (message.content ?? "");
+      // 默认界面只展示最后一段回答，复制行为与可见内容保持一致。
+      const text = finalText ?? message.content ?? "";
       try {
         await navigator.clipboard.writeText(text);
         setCopied(true);
@@ -394,23 +394,45 @@ export const AssistantMessage = memo(
       } catch {
         useNotification.getState().addNotification({ level: "error", message: "复制失败" });
       }
-    }, [turnTexts, message.content]);
+    }, [finalText, message.content]);
 
     return (
       <div data-assistant-message="true" className="flex justify-start">
         <div className="w-full">
           <StreamingContext.Provider value={isStreaming}>
             <div className="text-[var(--text-md)] leading-relaxed text-t-primary font-sans break-words">
-              {message.blocks && message.blocks.length > 0 ? (
+              {hasProcess && (
+                <button
+                  type="button"
+                  aria-expanded={processExpanded}
+                  onClick={() => setProcessExpanded((expanded) => !expanded)}
+                  className="group mb-2 block w-full py-1.5 text-left text-[14px] text-t-dim transition-colors hover:text-t-secondary"
+                >
+                  <span className="flex items-center gap-1.5">
+                    <span className="shrink-0">
+                      {isStreaming
+                        ? "处理中"
+                        : `已处理${typeof turnDurationSec === "number" ? ` ${formatDuration(turnDurationSec)}` : ""}`}
+                    </span>
+                    <ChevronRight
+                      size={12}
+                      className={`shrink-0 transition-transform duration-200 ${processExpanded ? "rotate-90" : ""}`}
+                    />
+                  </span>
+                  <span className="mt-1.5 block h-px w-full bg-border/60" />
+                </button>
+              )}
+
+              {displayBlocks.length > 0 ? (
                 <div className="flex flex-col gap-2">
                   <BlocksRenderer
-                    blocks={message.blocks}
+                    blocks={displayBlocks}
                     toolResults={message.toolResults || {}}
                     streaming={isStreaming}
                     mdRef={mdRef}
                   />
                 </div>
-              ) : message.content ? (
+              ) : allBlocks.length === 0 && message.content ? (
                 <div className="flex flex-col gap-2">
                   <ThinkAwareContent text={message.content} live={isStreaming} anchor={mdRef} />
                 </div>
@@ -467,7 +489,7 @@ export const AssistantMessage = memo(
                           </span>
                         </Tooltip>
                       )}
-                      {typeof turnDurationSec === "number" && turnDurationSec >= 0 && (
+                      {!hasProcess && typeof turnDurationSec === "number" && turnDurationSec >= 0 && (
                         <span className="ml-1 inline-flex items-center h-8 px-2 text-[11px] font-mono text-t-ghost rounded-md hover:bg-hover hover:text-t-secondary transition-colors cursor-default">
                           {formatDuration(turnDurationSec)}
                         </span>
@@ -486,39 +508,7 @@ export const AssistantMessage = memo(
       </div>
     );
   },
-  (prev, next) => {
-    if (prev.message.content !== next.message.content) return false;
-    if (prev.message.streaming !== next.message.streaming) return false;
-    if (prev.message.token !== next.message.token) return false;
-    if (prev.showActions !== next.showActions) return false;
-    if (prev.turnTexts !== next.turnTexts) return false;
-    if (prev.turnFileChanges !== next.turnFileChanges) return false;
-    if (prev.turnDurationSec !== next.turnDurationSec) return false;
-    if (prev.turnModel !== next.turnModel) return false;
-
-    // Compare blocks
-    const ab = prev.message.blocks, bb = next.message.blocks;
-    if (ab === bb) return true;
-    if (!ab || !bb || ab.length !== bb.length) return false;
-    for (let i = 0; i < ab.length; i++) {
-      const x = ab[i], y = bb[i];
-      if (x.type !== y.type) return false;
-      if (x.type === "text" && y.type === "text" && x.text !== y.text) return false;
-      if (x.type === "thinking" && y.type === "thinking" && x.thinking !== y.thinking) return false;
-      if (x.type === "toolCall" && y.type === "toolCall" && x.id !== y.id) return false;
-    }
-    // Compare toolResults
-    const ar = prev.message.toolResults, br = next.message.toolResults;
-    if (ar === br) return true;
-    if (!ar || !br) return false;
-    const ak = Object.keys(ar), bk = Object.keys(br);
-    if (ak.length !== bk.length) return false;
-    for (const k of ak) {
-      const x = ar[k], y = br[k];
-      if (!y || x.status !== y.status || x.result !== y.result) return false;
-    }
-    return true;
-  },
+  assistantMessagePropsEqual,
 );
 
 function formatDuration(sec: number): string {

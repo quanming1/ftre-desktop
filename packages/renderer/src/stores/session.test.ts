@@ -80,9 +80,30 @@ describe("session store — basic operations", () => {
         name: "assistant",
         role: "assistant",
         content: [
-          { type: "text", id: "text-1", text: "hello" },
-          { type: "tool_call", id: "call-1", name: "read", arguments: { path: "a.txt" } },
-          { type: "tool_result", id: "call-1", name: "read", output: "contents", state: "success" },
+          {
+            type: "text",
+            id: "text-1",
+            text: "hello",
+            created_at: "2026-07-27T10:00:03",
+            finished_at: "2026-07-27T10:00:04",
+          },
+          {
+            type: "tool_call",
+            id: "call-1",
+            name: "read",
+            arguments: { path: "a.txt" },
+            created_at: "2026-07-27T10:00:04",
+            finished_at: "2026-07-27T10:00:30",
+          },
+          {
+            type: "tool_result",
+            id: "call-1",
+            name: "read",
+            output: "contents",
+            state: "success",
+            created_at: "2026-07-27T10:00:30",
+            finished_at: "2026-07-27T10:01:03",
+          },
         ],
         metadata: {},
         created_at: "2026-07-27T10:00:00",
@@ -90,7 +111,7 @@ describe("session store — basic operations", () => {
           usage: { prompt_tokens: 10, completion_tokens: 2, total_tokens: 12 },
           last_call_usage: { prompt_tokens: 10, completion_tokens: 2, total_tokens: 12 },
         },
-        finished_at: "2026-07-27T10:00:01",
+        finished_at: "2026-07-27T10:01:03",
         finished_reason: "completed",
         structured_output: null,
         error: null,
@@ -106,6 +127,7 @@ describe("session store — basic operations", () => {
     });
     expect(messages[0].toolResults?.["call-1"].result).toBe("contents");
     expect(messages[0].token?.usage.total_tokens).toBe(12);
+    expect(messages[0].durationSec).toBe(63);
   });
 
   it("starts with empty sessions", () => {

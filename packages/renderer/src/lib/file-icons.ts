@@ -9,4 +9,4 @@ export {
   EXTENSION_MAP,
   SPECIAL_FILE_MAP,
   type FileIconResult,
-} from "@ftre/editor/ui";
+} from "@ftre/editor/file-icons";

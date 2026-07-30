@@ -244,6 +244,9 @@ function encodeSessionKey(sessionIdOrKey: string): string {
 export interface SessionContentBlock {
   type: "text" | "thinking" | "data" | "hint" | "tool_call" | "tool_result";
   id: string;
+  /** Block 生命周期时间；历史消息用它恢复 Assistant 的实际处理时长。 */
+  created_at?: string;
+  finished_at?: string | null;
   text?: string;
   thinking?: string;
   name?: string;

@@ -11,6 +11,7 @@
     "./ui": "./src/ui/index.ts",
     "./store": "./src/store/index.ts",
     "./utils": "./src/utils/index.ts",
+    "./file-icons": "./src/ui/file-icons.ts",
     "./workbench": "./src/workbench/index.ts"
   },
   "scripts": {

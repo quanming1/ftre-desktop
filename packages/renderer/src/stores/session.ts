@@ -155,10 +155,48 @@ function persistedMessageToChat(record: SessionMessage): ChatMessage | null {
   };
 }
 
+function parseTimestamp(value: string | null | undefined): number | null {
+  if (!value) return null;
+  const timestamp = Date.parse(value);
+  return Number.isFinite(timestamp) ? timestamp : null;
+}
+
+/**
+ * 从持久化 Msg/Block 的生命周期边界恢复 Assistant 的处理耗时。
+ *
+ * 正常情况下 Msg 的 created_at/finished_at 已经覆盖整条 Reply；Block 时间也纳入
+ * 边界计算，避免旧数据或异常中断时 Msg 边界缺失。这里只计算已完成的消息，
+ * 实时流式消息仍由 TURN_START/TURN_END 更新 durationSec。
+ */
+function persistedAssistantDurationSec(record: SessionMessage): number | undefined {
+  if (record.role !== "assistant" || record.finished_at == null) return undefined;
+
+  const starts = [
+    parseTimestamp(record.created_at),
+    ...record.content.map((block) => parseTimestamp(block.created_at)),
+  ].filter((timestamp): timestamp is number => timestamp !== null);
+  const finishes = [
+    parseTimestamp(record.finished_at),
+    ...record.content.map((block) => parseTimestamp(block.finished_at)),
+  ].filter((timestamp): timestamp is number => timestamp !== null);
+
+  if (starts.length === 0 || finishes.length === 0) return undefined;
+  const startedAt = Math.min(...starts);
+  const finishedAt = Math.max(...finishes);
+  if (finishedAt < startedAt) return undefined;
+  return Math.max(0, Math.round((finishedAt - startedAt) / 1000));
+}
+
 export function historyToMessages(records: SessionMessage[]): { messages: ChatMessage[]; turnStartTs: number | null; commandName: string | null } {
   return {
     messages: records
-      .map(persistedMessageToChat)
+      .map((record) => {
+        const message = persistedMessageToChat(record);
+        if (message?.role === "assistant") {
+          message.durationSec = persistedAssistantDurationSec(record);
+        }
+        return message;
+      })
       .filter((message): message is ChatMessage => message !== null),
     turnStartTs: null,
     commandName: null,

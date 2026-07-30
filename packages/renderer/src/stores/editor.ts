@@ -21,7 +21,7 @@ import {
   buildDiffTabPath,
   SETTINGS_PATH,
   _resetGroupCounter,
-} from "@ftre/editor";
+} from "@ftre/editor/store";
 
 // Re-export types and utils for backward compatibility
 export type { OpenFile, DiffEntry, EditorGroup, EditorSnapshot, EditorInputType };

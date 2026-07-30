@@ -2,7 +2,6 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { ErrorBoundary } from "@ftre/ui";
 import { TitleBar } from "./TitleBar";
 import { Sidebar } from "@/features/explorer/Sidebar";
-import { EditorArea } from "@/features/editor/EditorArea";
 import { pathParent } from "@/utils/pathUtils";
 import { ChatPanel } from "@/features/chat/ChatPanel";
 import { SessionPanel } from "@/features/session/SessionPanel";
@@ -497,32 +496,6 @@ export function Workbench() {
           )}
 
         {/* Editor Panel - 只在 chat 模式显示 */}
-        {activeLeftPanel === "chat" && panelVisible.editor && (
-          <div
-            className="h-full flex flex-col overflow-hidden"
-            style={getPanelStyle("editor")}
-          >
-            <div className="flex-1 overflow-hidden">
-              <ErrorBoundary>
-                <EditorArea />
-              </ErrorBoundary>
-            </div>
-          </div>
-        )}
-        {activeLeftPanel === "chat" &&
-          panelVisible.editor &&
-          isResizeHandleVisible("editor") && (
-            <div
-              className="h-full shrink-0"
-              style={{ order: getResizeHandleOrder("editor") }}
-            >
-              <ResizeHandle
-                direction="horizontal"
-                onResize={getResizeHandler("editor")}
-              />
-            </div>
-          )}
-
         {/* Chat Panel */}
         {panelVisible.chat && activeLeftPanel === "chat" && (
           <div

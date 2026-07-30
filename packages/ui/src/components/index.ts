@@ -33,7 +33,12 @@ export {
 } from "./AlertDialog";
 
 // Context Menu (imperative API - for backward compatibility)
-export { ContextMenu, type ContextMenuItem, type ContextMenuProps } from "./ContextMenu";
+export {
+  ContextMenu,
+  type ContextMenuItem,
+  type ContextMenuProps,
+  type ContextMenuSize,
+} from "./ContextMenu";
 
 // Context Menu (Radix declarative API)
 export {

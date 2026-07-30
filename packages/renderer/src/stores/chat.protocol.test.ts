@@ -242,6 +242,7 @@ describe("AgentStreamEvent reducer", () => {
   it("does not let an older snapshot overwrite a newer one", () => {
     const bucket = createBucket();
     const snapshot = (revision: number, text: string) => ({
+      session_id: "ws_sess_test",
       replies: [{
         reply_id: "reply-1",
         revision,
@@ -256,5 +257,59 @@ describe("AgentStreamEvent reducer", () => {
     applyReplySnapshot(bucket, snapshot(5, "new"));
     applyReplySnapshot(bucket, snapshot(4, "old"));
     expect(bucket.messages[0].content).toBe("new");
+  });
+
+  it("does not let an equal-revision snapshot erase a later live delta", () => {
+    const bucket = createBucket();
+    const payload = {
+      session_id: "ws_sess_test",
+      replies: [{
+        reply_id: "reply-1",
+        revision: 5,
+        message: {
+          id: "reply-1",
+          role: "assistant",
+          content: [{ type: "text", id: "text-1", text: "checkpoint" }],
+          metadata: { model: "gpt-test" },
+          created_at: "2026-07-28T10:00:00Z",
+          finished_at: null,
+          finished_reason: null,
+          token: null,
+        },
+      }],
+    };
+
+    applyReplySnapshot(bucket, payload);
+    applyEvent(bucket, coreEvent("TEXT_BLOCK_DELTA", {
+      block_id: "text-1",
+      delta: " + live",
+    }));
+    applyReplySnapshot(bucket, payload);
+
+    expect(bucket.messages[0].content).toBe("checkpoint + live");
+    expect(bucket.messages[0].model).toBe("gpt-test");
+    expect(bucket.turnStartTs).toBe(Date.parse("2026-07-28T10:00:00Z"));
+  });
+
+  it("attaches a reply error to the original Assistant message", () => {
+    const bucket = createBucket();
+    applyEvent(bucket, coreEvent("REPLY_START", { name: "assistant" }));
+    applyEvent(bucket, coreEvent("TEXT_BLOCK_START", { block_id: "text-1" }));
+    applyEvent(bucket, coreEvent("TEXT_BLOCK_DELTA", {
+      block_id: "text-1",
+      delta: "partial answer",
+    }));
+    applyEvent(bucket, coreEvent("REPLY_END", {
+      finished_reason: "error",
+      error: { code: "bad_request", message: "request failed" },
+    }));
+
+    expect(bucket.messages).toHaveLength(1);
+    expect(bucket.messages[0]).toMatchObject({
+      content: "partial answer",
+      streaming: false,
+      isError: true,
+      error: { code: "bad_request", message: "request failed" },
+    });
   });
 });

@@ -15,6 +15,10 @@ import {
 } from "@/services/websocket-client";
 import { createSessionRemote, API_BASE, fetchChatAgents, updateAgent } from "@/services/api";
 import type { ChatAgent, MessageToken, ContextTokenUsage } from "@/services/api";
+import {
+  ClientSessionProjection,
+  type SessionProjectionState,
+} from "./clientSessionProjection";
 
 // ─── Types ───────────────────────────────────────────────────────────
 
@@ -34,7 +38,7 @@ export interface ToolResult {
   name: string;
   result: string | null;
   error: string | null;
-  status: "completed" | "error" | "cancelled";
+  status: "running" | "completed" | "error" | "cancelled";
   /** 工具附加元数据（edit/write 携带 diff 信息） */
   metadata?: {
     file?: string;
@@ -83,7 +87,6 @@ export interface ChatMessage {
     eventsCleared?: number;
     reason?: string;
   };
-  eventIds?: string[];
   /** 本轮耗时（秒），turn_end 时计算写入 */
   durationSec?: number;
   /** 产生该消息的模型 ID（从 MODEL_CALL_START.model_name 提取） */
@@ -111,28 +114,7 @@ export interface PlanData {
 
 // 鈹€鈹€鈹€ Per-session buckets (module-private) 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
 
-interface Bucket {
-  messages: ChatMessage[];
-  events: BusEvent[];
-  seenEventIds: Set<string>;
-  earliestTs: number | null;
-  hasMoreHistory: boolean;
-  lastUserInputTs: number | null;
-  sessionStatus: SessionStatus;
-  isBusy: boolean;
-  error: string | null;
-  retryState: RetryState | null;
-  /** turn_start 的 timestamp（秒），turn_end 时用于计算耗时 */
-  turnStartTs: number | null;
-  /** 当前命中指令名（command_matched 时设置，turn_start 时清除） */
-  commandName: string | null;
-  /** 当前 session 的执行计划（从 session.metadata.plan 提取） */
-  plan: PlanData | null;
-  /** reply_snapshot 的单调版本；防止较旧快照覆盖较新状态。 */
-  replyRevisions?: Map<string, number>;
-}
-
-const buckets = new Map<string, Bucket>();
+const sessionProjections = new Map<string, ClientSessionProjection>();
 const STREAM_TYPES = new Set([
   "TEXT_BLOCK_DELTA",
   "DATA_BLOCK_DELTA",
@@ -144,25 +126,17 @@ const STREAM_TYPES = new Set([
 const _wsFlushTimers = new Map<string, ReturnType<typeof setTimeout>>();
 const _wsBatches = new Map<string, BusEvent[]>();
 const WS_BATCH_WINDOW_MS = 30;
+/** 只保留最近一段 Event id；Projection 消费后的完整 Event 不驻留内存。 */
+const MAX_SEEN_EVENT_IDS = 10_000;
+const emptyBucket = (): ClientSessionProjection =>
+  new ClientSessionProjection({
+    applyEvent,
+    applyReplySnapshot,
+  });
 
-const emptyBucket = (): Bucket => ({
-  messages: [],
-  events: [],
-  seenEventIds: new Set<string>(),
-  earliestTs: null,
-  hasMoreHistory: false,
-  lastUserInputTs: null,
-  sessionStatus: "idle",
-  isBusy: false,
-  error: null,
-  retryState: null,
-  turnStartTs: null,
-  commandName: null,
-  plan: null,
-});
-function bucket(sid: string): Bucket {
-  let b = buckets.get(sid);
-  if (!b) buckets.set(sid, (b = emptyBucket()));
+function bucket(sid: string): ClientSessionProjection {
+  let b = sessionProjections.get(sid);
+  if (!b) sessionProjections.set(sid, (b = emptyBucket()));
   return b;
 }
 
@@ -179,15 +153,13 @@ function appendBase64Chunk(current: string, incoming: string): string {
   }
 }
 
-/** Extract rendered text + stable block IDs from content blocks. */
-function extractFromBlocks(blocks: ContentBlock[]): { text: string; eventIds: string[] } {
+/** 从内容块提取 Assistant 可检索的聚合文本。 */
+function extractFromBlocks(blocks: ContentBlock[]): { text: string } {
   let text = "";
-  const eventIds: string[] = [];
   for (const b of blocks) {
     if (b.type === "text") text += b.text;
-    if (b.type !== "toolCall") eventIds.push(b.blockId);
   }
-  return { text, eventIds };
+  return { text };
 }
 
 function toolOutputText(output: unknown): string {
@@ -241,8 +213,9 @@ function replySnapshotToChatMessage(raw: any): ChatMessage | null {
       };
     }
   }
-  const { text, eventIds } = extractFromBlocks(blocks);
+  const { text } = extractFromBlocks(blocks);
   const parsedTimestamp = typeof raw.created_at === "string" ? Date.parse(raw.created_at) : NaN;
+  const metadata = raw.metadata && typeof raw.metadata === "object" ? raw.metadata : {};
   return {
     id: String(raw.id),
     role: "assistant",
@@ -251,18 +224,18 @@ function replySnapshotToChatMessage(raw: any): ChatMessage | null {
     blocks,
     toolResults,
     streaming: raw.finished_at == null,
-    metadata: raw.metadata && typeof raw.metadata === "object" ? raw.metadata : {},
+    metadata,
+    model: typeof metadata.model === "string" ? metadata.model : undefined,
     token: raw.token ?? undefined,
     isError: raw.finished_reason === "error" || !!raw.error,
     error: raw.error && typeof raw.error === "object" && typeof raw.error.message === "string"
       ? { code: typeof raw.error.code === "string" ? raw.error.code : undefined, message: raw.error.message }
       : undefined,
-    eventIds,
   };
 }
 
 /** 应用 attach/reconnect 的完整进行中 Msg 快照。 */
-export function applyReplySnapshot(b: Bucket, payload: ReplySnapshotPayload): void {
+export function applyReplySnapshot(b: SessionProjectionState, payload: ReplySnapshotPayload): void {
   const replies = payload.replies;
   const revisions = b.replyRevisions ?? (b.replyRevisions = new Map<string, number>());
   for (const reply of replies) {
@@ -274,7 +247,7 @@ export function applyReplySnapshot(b: Bucket, payload: ReplySnapshotPayload): vo
     // locally as well, so subsequent stream events always find this snapshot.
     message.id = replyId;
     const previousRevision = revisions.get(replyId);
-    if (previousRevision != null && revision < previousRevision) continue;
+    if (previousRevision != null && revision <= previousRevision) continue;
     revisions.set(replyId, revision);
 
     const index = b.messages.findIndex((item) => item.id === replyId);
@@ -286,7 +259,10 @@ export function applyReplySnapshot(b: Bucket, payload: ReplySnapshotPayload): vo
       b.messages = [...b.messages, message].sort((a, z) => a.timestamp - z.timestamp);
     }
     b.isBusy = message.streaming || b.isBusy;
-    if (message.streaming) b.sessionStatus = "running";
+    if (message.streaming) {
+      b.sessionStatus = "running";
+      if (b.turnStartTs == null) b.turnStartTs = message.timestamp;
+    }
   }
 
   // session 级 active Event（例如 context_compact_start）同样由 Projection
@@ -300,7 +276,6 @@ export function applyReplySnapshot(b: Bucket, payload: ReplySnapshotPayload): vo
       ts: typeof event.created_at === "string" ? Date.parse(event.created_at) : undefined,
     };
     if (hasSeenEvent(b, snapshotEvent)) continue;
-    b.events.push(snapshotEvent);
     applyEvent(b, snapshotEvent);
   }
 }
@@ -310,7 +285,7 @@ export function applyReplySnapshot(b: Bucket, payload: ReplySnapshotPayload): vo
 /** 褰?sid === activeId 鏃讹紝鎶?bucket 瀛楁闀滃儚鍒?store 椤跺眰銆?*/
 function mirror(sid: string): void {
   if (useChat.getState().sessionId !== sid) return;
-  const b = buckets.get(sid);
+  const b = sessionProjections.get(sid);
   if (!b) return;
   useChat.setState({
     messages: b.messages,
@@ -350,26 +325,30 @@ function eventDedupKey(ev: BusEvent): string | null {
   return typeof ev.frameId === "string" && ev.frameId ? ev.frameId : null;
 }
 
-function seenEventIds(b: Bucket): Set<string> {
+function seenEventIds(b: SessionProjectionState): Set<string> {
   if (!b.seenEventIds) b.seenEventIds = new Set<string>();
   return b.seenEventIds;
 }
 
-function hasSeenEvent(b: Bucket, ev: BusEvent): boolean {
+function hasSeenEvent(b: SessionProjectionState, ev: BusEvent): boolean {
   const key = eventDedupKey(ev);
   return !!key && seenEventIds(b).has(key);
 }
 
-function rememberEvent(b: Bucket, ev: BusEvent): boolean {
+function rememberEvent(b: SessionProjectionState, ev: BusEvent): boolean {
   const key = eventDedupKey(ev);
   if (!key) return true;
   const seen = seenEventIds(b);
   if (seen.has(key)) return false;
   seen.add(key);
+  if (seen.size > MAX_SEEN_EVENT_IDS) {
+    const oldest = seen.values().next().value;
+    if (typeof oldest === "string") seen.delete(oldest);
+  }
   return true;
 }
 
-export function applyEvent(b: Bucket, ev: BusEvent): void {
+export function applyEvent(b: SessionProjectionState, ev: BusEvent): void {
   if (!rememberEvent(b, ev)) return;
   const d = ev.data || {};
   const ts = ev.ts ?? Date.now();
@@ -445,8 +424,8 @@ export function applyEvent(b: Bucket, ev: BusEvent): void {
             ? { ...block, thinking: block.thinking + delta }
             : block;
       }
-      const { text, eventIds } = extractFromBlocks(blocks);
-      return { ...message, blocks, content: text || null, eventIds };
+      const { text } = extractFromBlocks(blocks);
+      return { ...message, blocks, content: text || null };
     });
   };
 
@@ -473,8 +452,8 @@ export function applyEvent(b: Bucket, ev: BusEvent): void {
           };
         }
       }
-      const { text, eventIds } = extractFromBlocks(blocks);
-      return { ...message, blocks, content: text || null, eventIds };
+      const { text } = extractFromBlocks(blocks);
+      return { ...message, blocks, content: text || null };
     });
   };
 
@@ -493,7 +472,7 @@ export function applyEvent(b: Bucket, ev: BusEvent): void {
         name: toolCall.name,
         result: "",
         error: null,
-        status: "completed" as const,
+        status: "running" as const,
       };
       const messages = [...b.messages];
       messages[index] = {
@@ -606,17 +585,26 @@ export function applyEvent(b: Bucket, ev: BusEvent): void {
 
     case "REPLY_END": {
       ensure();
+      const replyError = d.error;
+      const replyErrorMessage = replyError
+        ? typeof replyError === "string"
+          ? replyError
+          : String(replyError.message || replyError.code || "Agent reply failed")
+        : null;
       replaceReply((message) => ({
         ...message,
         id: d.reply_id || message.id,
         streaming: false,
+        isError: d.finished_reason === "error" || !!replyError,
+        error: replyErrorMessage
+          ? {
+              code: typeof replyError?.code === "string" ? replyError.code : undefined,
+              message: replyErrorMessage,
+            }
+          : message.error,
       }));
       b.retryState = null;
-      if (d.error) {
-        b.error = typeof d.error === "string"
-          ? d.error
-          : String(d.error.message || d.error.code || "Agent reply failed");
-      }
+      if (replyErrorMessage) b.error = replyErrorMessage;
       return;
     }
 
@@ -949,10 +937,39 @@ export function applyEvent(b: Bucket, ev: BusEvent): void {
       if (phaseData.reason === "error" && phaseData.error_message) {
         const msg: string = phaseData.error_message;
         const code = phaseData.error_code;
-        b.messages = [
-          ...b.messages,
-          { id: ev.frameId ?? nextId("err"), role: "assistant", content: msg, timestamp: ts, isError: true },
-        ];
+        let attached = false;
+        for (let index = b.messages.length - 1; index >= 0; index--) {
+          const message = b.messages[index];
+          if (message.role !== "assistant" || message.external) continue;
+          const next = b.messages.slice();
+          next[index] = {
+            ...message,
+            isError: true,
+            error: message.error ?? {
+              code: typeof code === "string" ? code : undefined,
+              message: msg,
+            },
+          };
+          b.messages = next;
+          attached = true;
+          break;
+        }
+        if (!attached) {
+          b.messages = [
+            ...b.messages,
+            {
+              id: ev.frameId ?? nextId("err"),
+              role: "assistant",
+              content: null,
+              timestamp: ts,
+              isError: true,
+              error: {
+                code: typeof code === "string" ? code : undefined,
+                message: msg,
+              },
+            },
+          ];
+        }
         b.error = code ? `[${code}] ${msg}` : msg;
       }
       return;
@@ -1003,7 +1020,7 @@ if (!(globalThis as any)[__wsBoundFlag]) {
     _wsBatches.delete(sid);
     const b = bucket(sid);
     for (const ev of events) {
-      applyEvent(b, ev);
+      b.apply(ev);
     }
     mirror(sid);
   }
@@ -1020,7 +1037,7 @@ if (!(globalThis as any)[__wsBoundFlag]) {
       return;
     }
     _flushWsBatch(sid);
-    applyEvent(b, busEvent);
+    b.apply(busEvent);
     mirror(sid);
   }
 
@@ -1056,7 +1073,7 @@ if (!(globalThis as any)[__wsBoundFlag]) {
       const sid = msg.data.session_id || msg.metadata?.session_id;
       if (typeof sid !== "string" || !sid) return;
       const b = bucket(sid);
-      applyReplySnapshot(b, msg.data);
+      b.applySnapshot(msg.data);
       mirror(sid);
       return;
     }
@@ -1123,9 +1140,8 @@ if (!(globalThis as any)[__wsBoundFlag]) {
     };
     if (hasSeenEvent(b, busEvent)) return;
     // 鍏ユ《浜嬩欢缂撳瓨锛氬垎椤?/ refresh 閲嶆斁鏃惰鍥炲埌杩欐潯浜嬩欢娴?
-    b.events.push(busEvent);
     if (pageHidden) {
-      applyEvent(b, busEvent);
+      b.apply(busEvent);
     } else {
       _enqueueWsEvent(sid, b, busEvent);
     }
@@ -1177,7 +1193,7 @@ if (!(globalThis as any)[__wsBoundFlag]) {
   wsClient.onStatusChange((s) => useChat.setState({ wsStatus: s, connected: s === "connected" }));
   wsClient.onDisconnect(() => {
     // 鏂嚎锛氬叧鎺夋墍鏈?bucket 鐨?streaming 鐘舵€侊紝淇濈暀娑堟伅
-    for (const [sid, b] of buckets) {
+    for (const [sid, b] of sessionProjections) {
       b.isBusy = false;
       b.sessionStatus = "idle";
       const tail = last(b.messages);
@@ -1419,7 +1435,7 @@ export const useChat = create<ChatState>((set, get) => ({
     const timer = _wsFlushTimers.get(sessionId);
     if (timer) { clearTimeout(timer); _wsFlushTimers.delete(sessionId); }
     _wsBatches.delete(sessionId);
-    buckets.set(sessionId, emptyBucket());
+    sessionProjections.set(sessionId, emptyBucket());
     mirror(sessionId);
   },
 
@@ -1438,70 +1454,20 @@ export const useChat = create<ChatState>((set, get) => ({
 
   loadSessionMessages: (sessionId, messages, hasMoreHistory, status, turnStartTs, plan, commandName) => {
     const b = bucket(sessionId);
-    // onopen 会并行执行 HTTP 历史恢复和 WS attach snapshot。若 snapshot 先到，
-    // HTTP 不能把刚恢复的 active Reply / compact 状态覆盖掉。
-    const activeTransient = b.messages.filter((message) =>
-      (status === "running" && message.streaming === true)
-      || (status === "compacting" && message.compact?.status === "running"),
-    );
-    const historyIds = new Set(messages.map((message) => message.id));
-    b.messages = [
-      ...messages,
-      ...activeTransient.filter((message) => !historyIds.has(message.id)),
-    ].sort((left, right) => left.timestamp - right.timestamp);
-    b.events = [];
-    b.seenEventIds = new Set<string>();
-    for (const m of messages) {
-      if (m.eventIds) for (const eid of m.eventIds) b.seenEventIds.add(eid);
-    }
-    // compact 气泡可能被后端补在当前分页之前；它是上下文锚点，不是分页游标。
-    // 游标必须指向该页最早的真实用户 turn，否则会跳过 compact 与本页之间的消息。
-    const firstUser = messages.find((message) => message.role === "user");
-    b.earliestTs = firstUser ? firstUser.timestamp / 1000 : null;
-    b.hasMoreHistory = hasMoreHistory;
-    // 恢复 lastUserInputTs：取最后一条 user 消息的时间戳
-    let lastUserTs: number | null = null;
-    for (let i = messages.length - 1; i >= 0; i--) {
-      if (messages[i].role === "user") {
-        lastUserTs = messages[i].timestamp;
-        break;
-      }
-    }
-    b.lastUserInputTs = lastUserTs;
-    b.sessionStatus = status;
-    b.isBusy = status === "running";
-    b.error = null;
-    b.retryState = null;
-    b.turnStartTs = turnStartTs ?? null;
-    b.plan = plan ?? null;
-    b.commandName = commandName ?? null;
-    // compact 摘要 Msg 已在历史 messages 中（由 persistedMessageToChat 映射），
-    // 不再需要保留内存中的 compact 气泡。
-    if (!last(b.messages)?.streaming) {
-      b.isBusy = false;
-      if (b.sessionStatus === "running") b.sessionStatus = "idle";
-    }
+    b.hydrate({
+      messages,
+      hasMoreHistory,
+      status,
+      turnStartTs,
+      plan,
+      commandName,
+    });
     mirror(sessionId);
   },
 
   prependSessionMessages: (sessionId, earlierMessages, hasMoreHistory) => {
-    if (earlierMessages.length === 0) {
-      const b = bucket(sessionId);
-      b.hasMoreHistory = hasMoreHistory;
-      return;
-    }
     const b = bucket(sessionId);
-    const tail = last(b.messages);
-    if (tail?.streaming) return;
-    const seen = new Set(earlierMessages.map((m) => m.id));
-    const kept = b.messages.filter((m) => !seen.has(m.id));
-    b.messages = [...earlierMessages, ...kept];
-    for (const m of earlierMessages) {
-      if (m.eventIds) for (const eid of m.eventIds) b.seenEventIds.add(eid);
-    }
-    const firstUser = earlierMessages.find((message) => message.role === "user");
-    b.earliestTs = firstUser ? firstUser.timestamp / 1000 : b.earliestTs;
-    b.hasMoreHistory = hasMoreHistory;
+    b.prependHistory(earlierMessages, hasMoreHistory);
     mirror(sessionId);
   },
 

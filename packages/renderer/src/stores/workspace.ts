@@ -7,7 +7,6 @@ import { useOutput } from "./output";
 import { useNotification } from "./notification";
 import { useGlobalSearch } from "./global-search";
 import { terminalManager } from "@/services/terminal";
-import { saveAllViewStates } from "@ftre/editor";
 import { normalizePathForCompare } from "@/utils/pathUtils";
 
 const RECENT_FOLDERS_KEY = "ftre-recent-folders";
@@ -93,7 +92,6 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
     window.desktop?.store?.set("lastWorkspace", path).catch(() => {});
 
     // 切换工作区时保存当前 ViewState
-    saveAllViewStates();
 
     // Spec: open_folder — 切换工作区时挂起旧状态、恢复新状态
     const isSameWorkspace =

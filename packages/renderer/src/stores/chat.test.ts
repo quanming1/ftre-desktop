@@ -1,117 +1,109 @@
-import { describe, it, expect, beforeEach, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { useChat } from "./chat";
 
-// Mock websocket-client (chat.ts uses it directly now)
-vi.mock("@/services/websocket-client", () => ({
-  wsClient: {
-    onMessage: vi.fn(),
-    onDisconnect: vi.fn(),
-    onConnect: vi.fn(),
-    onStatusChange: vi.fn(),
-    chatSend: vi.fn(),
-    sessionNew: vi.fn(),
-    sessionAttach: vi.fn(),
-    connect: vi.fn(),
-    disconnect: vi.fn(),
-    connected: false,
-    status: "disconnected",
-  },
-}));
+vi.mock("@/services/websocket-client", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("@/services/websocket-client")>();
+  return {
+    ...actual,
+    wsClient: {
+      onMessage: vi.fn(),
+      onDisconnect: vi.fn(),
+      onConnect: vi.fn(),
+      onStatusChange: vi.fn(),
+      sendChat: vi.fn(),
+      sendCancel: vi.fn(),
+      subscribeOnly: vi.fn(),
+      connect: vi.fn(),
+      disconnect: vi.fn(),
+      connected: false,
+      status: "disconnected",
+    },
+  };
+});
 
 function resetStore() {
+  useChat.getState().newChat();
   useChat.setState({
-    sessionId: null,
-    activeChatId: null,
-    messages: [],
-    sessionStatus: "idle",
-    isBusy: false,
-    error: null,
     connected: false,
+    wsStatus: "disconnected",
     model: null,
-    mode: "chat",
+    provider: null,
     agentId: "default",
-    retryState: null,
-    toolCalls: [],
-    progress: null,
   });
 }
 
 beforeEach(() => {
   resetStore();
+  vi.clearAllMocks();
 });
 
-describe("chat store — basic state", () => {
-  it("defaults to empty messages", () => {
-    expect(useChat.getState().messages).toHaveLength(0);
+describe("chat store", () => {
+  it("starts with an empty idle conversation", () => {
+    const state = useChat.getState();
+    expect(state.messages).toEqual([]);
+    expect(state.sessionId).toBeNull();
+    expect(state.sessionStatus).toBe("idle");
   });
 
-  it("defaults to chat mode", () => {
-    expect(useChat.getState().mode).toBe("chat");
-  });
+  it("updates model, provider and agent", () => {
+    const state = useChat.getState();
+    state.setModel("gpt-4");
+    state.setProvider("openai");
+    state.setAgentId("reviewer");
 
-  it("setMode switches to plan", () => {
-    useChat.getState().setMode("plan");
-    expect(useChat.getState().mode).toBe("plan");
-  });
-
-  it("setMode switches back to chat", () => {
-    useChat.getState().setMode("plan");
-    useChat.getState().setMode("chat");
-    expect(useChat.getState().mode).toBe("chat");
-  });
-});
-
-describe("chat store — model", () => {
-  it("setModel updates model", () => {
-    useChat.getState().setModel("gpt-4");
-    expect(useChat.getState().model).toBe("gpt-4");
-  });
-
-  it("setModel(null) clears model", () => {
-    useChat.getState().setModel("gpt-4");
-    useChat.getState().setModel(null);
-    expect(useChat.getState().model).toBeNull();
-  });
-});
-
-describe("chat store — connection", () => {
-  it("setConnected updates connected state", () => {
-    useChat.getState().setConnected(true);
-    expect(useChat.getState().connected).toBe(true);
-    useChat.getState().setConnected(false);
-    expect(useChat.getState().connected).toBe(false);
-  });
-});
-
-describe("chat store — clearMessages", () => {
-  it("resets messages and session state", () => {
-    useChat.setState({
-      messages: [
-        { id: "1", role: "user", content: "hi", timestamp: Date.now() },
-      ],
-      activeChatId: "x",
-      sessionId: "x",
+    expect(useChat.getState()).toMatchObject({
+      model: "gpt-4",
+      provider: "openai",
+      agentId: "reviewer",
     });
-    useChat.getState().clearMessages();
-
-    const s = useChat.getState();
-    expect(s.messages).toHaveLength(0);
-    expect(s.sessionId).toBeNull();
-    expect(s.activeChatId).toBeNull();
-  });
-});
-
-describe("chat store — sendMessage", () => {
-  it("calls wsClient.chatSend", async () => {
-    const { wsClient } = await import("@/services/websocket-client");
-    useChat.getState().sendMessage("hello");
-    expect(wsClient.chatSend).toHaveBeenCalled();
   });
 
-  it("does not send empty messages", async () => {
+  it("newChat resets the active conversation", async () => {
     const { wsClient } = await import("@/services/websocket-client");
-    (wsClient.chatSend as any).mockClear();
+    useChat.setState({
+      sessionId: "s1",
+      messages: [{ id: "u1", role: "user", content: "hello", timestamp: 1 }],
+      isBusy: true,
+      sessionStatus: "running",
+    });
+
+    useChat.getState().newChat();
+
+    expect(useChat.getState()).toMatchObject({
+      sessionId: null,
+      messages: [],
+      isBusy: false,
+      sessionStatus: "idle",
+    });
+    expect(wsClient.subscribeOnly).toHaveBeenCalledWith(null);
+  });
+
+  it("sends non-empty content through the active session", async () => {
+    const { wsClient } = await import("@/services/websocket-client");
+    useChat.setState({ sessionId: "s1" });
+
+    useChat.getState().sendMessage(" hello ");
+
+    expect(wsClient.sendChat).toHaveBeenCalledWith(
+      [{ type: "text", text: "hello" }],
+      expect.objectContaining({ session_id: "s1", agent_id: "default" }),
+      undefined,
+      expect.any(String),
+    );
+    const messages = useChat.getState().messages;
+    expect(messages[messages.length - 1]).toMatchObject({
+      role: "user",
+      content: "hello",
+    });
+  });
+
+  it("does not send empty content", async () => {
+    const { wsClient } = await import("@/services/websocket-client");
+    useChat.setState({ sessionId: "s1" });
+
     useChat.getState().sendMessage("   ");
-    expect(wsClient.chatSend).not.toHaveBeenCalled();
+
+    expect(wsClient.sendChat).not.toHaveBeenCalled();
   });
 });

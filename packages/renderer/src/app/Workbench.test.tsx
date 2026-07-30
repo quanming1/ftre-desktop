@@ -7,9 +7,7 @@ vi.mock("./TitleBar", () => ({ TitleBar: () => <div data-testid="title-bar" /> }
 vi.mock("@/features/session/SessionPanel", () => ({ SessionPanel: () => <div data-testid="session-panel" /> }));
 vi.mock("@/features/settings/SettingsPanel", () => ({ SettingsPanel: () => <div data-testid="settings-panel" /> }));
 vi.mock("@/features/explorer/Sidebar", () => ({ Sidebar: () => <div data-testid="sidebar" /> }));
-vi.mock("@/features/editor/EditorArea", () => ({ EditorArea: () => <div data-testid="editor-area" /> }));
 vi.mock("@/features/chat/ChatPanel", () => ({ ChatPanel: () => <div data-testid="chat-panel" /> }));
-vi.mock("@/features/bottom-panel/BottomPanel", () => ({ BottomPanel: () => <div data-testid="bottom-panel" /> }));
 vi.mock("@/components/FilePalette", () => ({ FilePalette: () => null }));
 vi.mock("@/components/CommandPalette", () => ({ CommandPalette: () => null }));
 vi.mock("@/components/NotificationStack", () => ({ NotificationStack: () => null }));
