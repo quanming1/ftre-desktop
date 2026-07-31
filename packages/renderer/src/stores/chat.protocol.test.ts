@@ -138,6 +138,35 @@ describe("AgentStreamEvent reducer", () => {
     });
   });
 
+  it("keeps permission cards asking until the backend confirms the decision", () => {
+    const bucket = createBucket();
+
+    applyEvent(bucket, coreEvent("REPLY_START", { name: "assistant" }));
+    applyEvent(bucket, coreEvent("TOOL_CALL_START", {
+      tool_call_id: "call-1",
+      tool_call_name: "bash",
+    }));
+    applyEvent(bucket, coreEvent("REQUIRE_USER_CONFIRM", {
+      tool_call_id: "call-1",
+      reason: "confirm",
+    }));
+
+    expect(bucket.messages[0].toolResults?.["call-1"]).toMatchObject({
+      status: "asking",
+      confirm: { replyId: "reply-1" },
+    });
+
+    applyEvent(bucket, coreEvent("USER_CONFIRM_RESULT", {
+      tool_call_id: "call-1",
+      approved: true,
+    }));
+
+    expect(bucket.messages[0].toolResults?.["call-1"]).toMatchObject({
+      status: "running",
+      confirm: undefined,
+    });
+  });
+
   it("uses CUSTOM events for turn lifecycle state", () => {
     const bucket = createBucket();
 
@@ -289,6 +318,103 @@ describe("AgentStreamEvent reducer", () => {
     expect(bucket.messages[0].content).toBe("checkpoint + live");
     expect(bucket.messages[0].model).toBe("gpt-test");
     expect(bucket.turnStartTs).toBe(Date.parse("2026-07-28T10:00:00Z"));
+  });
+
+  it("marks a tool call as asking on REQUIRE_USER_CONFIRM", () => {
+    const bucket = createBucket();
+
+    applyEvent(bucket, coreEvent("REPLY_START", { name: "assistant" }));
+    applyEvent(bucket, coreEvent("TOOL_CALL_START", {
+      tool_call_id: "call-1",
+      tool_call_name: "bash",
+    }));
+    applyEvent(bucket, coreEvent("TOOL_CALL_END", { tool_call_id: "call-1" }));
+    applyEvent(bucket, coreEvent("REQUIRE_USER_CONFIRM", {
+      tool_call_id: "call-1",
+      tool_call_name: "bash",
+      reason: "bash 需要确认",
+      rule_id: "default-bash-ask",
+    }));
+
+    const result = bucket.messages[0].toolResults?.["call-1"];
+    expect(result?.status).toBe("asking");
+    expect(result?.confirm).toMatchObject({
+      replyId: "reply-1",
+      reason: "bash 需要确认",
+      ruleId: "default-bash-ask",
+    });
+  });
+
+  it("restores an asking tool call from an attach snapshot", () => {
+    const bucket = createBucket();
+    applyReplySnapshot(bucket, {
+      session_id: "ws_sess_test",
+      replies: [{
+        reply_id: "reply-1",
+        revision: 1,
+        message: {
+          id: "reply-1",
+          role: "assistant",
+          content: [{
+            type: "tool_call",
+            id: "call-1",
+            name: "bash",
+            arguments: { command: "ls" },
+            state: "asking",
+          }],
+          metadata: {},
+          created_at: "2026-07-28T10:00:00Z",
+          finished_at: null,
+          finished_reason: null,
+          token: null,
+        },
+      }],
+    });
+
+    const result = bucket.messages[0].toolResults?.["call-1"];
+    expect(result?.status).toBe("asking");
+    expect(result?.confirm?.replyId).toBe("reply-1");
+  });
+
+  it("renders denied tool calls from live events and attach snapshots", () => {
+    const liveBucket = createBucket();
+    applyEvent(liveBucket, coreEvent("REPLY_START", { name: "assistant" }));
+    applyEvent(liveBucket, coreEvent("TOOL_CALL_START", {
+      tool_call_id: "call-1",
+      tool_call_name: "bash",
+    }));
+    applyEvent(liveBucket, coreEvent("TOOL_RESULT_START", {
+      tool_call_id: "call-1",
+      tool_call_name: "bash",
+    }));
+    applyEvent(liveBucket, coreEvent("TOOL_RESULT_END", {
+      tool_call_id: "call-1",
+      state: "denied",
+    }));
+    expect(liveBucket.messages[0].toolResults?.["call-1"]?.status).toBe("denied");
+
+    const snapshotBucket = createBucket();
+    applyReplySnapshot(snapshotBucket, {
+      session_id: "ws_sess_test",
+      replies: [{
+        reply_id: "reply-1",
+        revision: 1,
+        message: {
+          id: "reply-1",
+          role: "assistant",
+          content: [
+            { type: "tool_call", id: "call-1", name: "bash", arguments: { command: "echo test" }, state: "finished" },
+            { type: "tool_result", id: "call-1", name: "bash", output: [], state: "denied" },
+          ],
+          metadata: {},
+          created_at: "2026-07-28T10:00:00Z",
+          finished_at: null,
+          finished_reason: null,
+          token: null,
+        },
+      }],
+    });
+    expect(snapshotBucket.messages[0].toolResults?.["call-1"]?.status).toBe("denied");
   });
 
   it("attaches a reply error to the original Assistant message", () => {

@@ -113,14 +113,29 @@ function persistedMessageToChat(record: SessionMessage): ChatMessage | null {
         name: block.name ?? "",
         arguments: block.arguments ?? {},
       });
+      // 待确认工具调用（state==="asking"）无配对 tool_result，合成 asking
+      // ToolResult，让确认卡片在历史加载后仍可渲染。reason 未持久化，用通用文案。
+      if (block.state === "asking" && block.id) {
+        toolResults[block.id] = {
+          id: block.id,
+          name: block.name ?? "",
+          result: null,
+          error: null,
+          status: "asking",
+          confirm: { replyId: record.id },
+        };
+      }
     } else if (block.type === "tool_result") {
-      const failed = ["error", "interrupted", "denied"].includes(block.state ?? "");
+      const failed = ["error", "interrupted"].includes(block.state ?? "");
+      const denied = block.state === "denied";
       toolResults[block.id] = {
         id: block.id,
         name: block.name ?? "",
-        result: failed ? null : toolOutputText(block.output),
+        result: failed || denied ? null : toolOutputText(block.output),
         error: failed ? toolOutputText(block.output) : null,
-        status: block.state === "interrupted" || block.state === "denied"
+        status: denied
+          ? "denied"
+          : block.state === "interrupted"
           ? "cancelled"
           : failed ? "error" : "completed",
         metadata: block.metadata,

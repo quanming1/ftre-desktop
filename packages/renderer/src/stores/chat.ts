@@ -32,13 +32,25 @@ export type ContentBlock =
   | { type: "data"; data: string; url?: string; mediaType: string; blockId: string }
   | { type: "toolCall"; id: string; name: string; arguments: Record<string, any>; argumentsText?: string };
 
+/** 工具权限确认信息（status==="asking" 时携带，供确认卡片渲染与回传） */
+export interface ToolConfirm {
+  /** 挂起时的 reply_id，回传 user_confirm_result 帧需原样带上 */
+  replyId: string;
+  /** 命中 ASK 的原因（实时事件携带；历史恢复时无该字段，用通用文案） */
+  reason?: string;
+  /** 命中的权限规则 id（可选，仅溯源展示） */
+  ruleId?: string;
+}
+
 /** 工具执行结果（与 toolCall block 的 id 配对） */
 export interface ToolResult {
   id: string;
   name: string;
   result: string | null;
   error: string | null;
-  status: "running" | "completed" | "error" | "cancelled";
+  status: "running" | "completed" | "error" | "cancelled" | "asking" | "denied";
+  /** status==="asking" 时的权限确认上下文 */
+  confirm?: ToolConfirm;
   /** 工具附加元数据（edit/write 携带 diff 信息） */
   metadata?: {
     file?: string;
@@ -191,22 +203,39 @@ function replySnapshotToChatMessage(raw: any): ChatMessage | null {
         blockId: String(block.id ?? ""),
       });
     } else if (block?.type === "tool_call") {
+      const id = String(block.id ?? "");
       blocks.push({
         type: "toolCall",
-        id: String(block.id ?? ""),
+        id,
         name: String(block.name ?? ""),
         arguments: block.arguments && typeof block.arguments === "object" ? block.arguments : {},
       });
+      // 待确认工具调用（state==="asking"）在快照里没有配对 tool_result，
+      // 合成一个 asking ToolResult，让确认卡片在刷新/重连后仍可渲染。
+      // reason 未持久化，卡片用通用文案。
+      if (block.state === "asking" && id) {
+        toolResults[id] = {
+          id,
+          name: String(block.name ?? ""),
+          result: null,
+          error: null,
+          status: "asking",
+          confirm: { replyId: String(raw.id ?? "") },
+        };
+      }
     } else if (block?.type === "tool_result") {
       const state = String(block.state ?? "success");
-      const failed = ["error", "interrupted", "denied"].includes(state);
+      const failed = ["error", "interrupted"].includes(state);
+      const denied = state === "denied";
       const id = String(block.id ?? "");
       toolResults[id] = {
         id,
         name: String(block.name ?? ""),
-        result: failed ? null : toolOutputText(block.output),
+        result: failed || denied ? null : toolOutputText(block.output),
         error: failed ? toolOutputText(block.output) : null,
-        status: state === "interrupted" || state === "denied"
+        status: denied
+          ? "denied"
+          : state === "interrupted"
           ? "cancelled"
           : failed ? "error" : "completed",
         metadata: block.metadata,
@@ -755,17 +784,53 @@ export function applyEvent(b: SessionProjectionState, ev: BusEvent): void {
       updateToolResult(d.tool_call_id, (current) => {
         const isError = d.state === "error";
         const isCancelled = d.state === "interrupted";
+        const isDenied = d.state === "denied";
         const metadata = d.metadata || {};
         return {
           ...current,
           error: isError
             ? String(metadata.error || metadata.message || current.result || "Tool execution failed")
             : null,
-          status: isCancelled ? "cancelled" : isError ? "error" : "completed",
+          status: isDenied ? "denied" : isCancelled ? "cancelled" : isError ? "error" : "completed",
           metadata,
         };
       });
       return;
+
+    // ─── 工具权限确认：命中 ASK，等待用户批准/拒绝 ───
+    // 后端已把对应 ToolCallBlock.state 置为 asking 并持久化；这里在客户端
+    // 合成一个 status="asking" 的 ToolResult 承载确认上下文，供卡片渲染按钮。
+    case "REQUIRE_USER_CONFIRM": {
+      const toolCallId = typeof d.tool_call_id === "string" ? d.tool_call_id : "";
+      if (!toolCallId || !replyId) return;
+      updateToolResult(toolCallId, (current) => ({
+        ...current,
+        result: null,
+        error: null,
+        status: "asking",
+        confirm: {
+          replyId,
+          reason: typeof d.reason === "string" ? d.reason : undefined,
+          ruleId: typeof d.rule_id === "string" ? d.rule_id : undefined,
+        },
+      }));
+      return;
+    }
+
+    // 后端已接受并持久化本次决定后再更新卡片，避免发送失败时乐观状态
+    // 吞掉确认按钮。多 ASK 场景下，其他卡片仍保持 asking。
+    case "USER_CONFIRM_RESULT": {
+      const toolCallId = typeof d.tool_call_id === "string" ? d.tool_call_id : "";
+      if (!toolCallId) return;
+      updateToolResult(toolCallId, (current) => ({
+        ...current,
+        result: d.approved ? "" : current.result,
+        error: null,
+        status: d.approved ? "running" : "denied",
+        confirm: undefined,
+      }));
+      return;
+    }
 
     case "EXCEED_MAX_ITERS": {
       const message = "Agent exceeded the maximum number of iterations";
@@ -1253,6 +1318,8 @@ interface ChatState {
     system?: boolean,
   ) => void;
   cancelStream: () => void;
+  /** 回复工具权限确认：批准/拒绝某个待确认工具调用，驱动后端从挂起恢复。 */
+  confirmToolCall: (replyId: string, toolCallId: string, approved: boolean) => void;
   newChat: () => void;
   /** 鍒囧埌鎸囧畾 session锛堜笉鍙栨秷鍚庡彴鐢熸垚锛涚寮€鐨?session 闈犲巻鍙?+ WS replay 鎭㈠锛夈€?*/
   switchTo: (sessionId: string) => void;
@@ -1418,6 +1485,18 @@ export const useChat = create<ChatState>((set, get) => ({
     if (!sid) return set({ isBusy: false, sessionStatus: "idle" });
     // 鍙?/cancel 鐨?user_message 甯э紝鍚庣绯荤粺绾ф寚浠ゅ湪 session lock 澶栧鐞?
     wsClient.sendCancel(sid);
+  },
+
+  confirmToolCall: (replyId, toolCallId, approved) => {
+    const sid = get().sessionId;
+    if (!sid || !replyId || !toolCallId) return;
+    // 保留 asking 卡片，直到收到后端 USER_CONFIRM_RESULT 确认事件。
+    // 这样发送失败、校验失败时仍能超时解锁并重试。
+    const b = bucket(sid);
+    b.isBusy = true;
+    b.sessionStatus = "running";
+    mirror(sid);
+    wsClient.sendUserConfirmResult(sid, replyId, toolCallId, approved);
   },
 
   newChat: () => {
