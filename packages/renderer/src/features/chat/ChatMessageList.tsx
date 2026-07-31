@@ -350,8 +350,8 @@ const CompactBubble = memo(function CompactBubble({
 
   if (status === "running") {
     return (
-      <div className="flex items-center justify-center py-2">
-        <span className="inline-flex items-center gap-1.5 text-[11px] text-t-ghost">
+      <div className="flex items-center justify-start py-2">
+        <span className="inline-flex items-center gap-1.5 text-[14px] text-t-dim">
           <Loader2 size={12} className="animate-spin" />
           {mode === "fast" ? "快速压缩中…" : "压缩上下文中…"}
         </span>
