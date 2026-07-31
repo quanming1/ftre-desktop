@@ -269,6 +269,26 @@ class WebSocketClient {
     return id;
   }
 
+  /** 发送工具权限确认结果：用户对某个待确认工具调用的批准/拒绝。
+   *  驱动后端 Agent 从挂起状态恢复（approved=true 执行，false 写 DENIED 结果）。 */
+  sendUserConfirmResult(
+    sessionId: string,
+    replyId: string,
+    toolCallId: string,
+    approved: boolean,
+  ): void {
+    this.send({
+      frame_id: crypto.randomUUID().slice(0, 16),
+      type: "user_confirm_result",
+      data: {
+        session_id: sessionId,
+        reply_id: replyId,
+        tool_call_id: toolCallId,
+        approved,
+      },
+    });
+  }
+
   /** 取消当前执行：发送 /cancel 的 user_message 帧，后端系统级指令在锁外处理 */
   sendCancel(sessionId?: string): void {
     this.send({
