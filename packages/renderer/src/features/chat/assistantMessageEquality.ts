@@ -61,6 +61,7 @@ export function toolResultsEqual(
       || a.result !== b.result
       || a.error !== b.error
       || a.metadata !== b.metadata
+      || a.confirm !== b.confirm
     ) return false;
   }
   return true;

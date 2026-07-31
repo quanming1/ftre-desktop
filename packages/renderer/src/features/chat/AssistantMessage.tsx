@@ -377,7 +377,7 @@ export const AssistantMessage = memo(
       setProcessExpanded(isStreaming);
     }, [isStreaming]);
     const allBlocks = message.blocks ?? [];
-    const collapsedBlocks = collapsedAssistantBlocks(allBlocks);
+    const collapsedBlocks = collapsedAssistantBlocks(allBlocks, message.toolResults);
     const hasProcess = allBlocks.length > collapsedBlocks.length;
     const displayBlocks = processExpanded ? allBlocks : collapsedBlocks;
     const finalText = lastDisplayTextBlock(allBlocks)?.text;

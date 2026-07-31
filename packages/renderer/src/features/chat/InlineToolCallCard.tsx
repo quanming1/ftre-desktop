@@ -29,7 +29,9 @@ import { ImageViewer, Tooltip, TooltipProvider } from "@ftre/ui";
 import { CodeDiff } from "@jiang_quan_ming/react-code-diff";
 import { useInspector } from "@/stores/inspector";
 import { useLayout } from "@/stores/layout";
+import { useChat } from "@/stores/chat";
 import { FileIconView } from "@/components/FileIconView";
+import { Terminal } from "lucide-react";
 
 const API_BASE = import.meta.env.VITE_API_BASE || "http://127.0.0.1:48650";
 
@@ -58,6 +60,10 @@ function buildSummary(
   status: string,
 ): string {
   const n = name ?? "unknown";
+  if (status === "denied") {
+    const command = typeof args.command === "string" ? args.command.replace(/\s+/g, " ").trim() : "";
+    return command ? `Denied ${command}` : `Denied ${n}`;
+  }
   // ���̬����ʧ�ܣ�һ�ɸ���ȥʽ fallback���������ʱժҪ��ͣ�� "...ing"
   const isDone = status === "completed" || status === "error";
 
@@ -310,6 +316,117 @@ function ArgsView({ args, toolName }: { args: Record<string, unknown>; toolName?
   );
 }
 
+// ─── ConfirmCard：工具权限确认卡片（命中 ASK 时渲染，允许 / 拒绝） ───
+
+function formatConfirmReason(reason?: string): string {
+  if (!reason) return "该工具需要你的确认后才能执行";
+  const matchedRule = reason.match(/^Matched permission rule:\s*(.+)$/i);
+  return matchedRule ? `命中权限规则 · ${matchedRule[1]}` : reason;
+}
+
+function ConfirmCard({
+  summary,
+  args,
+  toolName,
+  reason,
+  replyId,
+  toolCallId,
+}: {
+  summary: string;
+  args: Record<string, unknown>;
+  toolName?: string;
+  reason?: string;
+  replyId: string;
+  toolCallId: string;
+}) {
+  const [submitting, setSubmitting] = useState(false);
+  useEffect(() => {
+    if (!submitting) return;
+    // 后端确认事件通常会立即让卡片切换状态并卸载；若连接失败或请求被拒绝，
+    // 超时后重新开放按钮，避免确认卡永久卡死。
+    const timer = window.setTimeout(() => setSubmitting(false), 10_000);
+    return () => window.clearTimeout(timer);
+  }, [submitting]);
+
+  const decide = useCallback(
+    (approved: boolean) => {
+      if (submitting || !replyId || !toolCallId) return;
+      setSubmitting(true);
+      useChat.getState().confirmToolCall(replyId, toolCallId, approved);
+    },
+    [submitting, replyId, toolCallId],
+  );
+
+  const command =
+    ["bash", "exec", "shell"].includes(toolName ?? "") && typeof args.command === "string"
+      ? args.command
+      : "";
+  const displayReason = formatConfirmReason(reason);
+
+  return (
+    <div className="py-0.5">
+      <div className="mb-2 overflow-hidden rounded-lg border border-black/[0.08] bg-black/[0.015] dark:border-white/[0.08] dark:bg-white/[0.02]">
+        <div className="p-3">
+          <div className="flex items-center gap-2">
+            <SummaryLine summary={summary} className="flex-1" />
+            <span className="inline-flex shrink-0 select-none items-center gap-1.5 text-[11px] text-t-dim">
+              <span className="h-1.5 w-1.5 rounded-full bg-amber-500" />
+              待确认
+            </span>
+          </div>
+          <p className="mt-1 truncate text-[12px] text-t-dim" title={reason}>
+            {displayReason}
+          </p>
+
+          {command ? (
+            <div className="mt-3 overflow-hidden rounded-lg border border-black/10 bg-[#17191d] shadow-inner dark:border-white/10">
+              <div className="flex items-center gap-1.5 border-b border-white/10 px-3 py-1.5 text-[10px] font-medium uppercase tracking-[0.12em] text-white/45">
+                <Terminal size={11} />
+                Command
+              </div>
+              <pre className="max-h-[160px] overflow-auto whitespace-pre-wrap break-words px-3 py-2.5 font-mono text-[13px] leading-relaxed text-[#e8eaed]">
+                <code>{command}</code>
+              </pre>
+            </div>
+          ) : Object.keys(args).length > 0 ? (
+            <div className="mt-3 rounded-lg border border-black/[0.06] bg-black/[0.025] p-3 dark:border-white/[0.08] dark:bg-white/[0.025]">
+              <ArgsView args={args} toolName={toolName} />
+            </div>
+          ) : null}
+        </div>
+
+        <div className="flex items-center justify-between gap-3 border-t border-black/[0.06] px-3 py-2 dark:border-white/[0.06]">
+          <span className="text-[11px] text-t-ghost">仅执行本次操作</span>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => decide(false)}
+              disabled={submitting}
+              className="inline-flex h-8 items-center gap-1.5 rounded-full border border-black/[0.08] bg-white/70 px-3 text-[12px] font-medium text-t-secondary shadow-sm transition-colors hover:bg-white dark:border-white/10 dark:bg-white/[0.05] dark:hover:bg-white/[0.08] disabled:cursor-default disabled:opacity-50"
+            >
+              <X size={12} className="shrink-0" />
+              拒绝
+            </button>
+            <button
+              type="button"
+              onClick={() => decide(true)}
+              disabled={submitting}
+              className="inline-flex h-8 min-w-[92px] items-center justify-center gap-1.5 rounded-full bg-[#079669] px-3.5 text-[12px] font-semibold text-white shadow-sm transition-colors hover:bg-[#07835d] disabled:cursor-default disabled:opacity-60"
+            >
+              {submitting ? (
+                <Loader2 size={12} className="shrink-0 animate-spin" />
+              ) : (
+                <Check size={12} className="shrink-0" />
+              )}
+              {submitting ? "处理中" : "允许执行"}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ������ ����� ������������������������������������������������������������������������������������������������������������������
 
 export const InlineToolCallCard = memo(
@@ -333,7 +450,8 @@ export const InlineToolCallCard = memo(
     const isPending = status === "pending";
     const isRunning = status === "running";
     const isError = status === "error";
-    const isComplete = status === "completed" || status === "error";
+    const isDenied = status === "denied";
+    const isComplete = status === "completed" || status === "error" || isDenied;
     const resultText = result ? (result.error ?? result.result ?? "") : "";
 
     const args = parseArgs(block.arguments);
@@ -341,6 +459,9 @@ export const InlineToolCallCard = memo(
     const hasResult = !!result;
     const hasArgs = Object.keys(args).length > 0;
     const isThink = name === "think";
+    const isAsking = status === "asking";
+    const isShellTool = ["bash", "exec", "shell"].includes((name ?? "").toLowerCase());
+    const shellCommand = typeof args.command === "string" ? args.command : "";
 
     // think ���ߣ�ֱ��չʾ thought ���ݣ�����л�չ��/�۵�
     if (isThink) {
@@ -421,8 +542,31 @@ export const InlineToolCallCard = memo(
       };
     }, [isLoadSkill, resultText, args.skill]);
 
+    const handleCopy = useCallback(() => {
+      if (!resultText) return;
+      navigator.clipboard.writeText(resultText).then(() => {
+        setCopied(true);
+        setTimeout(() => setCopied(false), 2000);
+      });
+    }, [resultText]);
+
+    // 权限确认：命中 ASK，渲染确认卡片（允许 / 拒绝）
+    // 注意：所有 hooks 必须在此之前声明，保证 asking→running 转换时 hook 数量不变。
+    if (isAsking) {
+      return (
+        <ConfirmCard
+          summary={summary}
+          args={args}
+          toolName={name}
+          reason={result?.confirm?.reason}
+          replyId={result?.confirm?.replyId ?? ""}
+          toolCallId={block.id}
+        />
+      );
+    }
+
     // loadSkill������ʾһ�� title��hover չʾ skill ����
-    if (isLoadSkill) {
+    if (isLoadSkill && !isDenied) {
       return (
         <TooltipProvider>
           <Tooltip
@@ -460,7 +604,7 @@ export const InlineToolCallCard = memo(
     }
 
     // set_workspace������ʾһ�У�hover չʾ����·��
-    if (isSetWorkspace) {
+    if (isSetWorkspace && !isDenied) {
       const wsPath = (args.path as string) || "";
       const switched = resultText.match(/���������л�:\s*(.+?)\s*��\s*(.+)/);
       const changed = resultText.match(/�������ѱ��:\s*(.+)/);
@@ -501,14 +645,6 @@ export const InlineToolCallCard = memo(
         </TooltipProvider>
       );
     }
-
-    const handleCopy = useCallback(() => {
-      if (!resultText) return;
-      navigator.clipboard.writeText(resultText).then(() => {
-        setCopied(true);
-        setTimeout(() => setCopied(false), 2000);
-      });
-    }, [resultText]);
 
     return (
       <div className="py-0.5">
@@ -558,6 +694,12 @@ export const InlineToolCallCard = memo(
           {isRunning && <Loader2 size={12} className="text-neon animate-spin shrink-0" />}
           {status === "completed" && <Check size={12} className="text-green-600 shrink-0" />}
           {isError && <X size={12} className="text-red-500 shrink-0" />}
+          {isDenied && (
+            <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-amber-500/10 px-2 py-0.5 text-[11px] font-medium text-amber-600 dark:text-amber-400">
+              <X size={11} />
+              已拒绝
+            </span>
+          )}
           {(hasResult || isError || hasArgs) && (
             <ChevronRight size={13} className={`text-t-ghost shrink-0 transition-transform duration-200 ${expanded ? "rotate-90" : ""}`} />
           )}
@@ -571,10 +713,33 @@ export const InlineToolCallCard = memo(
           style={{ gridTemplateRows: expanded ? "1fr" : "0fr" }}
         >
           <div className="overflow-hidden">
-            <div className="ml-[22px] mt-1 mb-2 space-y-3 rounded-xl p-3 bg-[#f6f7f9] dark:bg-white/[0.03]">
+            <div
+              className={
+                isShellTool && !isDenied
+                  ? "ml-[22px] mt-1 mb-2"
+                  : "ml-[22px] mt-1 mb-2 space-y-3 rounded-xl p-3 bg-[#f6f7f9] dark:bg-white/[0.03]"
+              }
+            >
+              {isShellTool && !isDenied ? (
+                <BashTerminalPanel
+                  command={shellCommand}
+                  result={resultText}
+                  isError={isError}
+                  copied={copied}
+                  onCopy={handleCopy}
+                />
+              ) : (
+                <>
               <ArgsView args={args} toolName={name} />
 
-              {resultText && (
+              {isDenied && (
+                <div className="flex items-center gap-2 rounded-lg border border-amber-500/15 bg-amber-500/[0.06] px-3 py-2 text-[12px] text-amber-700 dark:text-amber-300">
+                  <X size={13} className="shrink-0" />
+                  用户已拒绝执行，此工具未运行。
+                </div>
+              )}
+
+              {!isDenied && resultText && (
                 <div className="space-y-1 relative group/result">
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2 text-[13px] font-mono tracking-wider text-t-ghost">
@@ -599,6 +764,8 @@ export const InlineToolCallCard = memo(
                   />
                 </div>
               )}
+                </>
+              )}
             </div>
           </div>
         </div>
@@ -616,6 +783,7 @@ export const InlineToolCallCard = memo(
     prev.result?.result === next.result?.result &&
     prev.result?.error === next.result?.error &&
     prev.result?.metadata === next.result?.metadata &&
+    prev.result?.confirm === next.result?.confirm &&
     prev.streaming === next.streaming,
 );
 
@@ -963,6 +1131,71 @@ function parseBashResult(text: string): ParsedBash {
     if (m) out.exitCode = Number(m[1]);
   }
   return out;
+}
+
+function BashTerminalPanel({
+  command,
+  result,
+  isError,
+  copied,
+  onCopy,
+}: {
+  command: string;
+  result: string;
+  isError: boolean;
+  copied: boolean;
+  onCopy: () => void;
+}) {
+  const parsed = parseBashResult(result);
+  let cwd = parsed.cwd;
+  let output = parsed.raw ?? [parsed.stdout, parsed.stderr].filter(Boolean).join("\n");
+
+  // 新协议把 cwd 放在系统事实块里；终端头部单独展示，不混入命令输出。
+  const fact = output.match(
+    /^<FTRE_SYSTEM_FACT>\s*\r?\n\[cwd\]\s*(.*?)\r?\n<\/FTRE_SYSTEM_FACT>\s*/i,
+  );
+  if (fact) {
+    cwd = fact[1].trim();
+    output = output.slice(fact[0].length);
+  }
+
+  return (
+    <div className="group/terminal overflow-hidden rounded-lg border border-black/15 bg-[#17191d] shadow-inner dark:border-white/10">
+      <div className="flex h-8 items-center gap-2 border-b border-white/10 bg-white/[0.025] px-3">
+        <Terminal size={12} className="text-white/45" />
+        <span className="text-[10px] font-medium uppercase tracking-[0.12em] text-white/45">
+          Terminal
+        </span>
+        {cwd && <span className="min-w-0 truncate font-mono text-[11px] text-white/30">{cwd}</span>}
+        {parsed.exitCode !== undefined && (
+          <span className={`ml-auto font-mono text-[10px] ${parsed.exitCode === 0 ? "text-white/30" : "text-red-400"}`}>
+            exit {parsed.exitCode}
+          </span>
+        )}
+        {result && (
+          <button
+            type="button"
+            onClick={onCopy}
+            className={`${parsed.exitCode === undefined ? "ml-auto" : ""} rounded p-1 text-white/35 opacity-0 transition-opacity hover:bg-white/10 hover:text-white/70 group-hover/terminal:opacity-100`}
+            title="复制输出"
+          >
+            {copied ? <Check size={11} className="text-emerald-400" /> : <Copy size={11} />}
+          </button>
+        )}
+      </div>
+      <div className="max-h-[320px] overflow-auto px-3 py-2.5 font-mono text-[13px] leading-relaxed">
+        <div className="flex items-start gap-2 text-[#e8eaed]">
+          <span className="select-none text-emerald-400">&gt;</span>
+          <code className="whitespace-pre-wrap break-words">{command}</code>
+        </div>
+        {output && (
+          <pre className={`mt-2 whitespace-pre-wrap break-words ${isError ? "text-red-300" : "text-white/70"}`}>
+            {output}
+          </pre>
+        )}
+      </div>
+    </div>
+  );
 }
 
 function BashDetail({ result, isError }: { result: string; isError: boolean }) {
