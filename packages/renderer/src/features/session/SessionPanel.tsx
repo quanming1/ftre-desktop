@@ -632,7 +632,10 @@ export function SessionPanel() {
             id: "locate-trace",
             label: "定位 Trace",
             icon: Activity,
-            action: () => locateTraceSession(session.session_id),
+            action: () => {
+              handleSwitchSession(session.session_id);
+              locateTraceSession(session.session_id);
+            },
           },
           {
             id: "rename-session",
@@ -652,7 +655,7 @@ export function SessionPanel() {
         ],
       });
     },
-    [deleteSession, handleTogglePin, locateTraceSession, pinnedSessions],
+    [deleteSession, handleSwitchSession, handleTogglePin, locateTraceSession, pinnedSessions],
   );
 
   /** 工作区 header 右键菜单 */
@@ -799,13 +802,6 @@ export function SessionPanel() {
               onClick={() => setActiveLeftPanel("skills")}
             >
               <Zap size={17} />
-            </SideIconButton>
-            <SideIconButton
-              title="Agent Traces"
-              active={activeLeftPanel === "traces"}
-              onClick={() => setActiveLeftPanel("traces")}
-            >
-              <Activity size={17} />
             </SideIconButton>
           </div>
 
@@ -998,12 +994,6 @@ export function SessionPanel() {
             label="技能"
             active={activeLeftPanel === "skills"}
             onClick={() => setActiveLeftPanel("skills")}
-          />
-          <ActionRow
-            icon={Activity}
-            label="追踪"
-            active={activeLeftPanel === "traces"}
-            onClick={() => setActiveLeftPanel("traces")}
           />
         </div>
 

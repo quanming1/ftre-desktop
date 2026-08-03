@@ -1,8 +1,9 @@
 import { create } from 'zustand';
+import { INSPECTOR_TRACE_TAB_ID, useInspector } from './inspector';
 
 export type SidebarView = 'explorer' | 'git' | 'extensions';
 export type BottomTab = 'terminal' | 'problems' | 'output';
-export type LeftPanelType = 'chat' | 'skills' | 'cron' | 'traces' | 'settings';
+export type LeftPanelType = 'chat' | 'skills' | 'cron' | 'settings';
 
 export type SplitMode = 'ai-center' | 'code-center';
 export type PanelId = 'sessions' | 'sidebar' | 'editor' | 'chat' | 'inspector';
@@ -227,6 +228,10 @@ export const useLayout = create<LayoutState>((set, get) => ({
                         parsed.layoutMode = 'chat';
                     }
                 }
+                // Traces 已迁移到右侧 Inspector 固定 Tab。
+                if ((parsed.activeLeftPanel as string | undefined) === 'traces') {
+                    parsed.activeLeftPanel = 'chat';
+                }
                 // 写死 Agent 模式：忽略历史持久化的 IDE 布局，强制只显示 sessions + chat。
                 parsed.layoutMode = 'agent';
                 parsed.panelOrder = MODE_CONFIGS.agent.panelOrder;
@@ -347,7 +352,12 @@ export const useLayout = create<LayoutState>((set, get) => ({
 
     traceFocusSessionId: null,
     locateTraceSession: (sessionId) => {
-        set({ activeLeftPanel: 'traces', traceFocusSessionId: sessionId });
+        set((state) => ({
+            activeLeftPanel: 'chat',
+            traceFocusSessionId: sessionId,
+            panelVisible: { ...state.panelVisible, inspector: true },
+        }));
+        useInspector.getState().setActiveTab(INSPECTOR_TRACE_TAB_ID);
         get().persist();
     },
     clearTraceFocus: () => set({ traceFocusSessionId: null }),

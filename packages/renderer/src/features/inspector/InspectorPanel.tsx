@@ -13,11 +13,16 @@ import {
   type PointerEvent as ReactPointerEvent,
   type ReactNode,
 } from "react";
-import { X, FileText, Braces, ListTree } from "lucide-react";
+import { Activity, X, FileText, Braces, ListTree } from "lucide-react";
 import { GitCompareArrows } from "lucide-react";
 import { OverlayScrollbarsComponent, type OverlayScrollbarsComponentRef } from "overlayscrollbars-react";
 import { ErrorBoundary } from "@ftre/ui";
-import { useInspector, type InspectorTab } from "@/stores/inspector";
+import {
+  INSPECTOR_SESSION_STATE_TAB_ID,
+  INSPECTOR_TRACE_TAB_ID,
+  useInspector,
+  type InspectorTab,
+} from "@/stores/inspector";
 import { ContextMenu, type ContextMenuItem } from "@/components/ContextMenu";
 import { ResizeHandle } from "@/components/ResizeHandle";
 import { useLayout, FILE_TREE_WIDTH_MIN, FILE_TREE_WIDTH_MAX } from "@/stores/layout";
@@ -27,8 +32,7 @@ import { getTabMeta } from "./tabRegistry";
 import { useRipple, RippleLayer } from "@/components/Ripple";
 import { useSmoothTabReorder, compareByMountOrder } from "./useSmoothTabReorder";
 import { SessionStateRenderer } from "./SessionStateRenderer";
-
-const SESSION_STATE_TAB_ID = "inspector-session-state";
+import { TracePanel } from "@/features/traces/TracePanel";
 
 export function InspectorPanel() {
   const tabs = useInspector((s) => s.tabs);
@@ -45,7 +49,7 @@ export function InspectorPanel() {
   const wordWrap = useInspector((s) => s.wordWrap);
   const fileTreeWidth = useLayout((s) => s.fileTreeWidth);
   const setFileTreeWidth = useLayout((s) => s.setFileTreeWidth);
-  const effectiveActiveTabId = activeTabId ?? SESSION_STATE_TAB_ID;
+  const effectiveActiveTabId = activeTabId ?? INSPECTOR_SESSION_STATE_TAB_ID;
   const contentTabs = useMemo(() => [...tabs].sort(compareByMountOrder), [tabs]);
 
   // ── LRU keep-alive: 最多保留 MAX_KEEP_ALIVE 个 tab 在 DOM 中 ──
@@ -162,13 +166,25 @@ export function InspectorPanel() {
           <div
             className="absolute inset-0"
             style={{
-              visibility: effectiveActiveTabId === SESSION_STATE_TAB_ID ? "visible" : "hidden",
-              pointerEvents: effectiveActiveTabId === SESSION_STATE_TAB_ID ? "auto" : "none",
-              zIndex: effectiveActiveTabId === SESSION_STATE_TAB_ID ? 1 : 0,
+              visibility: effectiveActiveTabId === INSPECTOR_SESSION_STATE_TAB_ID ? "visible" : "hidden",
+              pointerEvents: effectiveActiveTabId === INSPECTOR_SESSION_STATE_TAB_ID ? "auto" : "none",
+              zIndex: effectiveActiveTabId === INSPECTOR_SESSION_STATE_TAB_ID ? 1 : 0,
             }}
           >
-            <TabErrorBoundary tabId={SESSION_STATE_TAB_ID}>
-              <SessionStateRenderer active={effectiveActiveTabId === SESSION_STATE_TAB_ID} />
+            <TabErrorBoundary tabId={INSPECTOR_SESSION_STATE_TAB_ID}>
+              <SessionStateRenderer active={effectiveActiveTabId === INSPECTOR_SESSION_STATE_TAB_ID} />
+            </TabErrorBoundary>
+          </div>
+          <div
+            className="absolute inset-0"
+            style={{
+              visibility: effectiveActiveTabId === INSPECTOR_TRACE_TAB_ID ? "visible" : "hidden",
+              pointerEvents: effectiveActiveTabId === INSPECTOR_TRACE_TAB_ID ? "auto" : "none",
+              zIndex: effectiveActiveTabId === INSPECTOR_TRACE_TAB_ID ? 1 : 0,
+            }}
+          >
+            <TabErrorBoundary tabId={INSPECTOR_TRACE_TAB_ID}>
+              <TracePanel active={effectiveActiveTabId === INSPECTOR_TRACE_TAB_ID} />
             </TabErrorBoundary>
           </div>
           {renderableTabs.map((tab) => (
@@ -390,16 +406,30 @@ function InspectorTabBar({
       <button
         type="button"
         title="当前会话 state.json"
-        onClick={() => onActivate(SESSION_STATE_TAB_ID)}
+        onClick={() => onActivate(INSPECTOR_SESSION_STATE_TAB_ID)}
         className={`relative flex h-full shrink-0 items-center gap-2 border-r border-border px-3 text-[12px] font-mono transition-colors ${
-          activeTabId === SESSION_STATE_TAB_ID
+          activeTabId === INSPECTOR_SESSION_STATE_TAB_ID
             ? "bg-[#f0f1f3] text-t-primary"
             : "text-t-muted hover:bg-elevated hover:text-t-secondary"
         }`}
-        style={activeTabId === SESSION_STATE_TAB_ID ? { boxShadow: "inset 3px 0 0 #059669" } : undefined}
+        style={activeTabId === INSPECTOR_SESSION_STATE_TAB_ID ? { boxShadow: "inset 0 -2px 0 currentColor" } : undefined}
       >
         <Braces size={14} />
         <span>state.json</span>
+      </button>
+      <button
+        type="button"
+        title="Agent Traces"
+        onClick={() => onActivate(INSPECTOR_TRACE_TAB_ID)}
+        className={`relative flex h-full shrink-0 items-center gap-2 border-r border-border px-3 text-[12px] transition-colors ${
+          activeTabId === INSPECTOR_TRACE_TAB_ID
+            ? "bg-[#f0f1f3] text-t-primary"
+            : "text-t-muted hover:bg-elevated hover:text-t-secondary"
+        }`}
+        style={activeTabId === INSPECTOR_TRACE_TAB_ID ? { boxShadow: "inset 0 -2px 0 currentColor" } : undefined}
+      >
+        <Activity size={14} />
+        <span>Traces</span>
       </button>
       <div className="relative flex-1 min-w-0 h-full">
         <OverlayScrollbarsComponent

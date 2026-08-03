@@ -7,7 +7,6 @@ import { ChatPanel } from "@/features/chat/ChatPanel";
 import { SessionPanel } from "@/features/session/SessionPanel";
 import { SkillsPanel } from "@/features/skills/SkillsPanel";
 import { ScheduledTaskPanel } from "@/features/task/ScheduledTaskPanel";
-import { TracePanel } from "@/features/traces/TracePanel";
 import { SettingsPanel } from "@/features/settings/SettingsPanel";
 import { InspectorPanel } from "@/features/inspector/InspectorPanel";
 import { TerminalDropdown } from "@/features/terminal/TerminalDropdown";
@@ -454,17 +453,6 @@ export function Workbench() {
             <div className="h-full overflow-hidden rounded-xl bg-surface">
               <ErrorBoundary>
                 <ScheduledTaskPanel />
-              </ErrorBoundary>
-            </div>
-          </div>
-        )}
-
-        {/* Trace 模式：占满 SessionPanel 右侧的所有空间 */}
-        {activeLeftPanel === "traces" && (
-          <div className="flex-1 h-full overflow-hidden py-1 pr-1.5" style={{ order: 999 }}>
-            <div className="h-full overflow-hidden rounded-xl bg-surface">
-              <ErrorBoundary>
-                <TracePanel />
               </ErrorBoundary>
             </div>
           </div>

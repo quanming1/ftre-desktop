@@ -9,6 +9,9 @@
 import { create } from "zustand";
 import { filePreviewCache } from "@/features/inspector/filePreviewCache";
 
+export const INSPECTOR_SESSION_STATE_TAB_ID = "inspector-session-state";
+export const INSPECTOR_TRACE_TAB_ID = "inspector-traces";
+
 // ─── localStorage 持久化（全局偏好）─────────────────────────────
 
 const PREFS_KEY = "ftre-inspector-prefs";

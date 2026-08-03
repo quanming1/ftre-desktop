@@ -8,15 +8,9 @@ import {
   CheckCircle2,
   Braces,
   ChevronRight,
-  Clock3,
   Copy,
   ListTree,
-  PanelLeftClose,
-  PanelLeftOpen,
-  PanelRightClose,
-  PanelRightOpen,
   RefreshCw,
-  Search,
   Wrench,
   XCircle,
 } from "lucide-react";
@@ -25,19 +19,15 @@ import {
   fetchTraceRun,
   fetchTraces,
   type TraceRun,
-  type TraceSummary,
 } from "@/services/api";
 import { JsonTree } from "./JsonTree";
 
 import { useLayout } from "@/stores/layout";
+import { useChat } from "@/stores/chat";
 import { createManagedPoller } from "@/services/visibility-manager";
 const POLL_INTERVAL_MS = 3000;
-const TRACE_PAGE_SIZE = 100;
 const MAX_DISPLAY_CHARS = 120_000;
-const TRACE_ROW_HEIGHT = 80;
-const OVERSCAN = 5;
 type DetailTab = "input" | "output" | "metadata" | "events";
-type TraceModule = "traces" | "tree" | "detail";
 
 function formatDuration(value: number | null | undefined): string {
   if (value == null) return "-";
@@ -49,10 +39,6 @@ function formatTime(value: string | null | undefined): string {
   if (!value) return "-";
   const parsed = new Date(value);
   return Number.isNaN(parsed.getTime()) ? value : parsed.toLocaleString();
-}
-
-function shortId(value: string): string {
-  return value.length > 12 ? value.slice(0, 8) : value;
 }
 
 function StatusIcon({ status }: { status: string }) {
@@ -110,7 +96,7 @@ function JsonViewer({ value, loading }: { value: unknown; loading: boolean }) {
 
   if (loading) {
     return (
-      <div className="space-y-2 rounded-xl bg-base p-4">
+      <div className="space-y-2 rounded-md bg-base p-4">
         <Skeleton className="h-3 w-3/4" /><Skeleton className="h-3 w-5/6" />
         <Skeleton className="h-3 w-2/3" /><Skeleton className="h-3 w-4/5" />
       </div>
@@ -118,7 +104,7 @@ function JsonViewer({ value, loading }: { value: unknown; loading: boolean }) {
   }
 
   return (
-    <div className="relative min-h-48 overflow-hidden rounded-xl bg-base">
+    <div className="relative min-h-48 overflow-hidden rounded-md border border-border bg-base">
       <div className="flex h-10 items-center justify-between gap-3 bg-elevated/35 px-3">
         <span className="text-[10px] text-t-ghost">
           {serialized ? `${serialized.length.toLocaleString()} 字符` : "无数据"}
@@ -182,43 +168,53 @@ function RunNode({ run, runs, depth, selectedId, onSelect }: RunNodeProps) {
   );
 }
 
-export function TracePanel() {
+export function TracePanel({ active = true }: { active?: boolean }) {
+  const sessionId = useChat((state) => state.sessionId);
   const traceFocusSessionId = useLayout((state) => state.traceFocusSessionId);
   const clearTraceFocus = useLayout((state) => state.clearTraceFocus);
-  const [traces, setTraces] = useState<TraceSummary[]>([]);
   const [runs, setRuns] = useState<TraceRun[]>([]);
   const [selectedTraceId, setSelectedTraceId] = useState<string | null>(null);
   const [selectedRunId, setSelectedRunId] = useState<string | null>(null);
   const [selectedRunPayload, setSelectedRunPayload] = useState<TraceRun | null>(null);
   const [activeTab, setActiveTab] = useState<DetailTab>("input");
-  const [query, setQuery] = useState("");
-  const [tracePath, setTracePath] = useState("");
-  const [traceTotal, setTraceTotal] = useState(0);
-  const [nextOffset, setNextOffset] = useState<number | null>(null);
-  const [hasMore, setHasMore] = useState(false);
   const [listLoading, setListLoading] = useState(true);
-  const [loadingMore, setLoadingMore] = useState(false);
   const [treeLoading, setTreeLoading] = useState(false);
   const [payloadLoading, setPayloadLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [collapsed, setCollapsed] = useState<Record<TraceModule, boolean>>({
-    traces: false,
-    tree: false,
-    detail: false,
-  });
   const selectedTraceRef = useRef<string | null>(null);
+  const selectedRunRef = useRef<string | null>(null);
+  const listRequestRef = useRef(0);
+  const treeRequestRef = useRef(0);
   const payloadRequestRef = useRef(0);
-  const traceListLimitRef = useRef(TRACE_PAGE_SIZE);
 
+  useEffect(() => {
+    listRequestRef.current += 1;
+    treeRequestRef.current += 1;
+    payloadRequestRef.current += 1;
+    selectedTraceRef.current = null;
+    selectedRunRef.current = null;
+    setSelectedTraceId(null);
+    setSelectedRunId(null);
+    setSelectedRunPayload(null);
+    setRuns([]);
+    setError(null);
+  }, [sessionId]);
   useEffect(() => {
     selectedTraceRef.current = selectedTraceId;
   }, [selectedTraceId]);
 
-  const loadRunPayload = useCallback(async (traceId: string, runId: string) => {
+  useEffect(() => {
+    selectedRunRef.current = selectedRunId;
+  }, [selectedRunId]);
+
+  const loadRunPayload = useCallback(async (traceId: string, runId: string, showLoading = true) => {
     const requestId = ++payloadRequestRef.current;
+    selectedRunRef.current = runId;
     setSelectedRunId(runId);
-    setPayloadLoading(true);
-    setSelectedRunPayload(null);
+    if (showLoading) {
+      setPayloadLoading(true);
+      setSelectedRunPayload(null);
+    }
     try {
       const run = await fetchTraceRun(traceId, runId);
       if (requestId === payloadRequestRef.current) {
@@ -234,113 +230,78 @@ export function TracePanel() {
     }
   }, []);
 
-  const loadTree = useCallback(async (traceId: string) => {
-    setTreeLoading(true);
-    setRuns([]);
-    setSelectedRunPayload(null);
+  const loadTree = useCallback(async (traceId: string, showLoading = true) => {
+    const requestId = ++treeRequestRef.current;
+    if (showLoading) {
+      setTreeLoading(true);
+      setRuns([]);
+      setSelectedRunPayload(null);
+    }
     try {
       const detail = await fetchTrace(traceId);
+      if (requestId !== treeRequestRef.current) return;
       setRuns(detail.runs);
       const root = detail.runs.find((run) => run.parent_run_id == null) || detail.runs[0];
-      if (root) await loadRunPayload(traceId, root.id);
+      const selected = detail.runs.find((run) => run.id === selectedRunRef.current) || root;
+      if (selected) await loadRunPayload(traceId, selected.id, showLoading);
+      if (requestId !== treeRequestRef.current) return;
       setError(null);
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : String(cause));
+      if (requestId === treeRequestRef.current) {
+        setError(cause instanceof Error ? cause.message : String(cause));
+      }
     } finally {
-      setTreeLoading(false);
+      if (requestId === treeRequestRef.current) setTreeLoading(false);
     }
   }, [loadRunPayload]);
 
   const refreshList = useCallback(async (showLoading = false) => {
+    if (!sessionId) {
+      setListLoading(false);
+      return;
+    }
+    const requestId = ++listRequestRef.current;
     if (showLoading) setListLoading(true);
     try {
-      const data = await fetchTraces(traceListLimitRef.current, 0);
-      setTraces(data.traces);
-      setTracePath(data.path);
-      setTraceTotal(data.total);
-      setNextOffset(data.next_offset);
-      setHasMore(data.has_more);
+      // Trace 面板只跟随当前聊天 Session，并自动展示最新一条 Trace。
+      const data = await fetchTraces(1, 0, sessionId);
+      if (requestId !== listRequestRef.current) return;
       setError(null);
-      if (!selectedTraceRef.current && data.traces[0]) {
-        const traceId = data.traces[0].trace_id;
-        selectedTraceRef.current = traceId;
-        setSelectedTraceId(traceId);
-        await loadTree(traceId);
+      const latest = data.traces[0];
+      if (latest) {
+        const changed = latest.trace_id !== selectedTraceRef.current;
+        selectedTraceRef.current = latest.trace_id;
+        setSelectedTraceId(latest.trace_id);
+        await loadTree(latest.trace_id, changed);
+      } else {
+        selectedTraceRef.current = null;
+        setSelectedTraceId(null);
+        setSelectedRunId(null);
+        setSelectedRunPayload(null);
+        setRuns([]);
       }
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : String(cause));
+      if (requestId === listRequestRef.current) {
+        setError(cause instanceof Error ? cause.message : String(cause));
+      }
     } finally {
-      setListLoading(false);
+      if (requestId === listRequestRef.current) setListLoading(false);
     }
-  }, [loadTree]);
-
-  const loadMoreTraces = useCallback(async () => {
-    if (!hasMore || nextOffset == null || loadingMore) return;
-    setLoadingMore(true);
-    try {
-      const data = await fetchTraces(TRACE_PAGE_SIZE, nextOffset);
-      setTraces((current) => {
-        const seen = new Set(current.map((trace) => trace.trace_id));
-        const appended = data.traces.filter((trace) => !seen.has(trace.trace_id));
-        const next = [...current, ...appended];
-        traceListLimitRef.current = Math.max(TRACE_PAGE_SIZE, next.length);
-        return next;
-      });
-      setTracePath(data.path);
-      setTraceTotal(data.total);
-      setNextOffset(data.next_offset);
-      setHasMore(data.has_more);
-      setError(null);
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : String(cause));
-    } finally {
-      setLoadingMore(false);
-    }
-  }, [hasMore, loadingMore, nextOffset]);
-
+  }, [loadTree, sessionId]);
   useEffect(() => {
+    if (!active) return;
     void refreshList(true);
     const cancel = createManagedPoller(() => void refreshList(false), POLL_INTERVAL_MS);
     return () => cancel();
-  }, [refreshList]);
-
-  const selectTrace = useCallback(async (traceId: string) => {
-    selectedTraceRef.current = traceId;
-    setSelectedTraceId(traceId);
-    setActiveTab("input");
-    await loadTree(traceId);
-  }, [loadTree]);
-
+  }, [active, refreshList]);
   useEffect(() => {
-    if (!traceFocusSessionId || traces.length === 0) return;
+    if (!traceFocusSessionId || !sessionId) return;
     const normalize = (value: string) => value.split("_sess_").pop() || value;
-    const target = normalize(traceFocusSessionId);
-    setQuery(traceFocusSessionId);
-    const matched = traces.find((trace) =>
-      normalize(String(trace.metadata?.session_id || "")) === target,
-    );
-    if (!matched) return;
-    clearTraceFocus();
-    if (matched.trace_id !== selectedTraceRef.current) {
-      void selectTrace(matched.trace_id);
-    }
-  }, [clearTraceFocus, selectTrace, traceFocusSessionId, traces]);
-
+    if (normalize(traceFocusSessionId) === normalize(sessionId)) clearTraceFocus();
+  }, [clearTraceFocus, sessionId, traceFocusSessionId]);
   const manualRefresh = useCallback(async () => {
     await refreshList(true);
-    if (selectedTraceRef.current) await loadTree(selectedTraceRef.current);
-  }, [loadTree, refreshList]);
-
-  const filteredTraces = useMemo(() => {
-    const needle = query.trim().toLowerCase();
-    if (!needle) return traces;
-    return traces.filter((trace) =>
-      [trace.name, trace.trace_id, String(trace.metadata?.session_id || ""), ...trace.response_models]
-        .some((value) => value.toLowerCase().includes(needle)),
-    );
-  }, [query, traces]);
-
-  const { containerRef: traceListRef, handleScroll: onTraceScroll, visibleItems: visibleTraces, totalHeight: traceTotalHeight, offsetY: traceOffsetY } = useVirtualList(filteredTraces, TRACE_ROW_HEIGHT, OVERSCAN);
+  }, [refreshList]);
 
   const selectedRun = selectedRunPayload || runs.find((run) => run.id === selectedRunId) || null;
   const roots = runs.filter((run) => run.parent_run_id == null);
@@ -348,17 +309,18 @@ export function TracePanel() {
     : activeTab === "output" ? selectedRun?.outputs
       : activeTab === "metadata" ? selectedRun?.metadata
         : selectedRun?.events;
-  const toggleModule = (module: TraceModule) => {
-    setCollapsed((current) => ({ ...current, [module]: !current[module] }));
-  };
-
   return (
     <div className="flex h-full flex-col bg-surface text-t-primary" data-testid="trace-panel">
-      <header className="shrink-0 px-5 py-3">
-        <div className="flex items-center gap-4">
+      <header className="shrink-0 border-b border-border px-4 py-2.5">
+        <div className="flex items-center gap-3">
           <div className="flex min-w-0 flex-1 items-center gap-2">
-            <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-neon/10 text-neon"><Activity size={17} /></span>
-            <div className="min-w-0"><h1 className="text-[14px] font-semibold text-wrap-balance">Agent Traces</h1><p className="truncate font-mono text-[9px] text-t-ghost" title={tracePath}>{tracePath || "等待 Gateway"}</p></div>
+            <Activity size={16} className="shrink-0 text-t-muted" />
+            <div className="min-w-0">
+              <h1 className="text-[13px] font-semibold">Agent Traces</h1>
+              <p className="truncate font-mono text-[10px] text-t-ghost" title={sessionId || ""}>
+                {sessionId || "未选择 Session"}
+              </p>
+            </div>
           </div>
           <button type="button" onClick={() => void manualRefresh()} className="flex items-center gap-1.5 rounded-md px-2 py-1.5 text-[10px] text-t-ghost transition-colors hover:bg-hover hover:text-t-primary active:scale-[0.96]">
             <RefreshCw size={12} className={listLoading || treeLoading ? "animate-spin" : ""} />刷新
@@ -368,76 +330,33 @@ export function TracePanel() {
 
       {error && <div className="mx-4 mt-2 rounded-md border border-red-500/30 bg-red-500/10 px-3 py-2 text-[10px] text-red-500">{error}</div>}
 
-      <div className="flex min-h-0 flex-1 gap-2 overflow-hidden px-2 pb-2">
-        {collapsed.traces ? (
-          <CollapsedRail label="Traces" icon={Activity} onExpand={() => toggleModule("traces")} />
-        ) : (
-        <section className="flex w-[290px] shrink-0 flex-col overflow-hidden rounded-xl bg-base/55">
-          <ModuleHeader label="Traces" count={traceTotal || filteredTraces.length} onCollapse={() => toggleModule("traces")} />
-          <div className="p-3">
-            <div className="flex items-center gap-2 rounded-lg bg-elevated/65 px-2.5 py-2">
-              <Search size={13} className="text-t-ghost" />
-              <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索 Session、模型或 Trace ID" className="min-w-0 flex-1 bg-transparent text-[11px] outline-none placeholder:text-t-ghost" />
-            </div>
-          </div>
-          <div className="flex-1 overflow-y-auto px-2 pb-3" ref={traceListRef} onScroll={onTraceScroll}>
-            {listLoading && traces.length === 0 ? <PanelLoading /> : (
-              <div style={{ height: traceTotalHeight, position: "relative" }}>
-                <div style={{ position: "absolute", top: 0, left: 0, right: 0, transform: `translateY(${traceOffsetY}px)` }}>
-                  {visibleTraces.map((trace) => (
-                    <TraceRow key={trace.trace_id} trace={trace} selected={selectedTraceId === trace.trace_id} onSelect={(id) => void selectTrace(id)} />
-                  ))}
-                </div>
+      <div className="grid min-h-0 flex-1 grid-cols-[clamp(190px,30%,280px)_minmax(0,1fr)] overflow-hidden">
+        <section className="min-h-0 overflow-y-auto border-r border-border">
+          <ModuleHeader label="Run Tree" count={runs.length} />
+          <div className="px-2 pb-3">
+            {listLoading || treeLoading ? <PanelLoading rows={4} /> : roots.length > 0 ? roots.map((run) => (
+              <RunNode key={run.id} run={run} runs={runs} depth={0} selectedId={selectedRunId} onSelect={(item) => selectedTraceId && void loadRunPayload(selectedTraceId, item.id)} />
+            )) : (
+              <div className="py-16 text-center text-[11px] text-t-ghost">
+                {sessionId ? "当前 Session 暂无 Trace" : "请选择一个 Session"}
               </div>
             )}
-            {!query.trim() && hasMore && (
-              <button
-                type="button"
-                disabled={loadingMore}
-                onClick={() => void loadMoreTraces()}
-                className="mt-2 flex w-full items-center justify-center gap-2 rounded-lg bg-elevated/60 px-3 py-2 text-[11px] text-t-muted transition-colors hover:bg-hover hover:text-t-primary active:scale-[0.96] disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                <RefreshCw size={12} className={loadingMore ? "animate-spin" : ""} />
-                {loadingMore ? "加载中" : "加载更多"}
-              </button>
-            )}
-            {!listLoading && filteredTraces.length === 0 && <div className="py-16 text-center text-[11px] text-t-ghost">暂无 Trace。发送消息后会自动出现。</div>}
           </div>
         </section>
-        )}
 
-        {collapsed.tree ? (
-          <CollapsedRail label="Run Tree" icon={ListTree} onExpand={() => toggleModule("tree")} />
-        ) : (
-          <section className="w-[270px] shrink-0 overflow-y-auto rounded-xl bg-base/55">
-            <ModuleHeader label="Run Tree" count={runs.length} onCollapse={() => toggleModule("tree")} />
-            <div className="p-3">
-              {treeLoading ? <PanelLoading rows={4} /> : roots.map((run) => (
-                <RunNode key={run.id} run={run} runs={runs} depth={0} selectedId={selectedRunId} onSelect={(item) => selectedTraceId && void loadRunPayload(selectedTraceId, item.id)} />
-              ))}
-            </div>
-          </section>
-        )}
-
-        {collapsed.detail ? (
-          <CollapsedRail label="Run Detail" icon={Braces} onExpand={() => toggleModule("detail")} fill />
-        ) : (
-        <section className="group min-w-[360px] flex-1 overflow-y-auto rounded-xl bg-base/30 p-5">
+        <section className="min-w-0 overflow-y-auto bg-surface p-4">
           {selectedRun ? (
             <div className="mx-auto max-w-5xl">
-              <div className="group/detail flex items-start justify-between gap-3 [&>div:last-child>button]:opacity-0 [&>div:last-child>button]:transition-opacity [&>div:last-child>button:focus]:opacity-100 [&>div:last-child>button:hover]:opacity-100 [&:hover>div:last-child>button]:opacity-100">
+              <div className="flex items-start justify-between gap-3">
                 <div><div className="flex items-center gap-2"><span className="flex h-8 w-8 items-center justify-center rounded-lg bg-elevated"><RunIcon type={selectedRun.run_type} /></span><h2 className="text-[15px] font-semibold">{selectedRun.name}</h2><StatusIcon status={selectedRun.status} /></div><p className="mt-1 pl-10 font-mono text-[9px] text-t-ghost">{selectedRun.id}</p></div>
-                <div className="flex items-start gap-3">
-                  <div className="text-right text-[9px] text-t-ghost"><div className="font-mono text-[11px] text-t-muted tabular-nums">{formatDuration(selectedRun.duration_ms)}</div><div className="mt-1">{formatTime(selectedRun.start_time)}</div></div>
-                  <button type="button" onClick={() => toggleModule("detail")} className="flex h-7 w-7 items-center justify-center rounded-md text-t-ghost hover:bg-hover hover:text-t-primary active:scale-[0.96] transition-transform" title="收起 Run Detail" aria-label="收起 Run Detail"><PanelRightClose size={14} /></button>
-                </div>
+                <div className="text-right text-[10px] text-t-ghost"><div className="font-mono text-[12px] text-t-muted tabular-nums">{formatDuration(selectedRun.duration_ms)}</div><div className="mt-1">{formatTime(selectedRun.start_time)}</div></div>
               </div>
 
               {selectedRun.run_type === "llm" && (() => {
                 const ttftEvent = selectedRun.events?.find((e) => e.name === "ttft");
                 const ttftMs = ttftEvent ? Number(ttftEvent.data?.ms) : null;
                 return (
-                  <div className="mt-4 grid grid-cols-4 gap-2">
+                  <div className="mt-4 grid grid-cols-[repeat(auto-fit,minmax(120px,1fr))] gap-2">
                     <DetailStat label="TTFT" value={ttftMs != null ? formatDuration(ttftMs) : "-"} />
                     <DetailStat label="Finish Reason" value={String(selectedRun.outputs?.finish_reason || "unknown")} />
                     <DetailStat label="Tool Calls" value={String(selectedRun.outputs?.tool_call_count ?? (selectedRun.outputs?.tool_calls as unknown[])?.length ?? 0)} />
@@ -456,96 +375,21 @@ export function TracePanel() {
               </div>
               <div className="mt-3"><JsonViewer value={tabValue} loading={payloadLoading} /></div>
             </div>
-          ) : payloadLoading ? <PanelLoading rows={4} /> : <div className="flex h-full items-center justify-center text-[11px] text-t-ghost">选择一个 Run 查看详情</div>}
+          ) : payloadLoading ? <PanelLoading rows={4} /> : <div className="flex h-full items-center justify-center text-[11px] text-t-ghost">{sessionId ? "选择一个 Run 查看详情" : "请选择一个 Session"}</div>}
         </section>
-        )}
       </div>
     </div>
-  );
-}
-
-function Badge({ children, warn = false }: { children: React.ReactNode; warn?: boolean }) {
-  return <span className={`rounded px-1.5 py-0.5 text-[9px] ${warn ? "bg-amber-500/10 text-amber-600" : "bg-elevated text-t-muted"}`}>{children}</span>;
-}
-
-function useVirtualList<T>(items: T[], rowHeight: number, overscan = 5) {
-  const containerRef = useRef<HTMLDivElement>(null);
-  const [scrollTop, setScrollTop] = useState(0);
-  const [containerHeight, setContainerHeight] = useState(0);
-
-  useEffect(() => {
-    const el = containerRef.current;
-    if (!el) return;
-    const obs = new ResizeObserver(([entry]) => {
-      setContainerHeight(entry.contentRect.height);
-    });
-    obs.observe(el);
-    return () => obs.disconnect();
-  }, []);
-
-  const handleScroll = useCallback(() => {
-    if (containerRef.current) {
-      setScrollTop(containerRef.current.scrollTop);
-    }
-  }, []);
-
-  const visibleCount = Math.ceil(containerHeight / rowHeight);
-  const startIdx = Math.max(0, Math.floor(scrollTop / rowHeight) - overscan);
-  const endIdx = Math.min(items.length, startIdx + visibleCount + overscan * 2);
-  const visibleItems = items.slice(startIdx, endIdx);
-  const totalHeight = items.length * rowHeight;
-  const offsetY = startIdx * rowHeight;
-
-  return { containerRef, handleScroll, visibleItems, totalHeight, offsetY, startIdx };
-}
-
-function TraceRow({ trace, selected, onSelect }: { trace: TraceSummary; selected: boolean; onSelect: (id: string) => void }) {
-  return (
-    <button
-      type="button"
-      onClick={() => onSelect(trace.trace_id)}
-      className={`mb-1.5 w-full rounded-xl p-3 text-left transition-[background-color,box-shadow,transform] active:scale-[0.96] ${selected ? "bg-active shadow-sm" : "hover:bg-hover"}`}
-    >
-      <div className="flex items-center gap-2">
-        <StatusIcon status={trace.status} />
-        <span className="min-w-0 flex-1 truncate text-[12px] font-medium">{String(trace.metadata?.session_id || trace.name)}</span>
-        <span className="font-mono text-[9px] text-t-ghost">{shortId(trace.trace_id)}</span>
-      </div>
-      <div className="mt-2 flex items-center gap-2 text-[9px] text-t-ghost">
-        <Clock3 size={10} />
-        {formatTime(trace.start_time)}<span>·</span>
-        <span className="font-mono tabular-nums">{formatDuration(trace.duration_ms)}</span>
-      </div>
-      <div className="mt-2 flex flex-wrap gap-1">
-        <Badge>LLM {trace.llm_run_count}</Badge>
-        <Badge>Tool {trace.tool_run_count}</Badge>
-        {trace.stop_without_tools > 0 && <Badge warn>stop/no-tool {trace.stop_without_tools}</Badge>}
-      </div>
-    </button>
   );
 }
 
 function DetailStat({ label, value }: { label: string; value: string }) {
-  return <div className="rounded-xl bg-elevated/45 p-3"><div className="text-[9px] text-t-ghost">{label}</div><div className="mt-1 truncate font-mono text-[11px] text-t-primary" title={value}>{value}</div></div>;
+  return <div className="rounded-md border border-border bg-elevated/25 p-3"><div className="text-[10px] text-t-ghost">{label}</div><div className="mt-1 truncate font-mono text-[12px] text-t-primary" title={value}>{value}</div></div>;
 }
 
-function ModuleHeader({ label, count, onCollapse }: { label: string; count: number; onCollapse: () => void }) {
+function ModuleHeader({ label, count }: { label: string; count: number }) {
   return (
-    <div className="group flex h-10 shrink-0 items-center justify-between px-3 [&>button]:opacity-0 [&>button]:transition-opacity [&>button:focus]:opacity-100 [&>button:hover]:opacity-100 [&:hover>button]:opacity-100">
+    <div className="flex h-9 shrink-0 items-center justify-between px-3">
       <div className="flex items-center gap-2"><span className="text-[11px] font-medium text-t-muted">{label}</span><span className="font-mono text-[9px] text-t-ghost tabular-nums">{count}</span></div>
-      <button type="button" onClick={onCollapse} className="flex h-7 w-7 items-center justify-center rounded-md text-t-ghost hover:bg-hover hover:text-t-primary active:scale-[0.96] transition-transform" title={`收起 ${label}`} aria-label={`收起 ${label}`}><PanelLeftClose size={14} /></button>
-    </div>
-  );
-}
-
-function CollapsedRail({ label, icon: Icon, onExpand, fill = false }: { label: string; icon: typeof Activity; onExpand: () => void; fill?: boolean }) {
-  return (
-    <div className={`flex w-10 shrink-0 flex-col items-center rounded-xl bg-base/45 py-2 ${fill ? "mr-auto" : ""}`}>
-      <button type="button" onClick={onExpand} className="flex h-7 w-7 items-center justify-center rounded-md text-t-muted hover:bg-hover hover:text-t-primary active:scale-[0.96] transition-transform" title={`展开 ${label}`} aria-label={`展开 ${label}`}>
-        {fill ? <PanelRightOpen size={14} /> : <PanelLeftOpen size={14} />}
-      </button>
-      <Icon size={13} className="mt-3 text-t-ghost" />
-      <span className="mt-2 text-[9px] font-medium tracking-wide text-t-ghost [writing-mode:vertical-rl]">{label}</span>
     </div>
   );
 }

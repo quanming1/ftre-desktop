@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { useLayout } from './layout';
+import { INSPECTOR_TRACE_TAB_ID, useInspector } from './inspector';
 
 // Use fake timers to control debounced persist
 beforeEach(() => {
@@ -19,6 +20,7 @@ beforeEach(() => {
         panelOrder: ['sessions', 'sidebar', 'editor', 'chat', 'inspector'],
         panelVisible: { sessions: true, sidebar: true, editor: true, chat: true, inspector: false },
     });
+    useInspector.setState({ activeTabId: null });
 });
 
 afterEach(() => {
@@ -124,6 +126,20 @@ describe('layout store — toggles', () => {
         expect(useLayout.getState().minimapEnabled).toBe(true);
         useLayout.getState().toggleMinimap();
         expect(useLayout.getState().minimapEnabled).toBe(false);
+    });
+});
+
+describe('layout store — trace inspector', () => {
+    it('locateTraceSession opens the fixed Traces tab on the right', () => {
+        useLayout.setState({ activeLeftPanel: 'skills' });
+
+        useLayout.getState().locateTraceSession('ws_sess_1');
+
+        const state = useLayout.getState();
+        expect(state.activeLeftPanel).toBe('chat');
+        expect(state.panelVisible.inspector).toBe(true);
+        expect(state.traceFocusSessionId).toBe('ws_sess_1');
+        expect(useInspector.getState().activeTabId).toBe(INSPECTOR_TRACE_TAB_ID);
     });
 });
 

@@ -1483,11 +1483,16 @@ export interface TracePage {
   has_more: boolean;
 }
 
-export async function fetchTraces(limit = 100, offset = 0): Promise<TracePage> {
+export async function fetchTraces(
+  limit = 100,
+  offset = 0,
+  sessionId?: string,
+): Promise<TracePage> {
   const params = new URLSearchParams({
     limit: String(limit),
     offset: String(offset),
   });
+  if (sessionId) params.set("session_id", sessionId);
   const response = await fetch(`${API_BASE}/api/traces?${params.toString()}`);
   if (!response.ok) throw new Error(`加载 Trace 失败 (${response.status})`);
   return response.json();

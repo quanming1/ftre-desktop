@@ -9,9 +9,10 @@ describe("InspectorPanel fixed state tab", () => {
     useInspector.setState({ tabs: [], activeTabId: null, fileTreeOpen: false });
   });
 
-  it("始终在 tab bar 展示不可关闭的 state.json，并可激活", () => {
+  it("始终展示不可关闭的 state.json 与 Traces 固定 tab", () => {
     render(<InspectorPanel />);
     const stateTab = screen.getByRole("button", { name: "state.json" });
+    expect(screen.getByRole("button", { name: "Traces" })).toBeInTheDocument();
     expect(stateTab).toBeInTheDocument();
     expect(screen.queryByTitle("关闭")).not.toBeInTheDocument();
 

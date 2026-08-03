@@ -1,7 +1,8 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { TracePanel } from "./TracePanel";
+import { fetchTraces } from "@/services/api";
 
 const clearTraceFocus = vi.hoisted(() => vi.fn());
 
@@ -9,6 +10,12 @@ vi.mock("@/stores/layout", () => ({
   useLayout: (selector: (state: any) => unknown) => selector({
     traceFocusSessionId: "sess_1",
     clearTraceFocus,
+  }),
+}));
+
+vi.mock("@/stores/chat", () => ({
+  useChat: (selector: (state: any) => unknown) => selector({
+    sessionId: "sess_1",
   }),
 }));
 
@@ -73,21 +80,24 @@ describe("TracePanel", () => {
 
     expect(screen.getByTestId("trace-panel")).toBeInTheDocument();
     await waitFor(() => expect(screen.getByText("sess_1")).toBeInTheDocument());
+    expect(fetchTraces).toHaveBeenCalledWith(1, 0, "sess_1");
     await waitFor(() => expect(clearTraceFocus).toHaveBeenCalled());
     expect(screen.getAllByText("react_agent")).toHaveLength(2);
-    expect(screen.getByText("LLM 1")).toBeInTheDocument();
-    expect(screen.getByText("stop/no-tool 1")).toBeInTheDocument();
+    expect(screen.queryByPlaceholderText(/搜索/)).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Input" })).toBeInTheDocument();
     expect(screen.queryByText("INPUT")).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Tree" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "文本" })).toBeInTheDocument();
     expect(screen.getByText("Root")).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: "收起 Traces" }));
-    expect(screen.getByRole("button", { name: "展开 Traces" })).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "收起 Run Tree" }));
-    expect(screen.getByRole("button", { name: "展开 Run Tree" })).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "收起 Run Detail" }));
-    expect(screen.getByRole("button", { name: "展开 Run Detail" })).toBeInTheDocument();
+    expect(screen.getByText("Run Tree")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "收起 Traces" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "收起 Run Tree" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "收起 Run Detail" })).not.toBeInTheDocument();
+  });
+
+  it("does not poll while the fixed Inspector tab is hidden", () => {
+    render(<TracePanel active={false} />);
+    expect(fetchTraces).not.toHaveBeenCalled();
   });
 });
