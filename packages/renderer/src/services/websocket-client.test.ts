@@ -52,22 +52,20 @@ describe("websocket-client protocol handling", () => {
     expect(frames.map((frame) => frame.data.session_id)).toEqual(["ws_a", "ws_a", "ws_b"]);
   });
 
-  it("sendUserConfirmResult emits a well-formed frame", async () => {
+  it("工具确认发送不持久化的控制指令", async () => {
     const { wsClient } = await loadClient();
     wsClient.connect();
     const ws = FakeWebSocket.instances[0];
     ws.onopen?.();
 
-    wsClient.sendUserConfirmResult("ws_a", "reply-1", "call-1", true);
+    wsClient.sendToolConfirmation("ws_a", ["call-1", "call-2"], true);
 
     const frame = JSON.parse(ws.sent[ws.sent.length - 1]);
-    expect(frame.type).toBe("user_confirm_result");
+    expect(frame.type).toBe("user_message");
     expect(typeof frame.frame_id).toBe("string");
     expect(frame.data).toMatchObject({
       session_id: "ws_a",
-      reply_id: "reply-1",
-      tool_call_id: "call-1",
-      approved: true,
+      content: "/allow call-1 call-2",
     });
   });
 

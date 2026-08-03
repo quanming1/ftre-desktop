@@ -32,10 +32,8 @@ export type ContentBlock =
   | { type: "data"; data: string; url?: string; mediaType: string; blockId: string }
   | { type: "toolCall"; id: string; name: string; arguments: Record<string, any>; argumentsText?: string };
 
-/** 工具权限确认信息（status==="asking" 时携带，供确认卡片渲染与回传） */
+/** 工具权限确认信息（status==="asking" 时携带，供确认卡片渲染） */
 export interface ToolConfirm {
-  /** 挂起时的 reply_id，回传 user_confirm_result 帧需原样带上 */
-  replyId: string;
   /** 命中 ASK 的原因（实时事件携带；历史恢复时无该字段，用通用文案） */
   reason?: string;
   /** 命中的权限规则 id（可选，仅溯源展示） */
@@ -220,7 +218,17 @@ function replySnapshotToChatMessage(raw: any): ChatMessage | null {
           result: null,
           error: null,
           status: "asking",
-          confirm: { replyId: String(raw.id ?? "") },
+          confirm: {},
+        };
+      } else if (block.state === "finished" && id) {
+        // 批量确认尚未全部完成时，已拒绝调用只有 finished 状态，
+        // 配对的 denied 结果要等最后一个确认后才生成。
+        toolResults[id] = {
+          id,
+          name: String(block.name ?? ""),
+          result: null,
+          error: null,
+          status: "denied",
         };
       }
     } else if (block?.type === "tool_result") {
@@ -809,7 +817,6 @@ export function applyEvent(b: SessionProjectionState, ev: BusEvent): void {
         error: null,
         status: "asking",
         confirm: {
-          replyId,
           reason: typeof d.reason === "string" ? d.reason : undefined,
           ruleId: typeof d.rule_id === "string" ? d.rule_id : undefined,
         },
@@ -1319,7 +1326,7 @@ interface ChatState {
   ) => void;
   cancelStream: () => void;
   /** 回复工具权限确认：批准/拒绝某个待确认工具调用，驱动后端从挂起恢复。 */
-  confirmToolCall: (replyId: string, toolCallId: string, approved: boolean) => void;
+  confirmToolCall: (toolCallId: string, approved: boolean) => void;
   newChat: () => void;
   /** 鍒囧埌鎸囧畾 session锛堜笉鍙栨秷鍚庡彴鐢熸垚锛涚寮€鐨?session 闈犲巻鍙?+ WS replay 鎭㈠锛夈€?*/
   switchTo: (sessionId: string) => void;
@@ -1487,16 +1494,16 @@ export const useChat = create<ChatState>((set, get) => ({
     wsClient.sendCancel(sid);
   },
 
-  confirmToolCall: (replyId, toolCallId, approved) => {
+  confirmToolCall: (toolCallId, approved) => {
     const sid = get().sessionId;
-    if (!sid || !replyId || !toolCallId) return;
+    if (!sid || !toolCallId) return;
     // 保留 asking 卡片，直到收到后端 USER_CONFIRM_RESULT 确认事件。
     // 这样发送失败、校验失败时仍能超时解锁并重试。
     const b = bucket(sid);
     b.isBusy = true;
     b.sessionStatus = "running";
     mirror(sid);
-    wsClient.sendUserConfirmResult(sid, replyId, toolCallId, approved);
+    wsClient.sendToolConfirmation(sid, toolCallId, approved);
   },
 
   newChat: () => {

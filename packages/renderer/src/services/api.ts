@@ -295,6 +295,91 @@ export interface SessionMessage {
   timestamp: number;
 }
 
+/** state.json 中的原始 Msg；不同于聊天展示 DTO，不含 session_id/timestamp。 */
+export interface AgentStateMessage {
+  id: string;
+  name: string;
+  role: "user" | "assistant" | "system";
+  content: SessionContentBlock[];
+  metadata: Record<string, any>;
+  created_at: string;
+  token?: MessageToken | null;
+  finished_at?: string | null;
+  finished_reason?: string | null;
+  structured_output?: Record<string, any> | null;
+  error?: Record<string, any> | null;
+}
+
+export interface AgentStatePage {
+  schema_version: number;
+  file_path: string;
+  session: {
+    id: string;
+    agent_id: string;
+    channel_id: string;
+    title: string;
+    workspace: string;
+    created_at: string;
+    updated_at: string;
+  };
+  messages: AgentStateMessage[];
+  metadata: Record<string, any>;
+  truncated_message_ids: string[];
+  stats: {
+    message_count: number;
+    user_messages: number;
+    assistant_messages: number;
+    system_messages: number;
+    text_blocks: number;
+    thinking_blocks: number;
+    tool_calls: number;
+    tool_results: number;
+    data_blocks: number;
+    prompt_tokens: number;
+    completion_tokens: number;
+    total_tokens: number;
+    model: string | null;
+  };
+  page: {
+    offset: number;
+    limit: number;
+    total: number;
+    has_more_before: boolean;
+    has_more_after: boolean;
+  };
+}
+
+/** 分页读取 state.json；offset 省略时后端返回最近一页。 */
+export async function fetchAgentStatePage(
+  sessionId: string,
+  opts: { offset?: number; limit?: number; signal?: AbortSignal } = {},
+): Promise<AgentStatePage> {
+  const params = new URLSearchParams();
+  if (opts.offset !== undefined) params.set("offset", String(opts.offset));
+  params.set("limit", String(opts.limit ?? 50));
+  const response = await fetch(
+    `${API_BASE}/api/sessions/${encodeURIComponent(sessionId)}/state?${params}`,
+    { signal: opts.signal },
+  );
+  if (!response.ok) throw new Error(`state.json HTTP ${response.status}`);
+  return response.json() as Promise<AgentStatePage>;
+}
+
+/** 超长字段被分页接口截断时，按需读取一条完整 Msg。 */
+export async function fetchAgentStateMessage(
+  sessionId: string,
+  messageId: string,
+  signal?: AbortSignal,
+): Promise<AgentStateMessage> {
+  const response = await fetch(
+    `${API_BASE}/api/sessions/${encodeURIComponent(sessionId)}`
+      + `/state/messages/${encodeURIComponent(messageId)}`,
+    { signal },
+  );
+  if (!response.ok) throw new Error(`state message HTTP ${response.status}`);
+  return response.json() as Promise<AgentStateMessage>;
+}
+
 /**
  * Fetch messages for a session from REST API.
  * 后端返回格式: { messages: Msg[], has_more, status, metadata }

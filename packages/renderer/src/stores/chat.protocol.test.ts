@@ -153,7 +153,7 @@ describe("AgentStreamEvent reducer", () => {
 
     expect(bucket.messages[0].toolResults?.["call-1"]).toMatchObject({
       status: "asking",
-      confirm: { replyId: "reply-1" },
+      confirm: {},
     });
 
     applyEvent(bucket, coreEvent("USER_CONFIRM_RESULT", {
@@ -339,7 +339,6 @@ describe("AgentStreamEvent reducer", () => {
     const result = bucket.messages[0].toolResults?.["call-1"];
     expect(result?.status).toBe("asking");
     expect(result?.confirm).toMatchObject({
-      replyId: "reply-1",
       reason: "bash 需要确认",
       ruleId: "default-bash-ask",
     });
@@ -373,7 +372,46 @@ describe("AgentStreamEvent reducer", () => {
 
     const result = bucket.messages[0].toolResults?.["call-1"];
     expect(result?.status).toBe("asking");
-    expect(result?.confirm?.replyId).toBe("reply-1");
+    expect(result?.confirm).toEqual({});
+  });
+
+  it("刷新后恢复同批中已经拒绝但尚无工具结果的调用", () => {
+    const bucket = createBucket();
+    applyReplySnapshot(bucket, {
+      session_id: "ws_sess_test",
+      replies: [{
+        reply_id: "reply-1",
+        revision: 2,
+        message: {
+          id: "reply-1",
+          role: "assistant",
+          content: [
+            {
+              type: "tool_call",
+              id: "call-1",
+              name: "bash",
+              arguments: { command: "echo denied" },
+              state: "finished",
+            },
+            {
+              type: "tool_call",
+              id: "call-2",
+              name: "bash",
+              arguments: { command: "echo waiting" },
+              state: "asking",
+            },
+          ],
+          metadata: {},
+          created_at: "2026-07-28T10:00:00Z",
+          finished_at: null,
+          finished_reason: null,
+          token: null,
+        },
+      }],
+    });
+
+    expect(bucket.messages[0].toolResults?.["call-1"]?.status).toBe("denied");
+    expect(bucket.messages[0].toolResults?.["call-2"]?.status).toBe("asking");
   });
 
   it("renders denied tool calls from live events and attach snapshots", () => {

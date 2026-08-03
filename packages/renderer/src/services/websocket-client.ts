@@ -269,22 +269,21 @@ class WebSocketClient {
     return id;
   }
 
-  /** 发送工具权限确认结果：用户对某个待确认工具调用的批准/拒绝。
-   *  驱动后端 Agent 从挂起状态恢复（approved=true 执行，false 写 DENIED 结果）。 */
-  sendUserConfirmResult(
+  /** 发送不进入聊天历史的工具确认控制指令。 */
+  sendToolConfirmation(
     sessionId: string,
-    replyId: string,
-    toolCallId: string,
+    toolCallIds: string | string[],
     approved: boolean,
   ): void {
+    const ids = (Array.isArray(toolCallIds) ? toolCallIds : [toolCallIds])
+      .filter(Boolean);
+    if (!sessionId || ids.length === 0) return;
     this.send({
       frame_id: crypto.randomUUID().slice(0, 16),
-      type: "user_confirm_result",
+      type: "user_message",
       data: {
         session_id: sessionId,
-        reply_id: replyId,
-        tool_call_id: toolCallId,
-        approved,
+        content: `${approved ? "/allow" : "/deny"} ${ids.join(" ")}`,
       },
     });
   }

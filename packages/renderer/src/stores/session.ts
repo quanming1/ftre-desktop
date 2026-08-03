@@ -122,7 +122,16 @@ function persistedMessageToChat(record: SessionMessage): ChatMessage | null {
           result: null,
           error: null,
           status: "asking",
-          confirm: { replyId: record.id },
+          confirm: {},
+        };
+      } else if (block.state === "finished" && block.id) {
+        // 批量确认尚未全部完成时，已拒绝调用还没有配对结果。
+        toolResults[block.id] = {
+          id: block.id,
+          name: block.name ?? "",
+          result: null,
+          error: null,
+          status: "denied",
         };
       }
     } else if (block.type === "tool_result") {

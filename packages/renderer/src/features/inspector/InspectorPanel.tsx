@@ -13,7 +13,7 @@ import {
   type PointerEvent as ReactPointerEvent,
   type ReactNode,
 } from "react";
-import { X, FileText, Loader2, ListTree } from "lucide-react";
+import { X, FileText, Braces, ListTree } from "lucide-react";
 import { GitCompareArrows } from "lucide-react";
 import { OverlayScrollbarsComponent, type OverlayScrollbarsComponentRef } from "overlayscrollbars-react";
 import { ErrorBoundary } from "@ftre/ui";
@@ -26,6 +26,9 @@ import { FileIconView } from "@/components/FileIconView";
 import { getTabMeta } from "./tabRegistry";
 import { useRipple, RippleLayer } from "@/components/Ripple";
 import { useSmoothTabReorder, compareByMountOrder } from "./useSmoothTabReorder";
+import { SessionStateRenderer } from "./SessionStateRenderer";
+
+const SESSION_STATE_TAB_ID = "inspector-session-state";
 
 export function InspectorPanel() {
   const tabs = useInspector((s) => s.tabs);
@@ -42,6 +45,7 @@ export function InspectorPanel() {
   const wordWrap = useInspector((s) => s.wordWrap);
   const fileTreeWidth = useLayout((s) => s.fileTreeWidth);
   const setFileTreeWidth = useLayout((s) => s.setFileTreeWidth);
+  const effectiveActiveTabId = activeTabId ?? SESSION_STATE_TAB_ID;
   const contentTabs = useMemo(() => [...tabs].sort(compareByMountOrder), [tabs]);
 
   // ── LRU keep-alive: 最多保留 MAX_KEEP_ALIVE 个 tab 在 DOM 中 ──
@@ -91,7 +95,7 @@ export function InspectorPanel() {
     <div className="h-full flex flex-col overflow-hidden bg-surface">
       <InspectorTabBar
         tabs={tabs}
-        activeTabId={activeTabId}
+        activeTabId={effectiveActiveTabId}
         onActivate={setActiveTab}
         onClose={closeTab}
         onCloseOthers={closeOtherTabs}
@@ -155,27 +159,35 @@ export function InspectorPanel() {
         <div
           className="flex-1 min-w-0 overflow-hidden bg-surface relative"
         >
-          {tabs.length === 0 ? (
-            <EmptyState />
-          ) : (
-            renderableTabs.map((tab) => (
-              <div
-                key={tab.id}
-                className="absolute inset-0"
-                style={{
-                  visibility: tab.id === activeTabId ? "visible" : "hidden",
-                  pointerEvents: tab.id === activeTabId ? "auto" : "none",
-                  zIndex: tab.id === activeTabId ? 1 : 0,
-                }}
-              >
-                <div className="h-full w-full">
-                  <TabErrorBoundary tabId={tab.id}>
-                    <InspectorTabContent tab={tab} active={tab.id === activeTabId} wordWrap={wordWrap} />
-                  </TabErrorBoundary>
-                </div>
+          <div
+            className="absolute inset-0"
+            style={{
+              visibility: effectiveActiveTabId === SESSION_STATE_TAB_ID ? "visible" : "hidden",
+              pointerEvents: effectiveActiveTabId === SESSION_STATE_TAB_ID ? "auto" : "none",
+              zIndex: effectiveActiveTabId === SESSION_STATE_TAB_ID ? 1 : 0,
+            }}
+          >
+            <TabErrorBoundary tabId={SESSION_STATE_TAB_ID}>
+              <SessionStateRenderer active={effectiveActiveTabId === SESSION_STATE_TAB_ID} />
+            </TabErrorBoundary>
+          </div>
+          {renderableTabs.map((tab) => (
+            <div
+              key={tab.id}
+              className="absolute inset-0"
+              style={{
+                visibility: tab.id === effectiveActiveTabId ? "visible" : "hidden",
+                pointerEvents: tab.id === effectiveActiveTabId ? "auto" : "none",
+                zIndex: tab.id === effectiveActiveTabId ? 1 : 0,
+              }}
+            >
+              <div className="h-full w-full">
+                <TabErrorBoundary tabId={tab.id}>
+                  <InspectorTabContent tab={tab} active={tab.id === effectiveActiveTabId} wordWrap={wordWrap} />
+                </TabErrorBoundary>
               </div>
-            ))
-          )}
+            </div>
+          ))}
         </div>
       </div>
     </div>
@@ -375,6 +387,20 @@ function InspectorTabBar({
       >
         <ListTree size={15} />
       </button>
+      <button
+        type="button"
+        title="当前会话 state.json"
+        onClick={() => onActivate(SESSION_STATE_TAB_ID)}
+        className={`relative flex h-full shrink-0 items-center gap-2 border-r border-border px-3 text-[12px] font-mono transition-colors ${
+          activeTabId === SESSION_STATE_TAB_ID
+            ? "bg-[#f0f1f3] text-t-primary"
+            : "text-t-muted hover:bg-elevated hover:text-t-secondary"
+        }`}
+        style={activeTabId === SESSION_STATE_TAB_ID ? { boxShadow: "inset 3px 0 0 #059669" } : undefined}
+      >
+        <Braces size={14} />
+        <span>state.json</span>
+      </button>
       <div className="relative flex-1 min-w-0 h-full">
         <OverlayScrollbarsComponent
           ref={overlayRef}
@@ -553,15 +579,6 @@ function TabErrorBoundary({ tabId, children }: { tabId: string; children: ReactN
     >
       {children}
     </ErrorBoundary>
-  );
-}
-
-function EmptyState() {
-  return (
-    <div className="h-full flex items-center justify-center flex-col gap-2 bg-surface text-t-ghost">
-      <FileText size={28} strokeWidth={1.5} />
-      <div className="text-[13px] font-mono">暂无预览内容</div>
-    </div>
   );
 }
 

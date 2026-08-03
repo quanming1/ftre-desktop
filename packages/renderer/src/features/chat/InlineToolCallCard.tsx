@@ -329,14 +329,12 @@ function ConfirmCard({
   args,
   toolName,
   reason,
-  replyId,
   toolCallId,
 }: {
   summary: string;
   args: Record<string, unknown>;
   toolName?: string;
   reason?: string;
-  replyId: string;
   toolCallId: string;
 }) {
   const [submitting, setSubmitting] = useState(false);
@@ -350,11 +348,11 @@ function ConfirmCard({
 
   const decide = useCallback(
     (approved: boolean) => {
-      if (submitting || !replyId || !toolCallId) return;
+      if (submitting || !toolCallId) return;
       setSubmitting(true);
-      useChat.getState().confirmToolCall(replyId, toolCallId, approved);
+      useChat.getState().confirmToolCall(toolCallId, approved);
     },
-    [submitting, replyId, toolCallId],
+    [submitting, toolCallId],
   );
 
   const command =
@@ -559,7 +557,6 @@ export const InlineToolCallCard = memo(
           args={args}
           toolName={name}
           reason={result?.confirm?.reason}
-          replyId={result?.confirm?.replyId ?? ""}
           toolCallId={block.id}
         />
       );
