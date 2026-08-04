@@ -383,26 +383,22 @@ const CompactBubble = memo(function CompactBubble({
   const detailStr = detailParts.length > 0 ? ` · ${detailParts.join(" · ")}` : "";
 
   return (
-    <div className="py-1.5">
+    <div className="py-2">
       <button
         onClick={() => summaryPreview && setOpen((v) => !v)}
-        className={`group flex items-center gap-2 w-full ${summaryPreview ? "cursor-pointer" : "cursor-default"}`}
+        className={`inline-flex items-center gap-1.5 text-[14px] text-t-dim ${summaryPreview ? "cursor-pointer hover:text-t-ghost transition-colors" : "cursor-default"}`}
       >
-        <span className="flex-1 h-px bg-border/60" />
-        <span className="inline-flex items-center gap-1 text-[10.5px] text-t-faint group-hover:text-t-ghost transition-colors whitespace-nowrap">
-          <Archive size={11} />
-          {label}{detailStr}
-          {summaryPreview ? (
-            <ChevronRight
-              size={11}
-              className={`transition-transform ${open ? "rotate-90" : ""}`}
-            />
-          ) : null}
-        </span>
-        <span className="flex-1 h-px bg-border/60" />
+        <Archive size={12} />
+        {label}{detailStr}
+        {summaryPreview ? (
+          <ChevronRight
+            size={11}
+            className={`transition-transform ${open ? "rotate-90" : ""}`}
+          />
+        ) : null}
       </button>
       {open && summaryPreview ? (
-        <div className="markdown-body mt-2 mx-auto max-w-[680px] text-[12px] opacity-80">
+        <div className="markdown-body mt-2 max-w-[680px] text-[12px] opacity-80">
           <ReactMarkdown remarkPlugins={[...remarkPlugins]} rehypePlugins={[...rehypePlugins]}>{summaryPreview}</ReactMarkdown>
         </div>
       ) : null}
