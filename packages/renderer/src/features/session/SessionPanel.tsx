@@ -49,6 +49,7 @@ import {
   Activity,
   Palette,
   History,
+  GitFork,
 } from "lucide-react";
 import {
   DndContext,
@@ -70,7 +71,7 @@ import { useChat } from "@/stores/chat";
 import { useWorkspace } from "@/stores/workspace";
 import { useLayout } from "@/stores/layout";
 import { useNotification } from "@/stores/notification";
-import { updateSession } from "@/services/api";
+import { updateSession, forkSessionRemote } from "@/services/api";
 import { ContextMenu, type ContextMenuItem } from "@/components/ContextMenu";
 import { Tooltip, TooltipProvider } from "@ftre/ui";
 import { normalizePathForCompare } from "@/utils/pathUtils";
@@ -595,6 +596,26 @@ export function SessionPanel() {
     [loadAllSessions],
   );
 
+  const handleForkSession = useCallback(
+    async (sessionId: string) => {
+      const result = await forkSessionRemote(sessionId);
+      if (!result) {
+        useNotification.getState().addNotification({
+          level: "error",
+          message: "Fork 失败",
+        });
+        return;
+      }
+      await loadAllSessions();
+      useNotification.getState().addNotification({
+        level: "info",
+        message: `已 Fork 为新会话：${result.title}`,
+      });
+      handleSwitchSession(result.fork_session_id);
+    },
+    [loadAllSessions, handleSwitchSession],
+  );
+
   const showSessionMenu = useCallback(
     (e: React.MouseEvent, session: SessionSummary) => {
       e.stopPropagation();
@@ -646,6 +667,12 @@ export function SessionPanel() {
               setRenamingSession(session);
             },
           },
+          {
+            id: "fork-session",
+            label: "Fork 会话",
+            icon: GitFork,
+            action: () => handleForkSession(session.session_id),
+          },
           { id: "sep", label: "", separator: true, action: () => { } },
           {
             id: "delete-session",
@@ -655,7 +682,7 @@ export function SessionPanel() {
         ],
       });
     },
-    [deleteSession, handleSwitchSession, handleTogglePin, locateTraceSession, pinnedSessions],
+    [deleteSession, handleForkSession, handleSwitchSession, handleTogglePin, locateTraceSession, pinnedSessions],
   );
 
   /** 工作区 header 右键菜单 */

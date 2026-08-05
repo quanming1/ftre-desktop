@@ -526,6 +526,25 @@ export async function updateSession(
   }
 }
 
+export async function forkSessionRemote(
+  sessionId: string,
+): Promise<{ fork_session_id: string; title: string; workspace: string } | null> {
+  try {
+    const res = await fetch(
+      `${API_BASE}/api/sessions/${encodeURIComponent(sessionId)}/fork`,
+      { method: "POST" },
+    );
+    if (!res.ok) {
+      console.error("[api] forkSession failed:", await res.text());
+      return null;
+    }
+    return res.json();
+  } catch (e) {
+    console.error("[api] forkSession error:", e);
+    return null;
+  }
+}
+
 export async function deleteSessionRemote(
   sessionId: string,
 ): Promise<boolean> {
