@@ -38,6 +38,21 @@
   }
 }
 
+/* 过程折叠组摘要：组内仍有活跃内容（执行中的工具 / 增长的思考）时缓慢呼吸 */
+@keyframes processBreath {
+  0%,
+  100% {
+    opacity: 0.55;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+.animate-process-breath {
+  animation: processBreath 2.4s ease-in-out infinite;
+}
+
 @keyframes fadeIn {
   from {
     opacity: 0;

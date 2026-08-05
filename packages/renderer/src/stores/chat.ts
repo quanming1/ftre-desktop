@@ -135,7 +135,7 @@ const STREAM_TYPES = new Set([
 ]);
 const _wsFlushTimers = new Map<string, ReturnType<typeof setTimeout>>();
 const _wsBatches = new Map<string, BusEvent[]>();
-const WS_BATCH_WINDOW_MS = 30;
+const WS_BATCH_WINDOW_MS = 10;
 /** 只保留最近一段 Event id；Projection 消费后的完整 Event 不驻留内存。 */
 const MAX_SEEN_EVENT_IDS = 10_000;
 const emptyBucket = (): ClientSessionProjection =>

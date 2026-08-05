@@ -122,59 +122,30 @@ export class ChatInputEditor {
   }
 
   static serializeValue(nodes: Descendant[]): SerializedInput {
-    const textParts: string[] = [];
-    const parts: MessagePart[] = [];
+    // 每个 paragraph 对应一行文本；空段落是空字符串，代表用户按下的空行。
+    // 段落之间用 \n 连接，从而忠实保留连续换行（多次 Shift+Enter）。
+    const lineTexts: string[] = [];
 
     for (const node of nodes) {
       if (!SlateElement.isElement(node) || node.type !== "paragraph") continue;
 
-      const lineTexts: string[] = [];
-      let pendingText = "";
-
-      const flush = () => {
-        if (!pendingText) return;
-        parts.push({ type: "text", text: pendingText });
-        lineTexts.push(pendingText);
-        pendingText = "";
-      };
-
+      let lineText = "";
       for (const child of node.children) {
         if ("text" in child) {
-          pendingText += (child as { text: string }).text;
+          lineText += (child as { text: string }).text;
         }
       }
-
-      flush();
-      textParts.push(lineTexts.join(""));
+      lineTexts.push(lineText);
     }
 
-    const fullText = textParts.join("\n").trim();
-    const cleanParts = parts.filter((p) => {
-      if (p.type !== "text") return true;
-      return p.text.trim().length > 0;
-    });
+    // 首尾整体去空白，但保留中间的连续空行。
+    const fullText = lineTexts.join("\n").trim();
 
-    const mergedParts: MessagePart[] = [];
-    for (const p of cleanParts) {
-      const last = mergedParts[mergedParts.length - 1];
-      if (p.type === "text" && last?.type === "text") {
-        mergedParts[mergedParts.length - 1] = {
-          type: "text",
-          text: `${last.text}\n${p.text}`,
-        };
-      } else {
-        mergedParts.push(p);
-      }
-    }
-
+    // 用户输入只会产生 text 段落，text 与 parts 必须一致：
+    // 直接把整段文本作为单个 text part，避免逐段合并时丢失空行。
     return {
       text: fullText,
-      parts:
-        mergedParts.length > 0
-          ? mergedParts
-          : fullText
-            ? [{ type: "text", text: fullText }]
-            : [],
+      parts: fullText ? [{ type: "text", text: fullText }] : [],
     };
   }
 }

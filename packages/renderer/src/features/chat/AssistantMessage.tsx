@@ -19,6 +19,7 @@ import {
 import {
   collapsedAssistantBlocks,
   lastDisplayTextBlock,
+  summarizeNonTextBlocks,
 } from "./assistantMessageDisplay";
 
 const markdownComponents = {
@@ -157,7 +158,7 @@ const ThoughtBlock = memo(
 /** 推理块：与 think 统一 UI，仅文案不同。流式时 throttle 文本避免高频重渲染打断交互。 */
 const ReasoningBlock = memo(
   function ReasoningBlock({ text, isActive }: { text: string; isActive: boolean }) {
-    const throttled = useThrottledValue(text, 150, isActive);
+    const throttled = useThrottledValue(text, 10, isActive);
     const display = isActive ? throttled : text;
     return <ThoughtBlock label="Reasoning" text={display} isActive={isActive} />;
   },
@@ -165,19 +166,31 @@ const ReasoningBlock = memo(
 );
 
 /**
- * 按 blocks 顺序行内渲染：thinking → ReasoningBlock；text → TextPart（已闭合块走 memo）；
+ * 按 blocks 顺序行内渲染：text → TextPart（已闭合块走 memo）；thinking → ReasoningBlock；
  * toolCall → InlineToolCallCard（带配对的 toolResult）。流式且为最后一段 text 时对内容做 throttle。
+ * collapseNonText 开启时，连续的 thinking / 非 asking toolCall 合并成折叠组渲染；
+ * data（模型产物，如图片/附件）始终直接渲染，不属于"过程"。
  */
+function isCollapsibleNonTextBlock(
+  block: ContentBlock,
+  toolResults: Record<string, ToolResult>,
+): boolean {
+  return block.type === "thinking"
+    || (block.type === "toolCall" && toolResults[block.id]?.status !== "asking");
+}
+
 const BlocksRenderer = memo(function BlocksRenderer({
   blocks,
   toolResults,
   streaming,
   mdRef,
+  collapseNonText = false,
 }: {
   blocks: ContentBlock[];
   toolResults: Record<string, ToolResult>;
   streaming: boolean;
   mdRef: React.RefObject<HTMLDivElement | null>;
+  collapseNonText?: boolean;
 }) {
   // 找到最后一个 text block 的索引（光标 / throttle 锚点）
   let lastTextIdx = -1;
@@ -187,13 +200,60 @@ const BlocksRenderer = memo(function BlocksRenderer({
 
   const rendered: React.ReactNode[] = [];
 
-  for (let i = 0; i < blocks.length; i++) {
+  let i = 0;
+  while (i < blocks.length) {
     const block = blocks[i];
+
+    if (collapseNonText && isCollapsibleNonTextBlock(block, toolResults)) {
+      const start = i;
+      const processBlocks: ContentBlock[] = [];
+      while (
+        i < blocks.length
+        && isCollapsibleNonTextBlock(blocks[i], toolResults)
+      ) {
+        const candidate = blocks[i];
+        // 空 thinking 不占组：组内渲染会跳过它，避免出现点开无内容的空壳组
+        if (candidate.type === "thinking" && !candidate.thinking.trim()) {
+          i += 1;
+          continue;
+        }
+        processBlocks.push(candidate);
+        i += 1;
+      }
+      if (processBlocks.length > 0) {
+        const groupId = `non-text-process-${start}-${processBlocks[0].type}-${
+          processBlocks[0].type === "toolCall"
+            ? processBlocks[0].id
+            : processBlocks[0].blockId
+        }`;
+        // 呼吸条件：流式中该组是最后一个折叠组，且组后还没有 text（模型仍在执行过程）。
+        // 一旦后面出现 text block（开始生成文本）即停止。
+        const tailHasText = blocks.slice(i).some((b) => b.type === "text");
+        const tailHasGroup = blocks.slice(i).some(
+          (b) => isCollapsibleNonTextBlock(b, toolResults)
+            && !(b.type === "thinking" && !b.thinking.trim()),
+        );
+        rendered.push(
+          <NonTextProcessGroup
+            key={groupId}
+            groupId={groupId}
+            blocks={processBlocks}
+            toolResults={toolResults}
+            streaming={streaming}
+            mdRef={mdRef}
+            breathing={streaming && !tailHasText && !tailHasGroup}
+          />,
+        );
+      }
+      // i 已指向下一个待处理块（空 thinking 已跳过），无需回退
+      continue;
+    }
 
     if (block.type === "thinking") {
       const text = block.thinking || "";
-      if (!text) continue;
+      if (!text) { i += 1; continue; }
       rendered.push(<ReasoningBlock key={`r-${i}`} text={text} isActive={streaming} />);
+      i += 1;
       continue;
     }
 
@@ -206,6 +266,7 @@ const BlocksRenderer = memo(function BlocksRenderer({
           streaming={streaming}
         />
       );
+      i += 1;
       continue;
     }
 
@@ -232,6 +293,7 @@ const BlocksRenderer = memo(function BlocksRenderer({
             </a>
           ),
       );
+      i += 1;
       continue;
     }
 
@@ -244,15 +306,75 @@ const BlocksRenderer = memo(function BlocksRenderer({
         anchor={i === lastTextIdx ? mdRef : undefined}
       />
     );
+    i += 1;
   }
 
   return <>{rendered}</>;
 },
 (prev, next) => {
-  if (prev.streaming !== next.streaming) return false;
+  if (
+    prev.streaming !== next.streaming
+    || prev.collapseNonText !== next.collapseNonText
+  ) return false;
   return contentBlocksEqual(prev.blocks, next.blocks)
     && toolResultsEqual(prev.toolResults, next.toolResults);
 });
+
+function NonTextProcessGroup({
+  groupId,
+  blocks,
+  toolResults,
+  streaming,
+  mdRef,
+  breathing,
+}: {
+  groupId: string;
+  blocks: ContentBlock[];
+  toolResults: Record<string, ToolResult>;
+  streaming: boolean;
+  mdRef: React.RefObject<HTMLDivElement | null>;
+  /** 最后一个折叠组且其后无 text 时呼吸（由父级按位置计算） */
+  breathing: boolean;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  // 流式中也显示摘要：工具名在 toolCall 产生时就已知，thinking 增长不影响去重后的摘要，
+  // 让用户在不展开组的情况下也能跟进过程内容。"处理中"状态由外层按钮表达，这里不再重复。
+  const label = summarizeNonTextBlocks(blocks, toolResults);
+
+  return (
+    <div className="py-0.5">
+      <button
+        type="button"
+        aria-expanded={expanded}
+        onClick={() => setExpanded((value) => !value)}
+        aria-controls={groupId}
+        className="group flex w-full items-center gap-1.5 py-1 text-left text-[14px] text-t-dim transition-colors hover:text-t-secondary"
+      >
+        <span className={breathing ? "animate-process-breath" : ""}>{label}</span>
+        <ChevronRight
+          size={12}
+          className={`shrink-0 transition-transform duration-200 ${expanded ? "rotate-90" : ""} ${breathing ? "animate-process-breath" : ""}`}
+        />
+      </button>
+      <div
+        id={groupId}
+        className="grid transition-[grid-template-rows] duration-200 ease-out"
+        style={{ gridTemplateRows: expanded ? "1fr" : "0fr" }}
+      >
+        <div className="overflow-hidden pl-2">
+          <div className="flex flex-col gap-0 py-0 [&>div]:py-0 [&>div>button]:py-0 [&>div>div>button]:py-0">
+            <BlocksRenderer
+              blocks={blocks}
+              toolResults={toolResults}
+              streaming={streaming}
+              mdRef={mdRef}
+            />
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 /**
  * 把文本按 <think>...</think> 切分为普通段与思考段。
@@ -348,7 +470,7 @@ function TextPart({
   live: boolean;
   anchor?: React.RefObject<HTMLDivElement | null>;
 }) {
-  const throttled = useThrottledValue(text, 120, live);
+  const throttled = useThrottledValue(text, 10, live);
   const display = live ? throttled : text;
   return <ThinkAwareContent text={display} live={live} anchor={anchor} />;
 }
@@ -370,8 +492,7 @@ export const AssistantMessage = memo(
   }) {
     const isStreaming = message.streaming ?? false;
     const mdRef = useRef<HTMLDivElement>(null);
-    // 正在执行的 turn 默认展开，让用户直接看到 thinking/tool 等过程；
-    // TURN 结束后自动折叠，只保留最终 text。之后用户仍可手动展开。
+    // 保持原有策略：流式时展开过程，TURN 结束后收起并只保留最后一个 text。
     const [processExpanded, setProcessExpanded] = useState(isStreaming);
     useEffect(() => {
       setProcessExpanded(isStreaming);
@@ -411,7 +532,7 @@ export const AssistantMessage = memo(
                   <span className="flex items-center gap-1.5">
                     <span className="shrink-0">
                       {isStreaming
-                        ? "处理中"
+                        ? "处理中..."
                         : `已处理${typeof turnDurationSec === "number" ? ` ${formatDuration(turnDurationSec)}` : ""}`}
                     </span>
                     <ChevronRight
@@ -430,6 +551,7 @@ export const AssistantMessage = memo(
                     toolResults={message.toolResults || {}}
                     streaming={isStreaming}
                     mdRef={mdRef}
+                    collapseNonText={processExpanded}
                   />
                 </div>
               ) : allBlocks.length === 0 && message.content ? (
