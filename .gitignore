@@ -85,3 +85,4 @@ dev-debug.log
 # OpenClaw local scripts
 OpenClaw启动.bat
 OpenClaw连接Discord指南.md
+.ftre/
