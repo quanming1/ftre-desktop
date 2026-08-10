@@ -1823,6 +1823,12 @@ function SessionRow({
 }: SessionRowProps) {
   const time = timeAgo(session.updated_at ?? 0);
   const suffix = channelSuffix(session.channel);
+  // 列表区分会话用：最后一条真实用户消息摘要（后端已截断）
+  const preview = (session.last_user_text || "").trim();
+  // 未读：后端执行完成但未查看（仅 ws channel，active session 不显示）
+  const isUnread = useSession(
+    (s) => s.unreadSessions.has(session.session_id),
+  ) && !isActive && session.channel === "ws";
 
   const { ripples, trigger, remove } = useRipple();
 
@@ -1840,7 +1846,7 @@ function SessionRow({
       onContextMenu={onMenu}
       onMouseEnter={onEnter}
       onMouseLeave={onLeave}
-      className={`relative overflow-hidden flex items-center gap-2 h-10 pr-3 rounded-full cursor-pointer select-none transition-colors ${alignWithSectionLabel ? "pl-[45px]" : "pl-3"} ${isActive
+      className={`relative overflow-hidden flex items-center gap-2 ${preview ? "h-[52px]" : "h-10"} pr-3 rounded-lg cursor-pointer select-none transition-colors ${alignWithSectionLabel ? "pl-[45px]" : "pl-3"} ${isActive
         ? "bg-[#e7e7e8] hover:bg-[#e7e7e8]"
         : "hover:bg-hover"
         }`}
@@ -1856,17 +1862,24 @@ function SessionRow({
           title="点击更换颜色"
         />
       )}
-      <span
-        className={`flex-1 truncate text-[13.5px] ${isActive ? "text-black font-normal" : "text-t-secondary"
-          }`}
-      >
-        {session.title || "新会话"}
-        {suffix && (
-          <span className="ml-1.5 text-[11.5px] text-t-ghost font-mono">
-            ({suffix})
-          </span>
+      <div className="flex-1 min-w-0 flex flex-col justify-center gap-[3px]">
+        <div
+          className={`truncate text-[13.5px] leading-snug ${isActive ? "text-black font-normal" : "text-t-secondary"
+            }`}
+        >
+          {session.title || "新会话"}
+          {suffix && (
+            <span className="ml-1.5 text-[11.5px] text-t-ghost font-mono">
+              ({suffix})
+            </span>
+          )}
+        </div>
+        {preview && (
+          <div className="truncate text-[12px] leading-tight text-t-dim">
+            {preview}
+          </div>
         )}
-      </span>
+      </div>
 
       {/* 右侧：时间 / 运行中 spinner / 菜单按钮叠加，hover 切透明度 */}
       <div className="relative shrink-0 w-7 h-5 flex items-center justify-end">
@@ -1882,10 +1895,18 @@ function SessionRow({
             className="absolute right-0 text-t-ghost animate-spin"
           />
         )}
+        {/* 未读圆点：顶替时间显示（互斥），非 hover / 非运行时可见 */}
+        {isUnread && !isHovered && !isLoading && !session.running && (
+          <span
+            className="absolute right-0.5 w-2 h-2 rounded-full bg-neon"
+            title="有新的执行结果未读"
+            aria-label="未读"
+          />
+        )}
         <span
           className="absolute right-0 text-[12px] tabular-nums transition-opacity"
           style={{
-            opacity: (isHovered || isLoading || session.running) ? 0 : time.opacity,
+            opacity: (isHovered || isLoading || session.running || isUnread) ? 0 : time.opacity,
             color: "var(--color-t-dim)",
             pointerEvents: "none",
           }}

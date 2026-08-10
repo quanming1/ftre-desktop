@@ -70,6 +70,8 @@ export interface SessionSummary {
   channel: SessionChannel;
   /** 后端返回该 session 是否正在执行（AgentLoop 持有活跃 agent） */
   running?: boolean;
+  /** 最后一条真实用户消息的文本摘要（后端截断，用于列表区分会话；可能为空） */
+  last_user_text?: string;
 }
 
 /**
@@ -159,6 +161,7 @@ function mapSessionRow(s: any): SessionSummary {
     source: s.source,
     channel,
     running: s.running,
+    last_user_text: s.last_user_text,
   };
 }
 

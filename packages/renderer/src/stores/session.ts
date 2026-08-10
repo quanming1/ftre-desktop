@@ -304,6 +304,28 @@ function saveSortMode(mode: SessionSortMode): void {
   } catch { /* ignore */ }
 }
 
+// ─── 未读提示（纯前端）─────────────────────────────────────────────
+// session 后端执行完成（running: true → false）但用户未查看时标记未读，
+// 只处理 ws channel；切入该 session 时清除。localStorage 持久化，刷新不丢。
+const UNREAD_SESSIONS_KEY = "ftre-unread-sessions";
+
+function loadUnreadSessions(): Set<string> {
+  try {
+    const raw = localStorage.getItem(UNREAD_SESSIONS_KEY);
+    if (!raw) return new Set();
+    const parsed = JSON.parse(raw);
+    return new Set(Array.isArray(parsed) ? parsed.filter((x) => typeof x === "string") : []);
+  } catch {
+    return new Set();
+  }
+}
+
+function saveUnreadSessions(unread: Set<string>): void {
+  try {
+    localStorage.setItem(UNREAD_SESSIONS_KEY, JSON.stringify([...unread]));
+  } catch { /* ignore */ }
+}
+
 interface SessionState {
   sessions: SessionSummary[];
   allSessions: SessionSummary[];
@@ -319,6 +341,10 @@ interface SessionState {
   loading: boolean;
   /** Session ID currently being loaded (HTTP fetch in progress) */
   loadingSessionId: string | null;
+  /** 未读 session 集合：后端执行完成但用户未查看（仅 ws channel） */
+  unreadSessions: Set<string>;
+  /** 清除某个 session 的未读标记（切入该 session 时调用） */
+  clearUnread: (sessionId: string) => void;
 
   /** 枚举工作区 + 为每个工作区拉首页 session（轮询、初始加载用） */
   loadAllSessions: () => Promise<void>;
@@ -365,6 +391,16 @@ export const useSession = create<SessionState>((set, get) => ({
   openTabs: [],
   loading: false,
   loadingSessionId: null,
+  unreadSessions: loadUnreadSessions(),
+
+  clearUnread: (sessionId) => {
+    const cur = get().unreadSessions;
+    if (!cur.has(sessionId)) return;
+    const next = new Set(cur);
+    next.delete(sessionId);
+    saveUnreadSessions(next);
+    set({ unreadSessions: next });
+  },
 
   loadAllSessions: async () => {
     set({ loading: true });
@@ -420,6 +456,33 @@ export const useSession = create<SessionState>((set, get) => ({
 
       const deduped = dedupeById(merged);
       const total = deduped.length;
+
+      // 未读检测：上一轮 running:true 的 ws session，这一轮变为非 running（执行完成），
+      // 且不是当前正在查看的 active session → 标记未读。轮询间隔内完成的短任务可能漏检，
+      // 对软提示可接受。
+      const prevRunning = new Map<string, boolean>();
+      for (const s of existing) {
+        if (s.channel === "ws") prevRunning.set(s.session_id, !!s.running);
+      }
+      const activeSessionId = useChat.getState().sessionId;
+      const curUnread = get().unreadSessions;
+      let unreadChanged = false;
+      const nextUnread = new Set(curUnread);
+      for (const s of deduped) {
+        if (s.channel !== "ws") continue;
+        const wasRunning = prevRunning.get(s.session_id);
+        // running 下降沿：上一轮在跑、这一轮停了
+        if (wasRunning === true && !s.running) {
+          if (s.session_id !== activeSessionId && !nextUnread.has(s.session_id)) {
+            nextUnread.add(s.session_id);
+            unreadChanged = true;
+          }
+        }
+      }
+      if (unreadChanged) {
+        saveUnreadSessions(nextUnread);
+      }
+
       set({
         allSessions: deduped,
         sessions: deduped,
@@ -431,6 +494,7 @@ export const useSession = create<SessionState>((set, get) => ({
           loaded: deduped.filter((s) => s.channel === "ws").length,
         },
         loading: false,
+        ...(unreadChanged ? { unreadSessions: nextUnread } : {}),
       });
     } catch {
       set({ loading: false });
@@ -500,6 +564,8 @@ export const useSession = create<SessionState>((set, get) => ({
 
   switchSession: async (sessionId) => {
     const { openTabs } = get();
+    // 切入即已读：清除未读标记
+    get().clearUnread(sessionId);
     if (!openTabs.includes(sessionId)) {
       const tabs = [...openTabs, sessionId];
       set({ openTabs: tabs });
