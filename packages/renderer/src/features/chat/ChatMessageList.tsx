@@ -345,7 +345,7 @@ const CompactBubble = memo(function CompactBubble({
 }: {
   compact: NonNullable<ChatMessage["compact"]>;
 }) {
-  const { status, mode, tokensBefore, tokensAfter, summaryPreview, eventsCleared, reason } = compact;
+  const { status, mode, tokensBefore, tokensAfter, summaryPreview, eventsCleared, toolResults, reason } = compact;
   const [open, setOpen] = useState(false);
 
   if (status === "running") {
@@ -372,13 +372,14 @@ const CompactBubble = memo(function CompactBubble({
 
   // status === "done"
   const isFast = mode === "fast";
-  const label = isFast ? "快速压缩完成" : "历史已压缩";
+  const label = isFast ? "工具输出已裁剪" : "历史已压缩";
   const tokensStr = typeof tokensBefore === "number" && typeof tokensAfter === "number"
     ? `${formatTokens(tokensBefore)} → ${formatTokens(tokensAfter)} tokens`
     : typeof tokensBefore === "number"
       ? `${formatTokens(tokensBefore)} tokens`
       : "";
-  const eventsStr = typeof eventsCleared === "number" ? `${eventsCleared} 条工具输出` : "";
+  const eventsCount = eventsCleared ?? toolResults;
+  const eventsStr = typeof eventsCount === "number" ? `${eventsCount} 条工具输出` : "";
   const detailParts = [tokensStr, eventsStr].filter(Boolean);
   const detailStr = detailParts.length > 0 ? ` · ${detailParts.join(" · ")}` : "";
 

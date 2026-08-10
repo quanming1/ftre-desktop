@@ -95,6 +95,7 @@ export interface ChatMessage {
     tokensAfter?: number;
     summaryPreview?: string;
     eventsCleared?: number;
+    toolResults?: number;
     reason?: string;
   };
   /** 本轮耗时（秒），turn_end 时计算写入 */
@@ -937,6 +938,7 @@ export function applyEvent(b: SessionProjectionState, ev: BusEvent): void {
           tokensAfter: typeof phaseData.tokens_after === "number" ? phaseData.tokens_after : undefined,
           summaryPreview: typeof phaseData.summary_text === "string" ? phaseData.summary_text : undefined,
           eventsCleared: typeof phaseData.tool_results === "number" ? phaseData.tool_results : undefined,
+          toolResults: typeof phaseData.tool_results === "number" ? phaseData.tool_results : undefined,
         };
         let foundRunning = false;
         for (let i = b.messages.length - 1; i >= 0; i--) {

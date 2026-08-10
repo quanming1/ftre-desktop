@@ -60,6 +60,23 @@ function persistedMessageToChat(record: SessionMessage): ChatMessage | null {
       },
     };
   }
+  // 快速压缩气泡 Msg：role=assistant, name=compact_fast → CompactBubble（fast 文案）
+  if (record.name === "compact_fast") {
+    const compactMeta = record.metadata?.context_compact ?? {};
+    return {
+      id: record.id,
+      role: "system",
+      content: null,
+      timestamp: record.timestamp ? record.timestamp * 1000 : Date.parse(record.created_at),
+      compact: {
+        status: "done",
+        mode: "fast",
+        tokensBefore: typeof compactMeta.tokens_before === "number" ? compactMeta.tokens_before : undefined,
+        tokensAfter: typeof compactMeta.tokens_after === "number" ? compactMeta.tokens_after : undefined,
+        toolResults: typeof compactMeta.tool_results === "number" ? compactMeta.tool_results : undefined,
+      },
+    };
+  }
   if (record.role === "system" || record.metadata?.hide === true) return null;
   const timestamp = record.timestamp ? record.timestamp * 1000 : Date.parse(record.created_at);
   const text = record.content
