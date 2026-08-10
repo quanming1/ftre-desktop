@@ -86,7 +86,7 @@ describe("chat store", () => {
     useChat.getState().sendMessage(" hello ");
 
     expect(wsClient.sendChat).toHaveBeenCalledWith(
-      [{ type: "text", text: "hello" }],
+      "hello",
       expect.objectContaining({ session_id: "s1", agent_id: "default" }),
       undefined,
       expect.any(String),

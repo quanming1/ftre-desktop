@@ -240,9 +240,9 @@ class WebSocketClient {
   }
 
   /** 发送聊天消息。返回所用的帧 id（前端可用作本地占位 userMsg.id 与 echo 去重）。
-   *  content: 纯文本 string 或结构化 parts 数组 [{type:"text", text:"..."}] */
+   *  content: 纯文本 string（Inbound 协议只承载纯文本；结构化 part 是 Msg 存储层形态） */
   sendChat(
-    content: string | Array<{ type: string; text?: string; data?: unknown }>,
+    content: string,
     metadata?: Record<string, unknown>,
     attachments?: Array<{
       type: "image";

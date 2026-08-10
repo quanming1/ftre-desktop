@@ -1317,7 +1317,7 @@ interface ChatState {
   pendingWorkspace: string | null;
 
   sendMessage: (
-    content: string | Array<{ type: string; text?: string; data?: unknown }>,
+    content: string,
     attachments?: Array<{
       type: "image";
       mime_type: string;
@@ -1398,26 +1398,13 @@ export const useChat = create<ChatState>((set, get) => ({
     // Session 正在压缩时禁止创建本地乐观消息；后端也有同样的竞态兜底。
     if (get().sessionStatus === "compacting") return;
 
-    // 褰掍竴鍖栵細string 鎴?parts 鏁扮粍
-    const parts: Array<{ type: string; text?: string; data?: unknown }> =
-      typeof content === "string"
-        ? content.trim()
-          ? [{ type: "text", text: content.trim() }]
-          : []
-        : content;
-
-    // 鎻愬彇绾枃鏈敤浜?empt check + local 鍥炴樉
-    const displayText = parts
-      .filter((p) => p.type === "text")
-      .map((p) => String(p.text ?? p.data ?? "").trim())
-      .join("\n")
-      .trim();
-    const hasSkill = parts.some((p) => p.type === "skill" && p.data);
+    // 归一：string → 本地回显文本（Inbound 协议只承载纯文本字符串）
+    const displayText = content.trim();
     const hasAttachments = !!attachments && attachments.length > 0;
-    if (!displayText && !hasSkill && !hasAttachments) return;
+    if (!displayText && !hasAttachments) return;
 
-    // 绯荤粺绾ф寚浠わ紙濡?/cancel锛変负 ephemeral 鎺у埗锛屼笉鍒涘缓鏈湴鍋囨秷鎭紝涔熶笉涓诲姩鏀?busy 鐘舵€
-    const isSystemCommand = !!system && !hasSkill && !hasAttachments;
+    // 系统级指令（如 /cancel）为 ephemeral 控制，不创建本地假消息，也不主动改 busy 状态
+    const isSystemCommand = !!system && !hasAttachments;
 
     // 鏈湴鍥炴樉鐢細鎶婂悗绔崗璁舰鎬佺殑 attachments 杞垚甯?data URL 鐨勫舰鎬?
     const localAttachments: MessageAttachment[] | undefined = hasAttachments
@@ -1452,7 +1439,7 @@ export const useChat = create<ChatState>((set, get) => ({
       }
       const { model, provider, agentId } = get();
       wsClient.sendChat(
-        parts,
+        displayText,
         {
           ...(model && { model }),
           ...(provider && { provider }),
