@@ -164,6 +164,61 @@ export interface DesktopMemory {
   getUsage(): Promise<MemoryUsage>;
 }
 
+/** WebSocket 审计日志的单条记录。raw 保留原始 JSON，便于协议排查。 */
+export interface WsLogEntry {
+  id: string;
+  timestamp: string;
+  direction: "in" | "out" | "system";
+  connectionId?: string;
+  attempt?: "initial" | "retry" | "outbox_flush" | "reconnect_replay";
+  type?: string;
+  eventType?: string;
+  sessionId?: string;
+  requestId?: string;
+  frameId?: string;
+  bytes: number;
+  raw: string;
+  truncated?: boolean;
+  originalBytes?: number;
+}
+
+export interface WsLogInput extends Omit<WsLogEntry, "id" | "timestamp"> {
+  timestamp?: string;
+}
+
+export interface WsLogQuery {
+  cursor?: string;
+  limit?: number;
+  sessionId?: string;
+  direction?: WsLogEntry["direction"];
+  type?: string;
+  eventType?: string;
+  requestId?: string;
+  search?: string;
+}
+
+export interface WsLogPage {
+  entries: WsLogEntry[];
+  nextCursor: string | null;
+  total: number;
+}
+
+export interface WsLogStats {
+  directory: string;
+  files: number;
+  bytes: number;
+  entries: number;
+  dropped: number;
+}
+
+export interface DesktopWsLog {
+  appendBatch(entries: WsLogInput[]): void;
+  query(options?: WsLogQuery): Promise<WsLogPage>;
+  stats(): Promise<WsLogStats>;
+  clear(): Promise<{ success: boolean; error?: string }>;
+  reveal(): Promise<void>;
+}
+
 /** 内嵌后端 API — 接收 Python 进程的 stdout/stderr 日志和退出事件 */
 export interface BackendAPI {
   onLog(callback: (line: string) => void): () => void;
@@ -181,6 +236,7 @@ export interface DesktopAPI {
   window: DesktopWindow;
   terminal: DesktopTerminal;
   memory: DesktopMemory;
+  wsLog: DesktopWsLog;
   backend?: BackendAPI;
 }
 

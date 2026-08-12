@@ -10,6 +10,7 @@ import { registerSearchIPC } from "./ipc/search";
 import { registerWatcherIPC } from "./ipc/watcher";
 import { registerMemoryIPC } from "./ipc/memory";
 import { WorkerManager } from "./ipc/worker-manager";
+import { registerWsLogIPC } from "./ipc/ws-log";
 
 // GPU 加速 + 滚动性能优化
 app.commandLine.appendSwitch("enable-gpu-rasterization");
@@ -67,6 +68,7 @@ app.whenReady().then(() => {
   registerSearchIPC(workerManager);
   registerWatcherIPC();
   registerMemoryIPC();
+  registerWsLogIPC();
 
   // 启动内嵌 Python 后端（打包模式）
   startPythonBackend();

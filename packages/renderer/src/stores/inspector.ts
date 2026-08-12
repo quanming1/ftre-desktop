@@ -11,6 +11,8 @@ import { filePreviewCache } from "@/features/inspector/filePreviewCache";
 
 export const INSPECTOR_SESSION_STATE_TAB_ID = "inspector-session-state";
 export const INSPECTOR_TRACE_TAB_ID = "inspector-traces";
+/** 固定的 WebSocket 审计日志入口，不参与可关闭文件 Tab 的生命周期。 */
+export const INSPECTOR_WS_LOG_TAB_ID = "inspector-ws-logs";
 
 // ─── localStorage 持久化（全局偏好）─────────────────────────────
 

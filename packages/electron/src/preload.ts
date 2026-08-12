@@ -98,6 +98,16 @@ const api: DesktopAPI = {
     getUsage: () => ipcRenderer.invoke("memory:getUsage"),
   },
 
+  wsLog: {
+    appendBatch: (entries) => {
+      ipcRenderer.send("ws-log:append-batch", entries);
+    },
+    query: (options) => ipcRenderer.invoke("ws-log:query", options || {}),
+    stats: () => ipcRenderer.invoke("ws-log:stats"),
+    clear: () => ipcRenderer.invoke("ws-log:clear"),
+    reveal: () => ipcRenderer.invoke("ws-log:reveal"),
+  },
+
   terminal: {
     create: (opts?: {
       cols?: number;

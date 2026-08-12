@@ -13,13 +13,14 @@ import {
   type PointerEvent as ReactPointerEvent,
   type ReactNode,
 } from "react";
-import { Activity, X, FileText, Braces, ListTree } from "lucide-react";
+import { Activity, X, FileText, Braces, ListTree, ScrollText } from "lucide-react";
 import { GitCompareArrows } from "lucide-react";
 import { OverlayScrollbarsComponent, type OverlayScrollbarsComponentRef } from "overlayscrollbars-react";
 import { ErrorBoundary } from "@ftre/ui";
 import {
   INSPECTOR_SESSION_STATE_TAB_ID,
   INSPECTOR_TRACE_TAB_ID,
+  INSPECTOR_WS_LOG_TAB_ID,
   useInspector,
   type InspectorTab,
 } from "@/stores/inspector";
@@ -33,6 +34,7 @@ import { useRipple, RippleLayer } from "@/components/Ripple";
 import { useSmoothTabReorder, compareByMountOrder } from "./useSmoothTabReorder";
 import { SessionStateRenderer } from "./SessionStateRenderer";
 import { TracePanel } from "@/features/traces/TracePanel";
+import { WsLogInspectorPanel } from "./WsLogInspectorPanel";
 
 export function InspectorPanel() {
   const tabs = useInspector((s) => s.tabs);
@@ -185,6 +187,18 @@ export function InspectorPanel() {
           >
             <TabErrorBoundary tabId={INSPECTOR_TRACE_TAB_ID}>
               <TracePanel active={effectiveActiveTabId === INSPECTOR_TRACE_TAB_ID} />
+            </TabErrorBoundary>
+          </div>
+          <div
+            className="absolute inset-0"
+            style={{
+              visibility: effectiveActiveTabId === INSPECTOR_WS_LOG_TAB_ID ? "visible" : "hidden",
+              pointerEvents: effectiveActiveTabId === INSPECTOR_WS_LOG_TAB_ID ? "auto" : "none",
+              zIndex: effectiveActiveTabId === INSPECTOR_WS_LOG_TAB_ID ? 1 : 0,
+            }}
+          >
+            <TabErrorBoundary tabId={INSPECTOR_WS_LOG_TAB_ID}>
+              <WsLogInspectorPanel active={effectiveActiveTabId === INSPECTOR_WS_LOG_TAB_ID} />
             </TabErrorBoundary>
           </div>
           {renderableTabs.map((tab) => (
@@ -430,6 +444,20 @@ function InspectorTabBar({
       >
         <Activity size={14} />
         <span>Traces</span>
+      </button>
+      <button
+        type="button"
+        title="WebSocket 审计日志"
+        onClick={() => onActivate(INSPECTOR_WS_LOG_TAB_ID)}
+        className={`relative flex h-full shrink-0 items-center gap-2 border-r border-border px-3 text-[12px] transition-colors ${
+          activeTabId === INSPECTOR_WS_LOG_TAB_ID
+            ? "bg-[#f0f1f3] text-t-primary"
+            : "text-t-muted hover:bg-elevated hover:text-t-secondary"
+        }`}
+        style={activeTabId === INSPECTOR_WS_LOG_TAB_ID ? { boxShadow: "inset 0 -2px 0 currentColor" } : undefined}
+      >
+        <ScrollText size={14} />
+        <span>WS Logs</span>
       </button>
       <div className="relative flex-1 min-w-0 h-full">
         <OverlayScrollbarsComponent

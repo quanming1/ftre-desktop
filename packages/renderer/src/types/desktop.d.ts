@@ -159,6 +159,58 @@ interface DesktopMemory {
   getUsage(): Promise<MemoryUsage>;
 }
 
+interface WsLogEntry {
+  id: string;
+  timestamp: string;
+  direction: "in" | "out" | "system";
+  connectionId?: string;
+  attempt?: "initial" | "retry" | "outbox_flush" | "reconnect_replay";
+  type?: string;
+  eventType?: string;
+  sessionId?: string;
+  requestId?: string;
+  frameId?: string;
+  bytes: number;
+  raw: string;
+  truncated?: boolean;
+  originalBytes?: number;
+}
+
+interface WsLogInput extends Omit<WsLogEntry, "id" | "timestamp"> {
+  timestamp?: string;
+}
+
+interface WsLogPage {
+  entries: WsLogEntry[];
+  nextCursor: string | null;
+  total: number;
+}
+
+interface WsLogStats {
+  directory: string;
+  files: number;
+  bytes: number;
+  entries: number;
+  dropped: number;
+}
+
+interface DesktopWsLog {
+  appendBatch(entries: WsLogInput[]): void;
+  query(options?: {
+    cursor?: string;
+    limit?: number;
+    sessionId?: string;
+    direction?: "in" | "out" | "system";
+    type?: string;
+    eventType?: string;
+    requestId?: string;
+    search?: string;
+  }): Promise<WsLogPage>;
+  stats(): Promise<WsLogStats>;
+  clear(): Promise<{ success: boolean; error?: string }>;
+  reveal(): Promise<void>;
+}
+
 interface DesktopStore {
   get(key: string): Promise<{ value: unknown }>;
   set(key: string, value: unknown): Promise<{ success: boolean }>;
@@ -181,6 +233,7 @@ interface DesktopAPI {
   };
   terminal: DesktopTerminal;
   memory: DesktopMemory;
+  wsLog: DesktopWsLog;
 }
 
 declare global {
