@@ -99,4 +99,6 @@ describe("ClientSessionProjection", () => {
     expect(projection.sessionStatus).toBe("running");
     expect(projection.isBusy).toBe(true);
   });
+
+
 });
