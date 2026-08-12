@@ -5,6 +5,12 @@
  */
 
 import { wsClient } from "./websocket-client";
+import type {
+  MailboxSnapshotPayload,
+} from "./websocket-client";
+import {
+  isMailboxSnapshotPayload,
+} from "./websocket-client";
 import { useChat } from "@/stores/chat";
 
 /** 后端 API 基地址，可通过 VITE_API_BASE 环境变量覆盖 */
@@ -41,6 +47,35 @@ export function switchChat(_chatId: string): void {
 
 export function cancelStream(): void {
   console.warn("[api] cancelStream not implemented yet");
+}
+
+export interface CancelQueuedMessageResult {
+  status: "cancelled";
+  session_id: string;
+  receipt: Record<string, unknown>;
+}
+
+/** 取消一条尚未进入 processing 的排队消息。 */
+export async function cancelQueuedMessage(
+  sessionId: string,
+  requestId: string,
+): Promise<CancelQueuedMessageResult> {
+  const response = await fetch(
+    `${API_BASE}/api/sessions/${encodeURIComponent(sessionId)}`
+      + `/queue/${encodeURIComponent(requestId)}`,
+    { method: "DELETE" },
+  );
+  if (!response.ok) {
+    let detail = "Failed to remove queued message";
+    try {
+      const payload = await response.json();
+      if (typeof payload?.detail === "string") detail = payload.detail;
+    } catch {
+      // 非 JSON 错误响应使用通用提示。
+    }
+    throw new Error(detail);
+  }
+  return response.json();
 }
 
 export function retryLastMessage(): void {
@@ -421,6 +456,8 @@ export interface SessionMessagesPage {
   status: "idle" | "running" | "compacting";
   /** session 级元数据（含 plan 等） */
   metadata: Record<string, any>;
+  /** 后端 SessionLane 随历史消息一并返回的唯一权威 mailbox 快照。 */
+  mailbox: MailboxSnapshotPayload | null;
 }
 
 /**
@@ -446,18 +483,35 @@ export async function fetchSessionMessagesPage(
     (qs ? `?${qs}` : "");
   try {
     const res = await fetch(url);
-    if (!res.ok) return { messages: [], hasMore: false, total: 0, status: "idle", metadata: {} };
+    if (!res.ok) return {
+      messages: [], hasMore: false, total: 0, status: "idle", metadata: {},
+      mailbox: null,
+    };
     const data = await res.json();
+    const mailbox = isMailboxSnapshotPayload(data.mailbox)
+      ? data.mailbox as MailboxSnapshotPayload
+      : null;
+    const status = mailbox?.phase === "compacting"
+      ? "compacting"
+      : mailbox && mailbox.phase !== "idle"
+        ? "running"
+        : data.status === "running" || data.status === "compacting"
+          ? data.status
+          : "idle";
     return {
       messages: data.messages || [],
       hasMore: !!data.has_more,
       total: typeof data.total === "number" ? data.total : 0,
-      status: data.status === "running" || data.status === "compacting" ? data.status : "idle",
+      status,
       metadata: data.metadata || {},
+      mailbox,
     };
   } catch (e) {
     console.error("[API] fetchSessionMessagesPage error:", e);
-    return { messages: [], hasMore: false, total: 0, status: "idle", metadata: {} };
+    return {
+      messages: [], hasMore: false, total: 0, status: "idle", metadata: {},
+      mailbox: null,
+    };
   }
 }
 

@@ -8,8 +8,16 @@ import { wsClient } from "@/services/websocket-client";
 import {
   CompactEventName,
   UserMessageEventType,
+  getMessageAckPayload,
+  getSessionEventPayload,
+  getSessionStatusPayload,
+  getSessionCommandPayload,
+  getSessionContextWarningPayload,
   isReplySnapshotMessage,
+  type MailboxItemPayload,
+  type MailboxSnapshotPayload,
   type ReplySnapshotPayload,
+  type SessionActivity,
   type WsConnectionStatus,
   type ServerMessage,
 } from "@/services/websocket-client";
@@ -24,6 +32,9 @@ import {
 
 export type Role = "assistant" | "user" | "system";
 export type SessionStatus = "idle" | "running" | "compacting";
+export type SendMessageResult =
+  | { ok: true; requestId: string }
+  | { ok: false; reason: "empty" | "compacting" | "blocked" | "outbox_full" | "transport_failed" };
 
 /** 协议级 content block（assistant 消息的最小内容单元） */
 export type ContentBlock =
@@ -102,6 +113,7 @@ export interface ChatMessage {
   durationSec?: number;
   /** 产生该消息的模型 ID（从 MODEL_CALL_START.model_name 提取） */
   model?: string;
+  /** 本地发送或重连恢复的用户消息所对应的可靠队列生命周期。 */
 }
 
 let _defaultWsCache: string | null = null;
@@ -181,7 +193,77 @@ function toolOutputText(output: unknown): string {
   return JSON.stringify(output ?? "", null, 2);
 }
 
-/** 将 Gateway attach 帧中的原始 Msg 快照转换为客户端 ChatMessage。 */
+/** 将 AgentEvent 的图片附件转换为聊天消息可直接渲染的地址。 */
+function toMessageAttachments(raw: unknown): MessageAttachment[] {
+  if (!Array.isArray(raw)) return [];
+  return raw.flatMap((item): MessageAttachment[] => {
+    if (!item || typeof item !== "object") return [];
+    const attachment = item as Record<string, unknown>;
+    if (attachment.type !== "image" || typeof attachment.mime_type !== "string") {
+      return [];
+    }
+    const data = attachment.data;
+    const path = attachment.path;
+    const url = typeof data === "string"
+      ? `data:${attachment.mime_type};base64,${data}`
+      : typeof path === "string"
+        ? `${API_BASE}/api/images/${encodeURIComponent(path.split(/[\\/]/).pop() || path)}`
+        : "";
+    if (!url) return [];
+    return [{
+      type: "image",
+      url,
+      mime: attachment.mime_type,
+      name: typeof attachment.name === "string" ? attachment.name : undefined,
+      bytes: typeof data === "string" ? Math.floor(data.length * 0.75) : undefined,
+    }];
+  });
+}
+
+/** 将权威 mailbox 快照投影为会话状态和队列横幅数据。 */
+export function applyMailboxSnapshot(
+  b: SessionProjectionState,
+  payload: MailboxSnapshotPayload,
+): void {
+  const revision = Number(payload.revision);
+  if (!Number.isFinite(revision) || revision <= (b.sessionRevision ?? -1)) return;
+
+  const activity: SessionActivity = payload.phase === "running"
+    ? "executing" : payload.phase;
+  // 网络上可能先到达旧快照，而刚点发送的本地请求尚未收到 durable ACK。
+  // 只保留尚未确认的本地 request_id，已确认项目完全以后端 pending 为准。
+  const serverRequestIds = new Set(
+    payload.pending
+       .map((item) => canonicalRequestId(item.request_id))
+      .filter((id): id is string => typeof id === "string" && id.length > 0),
+  );
+  const awaitingAdmission = (b.pendingMessages ?? []).filter((item) => (
+    item.optimistic
+    && !serverRequestIds.has(canonicalRequestId(item.request_id))
+  ));
+  const pendingMessages = [...payload.pending, ...awaitingAdmission];
+  const queueDepth = pendingMessages.length;
+  b.hasCoordinatorState = true;
+  b.sessionRevision = revision;
+  b.sessionActivity = activity;
+  b.queueDepth = queueDepth;
+  b.queueCapacity = payload.capacity;
+  // 已接纳项目完全以后端 mailbox.pending 为准；尚未 ACK 的本地预览仅暂存于
+  // 横幅，直到被同 request_id 的服务端项替换。它们绝不进入聊天 messages。
+  b.pendingMessages = pendingMessages;
+  b.clientCanSend = payload.accepting_messages;
+  b.canCancel = payload.can_cancel_active;
+  b.blockedReason = payload.blocked_reason ?? null;
+  b.isBusy = activity !== "idle" || queueDepth > 0;
+  b.sessionStatus = activity === "compacting"
+    ? "compacting"
+    : b.isBusy ? "running" : "idle";
+  b.retryState = null;
+  if (activity === "idle") {
+    b.commandName = null;
+    b.turnStartTs = null;
+  }
+}
 function replySnapshotToChatMessage(raw: any): ChatMessage | null {
   if (!raw || raw.role !== "assistant" || !Array.isArray(raw.content) || !raw.id) {
     return null;
@@ -274,6 +356,19 @@ function replySnapshotToChatMessage(raw: any): ChatMessage | null {
 
 /** 应用 attach/reconnect 的完整进行中 Msg 快照。 */
 export function applyReplySnapshot(b: SessionProjectionState, payload: ReplySnapshotPayload): void {
+  // 每次 WebSocket 重连都开始一个新的权威 revision 世代。Gateway 重启会重建
+  // 内存计数，因此新连接快照不能继续与旧连接的 revision 比较；但同一连接内
+  // 的重复快照仍然保持单调递增。
+  const connectionEpoch = payload.client_connection_epoch;
+  if (
+    typeof connectionEpoch === "number"
+    && connectionEpoch !== b.snapshotConnectionEpoch
+  ) {
+    b.snapshotConnectionEpoch = connectionEpoch;
+    b.replyRevisions = new Map<string, number>();
+    b.sessionRevision = -1;
+  }
+
   const replies = payload.replies;
   const revisions = b.replyRevisions ?? (b.replyRevisions = new Map<string, number>());
   for (const reply of replies) {
@@ -281,8 +376,8 @@ export function applyReplySnapshot(b: SessionProjectionState, payload: ReplySnap
     const revision = reply.revision;
     const message = replySnapshotToChatMessage(reply.message);
     if (!replyId || !message || !Number.isFinite(revision)) continue;
-    // The backend uses reply_id as the assistant Msg id.  Keep that invariant
-    // locally as well, so subsequent stream events always find this snapshot.
+    // 后端使用 reply_id 作为 assistant Msg id；客户端保持相同约束，后续流式
+    // Event 才能稳定找到并继续更新这条快照消息。
     message.id = replyId;
     const previousRevision = revisions.get(replyId);
     if (previousRevision != null && revision <= previousRevision) continue;
@@ -296,9 +391,16 @@ export function applyReplySnapshot(b: SessionProjectionState, payload: ReplySnap
     } else {
       b.messages = [...b.messages, message].sort((a, z) => a.timestamp - z.timestamp);
     }
-    b.isBusy = message.streaming || b.isBusy;
+    if (!b.hasCoordinatorState) {
+      b.isBusy = message.streaming || b.isBusy;
+    }
     if (message.streaming) {
-      b.sessionStatus = "running";
+      if (!b.hasCoordinatorState) {
+        b.sessionStatus = "running";
+        b.sessionActivity = "executing";
+        b.clientCanSend = true;
+        b.canCancel = true;
+      }
       if (b.turnStartTs == null) b.turnStartTs = message.timestamp;
     }
   }
@@ -316,6 +418,10 @@ export function applyReplySnapshot(b: SessionProjectionState, payload: ReplySnap
     if (hasSeenEvent(b, snapshotEvent)) continue;
     applyEvent(b, snapshotEvent);
   }
+
+  if (payload.mailbox) {
+    applyMailboxSnapshot(b, payload.mailbox);
+  }
 }
 
 
@@ -329,6 +435,15 @@ function mirror(sid: string): void {
     messages: b.messages,
     isBusy: b.isBusy,
     sessionStatus: b.sessionStatus,
+    sessionActivity: b.sessionActivity ?? "idle",
+    sessionRevision: b.sessionRevision ?? -1,
+    hasCoordinatorState: b.hasCoordinatorState ?? false,
+    queueDepth: b.queueDepth ?? 0,
+    queueCapacity: b.queueCapacity ?? null,
+    pendingMessages: b.pendingMessages ?? [],
+    clientCanSend: b.clientCanSend ?? true,
+    canCancel: b.canCancel ?? false,
+    blockedReason: b.blockedReason ?? null,
     error: b.error,
     retryState: b.retryState,
     lastUserInputTs: b.lastUserInputTs,
@@ -342,6 +457,47 @@ function mirror(sid: string): void {
 
 let _idc = 0;
 const nextId = (p = "msg") => `${p}_${Date.now()}_${++_idc}`;
+
+interface PendingNewSessionSend {
+  frameId: string;
+  displayText: string;
+  attachments?: Array<{
+    type: "image";
+    mime_type: string;
+    data: string;
+    name?: string;
+  }>;
+  metadata: Record<string, unknown>;
+}
+
+/** 将前端已发出、尚未收到服务器快照的消息投影为队列横幅项。 */
+function pendingPreview(item: PendingNewSessionSend): MailboxItemPayload {
+  return {
+    request_id: `local:${item.frameId}`,
+    sequence: 0,
+    content: item.displayText,
+    attachments: item.attachments?.map((attachment) => ({ ...attachment })),
+    source: "user",
+    optimistic: true,
+  };
+}
+
+function canonicalRequestId(requestId: string): string {
+  return requestId.startsWith("local:") ? requestId.slice("local:".length) : requestId;
+}
+
+const MAX_PENDING_NEW_SESSION_SENDS = 100;
+let pendingNewSessionSends: PendingNewSessionSend[] = [];
+let pendingSessionCreation: Promise<void> | null = null;
+let pendingSessionGeneration = 0;
+
+function resetPendingSessionCreation(): void {
+  pendingSessionGeneration += 1;
+  pendingNewSessionSends = [];
+  // 此处无法取消已经发出的 HTTP 请求。清除共享 Promise 后，新会话可以独立
+  // 发起创建；generation 检查负责阻止旧请求回来后修改当前会话。
+  pendingSessionCreation = null;
+}
 
 // 鈹€鈹€鈹€ Event Reducer 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
 //
@@ -419,7 +575,7 @@ export function applyEvent(b: SessionProjectionState, ev: BusEvent): void {
     b.messages = next;
   };
 
-  /** Ensure tail is a streaming assistant; create one if missing or sealed. */
+  /** 确保尾部存在可写的流式 assistant；不存在或已经封口时创建一条。 */
   const ensure = (): void => {
     const index = replyIndex();
     if (index >= 0) return;
@@ -561,62 +717,67 @@ export function applyEvent(b: SessionProjectionState, ev: BusEvent): void {
   switch (ev.type) {
     // ─── 实时 echo：后端保存 UserMsg 后回推给客户端 ───
     case UserMessageEventType: {
+      // UserMessageEvent 是消息真正写入 messages 后的回显；队列中的请求不在此处造气泡。
       const input = d.data && typeof d.data === "object" ? d.data : {};
       if (input.metadata?.hide) {
         attachHiddenImageToLatestReadTool();
         return;
       }
-      const frameId = (ev.metadata?.frame_id as string | undefined) ?? "";
       b.lastUserInputTs = ts;
-      if (frameId && b.messages.some((m) => m.id === frameId)) return;
-      const c = typeof input.content === "string"
+      const content = typeof input.content === "string"
         ? input.content
         : Array.isArray(input.content)
           ? input.content
-              .filter((p: any) => p?.type === "text" || p?.type === "skill")
-              .map((p: any) => String(p.text ?? p.data ?? "").trim())
+              .filter((part: any) => part?.type === "text" || part?.type === "skill")
+              .map((part: any) => String(part.text ?? part.data ?? "").trim())
               .join("\n")
               .trim()
           : "";
-      const rawAtts: any[] = Array.isArray(input.attachments) ? input.attachments : [];
-      const localAttachments: MessageAttachment[] = [];
-      for (const a of rawAtts) {
-        if (a && a.type === "image" && typeof a.mime_type === "string") {
-          let url: string | undefined;
-          let bytes: number | undefined;
-          if (typeof a.data === "string") {
-            url = `data:${a.mime_type};base64,${a.data}`;
-            bytes = Math.floor(a.data.length * 0.75);
-          } else if (typeof a.path === "string") {
-            const filename = a.path.split(/[\\/]/).pop();
-            if (filename) url = `${API_BASE}/api/images/${encodeURIComponent(filename)}`;
-            bytes = a.size;
-          }
-          if (url) {
-            localAttachments.push({ type: "image", url, mime: a.mime_type, name: a.name, bytes });
-          }
-        }
+      const attachments = toMessageAttachments(input.attachments);
+      if (!content && attachments.length === 0) return;
+
+      const messageId = typeof d.id === "string" && d.id
+        ? d.id
+        : ev.frameId || nextId("user");
+      const requestId = typeof ev.metadata?.request_id === "string"
+        ? ev.metadata.request_id
+        : typeof input.request_id === "string"
+          ? input.request_id
+          : undefined;
+      // 用户消息已经由后端持久化并开始实时回显；此刻才是从横幅移入聊天记录的
+      // 唯一交接点。先移除同一 request_id 的队列项，避免重复展示。
+      if (requestId) {
+        b.pendingMessages = (b.pendingMessages ?? []).filter(
+          (item) => item.request_id !== requestId,
+        );
+        b.queueDepth = b.pendingMessages.length;
       }
-      if (!c && localAttachments.length === 0) return;
+      const nextMessage: ChatMessage = {
+        id: messageId,
+        role: "user",
+        content,
+        timestamp: ts,
+        ...(attachments.length > 0 ? { attachments } : {}),
+        metadata: input.metadata && typeof input.metadata === "object"
+          ? input.metadata
+          : undefined,
+      };
+      if (b.messages.some((message) => message.id === messageId)) return;
       b.messages = [
         ...b.messages,
-        {
-          id: typeof d.id === "string" && d.id
-            ? d.id
-            : frameId || ev.frameId || nextId("user"),
-          role: "user",
-          content: c,
-          timestamp: ts,
-          ...(localAttachments.length > 0 ? { attachments: localAttachments } : {}),
-        },
+        nextMessage,
       ];
       return;
     }
-
     case "REPLY_START": {
       ensure();
-      b.isBusy = true;
-      b.sessionStatus = "running";
+      if (!b.hasCoordinatorState) {
+        b.isBusy = true;
+        b.sessionStatus = "running";
+        b.sessionActivity = "executing";
+        b.clientCanSend = true;
+        b.canCancel = true;
+      }
       b.retryState = null;
       return;
     }
@@ -879,28 +1040,46 @@ export function applyEvent(b: SessionProjectionState, ev: BusEvent): void {
       const phaseData = d.value || {};
       if (phase === "PIPELINE_START") {
         // pipeline 开始：立即标记忙
-        b.isBusy = true;
-        b.sessionStatus = "running";
+        if (!b.hasCoordinatorState) {
+          b.isBusy = true;
+          b.sessionStatus = "running";
+          b.sessionActivity = "dispatching";
+          b.clientCanSend = true;
+          b.canCancel = true;
+        }
         b.error = null;
         return;
       }
       if (phase === "PIPELINE_END") {
         // pipeline 结束：恢复空闲，清除 Turn 级临时状态
-        b.isBusy = false;
-        b.sessionStatus = "idle";
+        if (!b.hasCoordinatorState) {
+          b.isBusy = false;
+          b.sessionStatus = "idle";
+          b.sessionActivity = "idle";
+          b.canCancel = false;
+        }
         b.commandName = null;
         return;
       }
       if (phase === "COMMAND_MATCHED") {
         // 指令命中：状态栏更新为"执行指令..."
-        b.isBusy = true;
-        b.sessionStatus = "running";
+        if (!b.hasCoordinatorState) {
+          b.isBusy = true;
+          b.sessionStatus = "running";
+          b.sessionActivity = "dispatching";
+          b.canCancel = true;
+        }
         b.commandName = phaseData.command_name ?? null;
         return;
       }
       if (phase === "TURN_START") {
-        b.isBusy = true;
-        b.sessionStatus = "running";
+        if (!b.hasCoordinatorState) {
+          b.isBusy = true;
+          b.sessionStatus = "running";
+          b.sessionActivity = "executing";
+          b.clientCanSend = true;
+          b.canCancel = true;
+        }
         b.error = null;
         b.retryState = null;
         b.commandName = null; // 进入 agent 执行，清除指令标记
@@ -909,8 +1088,13 @@ export function applyEvent(b: SessionProjectionState, ev: BusEvent): void {
       }
       // ── 上下文压缩事件（CustomEvent，与后端 compact done 投影的 Msg 同 id）──
       if (phase === CompactEventName.START) {
-        b.isBusy = false;
-        b.sessionStatus = "compacting";
+        if (!b.hasCoordinatorState) {
+          b.isBusy = true;
+          b.sessionStatus = "compacting";
+          b.sessionActivity = "compacting";
+          b.clientCanSend = false;
+          b.canCancel = false;
+        }
         b.messages = [
           ...b.messages,
           {
@@ -927,8 +1111,13 @@ export function applyEvent(b: SessionProjectionState, ev: BusEvent): void {
         return;
       }
       if (phase === CompactEventName.DONE) {
-        b.isBusy = false;
-        b.sessionStatus = "idle";
+        if (!b.hasCoordinatorState) {
+          b.isBusy = false;
+          b.sessionStatus = "idle";
+          b.sessionActivity = "idle";
+          b.clientCanSend = true;
+          b.canCancel = false;
+        }
         // 用 event id 作为气泡 id，与后端投影的 compact Msg id 一致
         const compactId = ev.eventId ?? nextId("compact");
         const doneCompact = {
@@ -968,8 +1157,13 @@ export function applyEvent(b: SessionProjectionState, ev: BusEvent): void {
         return;
       }
       if (phase === CompactEventName.FAILED) {
-        b.isBusy = false;
-        b.sessionStatus = "idle";
+        if (!b.hasCoordinatorState) {
+          b.isBusy = false;
+          b.sessionStatus = "idle";
+          b.sessionActivity = "idle";
+          b.clientCanSend = true;
+          b.canCancel = false;
+        }
         for (let i = b.messages.length - 1; i >= 0; i--) {
           const m = b.messages[i];
           if (m.compact?.status === "running") {
@@ -992,8 +1186,12 @@ export function applyEvent(b: SessionProjectionState, ev: BusEvent): void {
       if (phase !== "TURN_END") return;
 
       replaceTail((m) => m.streaming ? { ...m, streaming: false } : m);
-      b.isBusy = false;
-      b.sessionStatus = "idle";
+      if (!b.hasCoordinatorState) {
+        b.isBusy = false;
+        b.sessionStatus = "idle";
+        b.sessionActivity = "idle";
+        b.canCancel = false;
+      }
       b.retryState = null;
 
       // 计算耗时并写入本轮最后一条 assistant 消息
@@ -1116,7 +1314,38 @@ if (!(globalThis as any)[__wsBoundFlag]) {
   }
 
   wsClient.onMessage((msg: ServerMessage) => {
-    // 鍚庣鎷掔粷锛堥檮浠惰繚瑙勭瓑锛夛細椤跺眰 type="error"锛屼笉鏄?agent_event
+    // 持久化接纳 ACK：补齐横幅本地占位的服务端 request_id。
+    // ACK 不创建聊天气泡；USER_MESSAGE 回显才是进入聊天记录的唯一入口。
+    const admissionAck = getMessageAckPayload(msg);
+    if (admissionAck) {
+      const sid = admissionAck.session_id || msg.metadata?.session_id;
+      if (typeof sid === "string" && sid) {
+        const b = bucket(sid);
+        // sendMessage 已经把横幅项本地预显示；收到 durable ACK 后只补齐
+        // 服务端 request_id，仍由下一张 mailbox_snapshot 覆盖为最终事实。
+        const transportRequestId = typeof msg.frame_id === "string" ? msg.frame_id : "";
+        b.pendingMessages = (b.pendingMessages ?? []).map((item) => (
+          item.optimistic && (
+            canonicalRequestId(item.request_id) === admissionAck.request_id
+            || canonicalRequestId(item.request_id) === transportRequestId
+          )
+            ? {
+              ...item,
+              request_id: admissionAck.request_id,
+              sequence: admissionAck.queue_position,
+              optimistic: false,
+            }
+            : item
+        ));
+        b.queueDepth = b.pendingMessages.length;
+        // ACK 只证明请求已落盘；横幅项目仍以后续完整 pending 快照为准。
+        b.isBusy = true;
+        b.sessionStatus = "running";
+        if (!b.hasCoordinatorState) b.sessionActivity = "dispatching";
+        mirror(sid);
+      }
+      return;
+    }
     if (msg.type === "error") {
       const reason =
         (msg.data as any)?.message ||
@@ -1126,8 +1355,21 @@ if (!(globalThis as any)[__wsBoundFlag]) {
       const sid = (msg.data as any)?.session_id || msg.metadata?.session_id;
       if (typeof sid === "string" && sid) {
         const b = bucket(sid);
-        b.isBusy = false;
-        b.sessionStatus = "idle";
+        const requestId = (msg.data as any)?.request_id || msg.metadata?.request_id;
+        // 被服务端拒绝的本地队列项不能一直留在横幅；没有 request_id 的
+        // 通用错误则不猜测删除哪一项。
+        if (typeof requestId === "string" && requestId) {
+        b.pendingMessages = (b.pendingMessages ?? []).filter(
+            (item) => item.request_id !== requestId && item.request_id !== `local:${requestId}`,
+          );
+          b.queueDepth = b.pendingMessages.length;
+        }
+        if (!b.hasCoordinatorState) {
+          b.isBusy = false;
+          b.sessionStatus = "idle";
+          b.sessionActivity = "idle";
+          b.canCancel = false;
+        }
         mirror(sid);
       }
       // 寮傛寮曞叆閬垮厤寰幆渚濊禆锛坣otification 鈫?chat 涓嶅簲璇ヨ缁戞锛?
@@ -1139,6 +1381,47 @@ if (!(globalThis as any)[__wsBoundFlag]) {
           });
         })
         .catch(() => void 0);
+      return;
+    }
+
+    const warningPayload = getSessionContextWarningPayload(msg);
+    if (warningPayload) {
+      import("./notification")
+        .then(({ useNotification }) => {
+          useNotification.getState().addNotification({
+            level: "warning",
+            message: warningPayload.message,
+          });
+        })
+        .catch(() => void 0);
+      return;
+    }
+
+    const commandPayload = getSessionCommandPayload(msg);
+    if (commandPayload) {
+      const sid = commandPayload.session_id || msg.metadata?.session_id;
+      if (typeof sid === "string" && sid) {
+        import("./notification")
+          .then(({ useNotification }) => {
+            useNotification.getState().addNotification({
+              level: commandPayload.level === "error"
+                ? "error"
+                : commandPayload.level === "warning" ? "warning" : "info",
+              message: commandPayload.content,
+            });
+          })
+          .catch(() => void 0);
+      }
+      return;
+    }
+
+    const sessionEvent = getSessionEventPayload(msg);
+    if (sessionEvent) {
+      const sid = sessionEvent.session_id || msg.metadata?.session_id;
+      if (typeof sid !== "string" || !sid) return;
+      const b = bucket(sid);
+      applyMailboxSnapshot(b, sessionEvent);
+      mirror(sid);
       return;
     }
 
@@ -1155,35 +1438,27 @@ if (!(globalThis as any)[__wsBoundFlag]) {
     // 鍚庣鍦ㄩ鏉＄敤鎴锋秷鎭悗寮傛鐢熸垚鏍囬锛涘墠绔湁鑷繁鐨勪細璇濆垪琛ㄨ疆璇紝
     // 鎷垮埌鏂?title 鏄繜鏃╃殑浜嬶紝涓嶉渶瑕佷笓闂ㄧ殑 push 閫氱煡銆?
     // global_event锛氬叏灞€鎺у埗淇″彿锛坰ession 杩愯鎬佺瓑锛夛紝涓嶈繘 agent 浜嬩欢娴?
-    if (msg.type === "global_event") {
-      const ev = msg.data as any;
-      if (ev?.type === "session_status") {
-        const d = ev.data as any;
-        if (d?.session_id) {
-          const status = d.status as string;
-          const b = bucket(d.session_id);
-          if (status === "running" || status === "compacting" || status === "idle") {
-            b.sessionStatus = status;
-          }
-          if (status === "running") {
-            // 涓€杞紑濮嬶細杩涘叆 busy锛屾竻绌轰笂涓€杞畫鐣欑殑閿欒/閲嶈瘯鐘舵€?
-            b.isBusy = true;
-            b.error = null;
-            b.retryState = null;
-          } else if (status === "compacting") {
-            b.isBusy = false;
-            b.retryState = null;
-          } else {
-            b.isBusy = false;
-            b.retryState = null;
-          }
-          mirror(d.session_id);
-        }
-        // 寮傛鍒锋柊浼氳瘽鍒楄〃锛坮unning 瀛楁锛?
-        import("../stores/session")
-          .then(({ useSession }) => useSession.getState().loadAllSessions())
-          .catch(() => void 0);
+    const sessionStatus = getSessionStatusPayload(msg);
+    if (sessionStatus) {
+      const sid = sessionStatus.session_id || msg.metadata?.session_id;
+      if (typeof sid !== "string" || !sid) return;
+      const b = bucket(sid);
+      if (!b.hasCoordinatorState) {
+        const status = sessionStatus.status;
+        b.sessionStatus = status;
+        b.sessionActivity = status === "idle"
+          ? "idle"
+          : status === "compacting" ? "compacting" : "executing";
+        b.isBusy = status !== "idle";
+        b.clientCanSend = status !== "compacting";
+        b.canCancel = status === "running";
+        b.error = null;
+        b.retryState = null;
       }
+      mirror(sid);
+      import("../stores/session")
+        .then(({ useSession }) => useSession.getState().loadAllSessions())
+        .catch(() => void 0);
       return;
     }
 
@@ -1268,17 +1543,21 @@ if (!(globalThis as any)[__wsBoundFlag]) {
   wsClient.onDisconnect(() => {
     // 鏂嚎锛氬叧鎺夋墍鏈?bucket 鐨?streaming 鐘舵€侊紝淇濈暀娑堟伅
     for (const [sid, b] of sessionProjections) {
-      b.isBusy = false;
-      b.sessionStatus = "idle";
-      const tail = last(b.messages);
-      if (tail?.streaming) {
-        const next = b.messages.slice();
-        next[next.length - 1] = { ...tail, streaming: false };
-        b.messages = next;
+      if (!b.hasCoordinatorState) {
+        b.isBusy = false;
+        b.sessionStatus = "idle";
+        b.sessionActivity = "idle";
+        b.canCancel = false;
+        const tail = last(b.messages);
+        if (tail?.streaming) {
+          const next = b.messages.slice();
+          next[next.length - 1] = { ...tail, streaming: false };
+          b.messages = next;
+        }
       }
       mirror(sid);
     }
-    useChat.setState({ connected: false, wsStatus: "disconnected", sessionStatus: "idle", isBusy: false });
+    useChat.setState({ connected: false, wsStatus: "disconnected" });
   });
 }
 
@@ -1292,6 +1571,16 @@ interface ChatState {
   commandName: string | null;
   plan: PlanData | null;
   sessionStatus: SessionStatus;
+  sessionActivity: SessionActivity;
+  sessionRevision: number;
+  hasCoordinatorState: boolean;
+  queueDepth: number;
+  queueCapacity: number | null;
+  /** 后端 state.json 中 mailbox.pending 的只读投影，供队列横幅渲染。 */
+  pendingMessages: MailboxItemPayload[];
+  clientCanSend: boolean;
+  canCancel: boolean;
+  blockedReason: string | null;
   isBusy: boolean;
   error: string | null;
   retryState: RetryState | null;
@@ -1325,7 +1614,7 @@ interface ChatState {
       name?: string;
     }>,
     system?: boolean,
-  ) => void;
+  ) => SendMessageResult;
   cancelStream: () => void;
   /** 回复工具权限确认：批准/拒绝某个待确认工具调用，驱动后端从挂起恢复。 */
   confirmToolCall: (toolCallId: string, approved: boolean) => void;
@@ -1344,6 +1633,7 @@ interface ChatState {
     turnStartTs?: number | null,
     plan?: PlanData | null,
     commandName?: string | null,
+    mailbox?: MailboxSnapshotPayload | null,
   ) => void;
   /**
    * Prepend earlier ChatMessage[] to the session, deduping by message id.
@@ -1378,6 +1668,15 @@ export const useChat = create<ChatState>((set, get) => ({
   commandName: null,
   plan: null,
   sessionStatus: "idle",
+  sessionActivity: "idle",
+  sessionRevision: -1,
+  hasCoordinatorState: false,
+  queueDepth: 0,
+  queueCapacity: null,
+  pendingMessages: [],
+  clientCanSend: true,
+  canCancel: false,
+  blockedReason: null,
   isBusy: false,
   error: null,
   retryState: null,
@@ -1394,64 +1693,74 @@ export const useChat = create<ChatState>((set, get) => ({
   contextWindow: null,
   pendingWorkspace: null,
 
-  sendMessage: (content, attachments, system) => {
+  sendMessage: (content, attachments, _system) => {
     // Session 正在压缩时禁止创建本地乐观消息；后端也有同样的竞态兜底。
-    if (get().sessionStatus === "compacting") return;
+    const currentState = get();
+    if (currentState.sessionStatus === "compacting") {
+      return { ok: false, reason: "compacting" };
+    }
+    if (currentState.hasCoordinatorState && !currentState.clientCanSend) {
+      return { ok: false, reason: "blocked" };
+    }
 
     // 归一：string → 本地回显文本（Inbound 协议只承载纯文本字符串）
     const displayText = content.trim();
     const hasAttachments = !!attachments && attachments.length > 0;
-    if (!displayText && !hasAttachments) return;
+    if (!displayText && !hasAttachments) return { ok: false, reason: "empty" };
 
     // 系统级指令（如 /cancel）为 ephemeral 控制，不创建本地假消息，也不主动改 busy 状态
-    const isSystemCommand = !!system && !hasAttachments;
+    // /cancel 使用独立的高优先级控制帧；其它输入（包括普通指令）都先入队。
 
     // 鏈湴鍥炴樉鐢細鎶婂悗绔崗璁舰鎬佺殑 attachments 杞垚甯?data URL 鐨勫舰鎬?
-    const localAttachments: MessageAttachment[] | undefined = hasAttachments
-      ? attachments!.map((a) => ({
-        type: "image",
-        url: `data:${a.mime_type};base64,${a.data}`,
-        mime: a.mime_type,
-        name: a.name,
-        bytes: typeof a.data === "string" ? Math.floor(a.data.length * 0.75) : undefined,
-      }))
-      : undefined;
-
     const frameId = crypto.randomUUID().slice(0, 16);
-
-    const userMsg: ChatMessage = {
-      id: frameId,
-      role: "user",
-      content: displayText,
-      timestamp: Date.now(),
-      ...(localAttachments ? { attachments: localAttachments } : {}),
+    const { model, provider, agentId } = get();
+    const outbound: PendingNewSessionSend = {
+      frameId,
+      displayText,
+      attachments,
+      metadata: {
+        ...(model && { model }),
+        ...(provider && { provider }),
+        ...(agentId && { agent_id: agentId }),
+      },
     };
-    const send = (sid: string) => {
+    const send = (sid: string, item: PendingNewSessionSend = outbound) => {
       const b = bucket(sid);
-      if (!isSystemCommand) {
-        b.messages = [...b.messages, userMsg];
+      const result = wsClient.sendChat(
+        item.displayText,
+        { ...item.metadata, session_id: sid },
+        item.attachments,
+        item.frameId,
+      );
+      if (result.ok) {
+        if (!b.pendingMessages.some((queued) => queued.request_id === `local:${item.frameId}` || queued.request_id === item.frameId)) {
+          // 每条用户输入都先显示在队列横幅，绝不在聊天区创建本地 UserMessage。
+          // 只有服务端领取、落盘并回显后，消息才会进入聊天记录。
+          b.pendingMessages = [...b.pendingMessages, pendingPreview(item)];
+          b.queueDepth = b.pendingMessages.length;
+        }
         b.lastUserInputTs = null;
         b.isBusy = true;
         b.sessionStatus = "running";
+        if (!b.hasCoordinatorState) b.sessionActivity = "dispatching";
         b.error = null;
         b.retryState = null;
-        mirror(sid);
       }
-      const { model, provider, agentId } = get();
-      wsClient.sendChat(
-        displayText,
-        {
-          ...(model && { model }),
-          ...(provider && { provider }),
-          ...(agentId && { agent_id: agentId }),
-          session_id: sid,
-        },
-        attachments,
-        frameId,
-      );
+      mirror(sid);
+      return result;
     };
+
     const sid = get().sessionId;
-    if (sid) return send(sid);
+    if (sid) {
+      const result = send(sid);
+      if (!result.ok) {
+        return {
+          ok: false,
+          reason: result.reason === "outbox_full" ? "outbox_full" : "transport_failed",
+        };
+      }
+      return { ok: true, requestId: frameId };
+    }
 
     // 棣栨鍙戞秷鎭細fetch 鍒涘缓 session 鏈熼棿浼氭湁 100~500ms 缃戠粶寰€杩旓紝
     // 杩欐鏃堕棿濡傛灉浠€涔堥兘涓嶅仛锛孋hatView 浼氬洜涓?(!sessionId && !isBusy) 浠嶅仠鐣欏湪 WelcomeView锛?
@@ -1459,26 +1768,64 @@ export const useChat = create<ChatState>((set, get) => ({
     // 杩欓噷鍏堝悓姝ユ妸 isBusy 鍜?userMsg 椤跺埌 store top-level锛岃 UI 绔嬪嵆鍒囧埌瀵硅瘽瑙嗗浘銆?
     // fetch 杩斿洖鍚?send() 鈫?bucket.push(userMsg) 鈫?mirror() 浼氬啀娆″啓鍥炲悓涓€浠?messages锛?
     // 鍐呭涓€鑷达紝涓嶄細闂儊涔熶笉浼氶噸澶嶃€?
-    set({ isBusy: true, sessionStatus: "running", messages: [...get().messages, userMsg], lastUserInputTs: null });
+    if (pendingNewSessionSends.length >= MAX_PENDING_NEW_SESSION_SENDS) {
+      return { ok: false, reason: "outbox_full" };
+    }
+    pendingNewSessionSends.push(outbound);
+    set({
+      isBusy: true,
+      sessionStatus: "running",
+      sessionActivity: "dispatching",
+      // 新 session 还没有 bucket；先在顶层投影显示同一套 pending 横幅。
+      queueDepth: pendingNewSessionSends.length,
+      pendingMessages: pendingNewSessionSends.map(pendingPreview),
+      lastUserInputTs: null,
+      error: null,
+    });
 
-    createSessionRemote({
-      channelId: "ws",
-      workspace: get().pendingWorkspace,
-    })
-      .then((data) => {
-        if (!data?.session_id) throw new Error("鍒涘缓浼氳瘽澶辫触");
-        // 鍒涘缓鎴愬姛鍚庢竻鎺?pending 鈥斺€?sessions 琛?workspace 宸茬粡钀藉簱锛?
-        // 鍚庣画浠?useSession 鍒楄〃璇伙紝涓嶅啀渚濊禆鍓嶇 pending 鐘舵€?
-        set({ sessionId: data.session_id, pendingWorkspace: null });
-        wsClient.subscribeOnly(data.session_id);
-        send(data.session_id);
-      })
-      .catch(() => set({ isBusy: false, sessionStatus: "idle", error: "鍒涘缓浼氳瘽澶辫触" }));
+    if (!pendingSessionCreation) {
+      const generation = pendingSessionGeneration;
+      const workspace = get().pendingWorkspace;
+      const creation = createSessionRemote({ channelId: "ws", workspace })
+        .then((data) => {
+          if (generation !== pendingSessionGeneration) return;
+          if (!data?.session_id) throw new Error("Failed to create session");
+
+          const queued = pendingNewSessionSends;
+          pendingNewSessionSends = [];
+          set({ sessionId: data.session_id, pendingWorkspace: null });
+          wsClient.subscribeOnly(data.session_id);
+          for (const item of queued) send(data.session_id, item);
+        })
+        .catch(() => {
+          if (generation !== pendingSessionGeneration) return;
+          pendingNewSessionSends = [];
+          set({
+            isBusy: false,
+            sessionStatus: "idle",
+            sessionActivity: "idle",
+            queueDepth: 0,
+            pendingMessages: [],
+            error: "Failed to create session",
+          });
+        })
+        .finally(() => {
+          if (pendingSessionCreation === creation) pendingSessionCreation = null;
+        });
+      pendingSessionCreation = creation;
+    }
+    return { ok: true, requestId: frameId };
   },
-
   cancelStream: () => {
     const sid = get().sessionId;
-    if (!sid) return set({ isBusy: false, sessionStatus: "idle" });
+    if (!sid) return;
+    const b = bucket(sid);
+    if (b.hasCoordinatorState && !b.canCancel) return;
+    b.sessionActivity = "cancelling";
+    b.isBusy = true;
+    b.sessionStatus = "running";
+    b.canCancel = false;
+    mirror(sid);
     // 鍙?/cancel 鐨?user_message 甯э紝鍚庣绯荤粺绾ф寚浠ゅ湪 session lock 澶栧鐞?
     wsClient.sendCancel(sid);
   },
@@ -1489,20 +1836,68 @@ export const useChat = create<ChatState>((set, get) => ({
     // 保留 asking 卡片，直到收到后端 USER_CONFIRM_RESULT 确认事件。
     // 这样发送失败、校验失败时仍能超时解锁并重试。
     const b = bucket(sid);
-    b.isBusy = true;
-    b.sessionStatus = "running";
+    if (!b.hasCoordinatorState) {
+      b.isBusy = true;
+      b.sessionStatus = "running";
+      b.sessionActivity = "executing";
+      b.canCancel = true;
+    }
     mirror(sid);
     wsClient.sendToolConfirmation(sid, toolCallId, approved);
   },
 
   newChat: () => {
+    resetPendingSessionCreation();
     wsClient.subscribeOnly(null);
-    set({ sessionId: null, messages: [], lastUserInputTs: null, turnStartTs: null, commandName: null, plan: null, sessionStatus: "idle", isBusy: false, error: null, retryState: null, tokenUsage: null, pendingWorkspace: _defaultWsCache });
+    set({
+      sessionId: null,
+      messages: [],
+      lastUserInputTs: null,
+      turnStartTs: null,
+      commandName: null,
+      plan: null,
+      sessionStatus: "idle",
+      sessionActivity: "idle",
+      sessionRevision: -1,
+      hasCoordinatorState: false,
+      queueDepth: 0,
+      queueCapacity: null,
+      pendingMessages: [],
+      clientCanSend: true,
+      canCancel: false,
+      blockedReason: null,
+      isBusy: false,
+      error: null,
+      retryState: null,
+      tokenUsage: null,
+      pendingWorkspace: _defaultWsCache,
+    });
   },
-
   switchTo: (sessionId) => {
+    resetPendingSessionCreation();
     const b = bucket(sessionId);
-    set({ sessionId, messages: b.messages, lastUserInputTs: b.lastUserInputTs, turnStartTs: b.turnStartTs, commandName: b.commandName, plan: b.plan, sessionStatus: b.sessionStatus, isBusy: b.isBusy, error: b.error, retryState: b.retryState, tokenUsage: null });
+    set({
+      sessionId,
+      messages: b.messages,
+      lastUserInputTs: b.lastUserInputTs,
+      turnStartTs: b.turnStartTs,
+      commandName: b.commandName,
+      plan: b.plan,
+      sessionStatus: b.sessionStatus,
+      sessionActivity: b.sessionActivity,
+      sessionRevision: b.sessionRevision,
+      hasCoordinatorState: b.hasCoordinatorState,
+      queueDepth: b.queueDepth,
+      queueCapacity: b.queueCapacity,
+      pendingMessages: b.pendingMessages,
+      clientCanSend: b.clientCanSend,
+      canCancel: b.canCancel,
+      blockedReason: b.blockedReason,
+      isBusy: b.isBusy,
+      error: b.error,
+      retryState: b.retryState,
+      tokenUsage: null,
+    });
     void get().refreshTokenUsage(sessionId);
   },
 
@@ -1516,8 +1911,16 @@ export const useChat = create<ChatState>((set, get) => ({
 
   setSessionStatus: (sessionId, status) => {
     const b = bucket(sessionId);
+    if (b.hasCoordinatorState) return;
     b.sessionStatus = status;
-    b.isBusy = status === "running";
+    b.sessionActivity = status === "idle"
+      ? "idle"
+      : status === "compacting"
+        ? "compacting"
+        : "executing";
+    b.isBusy = status !== "idle";
+    b.clientCanSend = status !== "compacting";
+    b.canCancel = status === "running";
     if (status === "running") {
       b.error = null;
       b.retryState = null;
@@ -1527,7 +1930,7 @@ export const useChat = create<ChatState>((set, get) => ({
     mirror(sessionId);
   },
 
-  loadSessionMessages: (sessionId, messages, hasMoreHistory, status, turnStartTs, plan, commandName) => {
+  loadSessionMessages: (sessionId, messages, hasMoreHistory, status, turnStartTs, plan, commandName, mailbox) => {
     const b = bucket(sessionId);
     b.hydrate({
       messages,
@@ -1537,6 +1940,11 @@ export const useChat = create<ChatState>((set, get) => ({
       plan,
       commandName,
     });
+    if (mailbox) {
+      // HTTP 返回的 mailbox 是刷新后的权威快照，直接交给同一个 reducer，
+      // mailbox 快照是刷新后的权威状态，直接复用同一个投影 reducer。
+      applyMailboxSnapshot(b, mailbox);
+    }
     mirror(sessionId);
   },
 

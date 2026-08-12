@@ -1,4 +1,8 @@
-import type { ReplySnapshotPayload } from "@/services/websocket-client";
+import type {
+  MailboxItemPayload,
+  ReplySnapshotPayload,
+  SessionActivity,
+} from "@/services/websocket-client";
 import type {
   ChatMessage,
   PlanData,
@@ -37,7 +41,6 @@ interface ProjectionReducers {
   ) => void;
 }
 
-/** 纯 reducer 所需的可变投影状态；测试可以直接构造这个结构。 */
 export interface SessionProjectionState {
   messages: ChatMessage[];
   seenEventIds: Set<string>;
@@ -45,6 +48,17 @@ export interface SessionProjectionState {
   hasMoreHistory: boolean;
   lastUserInputTs: number | null;
   sessionStatus: SessionStatus;
+  sessionActivity?: SessionActivity;
+  sessionRevision?: number;
+  snapshotConnectionEpoch?: number;
+  hasCoordinatorState?: boolean;
+  queueDepth?: number;
+  queueCapacity?: number | null;
+  /** 输入框上方横幅：服务端 mailbox.pending + 尚未 ACK 的本地发送预览，不混入聊天正文。 */
+  pendingMessages?: MailboxItemPayload[];
+  clientCanSend?: boolean;
+  canCancel?: boolean;
+  blockedReason?: string | null;
   isBusy: boolean;
   error: string | null;
   retryState: RetryState | null;
@@ -67,6 +81,16 @@ export class ClientSessionProjection implements SessionProjectionState {
   hasMoreHistory = false;
   lastUserInputTs: number | null = null;
   sessionStatus: SessionStatus = "idle";
+  sessionActivity: SessionActivity = "idle";
+  sessionRevision = -1;
+  snapshotConnectionEpoch = -1;
+  hasCoordinatorState = false;
+  queueDepth = 0;
+  queueCapacity: number | null = null;
+  pendingMessages: MailboxItemPayload[] = [];
+  clientCanSend = true;
+  canCancel = false;
+  blockedReason: string | null = null;
   isBusy = false;
   error: string | null = null;
   retryState: RetryState | null = null;
@@ -91,10 +115,15 @@ export class ClientSessionProjection implements SessionProjectionState {
    * HTTP 历史和 WS attach 是并行返回的，不能让较晚到达的 HTTP 覆盖进行中状态。
    */
   hydrate(history: ProjectionHistory): void {
+    const effectiveStatus = this.hasCoordinatorState
+      ? this.sessionStatus
+      : history.status;
+    // HTTP 历史与 WS attach 并行返回。队列请求不合成为聊天气泡，
+    // 只保留正在流式输出的 Assistant 回复。
     const activeTransient = this.messages.filter((message) =>
-      (history.status === "running" && message.streaming === true)
+      (effectiveStatus === "running" && message.streaming === true)
       || (
-        history.status === "compacting"
+        effectiveStatus === "compacting"
         && message.compact?.status === "running"
       ),
     );
@@ -103,15 +132,23 @@ export class ClientSessionProjection implements SessionProjectionState {
       ...history.messages.filter((message) => !transientIds.has(message.id)),
       ...activeTransient,
     ].sort((left, right) => left.timestamp - right.timestamp);
-
     const firstUser = history.messages.find((message) => message.role === "user");
     this.earliestTs = firstUser ? firstUser.timestamp / 1000 : null;
     this.hasMoreHistory = history.hasMoreHistory;
     this.lastUserInputTs = [...history.messages]
       .reverse()
       .find((message) => message.role === "user")?.timestamp ?? null;
-    this.sessionStatus = history.status;
-    this.isBusy = history.status === "running";
+    if (!this.hasCoordinatorState) {
+      this.sessionStatus = history.status;
+      this.sessionActivity = history.status === "idle"
+        ? "idle"
+        : history.status === "compacting"
+          ? "compacting"
+          : "executing";
+      this.isBusy = history.status !== "idle";
+      this.clientCanSend = history.status !== "compacting";
+      this.canCancel = history.status === "running";
+    }
     this.error = null;
     this.retryState = null;
     const activeReply = activeTransient.find((message) => message.streaming);

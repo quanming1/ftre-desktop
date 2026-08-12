@@ -290,6 +290,8 @@ const FIRST_PAGE_TURNS = 5;
 
 /** 上一次 switchSession 的 AbortController，新切换时取消旧请求 */
 let _switchAbort: AbortController | null = null;
+// 切换/新建会话的请求世代，防止旧 HTTP 响应覆盖当前会话。
+let _switchGeneration = 0;
 
 /** 每个工作区首屏拉取的 session 数 */
 const WORKSPACE_PAGE_SIZE = 20;
@@ -593,6 +595,7 @@ export const useSession = create<SessionState>((set, get) => ({
     _switchAbort?.abort();
     _switchAbort = new AbortController();
     const signal = _switchAbort.signal;
+    const generation = ++_switchGeneration;
 
     // 暂时禁用本地缓存：每次切换都清空 bucket，走 HTTP + WS 全量加载
     useChat.getState().clearSessionCache(sessionId);
@@ -606,6 +609,7 @@ export const useSession = create<SessionState>((set, get) => ({
     // HTTP 先行：拉 DB 中的 Msg 历史（最近 5 轮）
     fetchSessionMessagesPage(sessionId, { limitTurns: FIRST_PAGE_TURNS, signal } as any)
       .then((page) => {
+        if (generation !== _switchGeneration) return;
         if (!page) return;
         const { messages, turnStartTs, commandName } = historyToMessages(page.messages);
         const plan = (page.metadata?.plan as PlanData) || null;
@@ -617,6 +621,7 @@ export const useSession = create<SessionState>((set, get) => ({
           turnStartTs,
           plan,
           commandName,
+          page.mailbox,
         );
         useChat.getState().setSessionStatus(sessionId, page.status);
         // HTTP 完成后再 WS attach：之后的流式 Event 只负责实时更新。
@@ -627,7 +632,9 @@ export const useSession = create<SessionState>((set, get) => ({
         console.error("[Session] switchSession fetch error:", err);
       })
       .finally(() => {
-        if (get().loadingSessionId === sessionId) set({ loadingSessionId: null });
+        if (generation === _switchGeneration && get().loadingSessionId === sessionId) {
+          set({ loadingSessionId: null });
+        }
       });
   },
 
@@ -635,8 +642,13 @@ export const useSession = create<SessionState>((set, get) => ({
     // WS 重连后重新拉取 DB 历史，重建消息列表和去重窗口。
     // 不走 subscribeOnly（WS client onopen 已重发 attach），
     // 不走 clearSessionCache（保留 bucket 状态，避免 UI 闪烁）。
+    const generation = _switchGeneration;
     try {
       const page = await fetchSessionMessagesPage(sessionId, { limitTurns: FIRST_PAGE_TURNS });
+      if (
+        generation !== _switchGeneration
+        || useChat.getState().sessionId !== sessionId
+      ) return;
       if (!page) return;
       const { messages, turnStartTs, commandName } = historyToMessages(page.messages);
       const plan = (page.metadata?.plan as PlanData) || null;
@@ -648,6 +660,7 @@ export const useSession = create<SessionState>((set, get) => ({
         turnStartTs,
         plan,
         commandName,
+        page.mailbox,
       );
     } catch (err) {
       console.error("[Session] reconnectSession fetch error:", err);
@@ -692,7 +705,13 @@ export const useSession = create<SessionState>((set, get) => ({
     set({ openTabs: tabs });
     saveTabsToStorage(tabs);
     if (useChat.getState().sessionId !== sessionId) return;
-    if (tabs.length === 0) return useChat.getState().newChat();
+    if (tabs.length === 0) {
+      _switchAbort?.abort();
+      _switchAbort = null;
+      _switchGeneration += 1;
+      set({ loadingSessionId: null });
+      return useChat.getState().newChat();
+    }
     const closedIdx = openTabs.indexOf(sessionId);
     const nextIdx = Math.min(closedIdx, tabs.length - 1);
     get().switchSession(tabs[nextIdx]);
@@ -731,6 +750,10 @@ export const useSession = create<SessionState>((set, get) => ({
   },
 
   newSession: (workspace) => {
+    _switchAbort?.abort();
+    _switchAbort = null;
+    _switchGeneration += 1;
+    set({ loadingSessionId: null });
     const chat = useChat.getState();
     chat.newChat();
     // 不重置 agentId / model / provider —— 用户当前选择是粘性偏好，
