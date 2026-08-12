@@ -1,0 +1,13 @@
+# ftre-desktop module scopes
+chat
+ws
+inspector
+electron
+session
+editor
+explorer
+git
+settings
+shared
+tests
+docs

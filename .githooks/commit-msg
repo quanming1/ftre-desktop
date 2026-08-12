@@ -1,0 +1,18 @@
+#!/bin/sh
+# commit-msg hook：强制提交规范（docs/COMMIT.md / AGENTS.md Git Flow 章节）
+# 校验逻辑在 check_commit_msg.py（Python，读 docs/TODO.yaml 校验阶段标识），此处仅包装。
+#
+# 安装：git config core.hooksPath .githooks
+
+commit_file="$1"
+[ -f "$commit_file" ] || exit 0
+
+PY=python
+command -v python3 >/dev/null 2>&1 && PY=python3
+if ! command -v "$PY" >/dev/null 2>&1; then
+  echo "[错误] 找不到 python，无法校验提交消息" >&2
+  exit 1
+fi
+
+"$PY" "$(dirname "$0")/check_commit_msg.py" "$commit_file" || exit 1
+exit 0

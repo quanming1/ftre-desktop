@@ -1,0 +1,42 @@
+#!/bin/sh
+# pre-push hook —— Git Flow 保护
+#
+# 规则（ftre 适配版，master 等价 rondo 的 main）：
+#   - git push origin master             允许（本地 master 直接推送 = 发布流程）
+#   - git push origin feature/x:master   拒绝（禁止 feature 直接上 master）
+#   - git push origin :master            拒绝（禁止删除远程 master）
+#   - git push origin develop            拒绝直接提交（develop 新增提交必须全部是 merge commit）
+#
+# 安装：git config core.hooksPath .githooks
+
+protected=refs/heads/master
+protected_dev=refs/heads/develop
+
+while read local_ref local_oid remote_ref remote_oid; do
+  # master 保护：非 master 分支禁止直接 push 到 master；禁止删除 master
+  if [ "$remote_ref" = "$protected" ]; then
+    if [ "$local_ref" != "$protected" ]; then
+      echo "[拒绝] Git Flow 保护：禁止直接 push 到 master"
+      echo "        master 只接受 release/hotfix 合并后的发布推送"
+      echo "        当前尝试：$local_ref -> $remote_ref"
+      exit 1
+    fi
+  fi
+
+  # develop 保护：develop -> develop 时，新增提交必须全部是 merge commit
+  if [ "$local_ref" = "$protected_dev" ] && [ "$remote_ref" = "$protected_dev" ]; then
+    if [ "$remote_oid" != "0000000000000000000000000000000000000000" ]; then
+      for commit in $(git log --first-parent --format=%H "$remote_oid".."$local_oid"); do
+        set -- $(git rev-list --parents -n 1 "$commit")
+        if [ $# -lt 3 ]; then
+          echo "[拒绝] Git Flow 保护：develop 禁止直接提交（提交 $commit 不是 merge commit）"
+          echo "        正确流程：checkout -b feature/xxx 提交 -> merge --no-ff 回 develop -> push"
+          echo "        提交 $commit 的消息：$(git log -1 --format=%s "$commit")"
+          exit 1
+        fi
+      done
+    fi
+  fi
+done
+
+exit 0
