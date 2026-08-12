@@ -7,15 +7,16 @@
  * - Falls back to streamManager directly if store is empty/unavailable
  */
 import { useState, useEffect, useMemo } from "react";
-import { Loader2, FileEdit, FilePlus2, ChevronDown, ChevronUp, Check, Circle, Target } from "lucide-react";
+import { Loader2, FileEdit, FilePlus2, ChevronDown, Check, Circle, Target } from "lucide-react";
 import { useChat, type RetryState, type PlanData } from "@/stores/chat";
+import type { MailboxItemPayload } from "@/services/websocket-client";
 import { useSession } from "@/stores/session";
 import { wsClient } from "@/services/websocket-client";
 import { createManagedPoller } from "@/services/visibility-manager";
 import { ChatMessageList } from "./ChatMessageList";
 import { ChatInput } from "./ChatInput";
+import { QueuedMessagesBanner } from "./QueuedMessagesBanner";
 import { WelcomeView } from "./WelcomeView";
-import { WsLogPanel, type LogEntry } from "./WsLogPanel";
 import { FileIconView } from "@/components/FileIconView";
 import { useInspector } from "@/stores/inspector";
 import { useLayout } from "@/stores/layout";
@@ -40,26 +41,23 @@ export function ChatView() {
   const messages = useChat((s) => s.messages);
   const isBusy = useChat((s) => s.isBusy);
   const sessionStatus = useChat((s) => s.sessionStatus);
+  const sessionActivity = useChat((s) => s.sessionActivity);
+  const queueDepth = useChat((s) => s.queueDepth);
+  const blockedReason = useChat((s) => s.blockedReason);
   const turnStartTs = useChat((s) => s.turnStartTs);
   const plan = useChat((s) => s.plan);
   const storeModel = useChat((s) => s.model);
   const retryState = useChat((s) => s.retryState);
   const commandName = useChat((s) => s.commandName);
-  const connected = useChat((s) => s.connected);
-
-  // Auto-connect on mount
+  // 所有待执行消息都先显示在横幅；后端真正写入 UserMsg 的实时回显到达后，
+  // 才进入 messages 聊天历史。因此这里不需要把同一条消息在两种 UI 间搬运。
+  const pendingMessages = useChat((s) => s.pendingMessages);
+  const conversationMessages = messages;
   useEffect(() => {
     if (!wsClient.connected) wsClient.connect();
   }, []);
 
-  // WS Log state (only active in Storybook / dev mode)
-  const isStorybook = typeof window !== "undefined" && window.location.port === "6006";
-  const [showLog, setShowLog] = useState(false);
-  const [logEntries, setLogEntries] = useState<LogEntry[]>([]);
-
-  const chatId = useChat((s) => s.sessionId);
-
-  // Determine if current session is a websocket session (can send messages)
+  // 只有 WebSocket 会话允许在当前聊天界面继续发送消息。
   const sessionId = useChat((s) => s.sessionId);
   const allSessions = useSession((s) => s.allSessions);
   const currentSessionChannel = useMemo(() => {
@@ -71,7 +69,7 @@ export function ChatView() {
   }, [sessionId, allSessions]);
   const canSend = currentSessionChannel === "ws";
 
-  // Session loading state
+  // 切换 Session 时的历史消息加载状态。
   const loadingSessionId = useSession((s) => s.loadingSessionId);
   const isSessionLoading = loadingSessionId != null;
   const [now, setNow] = useState(() => Date.now());
@@ -80,19 +78,35 @@ export function ChatView() {
   const runningDuration = turnStartTs
     ? formatRunningDuration(now - turnStartTs)
     : null;
-  const shouldShowRunningBanner = (sessionStatus === "running" || sessionStatus === "compacting") && canSend;
+  const shouldShowRunningBanner = (
+    sessionStatus === "running"
+    || sessionStatus === "compacting"
+    || pendingMessages.length > 0
+  ) && canSend;
 
   // 本轮使用的模型：优先取本轮最后一条 assistant 消息的 model，兜底 store 选中的 model
   const turnModel = useMemo(() => {
     if (!isBusy) return null;
-    for (let j = messages.length - 1; j >= 0; j--) {
-      if (messages[j].role === "assistant" && messages[j].model) return messages[j].model!;
+    for (let j = conversationMessages.length - 1; j >= 0; j--) {
+      if (conversationMessages[j].role === "assistant" && conversationMessages[j].model) {
+        return conversationMessages[j].model!;
+      }
     }
     return storeModel ?? null;
-  }, [isBusy, messages, storeModel]);
+  }, [isBusy, conversationMessages, storeModel]);
 
   const bannerLabel = sessionStatus === "compacting"
     ? "Compacting context"
+    : sessionActivity === "cancelling"
+      ? "Cancelling current execution"
+      : sessionActivity === "paused"
+        ? "Waiting for confirmation"
+        : sessionActivity === "blocked"
+          ? blockedReason || "Session blocked"
+          : sessionActivity === "dispatching" && queueDepth > 0
+            ? `Preparing · ${queueDepth} queued`
+            : sessionActivity === "executing"
+              ? "Running"
     : retryState
       ? `Retrying ${retryState.attempt}/${retryState.maxAttempts}`
       : commandName
@@ -106,15 +120,15 @@ export function ChatView() {
     if (!isBusy || !canSend) return [];
     // 找本轮起始：最后一个 user 消息
     let turnStart = 0;
-    for (let j = messages.length - 1; j >= 0; j--) {
-      if (messages[j].role === "user") {
+    for (let j = conversationMessages.length - 1; j >= 0; j--) {
+      if (conversationMessages[j].role === "user") {
         turnStart = j + 1;
         break;
       }
     }
     const fileMap = new Map<string, TurnFileChange>();
-    for (let j = turnStart; j < messages.length; j++) {
-      const m = messages[j];
+    for (let j = turnStart; j < conversationMessages.length; j++) {
+      const m = conversationMessages[j];
       if (m.role !== "assistant") continue;
       if (m.blocks) {
         for (const block of m.blocks) {
@@ -145,7 +159,7 @@ export function ChatView() {
       }
     }
     return Array.from(fileMap.values());
-  }, [isBusy, canSend, messages]);
+  }, [isBusy, canSend, conversationMessages]);
 
   useEffect(() => {
     if (!shouldShowRunningBanner) return;
@@ -171,40 +185,10 @@ export function ChatView() {
     return () => window.clearTimeout(timer);
   }, [shouldShowRunningBanner, runningBannerVisible]);
 
-  // Log interceptor (only in storybook)
-  useEffect(() => {
-    if (!isStorybook) return;
-    const unsub = wsClient.onMessage((msg) => {
-      const time = new Date().toLocaleTimeString("en-US", { hour12: false, fractionalSecondDigits: 3 } as Intl.DateTimeFormatOptions);
-      setLogEntries((prev) => [...prev, {
-        time,
-        direction: "recv" as const,
-        raw: JSON.stringify(msg),
-        parsed: msg,
-        role: (msg as any).role,
-      }]);
-    });
-    return unsub;
-  }, [isStorybook]);
-
+  // Storybook 中拦截 WebSocket 帧，便于查看协议数据。
   return (
     <div className="h-full flex flex-col relative overflow-hidden">
-      {/* Debug toolbar (Storybook only) */}
-      {isStorybook && logEntries.length > 0 && (
-        <div className="flex items-center gap-2 px-3 py-1 border-b border-white/10 bg-black/20">
-          <span className={`w-2 h-2 rounded-full ${connected ? "bg-green-500" : "bg-red-500"}`} />
-          <span className="text-[10px] text-t-ghost font-mono flex-1">
-            {chatId || "—"} | {messages.length} msgs
-          </span>
-          <button
-            onClick={() => setShowLog((v) => !v)}
-            className={`px-2 py-0.5 text-[10px] rounded border ${showLog ? "border-neon/50 text-neon bg-neon/10" : "border-white/20 text-t-ghost"}`}
-          >
-            WS Log ({logEntries.length})
-          </button>
-        </div>
-      )}
-
+      {/* Storybook 专用调试工具栏 */}
       {/* 主内容：
           - 仅在没有 sessionId（纯新会话还没创建）+ 可发送 → 居中欢迎页
           - 正在切换 session（loadingSessionId 存在） → 居中 loading
@@ -218,17 +202,22 @@ export function ChatView() {
       ) : (
         <>
           <ChatMessageList
-            messages={messages}
+            messages={conversationMessages}
             isBusy={isBusy}
-            className={`flex-1 min-h-0 ${runningBannerVisible && canSend ? "pb-[225px]" : "pb-[180px]"}`}
+            className={`flex-1 min-h-0 ${
+              runningBannerVisible && canSend
+                ? pendingMessages.length > 0
+                  ? "pb-[312px]"
+                  : "pb-[202px]"
+                : "pb-[180px]"
+            }`}
           />
           {canSend ? (
             <div className="absolute bottom-0 left-0 right-0">
               {runningBannerVisible && (
                 <div className="px-6">
-                  {/* 横幅底部增加 32px 裙边，并让输入框完整覆盖这段裙边。
-                      这样侧边能延伸到输入框圆角下方，但不会遮住横幅正文。 */}
-                  <div className="mx-auto mb-[-44px] w-full max-w-[800px]">
+                  {/* 横幅的裙边由输入框覆盖，让它和输入区域连成最初的整体样式。 */}
+                  <div className="mx-auto mb-[-34px] w-full max-w-[800px]">
                     <div
                       className={`overflow-hidden rounded-t-xl rounded-b-none border border-b-0 border-black/10 bg-[#f6f7f9]/65 pb-8 shadow-[0_4px_14px_rgba(15,23,42,0.05),inset_0_1px_0_rgba(255,255,255,0.6)] backdrop-blur-md backdrop-saturate-150 ${
                         runningBannerExiting ? "running-banner-exit" : "running-banner-enter"
@@ -241,6 +230,7 @@ export function ChatView() {
                         retryState={retryState}
                         fileChanges={activeTurnFileChanges}
                         plan={plan}
+                        queuedItems={pendingMessages}
                       />
                     </div>
                   </div>
@@ -263,16 +253,7 @@ export function ChatView() {
         </>
       )}
 
-      {/* WS Log overlay (Storybook only) */}
-      {isStorybook && showLog && (
-        <div className="absolute top-0 right-0 w-[50%] h-full bg-[#0d0d1a] border-l border-white/10 z-50 flex flex-col">
-          <div className="flex items-center justify-between px-3 py-1.5 border-b border-white/10">
-            <span className="text-xs text-t-secondary">WebSocket Log</span>
-            <button onClick={() => setShowLog(false)} className="text-xs text-t-ghost hover:text-white">Close</button>
-          </div>
-          <WsLogPanel entries={logEntries} onClear={() => setLogEntries([])} className="flex-1 min-h-0" />
-        </div>
-      )}
+      {/* Storybook 专用 WebSocket 日志浮层 */}
     </div>
   );
 }
@@ -286,6 +267,7 @@ function RunningBannerContent({
   retryState,
   fileChanges,
   plan,
+  queuedItems,
 }: {
   bannerLabel: string;
   turnModel: string | null;
@@ -293,6 +275,7 @@ function RunningBannerContent({
   retryState: RetryState | null;
   fileChanges: TurnFileChange[];
   plan: PlanData | null;
+  queuedItems: MailboxItemPayload[];
 }) {
   const [changesExpanded, setChangesExpanded] = useState(false);
   const [planExpanded, setPlanExpanded] = useState(false);
@@ -316,137 +299,76 @@ function RunningBannerContent({
 
   return (
     <>
-      {/* Row 1: status + model + file changes */}
-      <div className="flex items-center gap-2.5 px-4 py-2.5 text-[13px] font-medium text-t-secondary">
+      {/* 第一行：执行状态、模型 */}
+      <div className="flex items-center gap-2 px-3 py-1.5 text-[12px] font-medium text-t-secondary">
         {retryState ? (
           <>
-            <span className="running-ellipsis shrink-0 text-[#b7791f]">
-              {bannerLabel}
-            </span>
-            <span
-              className="min-w-0 flex-1 truncate text-right text-[#b7791f]/80"
-              title={retryState.message}
-            >
-              {retryState.message}
-            </span>
+            <span className="running-ellipsis shrink-0 text-[#b7791f]">{bannerLabel}</span>
+            <span className="min-w-0 flex-1 truncate text-right text-[#b7791f]/80" title={retryState.message}>{retryState.message}</span>
           </>
         ) : (
           <>
-            <span className={`shrink-0 ${bannerLabel === "Running" ? "running-shimmer" : ""}`}>
-              {bannerLabel}
-            </span>
-            {runningDuration && (
-              <span className="shrink-0 tabular-nums text-[12px] text-t-muted">{runningDuration}</span>
-            )}
-            {turnModel && (
-              <span className="shrink-0 inline-flex items-center rounded-full bg-black/[0.05] px-2 py-0.5 text-[10px] font-mono text-t-faint leading-none">
-                {turnModel}
-              </span>
-            )}
+            <span className={`shrink-0 ${bannerLabel === "Running" ? "running-shimmer" : ""}`}>{bannerLabel}</span>
+            {runningDuration && <span className="shrink-0 tabular-nums text-[11px] text-t-muted">{runningDuration}</span>}
+            {turnModel && <span className="shrink-0 inline-flex items-center rounded-full bg-black/[0.05] px-1.5 py-0.5 text-[10px] font-mono text-t-faint leading-none">{turnModel}</span>}
             <span className="flex-1" />
-            {hasChanges && (
-              <button
-                onClick={() => setChangesExpanded((v) => !v)}
-                className="shrink-0 inline-flex items-center gap-1 text-[11px] font-mono text-t-ghost hover:text-t-secondary rounded-md hover:bg-black/[0.04] px-1.5 py-1 transition-colors"
-              >
-                <span className="text-green-600">+{totalAdd}</span>
-                <span className="text-red-500">-{totalDel}</span>
-                {changesExpanded ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
-              </button>
-            )}
           </>
         )}
       </div>
 
-      {/* Row 2: plan goal + progress (only when plan exists) */}
+      {/* 运行横幅的活动摘要：任务、文件和队列采用同一轻量行样式，详情按需展开。 */}
       {plan && planSteps.length > 0 && (
-        <div className="plan-row-enter border-t border-black/5">
-          <button
-            onClick={() => setPlanExpanded((v) => !v)}
-            className="flex w-full items-center gap-2.5 px-4 py-2 text-left transition-colors hover:bg-black/[0.02]"
-          >
+        <div className="plan-row-enter mx-3 overflow-hidden">
+          <button onClick={() => setPlanExpanded((v) => !v)} className="flex w-full items-center gap-1.5 py-1 text-left transition-colors hover:text-t-primary">
             <Target size={13} className={`shrink-0 ${allDone ? "text-green-500" : "text-neon"}`} strokeWidth={2} />
-            <span className="min-w-0 flex-1 truncate text-[12px] text-t-muted" title={plan.goal}>
-              {plan.goal}
-            </span>
-            {/* Progress bar */}
-            <div className="h-1 w-14 shrink-0 overflow-hidden rounded-full bg-black/8">
-              <div
-                className={`h-full rounded-full transition-all duration-500 ${allDone ? "bg-green-500" : "bg-neon"}`}
-                style={{ width: `${pct}%` }}
-              />
-            </div>
-            <span className="shrink-0 text-[10px] font-mono tabular-nums text-t-faint">
-              {completedCount}/{planSteps.length}
-            </span>
-            <ChevronDown
-              size={12}
-              className={`shrink-0 text-t-faint transition-transform duration-200 ${planExpanded ? "rotate-180" : ""}`}
-            />
+            <span className="shrink-0 text-[11px] font-medium text-t-muted">任务</span>
+            <span className="min-w-0 flex-1 truncate text-[11px] text-t-faint" title={plan.goal}>{plan.goal}</span>
+            <div className="h-0.5 w-12 shrink-0 overflow-hidden rounded-full bg-black/8"><div className={`h-full rounded-full transition-all duration-500 ${allDone ? "bg-green-500" : "bg-neon"}`} style={{ width: `${pct}%` }} /></div>
+            <span className="shrink-0 text-[10px] font-mono tabular-nums text-t-faint">{completedCount}/{planSteps.length}</span>
+            <ChevronDown size={12} className={`shrink-0 text-t-faint transition-transform duration-200 ${planExpanded ? "rotate-180" : ""}`} />
           </button>
-
-          {/* Steps list — grid 高度动画 */}
-          <div
-            className={`grid transition-all duration-200 ease-out ${planExpanded ? "grid-rows-[1fr] opacity-100" : "grid-rows-[0fr] opacity-0"}`}
-          >
-            <div className="overflow-hidden">
-              <div className="border-t border-black/5">
-                <div className="max-h-[140px] overflow-y-auto px-4 py-1.5">
-                  {planSteps.map((s) => (
-                    <div key={s.id} className="flex items-start gap-2.5 py-1">
-                      <span className="mt-0.5 flex shrink-0 items-center justify-center" style={{ width: 13, height: 13 }}>
-                        {s.status === "completed" ? (
-                          <Check size={13} className="text-green-500" strokeWidth={2.5} />
-                        ) : s.status === "in_progress" ? (
-                          <Loader2 size={13} className="text-neon animate-spin" />
-                        ) : (
-                          <Circle size={13} className="text-t-faint/40" strokeWidth={2} />
-                        )}
-                      </span>
-                      <span className="min-w-0 flex-1 text-[12px] leading-relaxed">
-                        <span className="text-t-faint font-mono mr-1.5">{s.id}.</span>
-                        <span className={
-                          s.status === "completed" ? "text-t-faint line-through"
-                          : s.status === "in_progress" ? "text-t-primary font-medium"
-                          : "text-t-muted"
-                        }>
-                          {s.content}
-                        </span>
-                      </span>
-                    </div>
-                  ))}
+          <div className={`grid transition-all duration-200 ease-out ${planExpanded ? "grid-rows-[1fr] opacity-100" : "grid-rows-[0fr] opacity-0"}`}>
+            <div className="overflow-hidden"><div className="py-1"><div className="max-h-[140px] overflow-y-auto">
+              {planSteps.map((s) => (
+                <div key={s.id} data-activity-row="task" className="flex items-start gap-2 rounded-md px-1 py-1 text-[11px] transition-colors hover:bg-black/[0.03]">
+                  <span className="mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center">
+                    {s.status === "completed" ? <Check size={13} className="text-green-500" strokeWidth={2.5} /> : s.status === "in_progress" ? <Loader2 size={13} className="text-neon animate-spin" /> : <Circle size={13} className="text-t-faint/40" strokeWidth={2} />}
+                  </span>
+                  <span className="min-w-0 flex-1 leading-relaxed"><span className="text-t-faint font-mono mr-1.5">{s.id}.</span><span className={s.status === "completed" ? "text-t-faint line-through" : s.status === "in_progress" ? "text-t-primary font-medium" : "text-t-muted"}>{s.content}</span></span>
                 </div>
-              </div>
-            </div>
+              ))}
+            </div></div></div>
           </div>
         </div>
       )}
 
-      {/* Expanded file changes */}
-      {hasChanges && changesExpanded && (
-        <div className="border-t border-black/5">
-          <div className="max-h-[80px] overflow-y-auto px-2.5 pb-2">
-            {fileChanges.map((c) => (
-              <button
-                key={c.toolCallId}
-                onClick={() => handleClick(c)}
-                className="flex items-center gap-2 w-full px-2 py-1 text-left text-[12px] hover:bg-black/[0.03] rounded transition-colors"
-              >
-                <FileIconView path={c.filePath} size={14} />
-                <span className="truncate text-t-primary">{basename(c.filePath)}</span>
-                <span className="ml-auto shrink-0 inline-flex items-center gap-1 text-t-faint">
-                  {c.operation === "write" ? <FilePlus2 size={11} /> : <FileEdit size={11} />}
-                  <span className="text-[10px] uppercase">{c.operation === "write" ? "new" : "edit"}</span>
-                </span>
-                <span className="shrink-0 font-mono text-[10px] flex items-center gap-1 min-w-[50px] justify-end">
-                  {c.additions > 0 && <span className="text-green-600">+{c.additions}</span>}
-                  {c.deletions > 0 && <span className="text-red-500">-{c.deletions}</span>}
-                </span>
-              </button>
-            ))}
+      {/* 文件变更也只先展示摘要；展开后仍可点击任一文件打开 Diff。 */}
+      {hasChanges && (
+        <div className="mx-3 overflow-hidden">
+          <button type="button" aria-expanded={changesExpanded} onClick={() => setChangesExpanded((value) => !value)} className="flex w-full items-center gap-1.5 py-1 text-left transition-colors hover:text-t-primary">
+            <FileEdit size={13} className="shrink-0 text-t-muted" />
+            <span className="shrink-0 text-[11px] font-medium text-t-muted">文件变更</span>
+            <span className="rounded-full bg-black/[0.05] px-1.5 py-px font-mono text-[10px] tabular-nums text-t-faint">{fileChanges.length}</span>
+            <span className="flex-1" />
+            <span className="shrink-0 font-mono text-[10px]"><span className="text-green-600">+{totalAdd}</span><span className="mx-1 text-t-faint">·</span><span className="text-red-500">-{totalDel}</span></span>
+            <ChevronDown size={13} className={`shrink-0 text-t-faint transition-transform duration-200 ${changesExpanded ? "rotate-180" : ""}`} />
+          </button>
+          <div className={`grid transition-[grid-template-rows,opacity] duration-200 ${changesExpanded ? "grid-rows-[1fr] opacity-100" : "grid-rows-[0fr] opacity-0"}`}>
+            <div className="overflow-hidden"><div className="max-h-[104px] overflow-y-auto py-1">
+              {fileChanges.map((c) => (
+                <button key={c.toolCallId} onClick={() => handleClick(c)} data-activity-row="file-change" className="flex w-full items-center gap-2 rounded-md px-1 py-1 text-left text-[11px] transition-colors hover:bg-black/[0.035]">
+                  <span className="flex h-4 w-4 shrink-0 items-center justify-center"><FileIconView path={c.filePath} size={14} /></span>
+                  <span className="min-w-0 flex-1 truncate text-t-primary" title={c.filePath}>{basename(c.filePath)}</span>
+                  <span className="inline-flex shrink-0 items-center gap-1 rounded-md bg-black/[0.035] px-1.5 py-0.5 text-t-faint">{c.operation === "write" ? <FilePlus2 size={11} /> : <FileEdit size={11} />}<span className="text-[10px] uppercase">{c.operation === "write" ? "new" : "edit"}</span></span>
+                  <span className="flex min-w-[50px] shrink-0 items-center justify-end gap-1 font-mono text-[10px]">{c.additions > 0 && <span className="text-green-600">+{c.additions}</span>}{c.deletions > 0 && <span className="text-red-500">-{c.deletions}</span>}</span>
+                </button>
+              ))}
+            </div></div>
           </div>
         </div>
       )}
+
+      <QueuedMessagesBanner items={queuedItems} />
     </>
   );
 }

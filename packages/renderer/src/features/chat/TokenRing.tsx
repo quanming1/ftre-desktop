@@ -31,7 +31,8 @@ function formatTokens(n: number): string {
 }
 
 const BUTTON_CLASS =
-  "flex items-center text-[13px] h-8 px-3 rounded-full font-mono cursor-default transition-colors duration-150 hover:bg-[#e7e7e8]";
+  // Token 水位属于固定操作区，不参与收缩；缩小横向留白给名称控件腾出空间。
+  "flex shrink-0 items-center text-[13px] h-8 px-2 rounded-full font-mono cursor-default transition-colors duration-150 hover:bg-[#e7e7e8]";
 
 export function TokenRing() {
   const usage = useChat((s) => s.tokenUsage);

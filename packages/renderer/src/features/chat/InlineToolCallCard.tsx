@@ -1354,7 +1354,7 @@ function InlineEditDiff({
             fileName={displayPath.split("/").pop() ?? displayPath}
             viewMode="unified"
             theme="light"
-            showToolbar
+            showToolbar={false}
             showDiffOnly
             wrapLines={false}
             contextLines={3}

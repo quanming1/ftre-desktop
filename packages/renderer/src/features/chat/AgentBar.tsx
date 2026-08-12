@@ -177,15 +177,17 @@ export function AgentBar() {
   const sectionValue = "text-[12.5px] text-t-secondary font-mono mt-1 leading-relaxed";
 
   return (
-    <div className="relative" ref={panelRef}>
+    <div className="relative min-w-0 flex-1" ref={panelRef}>
       {/* 胶囊按钮 */}
       <button
         onClick={() => setPanelOpen(!panelOpen)}
-        className="flex items-center gap-1.5 text-[13px] h-8 px-3 rounded-full font-mono transition-colors duration-150 text-t-secondary hover:text-t-primary hover:bg-[#e7e7e8]"
+        className="flex h-8 w-full min-w-0 items-center gap-1 rounded-full px-2 font-mono text-[13px] text-t-secondary transition-colors duration-150 hover:bg-[#e7e7e8] hover:text-t-primary"
+        title={`${current?.name || agentId} / ${modelDisplayName}`}
       >
-        <span className="truncate max-w-[100px]">{current?.name || agentId}</span>
-        <span className="text-t-ghost">/</span>
-        <span className="truncate max-w-[100px] text-[12px] text-t-ghost">{modelDisplayName}</span>
+        {/* Agent 保留最小识别宽度，模型使用剩余空间并自动截断。 */}
+        <span className="min-w-[32px] max-w-[72px] shrink truncate">{current?.name || agentId}</span>
+        <span className="shrink-0 text-t-ghost">/</span>
+        <span className="min-w-0 flex-1 truncate text-[12px] text-t-ghost">{modelDisplayName}</span>
         <ChevronDown size={12} className="shrink-0 opacity-60" />
       </button>
 

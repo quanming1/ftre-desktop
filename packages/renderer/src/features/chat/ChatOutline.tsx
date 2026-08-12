@@ -93,7 +93,7 @@ export const ChatOutline = memo(function ChatOutline({
     const el = popoverRef.current?.querySelector<HTMLElement>(
       `[data-outline-item="${activeId}"]`,
     );
-    el?.scrollIntoView({ block: "nearest", behavior: "instant" });
+    el?.scrollIntoView({ block: "nearest", behavior: "auto" });
   }, [open, activeId]);
 
   // 点击浮层外（且不是触发按钮自身）→ 关闭
@@ -123,7 +123,7 @@ export const ChatOutline = memo(function ChatOutline({
     const tryScroll = () => {
       const el = document.getElementById(`msg-${item.id}`);
       if (!el) return false;
-      el.scrollIntoView({ behavior: "instant", block: "start" });
+      el.scrollIntoView({ behavior: "auto", block: "start" });
       return true;
     };
 

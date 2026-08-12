@@ -175,11 +175,12 @@ function GitBranchBadge({ workspace }: { workspace: string }) {
 
   return (
     <div
-      className="flex items-center gap-1 h-8 px-2 text-[12px] text-t-dim font-mono select-none"
+      className="flex h-8 min-w-0 flex-1 select-none items-center gap-1 px-1.5 font-mono text-[12px] text-t-dim"
       title={`分支: ${info.branch}`}
     >
-      <GitBranch size={11} strokeWidth={1.5} className="opacity-70" />
-      <span className="truncate max-w-[200px]">{info.branch}</span>
+      <GitBranch size={11} strokeWidth={1.5} className="shrink-0 opacity-70" />
+      {/* 长分支名优先让出空间，完整名称仍可通过 title 查看。 */}
+      <span className="min-w-0 flex-1 truncate">{info.branch}</span>
     </div>
   );
 }
@@ -280,26 +281,27 @@ export function WorkspaceBadge() {
   const display = hasWorkspace ? basename(workspace) : "未设置工作区";
 
   return (
-    <div ref={containerRef} className="relative flex items-center">
+    <div ref={containerRef} className="relative flex min-w-0 items-center">
       <div
-        className={`group relative flex items-center h-8 rounded-full transition-colors ${
+          className={`group relative flex h-8 min-w-0 max-w-[180px] shrink items-center rounded-full transition-colors ${
           editing ? "bg-[#e7e7e8]" : "hover:bg-[#e7e7e8]"
         }`}
       >
         <button
           type="button"
           onClick={() => setEditing((p) => !p)}
-          className={`flex items-center gap-1 h-8 px-3 text-[13px] font-mono transition-colors ${
+          className={`flex h-8 min-w-0 max-w-full items-center gap-1 px-2 font-mono text-[13px] transition-colors ${
             hasWorkspace
               ? "text-t-secondary hover:text-t-primary"
               : "text-t-ghost hover:text-t-secondary"
           }`}
         >
-          <Folder size={11} className="opacity-70" />
-          <span className="truncate max-w-[140px]">{display}</span>
+          <Folder size={11} className="shrink-0 opacity-70" />
+          {/* 工作区显示紧凑名称，避免挤压模型与操作按钮。 */}
+          <span className="min-w-0 max-w-[116px] truncate">{display}</span>
           <ChevronDown
             size={11}
-            className={`opacity-50 transition-transform ${editing ? "rotate-180" : ""}`}
+            className={`shrink-0 opacity-50 transition-transform ${editing ? "rotate-180" : ""}`}
           />
         </button>
 

@@ -11,7 +11,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useState, useRef } fr
 import { Slate, Editable, ReactEditor } from "slate-react";
 import { Range } from "slate";
 import { ArrowUp, Box, ChevronRight, Paperclip, Plus, Terminal, X } from "lucide-react";
-import { useChat } from "@/stores/chat";
+import { useChat, type MessageAttachment } from "@/stores/chat";
 import { useLayout } from "@/stores/layout";
 import { useNotification } from "@/stores/notification";
 import { fetchCommands, type CommandDef } from "@/services/api";
@@ -31,6 +31,24 @@ import {
   extractImageFiles,
   ImageValidationError,
 } from "./slate/imageUtils";
+
+function notifySendFailure(
+  reason: "empty" | "compacting" | "blocked" | "outbox_full" | "transport_failed",
+): void {
+  const message = reason === "outbox_full"
+    ? "消息发送队列已满，草稿已保留，请稍后重试。"
+    : reason === "compacting"
+      ? "会话正在压缩上下文，压缩完成后再发送。"
+      : reason === "blocked"
+        ? "当前会话暂时不可接收消息，请稍后重试。"
+        : reason === "transport_failed"
+          ? "消息发送失败，草稿已保留，请检查连接后重试。"
+          : "请输入消息内容。";
+  useNotification.getState().addNotification({
+    level: reason === "transport_failed" ? "error" : "warning",
+    message,
+  });
+}
 
 // ─── 斜杠面板：指令 + 技能 ──────────────────────────────────────────
 
@@ -284,6 +302,9 @@ export function ChatInput() {
   // 细粒度选择器：仅订阅各自需要的字段，避免无关状态变化触发重渲染
   const isBusy = useChat((s) => s.isBusy);
   const sessionStatus = useChat((s) => s.sessionStatus);
+  const clientCanSend = useChat((s) => s.clientCanSend);
+  const canCancel = useChat((s) => s.canCancel);
+  const hasCoordinatorState = useChat((s) => s.hasCoordinatorState);
   const sessionId = useChat((s) => s.sessionId);
   const autoFollow = useLayout((s) => s.autoFollowFiles);
   const toggleAutoFollow = useLayout((s) => s.toggleAutoFollowFiles);
@@ -400,7 +421,6 @@ export function ChatInput() {
     const firstText = text.trim();
     // 系统级指令（如 /cancel）允许在 running 时发送，其他指令/消息需要等 idle
     const isSystemCommand = commandList.some((c) => c.system && firstText === c.command);
-    if (state.isBusy && !isSystemCommand) return;
     const hasAttachments = attachments.length > 0;
     const hasContent = firstText.length > 0;
     if (!hasContent && !hasAttachments) return;
@@ -412,6 +432,16 @@ export function ChatInput() {
       ...(a.name ? { name: a.name } : {}),
     }));
 
+    const result = state.sendMessage(
+      text,
+      dto.length > 0 ? dto : undefined,
+      isSystemCommand,
+    );
+    if (!result.ok) {
+      notifySendFailure(result.reason);
+      return;
+    }
+
     inputEditor.clear();
     setSkillSearch(null);
     setAttachments([]);
@@ -421,7 +451,6 @@ export function ChatInput() {
     if (sid) removeDraft(sid);
 
     // Inbound 协议只承载纯文本：直接发送编辑器文本，不包装 parts 数组
-    state.sendMessage(text, dto.length > 0 ? dto : undefined, isSystemCommand);
   }, [inputEditor, attachments, commandList]);
 
   // 选中指令：无参数直接发送，有参数填入等用户补全
@@ -433,13 +462,17 @@ export function ChatInput() {
         inputEditor.replaceRange(skillSearch.range, cmd.command + " ");
         inputEditor.focus();
       } else {
+        const result = useChat.getState().sendMessage(cmd.command, undefined, cmd.system);
+        if (!result.ok) {
+          notifySendFailure(result.reason);
+          return;
+        }
         // 无参数：直接发送，不经过输入框
         const range = skillSearch.range;
         setSkillSearch(null);
         setSkillIndex(0);
         // 先把 /xxx 从编辑器删掉，避免残留
         inputEditor.replaceRange(range, "");
-        useChat.getState().sendMessage(cmd.command, undefined, cmd.system);
         return;
       }
       setSkillSearch(null);
@@ -628,6 +661,65 @@ export function ChatInput() {
     return () => window.removeEventListener("ftre:rollback-refill", handler);
   }, [inputEditor]);
 
+  // ── 外部事件：把排队消息安全地取回输入框编辑 ──
+  useEffect(() => {
+    const handleEditRequest = (event: Event) => {
+      const detail = (event as CustomEvent).detail as {
+        accepted: boolean;
+        attachments?: MessageAttachment[];
+      };
+      if (!detail) return;
+      if (!inputEditor.isEmpty || attachments.length > 0) {
+        useNotification.getState().addNotification({
+          level: "warning",
+          message: "请先发送或清空当前草稿，再编辑队列消息",
+        });
+        return;
+      }
+      const canRestoreAttachments = (detail.attachments || []).every(
+        (attachment) => attachment.url.startsWith("data:"),
+      );
+      if (!canRestoreAttachments) {
+        useNotification.getState().addNotification({
+          level: "warning",
+          message: "这条消息包含无法恢复的附件，暂时不能编辑",
+        });
+        return;
+      }
+      detail.accepted = true;
+    };
+
+    const handleEditRefill = (event: Event) => {
+      const detail = (event as CustomEvent).detail as {
+        content?: string;
+        attachments?: MessageAttachment[];
+      };
+      const restoredAttachments: ImageRef[] = (detail.attachments || []).flatMap(
+        (attachment, index) => {
+          const match = attachment.url.match(/^data:([^;]+);base64,(.*)$/s);
+          if (!match) return [];
+          return [{
+            id: `queued-edit-${Date.now()}-${index}`,
+            mimeType: attachment.mime || match[1],
+            base64: match[2],
+            name: attachment.name,
+            bytes: attachment.bytes ?? Math.floor(match[2].length * 0.75),
+          }];
+        },
+      );
+      inputEditor.setContent([{ type: "text", text: detail.content || "" }]);
+      setAttachments(restoredAttachments);
+      window.requestAnimationFrame(() => inputEditor.focus());
+    };
+
+    window.addEventListener("ftre:queued-edit-request", handleEditRequest);
+    window.addEventListener("ftre:queued-edit-refill", handleEditRefill);
+    return () => {
+      window.removeEventListener("ftre:queued-edit-request", handleEditRequest);
+      window.removeEventListener("ftre:queued-edit-refill", handleEditRefill);
+    };
+  }, [attachments.length, inputEditor]);
+
   // ── 外部事件：Plan 模式下一步按钮 ──
   useEffect(() => {
     const handler = (e: Event) => {
@@ -644,9 +736,15 @@ export function ChatInput() {
     return () => window.removeEventListener("ftre:plan-next-step", handler);
   }, []);
 
+  const hasDraft = !inputEditor.isEmpty || attachments.length > 0;
   const canSend =
     sessionStatus !== "compacting"
-    && (!inputEditor.isEmpty || attachments.length > 0);
+    && (!hasCoordinatorState || clientCanSend)
+    && hasDraft;
+  const showCancel = isBusy
+    && (hasCoordinatorState ? canCancel : sessionStatus === "running");
+  // 运行中没有待发送内容时显示停止；用户开始输入后，原位置切换为发送。
+  const showStopButton = showCancel && !hasDraft;
 
   return (
     <div className="px-6 pb-4 pt-3">
@@ -715,11 +813,11 @@ export function ChatInput() {
             </div>
           )}
 
-          {/* 工具栏 */}
-          <div className="flex items-center justify-between px-4 py-3">
-            {/* 左侧：附件菜单 + 当前工作区（只读） */}
-            <div className="flex items-center gap-1.5">
-              <div className="relative">
+          {/* 工具栏：保持轻量单行，左右信息自然分组。 */}
+          <div className="flex min-w-0 items-center gap-3 px-4 pb-3 pt-1.5">
+            {/* 附件菜单 + 当前工作区 */}
+            <div className="flex min-w-0 flex-1 items-center gap-1.5">
+              <div className="relative shrink-0">
                 <button
                   type="button"
                   onClick={() => setAddMenuOpen((v) => !v)}
@@ -739,31 +837,40 @@ export function ChatInput() {
                   />
                 )}
               </div>
-              <WorkspaceBadge />
+              <div className="min-w-0 flex-1">
+                <WorkspaceBadge />
+              </div>
             </div>
 
-            {/* 右侧：Agent/模型 + 上下文用量 + 发送 */}
-            <div className="flex items-center gap-1.5">
-              <AgentBar />
-              <div className="w-px h-3.5 bg-border-subtle mx-1" />
+            {/* Agent/模型 + 上下文用量 + 发送 */}
+            <div className="flex min-w-0 flex-[0_1_340px] items-center justify-end gap-1.5">
+              <div className="min-w-0 flex-1">
+                <AgentBar />
+              </div>
               <TokenRing />
-              {isBusy ? (
+              {showStopButton ? (
                 <button
                   onClick={handleCancel}
-                  className="h-9 w-9 flex items-center justify-center rounded-full bg-t-primary/10 text-t-primary hover:bg-t-primary/20 transition-colors"
+                  type="button"
+                  title="Stop current execution"
+                  className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-t-primary/10 text-t-primary transition-colors hover:bg-t-primary/20"
                 >
                   <div className="w-3 h-3 bg-current rounded-sm" />
                 </button>
               ) : (
                 <button
                   onClick={(e) => {
+                    if (!canSend) return;
                     triggerRipple(e);
                     handleSend();
                   }}
-                  className={`relative overflow-hidden h-9 w-9 flex items-center justify-center rounded-full transition-all ${
+                  type="button"
+                  disabled={!canSend}
+                  title={sessionStatus === "compacting" ? "Context is being compacted" : "Send message"}
+                    className={`relative flex h-8 w-8 shrink-0 items-center justify-center overflow-hidden rounded-full transition-all ${
                     canSend
                       ? "bg-neon text-base hover:bg-neon/80 shadow-[0_0_9px_rgba(var(--neon-rgb,56,189,248),0.23)]"
-                      : "bg-surface text-t-ghost"
+                      : "bg-surface text-t-ghost cursor-not-allowed"
                   }`}
                 >
                   {sendRipples.map((r) => (

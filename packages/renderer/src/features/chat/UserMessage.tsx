@@ -11,7 +11,6 @@ interface ChatMessage extends WsChatMessage {
 import { EmailCard } from "./EmailCard";
 import {
   RotateCcw,
-  Loader2,
   Copy,
   Check,
   ChevronDown,

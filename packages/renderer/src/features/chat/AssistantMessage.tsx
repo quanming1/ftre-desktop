@@ -353,7 +353,7 @@ function NonTextProcessGroup({
         <span className={breathing ? "animate-process-breath" : ""}>{label}</span>
         <ChevronRight
           size={12}
-          className={`shrink-0 transition-transform duration-200 ${expanded ? "rotate-90" : ""} ${breathing ? "animate-process-breath" : ""}`}
+          className={`shrink-0 transition-opacity duration-200 ${expanded ? "rotate-90 opacity-100" : "opacity-0 group-hover:opacity-100"} ${breathing ? "animate-process-breath" : ""}`}
         />
       </button>
       <div
@@ -361,7 +361,7 @@ function NonTextProcessGroup({
         className="grid transition-[grid-template-rows] duration-200 ease-out"
         style={{ gridTemplateRows: expanded ? "1fr" : "0fr" }}
       >
-        <div className="overflow-hidden pl-2">
+        <div className="overflow-hidden">
           <div className="flex flex-col gap-0 py-0 [&>div]:py-0 [&>div>button]:py-0 [&>div>div>button]:py-0">
             <BlocksRenderer
               blocks={blocks}
