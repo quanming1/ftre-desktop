@@ -1,0 +1,104 @@
+# TODO.yaml — ftre-desktop 桌面客户端功能阶段规划
+# 状态图例：done 已完成 · in_progress 进行中 · todo 未开始
+# PRD 驱动：每个阶段开工前先写 PRD（docs/prd/PRD-<阶段>-<名称>.md），流程见 docs/PROCESS.md。
+# 消费方：.githooks/check_commit_msg.py 校验 feat/fix 的 scope 阶段标识真实存在。
+
+meta:
+  project: ftre-desktop
+  status_legend:
+    done: 已完成
+    in_progress: 进行中
+    todo: 未开始
+
+stages:
+  - id: A
+    name: 基础架构
+    steps:
+      - id: A1
+        title: Electron 脚手架
+        status: done
+        date: 2026-08-12
+        prd: docs/prd/PRD-A1-electron-scaffold.md
+        prd_status: 已验收
+        modules:
+          - packages/electron（main.ts / preload.ts / window.ts / backend.ts）
+          - packages/renderer（Vite + React app）
+          - packages/shared（共享类型）
+          - packages/ui（UI 组件库）
+        acceptance: pnpm dev 启动，Electron 窗口显示，IPC 通信正常，打包模式 spawn 内嵌 Python 后端
+
+      - id: A2
+        title: 聊天界面
+        status: done
+        date: 2026-08-12
+        prd: docs/prd/PRD-A2-chat-ui.md
+        prd_status: 已验收
+        modules:
+          - ChatPanel / ChatMessageList / ChatInput
+          - AssistantMessage / UserMessage / CodeBlock / InlineToolCallCard
+          - streamingMarkdown
+        acceptance: 消息正确渲染，流式输出无闪烁，工具卡片可折叠，代码高亮正确
+
+      - id: A3
+        title: Inspector 面板
+        status: done
+        date: 2026-08-12
+        prd: docs/prd/PRD-A3-inspector.md
+        prd_status: 已验收
+        modules:
+          - InspectorPanel
+          - DiffRenderer / FileRenderer / ImageRenderer
+          - tabRegistry / FileTreeSidebar
+        acceptance: read 工具打开 file tab，edit/write 打开 diff tab，图片可预览，tab 可拖拽排序
+
+      - id: A4
+        title: 文件树 + Git 集成
+        status: done
+        date: 2026-08-12
+        prd: docs/prd/PRD-A4-file-tree-git.md
+        prd_status: 已验收
+        modules:
+          - ExplorerView / FileTreeItem
+          - GitService / git poll / Changes 节点
+        acceptance: 文件树正确展示，git 状态染色，Changes 节点 diff 预览，文件操作正常
+
+  - id: B
+    name: 协议与可观测
+    steps:
+      - id: B1
+        title: WS 协议 + mailbox 适配
+        status: done
+        date: 2026-08-12
+        prd: docs/prd/PRD-B1-ws-mailbox.md
+        prd_status: 已验收
+        modules:
+          - websocket-client / chat store / session store
+          - clientSessionProjection / durable admission / outbox
+          - QueuedMessagesBanner
+        acceptance: mailbox 快照正确渲染，断线消息不丢失，队列横幅显示 pending，取消排队消息生效
+
+      - id: B2
+        title: WS Log 审计日志
+        status: done
+        date: 2026-08-12
+        prd: docs/prd/PRD-B2-ws-log.md
+        prd_status: 已验收
+        modules:
+          - ws-log-collector / ws-log IPC
+          - WsLogInspectorPanel / Inspector WS Logs tab
+        acceptance: WS 帧被正确采集，Inspector WS Logs tab 可查询，日志文件持久化
+
+  - id: C
+    name: 扩展功能
+    steps:
+      - id: C1
+        title: 设置与扩展面板
+        status: done
+        date: 2026-08-12
+        prd: docs/prd/PRD-C1-settings-extensions.md
+        prd_status: 已验收
+        modules:
+          - SettingsDialog
+          - Sidebar extensions / MCP view
+          - terminal / global-search / bottom-panel
+        acceptance: 设置可持久化，终端可交互，搜索结果正确，MCP 服务器列表可刷新
