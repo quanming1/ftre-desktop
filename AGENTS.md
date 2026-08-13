@@ -23,10 +23,10 @@ MANDATORY 首次进入本仓库先读 3 份文档，之后每次 commit 前重�
 </basic_discipline>
 
 <branch_model>
-master（仅发布，永不直接提交）← develop（默认基底）← feature/&lt;阶段id&gt;-&lt;name&gt; / prd-update / todos-update / release/&lt;ver&gt; / hotfix/&lt;name&gt;
+master（仅发布，永不直接提交）← develop（默认基底，只接受 PR 合入）← feature/&lt;阶段id&gt;-&lt;name&gt; / prd-update / todos-update / release/&lt;ver&gt; / hotfix/&lt;name&gt;
 
 - 默认工作分支是 develop
-- NEVER 直接提交 master；NEVER 直接 commit 到 develop——develop 只接受 `feature/*` → `git merge --no-ff` 合入
+- NEVER 直接提交 master；NEVER 直接 commit 到 develop——**全 PR 流：develop 只接受 GitHub PR 服务器端合入，本地 develop 永远只 pull 同步**（pre-push hook 强制）
 - MANDATORY feat/fix 分支名必须关联 TODO 阶段 id（如 feature/A2-chat-ui），提交 scope 与分支名阶段 id 必须一致（commit-msg hook 强制）
 </branch_model>
 
@@ -34,16 +34,20 @@ master（仅发布，永不直接提交）← develop（默认基底）← featu
 `&lt;type&gt;(&lt;scope&gt;): &lt;subject&gt;`，subject 中文
 - type 白名单：feat / fix / prd / todos / docs / refactor / test / style / chore / perf
 - feat/fix/prd/todos 的 scope 必须是 docs/TODO.yaml 中真实存在的阶段 id
-- 其他 type 的 scope 用 .githooks/.scopes 白名单模块名（chat/ws/inspector/electron/session/editor/explorer/git/settings/shared/tests/docs）
+- feat 额外强制：暂存必须包含对应阶段 PRD（docs/prd/PRD-&lt;scope&gt;-*.md）——行为变更必须同步 PRD 变更记录（无 PRD 的基建阶段跳过）
+- perf 的 scope 必须带 FR 引用（如 perf(C2-FR6)），引用的 FR 编号必须真实存在于对应 PRD
+- 其他 type 的 scope 用模块名（check_commit_msg.py 顶部「裁剪点」MODULE_SCOPES）
 - 一条提交只做一件事；NEVER 写 fix stuff / update / misc 这类无意义 message
 </commit_format>
 
 <merge_and_hooks>
-- feature/* → develop 用 --no-ff；develop → master 走 release/*；NEVER rebase 已推送历史
-- 本地强制：.githooks/commit-msg（提交校验）+ .githooks/pre-push（master 保护 + develop merge-only）
+- feature/* → develop 一律走 GitHub PR/MR（Code Review）：push 分支后提 PR，NEVER 本地 `git merge --no-ff` 合并回 develop
+- develop 与 master 之间同样禁止本地 merge，一律走 PR：develop → master 走 release/* 提 PR；hotfix 回灌走 PR
+- NEVER rebase 已推送历史
+- 本地强制：.githooks/commit-msg（提交校验）+ .githooks/pre-push（master 双保护 + develop 三重保护：禁删 / 禁 feature 直推 / 本地领先即拒）
 - merge:/revert: 开头系统提交跳过
 - MANDATORY 首次在本仓库提交前，先完整阅读 docs/COMMIT.md（提交规范唯一完整定义，含 type/scope 规则与常见错误速查）
-- 标准流程：checkout develop → checkout -b feature/&lt;阶段id&gt;-&lt;task&gt; → 开发+测试 → commit → merge --no-ff → push develop
+- 标准流程：checkout develop && pull → checkout -b feature/&lt;阶段id&gt;-&lt;task&gt; → 开发+测试 → commit → push origin feature/&lt;task&gt; → GitHub 提 PR 合入 develop → checkout develop && pull 同步
 </merge_and_hooks>
 
 </git_flow>

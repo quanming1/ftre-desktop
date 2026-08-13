@@ -1,40 +1,75 @@
 #!/bin/sh
-# pre-push hook —— Git Flow 保护
+# pre-push hook —— Git Flow 保护（全 PR 流，Rondo 方法）。
 #
-# 规则（ftre 适配版，master 等价 rondo 的 main）：
+# 规则（ftre 适配版，master 等价文章的 main）：
 #   - git push origin master             允许（本地 master 直接推送 = 发布流程）
 #   - git push origin feature/x:master   拒绝（禁止 feature 直接上 master）
 #   - git push origin :master            拒绝（禁止删除远程 master）
-#   - git push origin develop            拒绝直接提交（develop 新增提交必须全部是 merge commit）
+#   - git push origin develop            拒绝（develop 禁止任何本地提交/merge——全 PR 流）
+#     —— feature/* 分支 push 后，在 GitHub 提 PR 合入 develop（服务器端 merge）
+#     —— 本地 develop 永远只 pull 同步；本地领先远程（含本地 merge --no-ff）直接拒绝
+#   - git push origin feature/x:develop  拒绝（禁止把 feature 直接推到 develop，必须走 PR）
+#   - git push origin :develop           拒绝（禁止删除远程 develop）
+#   - 本地 master 直接 merge develop（或任何分支）后 push master  拒绝
 #
-# 安装：git config core.hooksPath .githooks
+# 说明：GitHub free 账号的 private 仓库无法开启服务端 branch protection，
+# 此 hook 作为本地强制替代；clone 后需执行一次：
+#   git config core.hooksPath .githooks
 
 protected=refs/heads/master
 protected_dev=refs/heads/develop
+zero=0000000000000000000000000000000000000000
 
 while read local_ref local_oid remote_ref remote_oid; do
   # master 保护：非 master 分支禁止直接 push 到 master；禁止删除 master
   if [ "$remote_ref" = "$protected" ]; then
     if [ "$local_ref" != "$protected" ]; then
       echo "[拒绝] Git Flow 保护：禁止直接 push 到 master"
-      echo "        master 只接受 release/hotfix 合并后的发布推送"
+      echo "        master 只接受 release/hotfix 合并后的发布推送（git push origin master）"
       echo "        当前尝试：$local_ref -> $remote_ref"
       exit 1
     fi
   fi
 
-  # develop 保护：develop -> develop 时，新增提交必须全部是 merge commit
-  if [ "$local_ref" = "$protected_dev" ] && [ "$remote_ref" = "$protected_dev" ]; then
-    if [ "$remote_oid" != "0000000000000000000000000000000000000000" ]; then
+  # master 保护：master -> master 时，本地领先的新增提交不得含本地 merge 提交
+  if [ "$local_ref" = "$protected" ] && [ "$remote_ref" = "$protected" ]; then
+    if [ "$remote_oid" != "$zero" ]; then
       for commit in $(git log --first-parent --format=%H "$remote_oid".."$local_oid"); do
         set -- $(git rev-list --parents -n 1 "$commit")
-        if [ $# -lt 3 ]; then
-          echo "[拒绝] Git Flow 保护：develop 禁止直接提交（提交 $commit 不是 merge commit）"
-          echo "        正确流程：checkout -b feature/xxx 提交 -> merge --no-ff 回 develop -> push"
-          echo "        提交 $commit 的消息：$(git log -1 --format=%s "$commit")"
+        if [ $# -ge 3 ]; then
+          echo "[拒绝] Git Flow 保护：master 禁止本地直接 merge（必须走 GitHub PR/MR）"
+          echo "        develop 与 master 的合入一律通过 GitHub Pull Request（Code Review）"
+          echo "        本地 master 不应产生 merge 提交：$(git log -1 --format=%s "$commit")"
           exit 1
         fi
       done
+    fi
+  fi
+
+  # develop 保护（全 PR 流）：develop 不接受本地任何提交/merge
+  if [ "$remote_ref" = "$protected_dev" ]; then
+    # 禁止删除 develop（git 删除分支时 local_ref 为 "(delete)"）
+    if [ "$local_ref" = "(delete)" ] || [ "$local_oid" = "$zero" ]; then
+      echo "[拒绝] Git Flow 保护：禁止删除远程 develop（develop 是唯一集成分支）"
+      exit 1
+    fi
+    # 禁止把 feature 直接推到 develop（必须走 PR）
+    if [ "$local_ref" != "$protected_dev" ]; then
+      echo "[拒绝] Git Flow 保护：禁止直接 push 到 develop（必须走 GitHub PR/MR）"
+      echo "        正确流程：git push origin feature/xxx -> GitHub 提 PR -> 服务器端合入 develop"
+      echo "        当前尝试：$local_ref -> $remote_ref"
+      exit 1
+    fi
+    # develop -> develop：本地领先远程（含本地 merge --no-ff 或直接 commit）即拒绝
+    if [ "$remote_oid" != "$zero" ]; then
+      ahead=$(git rev-list --count "$remote_oid".."$local_oid")
+      if [ -n "$ahead" ] && [ "$ahead" -gt 0 ]; then
+        echo "[拒绝] Git Flow 保护：develop 禁止本地提交/merge（全 PR 流）"
+        echo "        develop 只接受 GitHub PR 服务器端合入，本地只 pull 同步"
+        echo "        本地领先远程 $ahead 个提交（必须先 push feature 分支走 PR）："
+        git log --first-parent --format='          %h %s' "$remote_oid".."$local_oid"
+        exit 1
+      fi
     fi
   fi
 done

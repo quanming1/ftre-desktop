@@ -56,6 +56,10 @@ scope 必须是 `docs/TODO.yaml` 中的阶段 id（如 `A1`、`C2`、`G1`），
 **存在性校验**：hook 解析 `docs/TODO.yaml` 实时比对，阶段 id 不存在（或写错）直接拒绝，
 并列出当前全部可用阶段。
 
+**feat 带 PRD 校验（强制）**：`feat` 提交的暂存区必须包含对应阶段 PRD 文件（`docs/prd/PRD-<scope>-*.md`）——行为变更必须同步 PRD 的「变更记录」。无 PRD 的基建阶段跳过。
+
+**perf 带 FR 引用（强制）**：`perf` 的 scope 必须带 FR 引用，如 `perf(C2-FR6)` / `perf(C2-FR6,FR8)`——perf 表示"优化完善已有描述"，引用的 FR 编号必须真实存在于对应 PRD。
+
 ```bash
 # 合法
 git commit -m "feat(A2): 添加变量替换"
@@ -76,8 +80,8 @@ git commit -m "feat(C1): 添加循环引擎"       # 拒绝：分支 A2 != scope
 
 ### 4.2 其他 type：用模块 scope
 
-`docs` / `refactor` / `test` / `style` / `chore` / `perf` 的 scope 用模块名，不强绑阶段。
-各仓库的模块 scope 白名单定义在 `.githooks/.scopes` 文件中。
+`docs` / `refactor` / `test` / `style` / `chore` 的 scope 用模块名，不强绑阶段。
+各仓库的模块 scope 白名单定义在 `check_commit_msg.py` 顶部「裁剪点」的 `MODULE_SCOPES` 中。
 
 ### 4.3 prd / todos：专用分支 + 仅限文档
 
@@ -89,8 +93,10 @@ git commit -m "feat(C1): 添加循环引擎"       # 拒绝：分支 A2 != scope
 
 ## 5. 本地强制机制（hooks）
 
-- `.githooks/commit-msg` 调用 `.githooks/check_commit_msg.py` 校验
-- `.githooks/pre-push` 保护 develop（merge-only）和 master（禁止非 master 分支推送）
+- `.githooks/commit-msg` 调用 `.githooks/check_commit_msg.py` 校验（type 白名单 / 阶段存在性 / feat 带 PRD / perf-FR / 分支名交叉校验 / prd·todos 专用约束）
+- `.githooks/pre-push` **全 PR 流保护**：
+  - **master 双重保护**：非 master 分支禁止 push 到 master；本地 master 领先的新增提交不得含本地 merge 提交（master 只接受 release/hotfix 合并后的发布推送）
+  - **develop 三重保护**：禁止删除远程 develop；禁止非 develop 分支直推 develop（必须走 PR）；推送 develop 时本地领先远程（含本地 merge --no-ff 或直接 commit）即拒绝——develop 只接受 GitHub PR 服务器端合入
 - `merge:` / `Merge` / `revert:` / `Revert` 开头的系统提交自动跳过
 - hook 生效前提：`git config core.hooksPath .githooks`（新 clone 后执行一次）
 
