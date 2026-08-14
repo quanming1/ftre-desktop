@@ -498,11 +498,11 @@ describe("AssistantMessage mermaid 渲染与源码/渲染切换", () => {
     fireEvent.click(screen.getByRole("button", { name: "预览渲染结果" }));
     await waitFor(() => expect(within(overlay).getByTestId("mmd-svg")).toBeInTheDocument());
 
-    // 缩放：放大 → 130%，缩小 → 100%
+    // 缩放：放大 → 130%，缩小 → 100%（syncDom 走 rAF，百分比异步更新）
     fireEvent.click(screen.getByRole("button", { name: "放大图表" }));
-    expect(screen.getByText("130%")).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByText("130%")).toBeInTheDocument());
     fireEvent.click(screen.getByRole("button", { name: "缩小图表" }));
-    expect(screen.getByText("100%")).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByText("100%")).toBeInTheDocument());
 
     // 关闭查看器
     fireEvent.click(closeBtn);
