@@ -8,13 +8,25 @@
  * - 放大查看：UI / 交互完全沿用 @ftre/ui ImageViewer（图片预览组件）——
  *   全屏高斯模糊遮罩、右上角圆形关闭、底部居中圆角操作栏（缩放/百分比/重置/源码）、
  *   滚轮缩放（0.2x ~ 10x）、放大后拖拽平移、Esc 关闭、点击空白关闭
+ *
+ * 性能设计：
+ * - mermaid.initialize 模块级单次（多块并发挂载不重复初始化、无竞态）
+ * - svg 字符串改写（stripSvgSize）结果 useMemo：拖拽/缩放每帧重渲染时不重跑正则
+ * - 消息内图表容器 content-visibility:auto —— 视口外的 SVG 跳过渲染与布局，
+ *   长消息列表滚动只渲染可见图表；放大查看打开时内联副本降为 hidden 进一步省一份
+ * - 渲染 id 单调递增（renderCounter），并发 render 无 id 冲突
  */
-import { memo, useCallback, useEffect, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { BookOpen, Code2, Maximize2, RotateCcw, X, ZoomIn, ZoomOut } from "lucide-react";
 import { cn } from "@ftre/ui";
 
 let renderCounter = 0;
+/** mermaid 全局配置只初始化一次（initialize 幂等但重复调用有开销与竞态） */
+let mermaidInitialized = false;
+
+/** 渲染失败提示截断（mermaid 报错信息可能携带全文，超长会撑爆 UI） */
+const MAX_ERROR_CHARS = 500;
 
 /** 去掉 mermaid svg 的固有 width/height/style，替换为自定义 css（撑满容器 / 铺满 viewer） */
 function stripSvgSize(svgStr: string, css: string): string {
@@ -50,15 +62,21 @@ export const MermaidBlock = memo(function MermaidBlock({ code }: { code: string 
     (async () => {
       try {
         const mermaid = (await import("mermaid")).default;
-        mermaid.initialize({
-          startOnLoad: false,
-          theme: "default",
-          fontFamily: "inherit",
-        });
+        if (!mermaidInitialized) {
+          mermaidInitialized = true;
+          mermaid.initialize({
+            startOnLoad: false,
+            theme: "default",
+            fontFamily: "inherit",
+          });
+        }
         const { svg: rendered } = await mermaid.render(id, code);
         if (!cancelled) setSvg(rendered);
       } catch (e) {
-        if (!cancelled) setError(e instanceof Error ? e.message : String(e));
+        if (!cancelled) {
+          const msg = e instanceof Error ? e.message : String(e);
+          setError(msg.length > MAX_ERROR_CHARS ? `${msg.slice(0, MAX_ERROR_CHARS)}…` : msg);
+        }
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -148,6 +166,17 @@ export const MermaidBlock = memo(function MermaidBlock({ code }: { code: string 
     setPosition({ x: 0, y: 0 });
   }, []);
 
+  // svg 改写结果缓存：拖拽/缩放每帧重渲染时不重跑全文正则（svg 可达几百 KB）。
+  // 必须位于所有条件 return 之前（Hooks 规则）。
+  const inlineSvg = useMemo(
+    () => stripSvgSize(svg, "width:100%;height:auto;"),
+    [svg],
+  );
+  const viewerSvg = useMemo(
+    () => stripSvgSize(svg, "display:block;max-width:92vw;max-height:80vh;"),
+    [svg],
+  );
+
   if (error) {
     return (
       <div className="my-2 rounded-md border border-border bg-red-50 p-3 dark:bg-red-950/20">
@@ -160,9 +189,6 @@ export const MermaidBlock = memo(function MermaidBlock({ code }: { code: string 
   if (loading) {
     return <div className="my-2 py-4 text-center text-xs text-t-ghost">图表渲染中…</div>;
   }
-
-  // 消息内展示：撑满容器宽度（小图不再显示得特别小）
-  const inlineSvg = stripSvgSize(svg, "width:100%;height:auto;");
 
   const lightbox = zoomed && (
     <div
@@ -210,7 +236,7 @@ export const MermaidBlock = memo(function MermaidBlock({ code }: { code: string 
               transform: `translate(${position.x}px, ${position.y}px) scale(${scale})`,
               transition: isDragging ? "none" : "transform 0.15s ease-out",
             }}
-            dangerouslySetInnerHTML={{ __html: stripSvgSize(svg, "display:block;max-width:92vw;max-height:80vh;") }}
+            dangerouslySetInnerHTML={{ __html: viewerSvg }}
           />
         )}
       </div>
@@ -284,7 +310,15 @@ export const MermaidBlock = memo(function MermaidBlock({ code }: { code: string 
 
   return (
     <>
-      <div className="group relative my-2 overflow-auto rounded-md border border-border bg-white">
+      <div
+        className="group relative my-2 overflow-auto rounded-md border border-border bg-white"
+        style={{
+          // 视口外跳过渲染与布局（长消息列表滚动只渲染可见图表）；
+          // 放大查看打开时内联副本降为 hidden，省一份常驻渲染
+          contentVisibility: zoomed ? "hidden" : "auto",
+          containIntrinsicSize: "auto 260px",
+        }}
+      >
         <button
           type="button"
           title="放大查看"
