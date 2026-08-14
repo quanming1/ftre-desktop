@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 
 import type { ChatMessage, ContentBlock } from "@/stores/chat";
 import { AssistantMessage } from "./AssistantMessage";
@@ -457,15 +457,33 @@ describe("AssistantMessage mermaid 渲染与源码/渲染切换", () => {
     expect(screen.queryByTitle("预览渲染结果")).not.toBeInTheDocument();
   });
 
-  it("mermaid 图表可放大全屏展示（Modal）", async () => {
+  it("mermaid 图表可放大全屏展示，弹窗内可切换源码并缩放", async () => {
     render(<AssistantMessage message={mermaidMessage} />);
     await waitFor(() => expect(screen.getByTestId("mmd-svg")).toBeInTheDocument());
 
-    // 点击放大按钮 → 全屏 Modal 打开
+    // 点击放大按钮 → 全屏 overlay 打开
     fireEvent.click(screen.getByTitle("放大"));
     expect(screen.getByText("Mermaid 图表")).toBeInTheDocument();
+    expect(screen.getByText("100%")).toBeInTheDocument();
+    // overlay 容器（fixed 全屏层）
+    const overlay = screen.getByText("Mermaid 图表").closest(".fixed") as HTMLElement;
 
-    // 关闭 Modal 后标题消失（framer-motion exit 动画需等待）
+    // 弹窗内切换源码：overlay 内显示该图 mermaid 源码，图表隐藏
+    fireEvent.click(screen.getByRole("button", { name: "查看源码" }));
+    expect(within(overlay).getByText(/graph TD/)).toBeInTheDocument();
+    expect(within(overlay).queryByTestId("mmd-svg")).not.toBeInTheDocument();
+
+    // 切回渲染
+    fireEvent.click(screen.getByRole("button", { name: "预览渲染结果" }));
+    await waitFor(() => expect(within(overlay).getByTestId("mmd-svg")).toBeInTheDocument());
+
+    // 缩放：放大 → 125%，缩小 → 100%
+    fireEvent.click(screen.getByRole("button", { name: "放大图表" }));
+    expect(screen.getByText("125%")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "缩小图表" }));
+    expect(screen.getByText("100%")).toBeInTheDocument();
+
+    // 关闭 overlay 后标题消失
     fireEvent.click(screen.getByRole("button", { name: "关闭" }));
     await waitFor(() => expect(screen.queryByText("Mermaid 图表")).not.toBeInTheDocument());
   });
