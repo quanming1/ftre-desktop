@@ -494,9 +494,10 @@ describe("AssistantMessage mermaid 渲染与源码/渲染切换", () => {
     expect(within(overlay).getByText(/graph TD/)).toBeInTheDocument();
     expect(within(overlay).queryByTestId("mmd-viewer-box")).not.toBeInTheDocument();
 
-    // 返回渲染视图：viewer 恢复（位图 img 或内联 svg，取决于环境/foreignObject）
+    // 返回渲染视图：viewer 恢复（内联 SVG，矢量缩放保清晰）
     fireEvent.click(screen.getByRole("button", { name: "预览渲染结果" }));
     await waitFor(() => expect(within(overlay).getByTestId("mmd-viewer-box")).toBeInTheDocument());
+    expect(within(overlay).getByTestId("mmd-viewer-box").querySelector("svg")).not.toBeNull();
 
     // 缩放：放大 → 130%，缩小 → 100%（syncDom 走 rAF，百分比异步更新）
     fireEvent.click(screen.getByRole("button", { name: "放大图表" }));

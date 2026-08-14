@@ -80,3 +80,4 @@
 | 2026-08-14 | 修复消息内 mermaid 图表高度爆炸：竖向图（viewBox 高>>宽）撑满消息宽后高度等比放大至数千像素——改为满宽 wrapper + ResizeObserver 测容器宽，按 容器宽 × min(60vh,640) 双向 contain 显式给像素（横图按宽、竖图按高）；contain-intrinsic-size 同步用实际高度 | 用户反馈：markdown 中渲染的图高度非常高 |
 | 2026-08-14 | 拖拽/缩放性能重构：高频交互路径零 React 渲染——scale/position/isDragging 改 ref 真值 + syncDom 直改 DOM（transform/百分比/cursor，rAF 合并一帧多次调用），拖动 mousemove 不再触发整个 lightbox（含几百 KB svg 容器）reconcile；viewer 容器 will-change:transform 提升合成层；React state 仅保留 zoomed/showCode 低频结构切换 | 用户反馈：拖动的时候性能不好 |
 | 2026-08-14 | 消除首次拖动卡顿：viewer 内 svg 转 blob URL <img> 位图渲染（img 纹理加载即上传 GPU，与 ImageViewer 同硬件路径；svg 含 foreignObject 或环境不支持时自动回退内联 SVG）；打开 lightbox 后两帧预热（0.1% 缩放往返，强制提前光栅化，归位前校验未被打扰） | 用户反馈：首次拖动的时候会卡一下 |
+| 2026-08-14 | 修复大图放大模糊：撤销 viewer 位图化（svg 转 img 后是位图，transform 放大即位图拉伸必然糊）并移除常驻 will-change:transform（锁死合成层光栅化分辨率同样导致放大糊）——恢复内联 SVG 矢量路径，Chrome 在 scale 变化后按新比例重新光栅化（矢量保真）；拖拽流畅性不受影响（平移不改变采样密度仍走合成层，React 零渲染机制不变），打开预热保留 | 用户反馈：大流程图放大会很糊 |
