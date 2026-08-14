@@ -12,6 +12,7 @@
 import { memo, useCallback } from "react";
 import { useInspector } from "@/stores/inspector";
 import { useLayout } from "@/stores/layout";
+import { Tooltip, TooltipProvider } from "@ftre/ui";
 import { FileIconView } from "./FileIconView";
 
 export interface FileLinkTarget {
@@ -85,24 +86,29 @@ export const FileLink = memo(function FileLink({
 
   const displayName = label?.trim() || target.path;
 
+  const tooltipContent = target.line != null ? `${target.path}:${target.line}` : target.path;
+
   return (
-    <button
-      type="button"
-      onClick={handleClick}
-      title={target.line != null ? `${target.path}:${target.line}` : target.path}
-      className="inline-flex max-w-full items-baseline gap-1 align-baseline font-mono text-[12px] text-t-primary transition-colors hover:text-emerald-700"
-    >
-      <FileIconView path={target.path} size={13} />
-      <span
-        className="truncate font-semibold"
-        style={{ borderBottom: "1px dashed #059669" }}
-      >
-        {displayName}
-      </span>
-      {target.line != null && (
-        <span className="shrink-0 text-t-muted">:{target.line}</span>
-      )}
-    </button>
+    <TooltipProvider>
+      <Tooltip content={tooltipContent} side="bottom" delayDuration={0}>
+        <button
+          type="button"
+          onClick={handleClick}
+          className="inline-flex max-w-full items-baseline gap-1 align-baseline font-mono text-[12px] text-t-primary transition-colors hover:text-emerald-700"
+        >
+          <FileIconView path={target.path} size={13} />
+          <span
+            className="truncate font-semibold"
+            style={{ borderBottom: "1px dashed #059669" }}
+          >
+            {displayName}
+          </span>
+          {target.line != null && (
+            <span className="shrink-0 text-t-muted">:{target.line}</span>
+          )}
+        </button>
+      </Tooltip>
+    </TooltipProvider>
   );
 });
 

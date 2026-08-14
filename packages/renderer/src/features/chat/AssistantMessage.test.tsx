@@ -525,8 +525,8 @@ describe("AssistantMessage 本地文件链接（file://）", () => {
     };
     render(<AssistantMessage message={message} />);
 
-    // 渲染为 chip（button，非 <a>），title 为完整路径
-    const chip = screen.getByTitle("E:/ftre/src/ftre/main.py");
+    // 渲染为链接按钮（非 <a>），文件名加粗显示
+    const chip = screen.getByRole("button", { name: /main\.py/ });
     expect(chip.tagName).toBe("BUTTON");
     expect(chip.textContent).toContain("main.py");
 
@@ -548,7 +548,7 @@ describe("AssistantMessage 本地文件链接（file://）", () => {
     };
     render(<AssistantMessage message={message} />);
 
-    const chip = screen.getByTitle("E:/ftre/src/ftre/plugin/kernel/context.py:37");
+    const chip = screen.getByRole("button", { name: /context\.py/ });
     expect(chip.textContent).toContain(":37");
 
     fireEvent.click(chip);
