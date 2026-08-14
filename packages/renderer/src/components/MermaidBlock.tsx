@@ -12,8 +12,11 @@
  * 性能设计：
  * - mermaid.initialize 模块级单次（多块并发挂载不重复初始化、无竞态）
  * - svg 字符串改写（stripSvgSize）结果 useMemo：拖拽/缩放每帧重渲染时不重跑正则
+ * - 拖拽/缩放高频路径零 React 渲染：ref 持真值 + syncDom 直改 DOM（rAF 合并），
+ *   彻底避免每次 mousemove 让整个 lightbox（含几百 KB svg 容器）reconcile——拖动卡顿主因
  * - 消息内图表容器 content-visibility:auto —— 视口外的 SVG 跳过渲染与布局，
  *   长消息列表滚动只渲染可见图表；放大查看打开时内联副本降为 hidden 进一步省一份
+ * - viewer 图表容器 will-change:transform 提升合成层
  * - 渲染 id 单调递增（renderCounter），并发 render 无 id 冲突
  */
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
@@ -70,16 +73,20 @@ export const MermaidBlock = memo(function MermaidBlock({ code }: { code: string 
   const inlineWrapRef = useRef<HTMLDivElement>(null);
   const [inlineBox, setInlineBox] = useState<{ w: number; h: number } | null>(null);
 
-  // lightbox 状态（与 ImageViewer 同构）
+  // lightbox 结构性状态（低频，React 管理）
   const [zoomed, setZoomed] = useState(false);
-  const [scale, setScale] = useState(1);
-  const [position, setPosition] = useState({ x: 0, y: 0 });
-  const [isDragging, setIsDragging] = useState(false);
   const [showCode, setShowCode] = useState(false);
 
+  // 拖拽/缩放高频状态：ref 持真值 + DOM 直改（不走 React——
+  // 每次 mousemove setState 会让整个 lightbox（含几百 KB svg 容器）重渲染，拖动必卡）
   const dragStart = useRef({ x: 0, y: 0, posX: 0, posY: 0 });
+  const dragging = useRef(false);
   const scaleRef = useRef(1);
   const posRef = useRef({ x: 0, y: 0 });
+  const boxRef = useRef<HTMLDivElement>(null);
+  const viewportRef = useRef<HTMLDivElement>(null);
+  const percentRef = useRef<HTMLSpanElement>(null);
+  const rafId = useRef(0);
 
   useEffect(() => {
     let cancelled = false;
@@ -116,15 +123,79 @@ export const MermaidBlock = memo(function MermaidBlock({ code }: { code: string 
     };
   }, [code]);
 
+  // ─── 高频路径：DOM 直改（零 React 渲染）───────────────────────────
+  /** 把 ref 真值写到 DOM：transform + 百分比 + cursor。rAF 合并一帧内的多次调用 */
+  const syncDom = useCallback(() => {
+    if (rafId.current) return;
+    rafId.current = requestAnimationFrame(() => {
+      rafId.current = 0;
+      const { x, y } = posRef.current;
+      const s = scaleRef.current;
+      if (boxRef.current) {
+        boxRef.current.style.transform = `translate(${x}px, ${y}px) scale(${s})`;
+      }
+      if (percentRef.current) {
+        percentRef.current.textContent = `${Math.round(s * 100)}%`;
+      }
+      if (viewportRef.current) {
+        viewportRef.current.style.cursor = s > 1 ? (dragging.current ? "grabbing" : "grab") : "default";
+      }
+    });
+  }, []);
+
+  useEffect(() => () => { if (rafId.current) cancelAnimationFrame(rafId.current); }, []);
+
+  /** 缩放到目标值（含 ≤1 时回中），DOM 直改 */
+  const applyScale = useCallback((next: number) => {
+    const clamped = Math.max(0.2, Math.min(10, next));
+    if (clamped === scaleRef.current) return;
+    scaleRef.current = clamped;
+    if (clamped <= 1 && (posRef.current.x !== 0 || posRef.current.y !== 0)) {
+      posRef.current = { x: 0, y: 0 };
+    }
+    syncDom();
+  }, [syncDom]);
+
+  // 滚轮缩放（0.2x ~ 10x）
+  const handleWheel = useCallback((e: React.WheelEvent) => {
+    e.preventDefault();
+    applyScale(scaleRef.current * (e.deltaY < 0 ? 1.1 : 0.9));
+  }, [applyScale]);
+
+  // 拖拽平移（仅在放大后）
+  const handleMouseDown = useCallback((e: React.MouseEvent) => {
+    if (scaleRef.current <= 1) return;
+    dragging.current = true;
+    dragStart.current = { x: e.clientX, y: e.clientY, posX: posRef.current.x, posY: posRef.current.y };
+    if (boxRef.current) boxRef.current.style.transition = "none";
+    syncDom();
+  }, [syncDom]);
+
+  const handleMouseMove = useCallback((e: React.MouseEvent) => {
+    if (!dragging.current || scaleRef.current <= 1) return;
+    posRef.current = {
+      x: dragStart.current.posX + (e.clientX - dragStart.current.x),
+      y: dragStart.current.posY + (e.clientY - dragStart.current.y),
+    };
+    syncDom();
+  }, [syncDom]);
+
+  const handleMouseUp = useCallback(() => {
+    if (!dragging.current) return;
+    dragging.current = false;
+    if (boxRef.current) boxRef.current.style.transition = "";
+    syncDom();
+  }, [syncDom]);
+
   const openLightbox = useCallback(() => {
-    // 图表容器在 render 时按 viewBox 算好适配像素尺寸（撑满 92vw × 80vh）
     scaleRef.current = 1;
     posRef.current = { x: 0, y: 0 };
-    setScale(1);
-    setPosition({ x: 0, y: 0 });
+    dragging.current = false;
     setShowCode(false);
     setZoomed(true);
-  }, []);
+    // 挂载后把初始 transform/cursor 写到 DOM（style 初值即 100%/居中，此处兜底）
+    requestAnimationFrame(() => syncDom());
+  }, [syncDom]);
 
   const closeLightbox = useCallback(() => setZoomed(false), []);
 
@@ -148,52 +219,12 @@ export const MermaidBlock = memo(function MermaidBlock({ code }: { code: string 
     };
   }, [zoomed]);
 
-  // scale 变化时同步 ref；缩回 ≤1 时重置位置（与 ImageViewer 一致）
-  useEffect(() => {
-    scaleRef.current = scale;
-    if (scale <= 1 && (posRef.current.x !== 0 || posRef.current.y !== 0)) {
-      posRef.current = { x: 0, y: 0 };
-      setPosition({ x: 0, y: 0 });
-    }
-  }, [scale]);
-
-  // 滚轮缩放（0.2x ~ 10x）
-  const handleWheel = useCallback((e: React.WheelEvent) => {
-    e.preventDefault();
-    const factor = e.deltaY < 0 ? 1.1 : 0.9;
-    const next = Math.max(0.2, Math.min(10, scaleRef.current * factor));
-    scaleRef.current = next;
-    setScale(next);
-  }, []);
-
-  // 拖拽平移（仅在放大后）
-  const handleMouseDown = useCallback((e: React.MouseEvent) => {
-    setIsDragging(true);
-    dragStart.current = { x: e.clientX, y: e.clientY, posX: posRef.current.x, posY: posRef.current.y };
-  }, []);
-
-  const handleMouseMove = useCallback(
-    (e: React.MouseEvent) => {
-      if (!isDragging || scaleRef.current <= 1) return;
-      const newPos = {
-        x: dragStart.current.posX + (e.clientX - dragStart.current.x),
-        y: dragStart.current.posY + (e.clientY - dragStart.current.y),
-      };
-      posRef.current = newPos;
-      setPosition(newPos);
-    },
-    [isDragging],
-  );
-
-  const handleMouseUp = useCallback(() => setIsDragging(false), []);
-
   // 重置（回到适配大小）
   const reset = useCallback(() => {
     scaleRef.current = 1;
     posRef.current = { x: 0, y: 0 };
-    setScale(1);
-    setPosition({ x: 0, y: 0 });
-  }, []);
+    syncDom();
+  }, [syncDom]);
 
   // svg 改写结果缓存：拖拽/缩放每帧重渲染时不重跑全文正则（svg 可达几百 KB）。
   // 必须位于所有条件 return 之前（Hooks 规则）。
@@ -267,16 +298,17 @@ export const MermaidBlock = memo(function MermaidBlock({ code }: { code: string 
 
       {/* 图表容器 */}
       <div
+        ref={viewportRef}
         className="absolute inset-0 flex items-center justify-center overflow-hidden"
         onWheel={handleWheel}
-        onMouseDown={scale > 1 ? handleMouseDown : undefined}
+        onMouseDown={handleMouseDown}
         onMouseMove={handleMouseMove}
         onMouseUp={handleMouseUp}
         onMouseLeave={handleMouseUp}
         onClick={(e) => {
           if (e.target === e.currentTarget) closeLightbox();
         }}
-        style={{ cursor: scale > 1 ? (isDragging ? "grabbing" : "grab") : "default" }}
+        style={{ cursor: "default" }}
       >
         {showCode ? (
           <div className="absolute inset-0 overflow-auto p-10" onClick={(e) => e.stopPropagation()}>
@@ -286,14 +318,16 @@ export const MermaidBlock = memo(function MermaidBlock({ code }: { code: string 
           </div>
         ) : (
           <div
+            ref={boxRef}
             data-testid="mmd-viewer-box"
-            className="select-none overflow-hidden rounded-lg bg-white shadow-2xl"
+            className="select-none overflow-hidden rounded-lg bg-white shadow-2xl will-change-transform"
             style={{
-              // 显式像素尺寸：svg 剥掉宽高后无内在尺寸，不给定会塌缩为 0（图表看不见）
+              // 显式像素尺寸：svg 剥掉宽高后无内在尺寸，不给定会塌缩为 0（图表看不见）；
+              // transform/cursor 由 syncDom 直改（拖拽缩放零 React 渲染），初值即 100% 居中
               width: viewerBox ? `${fitBox(viewerBox).w}px` : "min(92vw, 900px)",
               height: viewerBox ? `${fitBox(viewerBox).h}px` : "auto",
-              transform: `translate(${position.x}px, ${position.y}px) scale(${scale})`,
-              transition: isDragging ? "none" : "transform 0.15s ease-out",
+              transform: "translate(0px, 0px) scale(1)",
+              transition: "transform 0.15s ease-out",
             }}
             dangerouslySetInnerHTML={{ __html: viewerSvg }}
           />
@@ -304,26 +338,21 @@ export const MermaidBlock = memo(function MermaidBlock({ code }: { code: string 
       {!showCode && (
         <div className="absolute bottom-8 left-1/2 -translate-x-1/2 z-10 flex items-center gap-1.5 px-4 py-2.5 rounded-2xl bg-black/40 backdrop-blur-md border border-white/10">
           <button
-            onClick={() => {
-              const next = Math.min(10, scaleRef.current * 1.3);
-              scaleRef.current = next;
-              setScale(next);
-            }}
+            onClick={() => applyScale(scaleRef.current * 1.3)}
             aria-label="放大图表"
             className="p-3 rounded-xl text-white/70 hover:text-white hover:bg-white/15 transition-colors"
             title="放大"
           >
             <ZoomIn size={24} />
           </button>
-          <span className="text-[13px] text-white/50 select-none w-12 text-center tabular-nums">
-            {Math.round(scale * 100)}%
+          <span
+            ref={percentRef}
+            className="text-[13px] text-white/50 select-none w-12 text-center tabular-nums"
+          >
+            100%
           </span>
           <button
-            onClick={() => {
-              const next = Math.max(0.2, scaleRef.current / 1.3);
-              scaleRef.current = next;
-              setScale(next);
-            }}
+            onClick={() => applyScale(scaleRef.current / 1.3)}
             aria-label="缩小图表"
             className="p-3 rounded-xl text-white/70 hover:text-white hover:bg-white/15 transition-colors"
             title="缩小"
