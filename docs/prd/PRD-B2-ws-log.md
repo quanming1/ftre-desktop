@@ -26,6 +26,7 @@
 - [x] FR2：ws-log-collector 采集 in / out / system 三类帧
 - [x] FR3：WsLogInspectorPanel Inspector 固定 tab（列表 / 详情 / 筛选）
 - [x] FR4：attempt 标记（initial / retry / outbox_flush / reconnect_replay）标识连接尝试类型
+- [x] FR5：WSLog 面板展示优化——相邻同类型帧折叠为组可展开；与 state.json 预览统一设计语言（h-10 行 / 圆点 / CodeDiff 预览 / 复制按钮）；清空日志不再弹窗确认
 
 ### 2.2 非功能需求
 
@@ -52,6 +53,7 @@
 - [x] AC1：WS 帧（in / out / system）被正确采集并持久化
 - [x] AC2：Inspector WS Logs tab 可查询、筛选、查看帧详情
 - [x] AC3：日志文件落盘，重启后可继续查看
+- [x] AC4：相邻相同 (direction, type, eventType) 帧折叠成组并可展开；展开帧支持复制原始帧；清空日志无确认弹窗（手动验证）
 
 ## 6. 测试计划
 
@@ -62,3 +64,4 @@
 | 日期 | 变更内容 | 理由 |
 |---|---|---|
 | 2026-08-12 | 初始定稿 | — |
+| 2026-08-14 | 新增 FR5 / AC4：WSLog 面板展示优化（相邻同类型帧分组折叠、设计语言与 state.json 预览统一、清空无确认弹窗、预览高度加高 + 复制按钮）。原 AC1-AC3 不受影响 | 用户需求：日志刷屏需折叠；UI 与 state.json 预览统一 |
