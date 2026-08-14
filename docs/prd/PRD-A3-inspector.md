@@ -69,3 +69,4 @@
 |---|---|---|
 | 2026-08-12 | 初始定稿 | — |
 | 2026-08-14 | 新增 FR7 / AC5：FileRenderer 支持 md / html 渲染预览——markdown 复用共享渲染管线（markdown-plugins + rehype-highlight），html 走 sandbox iframe；默认打开即渲染视图，工具栏可切回源码（markdown keep-alive、iframe 切回即卸载）。原 AC1-AC4 不受影响，新增 AC5 自动化测试 3/3 通过 | 用户需求：文件预览 md / html 时直接看渲染结果 |
+| 2026-08-14 | 增强 AC5：md 渲染视图内 ```mermaid 代码块由 MermaidBlock 渲染为图表（动态 import mermaid ^11.16.1、securityLevel 默认 strict、渲染失败回退源码）；源码/渲染切换按钮沿用文件级切换，切源码可见 mermaid 源码。新增自动化测试（FileRenderer.test 4/4 通过） | 用户需求：md 中的 mermaid 图表应可视化展示 |
