@@ -29,6 +29,7 @@
 - [x] FR5：sendCancel(expected_request_id) 取消请求
 - [x] FR6：QueuedMessagesBanner 队列横幅（pending 消息可视化）
 - [x] FR7：cancelQueuedMessage API（取消排队消息）
+- [x] FR8：会话删除确认弹窗（防误删，确认后调用 deleteSession）
 
 ### 2.2 非功能需求
 
@@ -57,6 +58,7 @@
 - [x] AC2：断线期间发送的消息在重连后不丢失（outbox 重发）
 - [x] AC3：队列横幅正确显示 pending 消息与进度
 - [x] AC4：取消排队消息后该消息不再发送
+- [x] AC5：会话右键「删除会话」先弹确认弹窗，确认后才执行删除（手动验证）
 
 ## 6. 测试计划
 
@@ -67,3 +69,4 @@
 | 日期 | 变更内容 | 理由 |
 |---|---|---|
 | 2026-08-12 | 初始定稿 | — |
+| 2026-08-14 | 新增 FR8 / AC5：SessionPanel 会话删除增加确认弹窗（ConfirmDialog），右键菜单补充 Trash2 图标。归属说明：B1 模块含 session store，本变更为会话管理 UI 完善；原 AC1-AC4 不受影响 | 用户需求：删除会话防误操作 |

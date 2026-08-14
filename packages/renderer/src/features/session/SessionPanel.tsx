@@ -50,6 +50,7 @@ import {
   Palette,
   History,
   GitFork,
+  Trash2,
 } from "lucide-react";
 import {
   DndContext,
@@ -73,7 +74,7 @@ import { useLayout } from "@/stores/layout";
 import { useNotification } from "@/stores/notification";
 import { updateSession, forkSessionRemote } from "@/services/api";
 import { ContextMenu, type ContextMenuItem } from "@/components/ContextMenu";
-import { Tooltip, TooltipProvider } from "@ftre/ui";
+import { Tooltip, TooltipProvider, ConfirmDialog } from "@ftre/ui";
 import { normalizePathForCompare } from "@/utils/pathUtils";
 import type { SessionSummary } from "@/services/api";
 
@@ -294,6 +295,8 @@ export function SessionPanel() {
   }, [sessionsCollapsed]);
 
   const [hoveredSession, setHoveredSession] = useState<string | null>(null);
+  /** 待确认删除的会话（null = 无确认弹窗） */
+  const [confirmDeleteSession, setConfirmDeleteSession] = useState<SessionSummary | null>(null);
   /** 每个 group 已展开多少条；未列入即 PER_GROUP_DEFAULT */
   const [expandCount, setExpandCount] = useState<Record<string, number>>({});
   /** 用户拖动后的工作区分组顺序；空数组表示走默认排序 */
@@ -677,7 +680,8 @@ export function SessionPanel() {
           {
             id: "delete-session",
             label: "删除会话",
-            action: () => deleteSession(session.session_id),
+            icon: Trash2,
+            action: () => setConfirmDeleteSession(session),
           },
         ],
       });
@@ -1330,6 +1334,22 @@ export function SessionPanel() {
             </button>
           </div>
         </div>
+      )}
+
+      {/* 删除会话确认弹窗 */}
+      {confirmDeleteSession && (
+        <ConfirmDialog
+          title="删除会话"
+          message={`确定要删除会话「${confirmDeleteSession.title || confirmDeleteSession.session_id}」吗？该会话的全部消息将被永久删除，无法恢复。`}
+          confirmLabel="删除"
+          cancelLabel="取消"
+          onCancel={() => setConfirmDeleteSession(null)}
+          onConfirm={() => {
+            const sid = confirmDeleteSession.session_id;
+            setConfirmDeleteSession(null);
+            deleteSession(sid);
+          }}
+        />
       )}
 
     </TooltipProvider>
