@@ -46,21 +46,31 @@ function guessLanguage(filePath: string): string {
 }
 
 /**
- * 通过 IPC 读取文件并在编辑器中打开（read/write Tool）。
+ * 通过 IPC 读取文件并在编辑器中打开（read/write Tool / FileLink）。
+ * 失败时通知用户（绝不静默——点击无反馈会让人以为功能坏了）。
  */
 export async function handleOpenFile(filePath: string): Promise<void> {
   const fullPath = resolveFilePath(filePath);
   try {
     const result = await window.desktop.fs.readFile(fullPath);
-    if (result.error) return;
+    if (result.error) {
+      useNotification.getState().addNotification({
+        level: "error",
+        message: `打开文件失败: ${filePath}`,
+      });
+      return;
+    }
     useEditor.getState().openFile({
       path: fullPath,
       name: basename(fullPath),
       language: result.language,
       content: result.content,
     });
-  } catch {
-    // 静默忽略
+  } catch (err) {
+    useNotification.getState().addNotification({
+      level: "error",
+      message: `打开文件失败: ${filePath}（${err instanceof Error ? err.message : String(err)}）`,
+    });
   }
 }
 
@@ -75,7 +85,13 @@ export async function handleOpenFileAtLine(
   const fullPath = resolveFilePath(filePath);
   try {
     const result = await window.desktop.fs.readFile(fullPath);
-    if (result.error) return;
+    if (result.error) {
+      useNotification.getState().addNotification({
+        level: "error",
+        message: `打开文件失败: ${filePath}`,
+      });
+      return;
+    }
     useEditor.getState().openFile({
       path: fullPath,
       name: basename(fullPath),
@@ -90,8 +106,11 @@ export async function handleOpenFileAtLine(
         }),
       );
     });
-  } catch {
-    // 静默忽略
+  } catch (err) {
+    useNotification.getState().addNotification({
+      level: "error",
+      message: `打开文件失败: ${filePath}（${err instanceof Error ? err.message : String(err)}）`,
+    });
   }
 }
 
