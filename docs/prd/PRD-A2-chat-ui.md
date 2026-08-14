@@ -74,3 +74,4 @@
 | 2026-08-14 | 新增：AI 消息 markdown 内 ```mermaid 代码块渲染为图表（MermaidBlock，动态 import mermaid、strict 安全、失败回退源码）；含 mermaid 的消息显示「源码/渲染」切换按钮（流式结束后显示）；mermaid 图右上角放大按钮，Modal 全屏展示。文件预览（MarkdownPreview）同步支持。自动化测试：AssistantMessage mermaid 4 用例 + FileRenderer mermaid 1 用例 | 用户需求：聊天消息 md 中的 mermaid/html 等可渲染内容要能可视化 + 源码/渲染切换 + 放大查看 |
 | 2026-08-14 | 优化放大弹窗：放弃 Modal（标准 header 过大），改为轻量全屏 overlay——细工具条（h-10：源码/渲染切换 + 缩放 +/-/重置 + 关闭），弹窗内可切换该图 mermaid 源码，图表 25%~400% 缩放（放大后可滚动）；标题小字显示 | 用户反馈：弹窗 header 太大、图标不能缩放、弹窗内需源码切换 |
 | 2026-08-14 | 放大查看器重做为标准图片查看器交互：打开即 fit 适应视口（小图放大撑满、大图缩小放下，解决默认过小）；滚轮缩放（以光标为中心，非 passive 监听可 preventDefault）；拖拽平移（scale>1 时 grab 光标）；双击复位；工具条 缩放/百分比/适应窗口/源码/关闭 | 用户反馈：要图片放大组件的缩放效果、默认显示太小 |
+| 2026-08-14 | mermaid 查看器 UI/交互整体对齐 @ftre/ui ImageViewer（聊天图片放大组件）：高斯模糊遮罩 + 右上角圆形关闭 + 底部居中圆角操作栏（24px 大图标：放大/百分比/缩小/重置/源码）+ 滚轮 0.2~10x + 拖拽 + transform 动画 + Esc/点空白关闭 + portal 到 body；消息内 svg 去 width/height 撑满容器宽（修复默认显示过小） | 用户反馈：要图片放大组件的同款 UI 与缩放，默认图表太小 |
