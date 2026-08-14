@@ -28,6 +28,7 @@
 - [x] FR4：ImageRenderer 图片预览（base64 数据渲染）
 - [x] FR5：tabRegistry tab 注册表（按 toolCallId 去重，同一操作只开一个 tab）
 - [x] FR6：FileTreeSidebar 文件树侧栏（目录懒加载 + git 状态标识）
+- [x] FR7：FileRenderer md / html 渲染预览（markdown 走共享渲染管线，html 走 sandbox iframe；默认渲染视图，可切换源码）
 
 ### 2.2 非功能需求
 
@@ -56,6 +57,7 @@
 - [x] AC2：edit / write 工具调用后打开 diff tab 展示变更
 - [x] AC3：图片工具返回的 base64 内容可在 ImageRenderer 预览
 - [x] AC4：tab 支持拖拽排序，同 toolCallId 不重复开 tab
+- [x] AC5：md / html 文件默认打开渲染视图且可切回源码（keep-alive 切换）；html 以 sandbox iframe 隔离渲染；非 md / html 文件不受影响（自动化测试 3/3 通过）
 
 ## 6. 测试计划
 
@@ -66,3 +68,4 @@
 | 日期 | 变更内容 | 理由 |
 |---|---|---|
 | 2026-08-12 | 初始定稿 | — |
+| 2026-08-14 | 新增 FR7 / AC5：FileRenderer 支持 md / html 渲染预览——markdown 复用共享渲染管线（markdown-plugins + rehype-highlight），html 走 sandbox iframe；默认打开即渲染视图，工具栏可切回源码（markdown keep-alive、iframe 切回即卸载）。原 AC1-AC4 不受影响，新增 AC5 自动化测试 3/3 通过 | 用户需求：文件预览 md / html 时直接看渲染结果 |
