@@ -16,7 +16,7 @@
  *   长消息列表滚动只渲染可见图表；放大查看打开时内联副本降为 hidden 进一步省一份
  * - 渲染 id 单调递增（renderCounter），并发 render 无 id 冲突
  */
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { BookOpen, Code2, Maximize2, RotateCcw, X, ZoomIn, ZoomOut } from "lucide-react";
 import { cn } from "@ftre/ui";
@@ -65,6 +65,10 @@ export const MermaidBlock = memo(function MermaidBlock({ code }: { code: string 
   const [svg, setSvg] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+
+  // 消息内图表的适配尺寸（容器宽 × 高度上限双向 contain，防止竖图撑满宽度后高度爆炸）
+  const inlineWrapRef = useRef<HTMLDivElement>(null);
+  const [inlineBox, setInlineBox] = useState<{ w: number; h: number } | null>(null);
 
   // lightbox 状态（与 ImageViewer 同构）
   const [zoomed, setZoomed] = useState(false);
@@ -194,18 +198,39 @@ export const MermaidBlock = memo(function MermaidBlock({ code }: { code: string 
   // svg 改写结果缓存：拖拽/缩放每帧重渲染时不重跑全文正则（svg 可达几百 KB）。
   // 必须位于所有条件 return 之前（Hooks 规则）。
   const inlineSvg = useMemo(
-    () => stripSvgSize(svg, "width:100%;height:auto;"),
+    () => stripSvgSize(svg, "width:100%;height:100%;display:block;"),
     [svg],
   );
   const viewerSvg = useMemo(
     () => stripSvgSize(svg, "width:100%;height:100%;display:block;"),
     [svg],
   );
-  // viewer 图表容器显式像素尺寸（svg 无内在尺寸，必须由容器给定）
-  const viewerBox = useMemo(
+  // 图表固有尺寸（viewBox）——inline 与 viewer 适配计算的依据
+  const intrinsic = useMemo(
     () => (svg ? intrinsicSizeOf(svg) : null),
     [svg],
   );
+
+  // 消息内适配：容器宽 × 高度上限双向 contain（竖图按高约束，横图按宽约束）。
+  // svg 无内在尺寸，必须显式像素——不给宽会塌缩为 0，只给 width:100% 竖图会高度爆炸。
+  useLayoutEffect(() => {
+    const wrap = inlineWrapRef.current;
+    if (!wrap || !intrinsic) return;
+    const compute = () => {
+      const availW = wrap.clientWidth || 720;
+      const availH = Math.max(240, Math.min(window.innerHeight * 0.6, 640));
+      const fit = Math.min(availW / intrinsic.w, availH / intrinsic.h);
+      setInlineBox({ w: Math.round(intrinsic.w * fit), h: Math.round(intrinsic.h * fit) });
+    };
+    compute();
+    if (typeof ResizeObserver === "undefined") return;
+    const ro = new ResizeObserver(compute);
+    ro.observe(wrap);
+    return () => ro.disconnect();
+  }, [intrinsic]);
+
+  // viewer 图表容器显式像素尺寸（svg 无内在尺寸，必须由容器给定）
+  const viewerBox = intrinsic;
 
   if (error) {
     return (
@@ -345,12 +370,12 @@ export const MermaidBlock = memo(function MermaidBlock({ code }: { code: string 
   return (
     <>
       <div
-        className="group relative my-2 overflow-auto rounded-md border border-border bg-white"
+        className="group relative my-2 rounded-md border border-border bg-white"
         style={{
           // 视口外跳过渲染与布局（长消息列表滚动只渲染可见图表）；
           // 放大查看打开时内联副本降为 hidden，省一份常驻渲染
           contentVisibility: zoomed ? "hidden" : "auto",
-          containIntrinsicSize: "auto 260px",
+          containIntrinsicSize: inlineBox ? `auto ${inlineBox.h + 24}px` : "auto 260px",
         }}
       >
         <button
@@ -362,7 +387,19 @@ export const MermaidBlock = memo(function MermaidBlock({ code }: { code: string 
         >
           <Maximize2 size={13} />
         </button>
-        <div className="flex min-h-8 w-full justify-center p-3" dangerouslySetInnerHTML={{ __html: inlineSvg }} />
+        {/* 满宽 wrapper 供测宽；内层 box 按容器宽 × 高度上限双向 contain（竖图不超高） */}
+        <div ref={inlineWrapRef} className="flex w-full justify-center overflow-hidden p-3">
+          <div
+            data-testid="mmd-inline-box"
+            className="min-h-8"
+            style={
+              inlineBox
+                ? { width: `${inlineBox.w}px`, height: `${inlineBox.h}px` }
+                : { width: "100%", minHeight: 32 }
+            }
+            dangerouslySetInnerHTML={{ __html: inlineSvg }}
+          />
+        </div>
       </div>
 
       {/* Portal 到 body，避免被父级 overflow:hidden 裁剪（与 ImageViewer 一致） */}
