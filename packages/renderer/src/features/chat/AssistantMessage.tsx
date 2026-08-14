@@ -6,11 +6,12 @@ import { useThrottledValue } from "@/hooks/useThrottledValue";
 import { splitBlocks } from "./streamingMarkdown";
 import { InlineToolCallCard } from "./InlineToolCallCard";
 import { TurnFileChanges, type TurnFileChange } from "./TurnFileChanges";
-import { ChevronRight, Copy, Check } from "lucide-react";
+import { ChevronRight, Copy, Check, BookOpen, Code2 } from "lucide-react";
 import { Tooltip, TooltipProvider } from "@ftre/ui";
 import { useNotification } from "@/stores/notification";
 import { remarkPlugins, rehypePlugins } from "@/lib/markdown-plugins";
 import { useAutoScrollToBottom } from "@/hooks/auto-scroll";
+import { MermaidBlock } from "@/components/MermaidBlock";
 import {
   assistantMessagePropsEqual,
   contentBlocksEqual,
@@ -41,6 +42,9 @@ const markdownComponents = {
     return <pre {...props} />;
   },
   code({ className, children, ...props }: React.ComponentPropsWithoutRef<"code"> & { className?: string }) {
+    if (/(^|\s)language-mermaid/.test(className || "")) {
+      return <MermaidBlock code={String(children).replace(/\n$/, "")} />;
+    }
     const m = /language-(\w+)/.exec(className || "");
     if (m) return <CodeBlock language={m[1]} code={String(children).replace(/\n$/, "")} />;
     return <code className={className} {...props}>{children}</code>;
@@ -165,6 +169,13 @@ const ReasoningBlock = memo(
   (a, b) => a.text === b.text && a.isActive === b.isActive,
 );
 
+/** 文本中是否包含 ```mermaid 代码块（决定消息是否显示源码/渲染切换） */
+const MERMAID_RE = /```\s*mermaid\s*\n/i;
+
+function textHasMermaid(text: string | null | undefined): boolean {
+  return text ? MERMAID_RE.test(text) : false;
+}
+
 /**
  * 按 blocks 顺序行内渲染：text → TextPart（已闭合块走 memo）；thinking → ReasoningBlock；
  * toolCall → InlineToolCallCard（带配对的 toolResult）。流式且为最后一段 text 时对内容做 throttle。
@@ -185,12 +196,15 @@ const BlocksRenderer = memo(function BlocksRenderer({
   streaming,
   mdRef,
   collapseNonText = false,
+  showSource = false,
 }: {
   blocks: ContentBlock[];
   toolResults: Record<string, ToolResult>;
   streaming: boolean;
   mdRef: React.RefObject<HTMLDivElement | null>;
   collapseNonText?: boolean;
+  /** 源码视图：text 块直接显示原始 markdown，不渲染 */
+  showSource?: boolean;
 }) {
   // 找到最后一个 text block 的索引（光标 / throttle 锚点）
   let lastTextIdx = -1;
@@ -299,12 +313,21 @@ const BlocksRenderer = memo(function BlocksRenderer({
 
     // text block
     rendered.push(
-      <TextPart
-        key={`tx-${i}`}
-        text={block.text}
-        live={streaming && i === lastTextIdx}
-        anchor={i === lastTextIdx ? mdRef : undefined}
-      />
+      showSource ? (
+        <pre
+          key={`tx-${i}`}
+          className="whitespace-pre-wrap break-words font-mono text-[12px] leading-relaxed text-t-secondary"
+        >
+          {block.text}
+        </pre>
+      ) : (
+        <TextPart
+          key={`tx-${i}`}
+          text={block.text}
+          live={streaming && i === lastTextIdx}
+          anchor={i === lastTextIdx ? mdRef : undefined}
+        />
+      ),
     );
     i += 1;
   }
@@ -315,6 +338,7 @@ const BlocksRenderer = memo(function BlocksRenderer({
   if (
     prev.streaming !== next.streaming
     || prev.collapseNonText !== next.collapseNonText
+    || prev.showSource !== next.showSource
   ) return false;
   return contentBlocksEqual(prev.blocks, next.blocks)
     && toolResultsEqual(prev.toolResults, next.toolResults);
@@ -492,6 +516,10 @@ export const AssistantMessage = memo(
   }) {
     const isStreaming = message.streaming ?? false;
     const mdRef = useRef<HTMLDivElement>(null);
+    // 消息文本含 mermaid 代码块时显示「源码/渲染」切换按钮
+    const hasMermaid = textHasMermaid(message.content)
+      || (message.blocks ?? []).some((b) => b.type === "text" && textHasMermaid(b.text));
+    const [showSource, setShowSource] = useState(false);
     // 保持原有策略：流式时展开过程，TURN 结束后收起并只保留最后一个 text。
     const [processExpanded, setProcessExpanded] = useState(isStreaming);
     useEffect(() => {
@@ -544,6 +572,21 @@ export const AssistantMessage = memo(
                 </button>
               )}
 
+              {/* mermaid 消息：源码 / 渲染视图切换（流式结束才显示） */}
+              {hasMermaid && !isStreaming && (
+                <div className="mb-1 flex justify-end">
+                  <button
+                    type="button"
+                    onClick={() => setShowSource((v) => !v)}
+                    title={showSource ? "预览渲染结果" : "查看源码"}
+                    className="inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[11px] text-t-ghost transition-colors hover:bg-hover hover:text-t-primary"
+                  >
+                    {showSource ? <BookOpen size={12} /> : <Code2 size={12} />}
+                    {showSource ? "渲染" : "源码"}
+                  </button>
+                </div>
+              )}
+
               {displayBlocks.length > 0 ? (
                 <div className="flex flex-col gap-2">
                   <BlocksRenderer
@@ -552,11 +595,18 @@ export const AssistantMessage = memo(
                     streaming={isStreaming}
                     mdRef={mdRef}
                     collapseNonText={processExpanded}
+                    showSource={showSource}
                   />
                 </div>
               ) : allBlocks.length === 0 && message.content ? (
                 <div className="flex flex-col gap-2">
-                  <ThinkAwareContent text={message.content} live={isStreaming} anchor={mdRef} />
+                  {showSource ? (
+                    <pre className="whitespace-pre-wrap break-words font-mono text-[12px] leading-relaxed text-t-secondary">
+                      {message.content}
+                    </pre>
+                  ) : (
+                    <ThinkAwareContent text={message.content} live={isStreaming} anchor={mdRef} />
+                  )}
                 </div>
               ) : null}
 
