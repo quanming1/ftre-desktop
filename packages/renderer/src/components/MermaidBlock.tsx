@@ -36,6 +36,31 @@ function stripSvgSize(svgStr: string, css: string): string {
   });
 }
 
+/**
+ * 从 mermaid 输出解析固有尺寸（viewBox 优先，其次 width/height 属性）。
+ * svg 剥掉宽高后没有内在尺寸（不像 <img>），flex 容器里会塌缩为 0——
+ * viewer 必须显式给出像素尺寸。
+ */
+function intrinsicSizeOf(svgStr: string): { w: number; h: number } | null {
+  const vb = /viewBox="\s*([\d.eE+-]+)[\s,]+([\d.eE+-]+)[\s,]+([\d.eE+-]+)[\s,]+([\d.eE+-]+)/.exec(svgStr);
+  if (vb) {
+    const w = Number(vb[3]);
+    const h = Number(vb[4]);
+    if (w > 0 && h > 0) return { w, h };
+  }
+  const w = Number(/width="([\d.]+)px?"/.exec(svgStr)?.[1] ?? 0);
+  const h = Number(/height="([\d.]+)px?"/.exec(svgStr)?.[1] ?? 0);
+  return w > 0 && h > 0 ? { w, h } : null;
+}
+
+/** viewer 内图表的适配尺寸（等价 img 的 max-w + object-contain）：撑满 92vw × 80vh */
+function fitBox(size: { w: number; h: number }) {
+  const vw = typeof window !== "undefined" ? window.innerWidth * 0.92 : 920;
+  const vh = typeof window !== "undefined" ? window.innerHeight * 0.8 : 640;
+  const fit = Math.min(vw / size.w, vh / size.h);
+  return { w: size.w * fit, h: size.h * fit };
+}
+
 export const MermaidBlock = memo(function MermaidBlock({ code }: { code: string }) {
   const [svg, setSvg] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -88,7 +113,7 @@ export const MermaidBlock = memo(function MermaidBlock({ code }: { code: string 
   }, [code]);
 
   const openLightbox = useCallback(() => {
-    // svg 去 width/height 后由 max-width/max-height 适配显示（等价 img 的 object-contain）
+    // 图表容器在 render 时按 viewBox 算好适配像素尺寸（撑满 92vw × 80vh）
     scaleRef.current = 1;
     posRef.current = { x: 0, y: 0 };
     setScale(1);
@@ -173,7 +198,12 @@ export const MermaidBlock = memo(function MermaidBlock({ code }: { code: string 
     [svg],
   );
   const viewerSvg = useMemo(
-    () => stripSvgSize(svg, "display:block;max-width:92vw;max-height:80vh;"),
+    () => stripSvgSize(svg, "width:100%;height:100%;display:block;"),
+    [svg],
+  );
+  // viewer 图表容器显式像素尺寸（svg 无内在尺寸，必须由容器给定）
+  const viewerBox = useMemo(
+    () => (svg ? intrinsicSizeOf(svg) : null),
     [svg],
   );
 
@@ -231,8 +261,12 @@ export const MermaidBlock = memo(function MermaidBlock({ code }: { code: string 
           </div>
         ) : (
           <div
-            className="select-none rounded-lg bg-white shadow-2xl"
+            data-testid="mmd-viewer-box"
+            className="select-none overflow-hidden rounded-lg bg-white shadow-2xl"
             style={{
+              // 显式像素尺寸：svg 剥掉宽高后无内在尺寸，不给定会塌缩为 0（图表看不见）
+              width: viewerBox ? `${fitBox(viewerBox).w}px` : "min(92vw, 900px)",
+              height: viewerBox ? `${fitBox(viewerBox).h}px` : "auto",
               transform: `translate(${position.x}px, ${position.y}px) scale(${scale})`,
               transition: isDragging ? "none" : "transform 0.15s ease-out",
             }}
