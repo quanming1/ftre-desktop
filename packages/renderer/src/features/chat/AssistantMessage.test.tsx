@@ -33,11 +33,8 @@ vi.mock("mermaid", () => ({
   },
 }));
 
-// FileLink 点击后的打开逻辑（真实实现在 toolActions，走 IPC + editor store）
-vi.mock("./toolActions", () => ({
-  handleOpenFile: vi.fn().mockResolvedValue(undefined),
-  handleOpenFileAtLine: vi.fn().mockResolvedValue(undefined),
-}));
+import { useInspector } from "@/stores/inspector";
+import { useLayout } from "@/stores/layout";
 
 describe("AssistantMessage tool result rendering", () => {
   it("re-renders a running edit tool immediately when TOOL_RESULT_END completes it", () => {
@@ -518,7 +515,7 @@ describe("AssistantMessage mermaid 渲染与源码/渲染切换", () => {
 });
 
 describe("AssistantMessage 本地文件链接（file://）", () => {
-  it("file:// 链接渲染为文件 chip，点击在编辑器打开文件", async () => {
+  it("file:// 链接渲染为文件 chip，点击在 Inspector 面板打开文件", () => {
     const message: ChatMessage = {
       id: "reply-filelink",
       role: "assistant",
@@ -533,15 +530,15 @@ describe("AssistantMessage 本地文件链接（file://）", () => {
     expect(chip.tagName).toBe("BUTTON");
     expect(chip.textContent).toContain("main.py");
 
-    // 点击 → handleOpenFile（与 read/write 打开 tab 同一逻辑）
-    const { handleOpenFile } = await import("./toolActions");
+    // 面板初始隐藏 → 点击后打开 file tab 且 inspector 面板可见（与 read/write 同款）
+    useLayout.setState({ panelVisible: { ...useLayout.getState().panelVisible, inspector: false } });
     fireEvent.click(chip);
-    await waitFor(() =>
-      expect(handleOpenFile).toHaveBeenCalledWith("E:/ftre/src/ftre/main.py"),
-    );
+    const tabs = useInspector.getState().tabs;
+    expect(tabs.some((t) => t.type === "file" && t.filePath === "E:/ftre/src/ftre/main.py")).toBe(true);
+    expect(useLayout.getState().panelVisible.inspector).toBe(true);
   });
 
-  it("带 #L 行号的链接打开并跳转到行", async () => {
+  it("带 #L 行号的链接打开并携带跳转行号", () => {
     const message: ChatMessage = {
       id: "reply-filelink-line",
       role: "assistant",
@@ -554,11 +551,11 @@ describe("AssistantMessage 本地文件链接（file://）", () => {
     const chip = screen.getByTitle("E:/ftre/src/ftre/plugin/kernel/context.py:37");
     expect(chip.textContent).toContain(":37");
 
-    const { handleOpenFileAtLine } = await import("./toolActions");
     fireEvent.click(chip);
-    await waitFor(() =>
-      expect(handleOpenFileAtLine).toHaveBeenCalledWith("E:/ftre/src/ftre/plugin/kernel/context.py", 37),
-    );
+    const tab = useInspector.getState().tabs.find(
+      (t) => t.type === "file" && t.filePath === "E:/ftre/src/ftre/plugin/kernel/context.py",
+    ) as { revealLine?: number } | undefined;
+    expect(tab?.revealLine).toBe(37);
   });
 
   it("http 链接不受影响（仍渲染为 <a>）", () => {
