@@ -5,9 +5,9 @@
  *   [展示名](file:///E:/proj/src/main.py)      基本格式
  *   [展示名](file:///E:/proj/src/main.py#L42)  指定行号
  *
- * 本组件把它渲染为与网址链接不同的「文件 chip」UI（文件类型图标 + 等宽字体）。
- * 点击在右侧 Inspector 面板打开文件预览 tab——与 read/write 工具卡片的打开逻辑
- * 完全一致（openFilePreview + 确保 inspector 面板可见），支持行号跳转。
+ * 本组件把它渲染为轻量文件链接（文件类型图标 + 加粗等宽文件名 + 绿色虚线下边框，
+ * 无背景无边框，hover 提示完整绝对路径）。点击在右侧 Inspector 面板打开文件预览
+ * tab——与 read/write 工具卡片的打开逻辑完全一致，支持行号跳转。
  */
 import { memo, useCallback } from "react";
 import { useInspector } from "@/stores/inspector";
@@ -90,10 +90,15 @@ export const FileLink = memo(function FileLink({
       type="button"
       onClick={handleClick}
       title={target.line != null ? `${target.path}:${target.line}` : target.path}
-      className="inline-flex max-w-full items-center gap-1 rounded-md border border-border bg-elevated px-1.5 py-0.5 align-baseline font-mono text-[12px] text-t-primary transition-colors hover:border-t-primary hover:bg-hover"
+      className="inline-flex max-w-full items-baseline gap-1 align-baseline font-mono text-[12px] text-t-primary transition-colors hover:text-emerald-700"
     >
       <FileIconView path={target.path} size={13} />
-      <span className="truncate">{displayName}</span>
+      <span
+        className="truncate font-semibold"
+        style={{ borderBottom: "1px dashed #059669" }}
+      >
+        {displayName}
+      </span>
       {target.line != null && (
         <span className="shrink-0 text-t-muted">:{target.line}</span>
       )}
