@@ -5,12 +5,16 @@
  * 无快照时从磁盘读取。filePreviewCache 缓存已加载文件，切回时秒切。
  * 轮询校验 mtime，文件被外部修改时自动清除缓存并重载。
  * 使用 @jiang_quan_ming/react-code-diff 的 preview 模式展示文件内容。
+ * md / html 文件额外支持「渲染预览」：markdown 走共享渲染管线（MarkdownPreview），
+ * html 走 sandbox iframe（HtmlPreview），默认打开即渲染视图，工具栏按钮可切回源码。
  */
 import { useState, useEffect, useCallback, useMemo } from "react";
-import { Loader2, WrapText } from "lucide-react";
+import { BookOpen, Code2, Loader2, WrapText } from "lucide-react";
 import { CodeDiff } from "@jiang_quan_ming/react-code-diff";
 import { useInspector } from "@/stores/inspector";
 import { filePreviewCache } from "../filePreviewCache";
+import { MarkdownPreview } from "./MarkdownPreview";
+import { HtmlPreview } from "./HtmlPreview";
 import type { TabRendererProps } from "../tabRegistry";
 import type { FileTab } from "@/stores/inspector";
 
@@ -18,12 +22,16 @@ function detectLanguage(filePath: string): string {
   const ext = filePath.match(/\.([a-z0-9]+)$/i)?.[1]?.toLowerCase() ?? "";
   const map: Record<string, string> = {
     ts: "typescript", tsx: "tsx", js: "javascript", jsx: "jsx",
-    py: "python", json: "json", md: "markdown", go: "go", rs: "rust",
+    py: "python", json: "json", md: "markdown", markdown: "markdown",
+    go: "go", rs: "rust",
     java: "java", c: "c", cpp: "cpp", sh: "bash", yml: "yaml", yaml: "yaml",
-    html: "html", css: "css", xml: "xml", sql: "sql", toml: "toml",
+    html: "html", htm: "html", css: "css", xml: "xml", sql: "sql", toml: "toml",
   };
   return map[ext] ?? ext ?? "plaintext";
 }
+
+/** 支持「渲染预览」的语言：markdown 渲染为富文本，html 走 sandbox iframe */
+const RENDERABLE_LANGUAGES = new Set(["markdown", "html"]);
 
 interface LoadedFile {
   content: string;
@@ -59,6 +67,23 @@ export function FileRenderer({ tab, wordWrap }: TabRendererProps) {
     effectiveSnapshot == null && !filePreviewCache.has(filePath),
   );
   const [error, setError] = useState<string | null>(null);
+
+  // ── 渲染预览（md / html）─────────────────────────────────────────
+  // rendered：当前展示的视图（源码 / 渲染）；md / html 默认渲染视图
+  // renderOpened：keep-alive 标记——渲染视图挂载后不卸载，
+  //   源码 / 渲染用 CSS hidden 切换显示，避免反复解析 markdown / 重建 iframe。
+  // userChoseMode：用户手动切换过后，后续文件重载不再覆盖其选择。
+  const [rendered, setRendered] = useState(false);
+  const [renderOpened, setRenderOpened] = useState(false);
+  const [userChoseMode, setUserChoseMode] = useState(false);
+
+  const renderable = file != null && RENDERABLE_LANGUAGES.has(file.language);
+
+  const toggleRendered = useCallback(() => {
+    setUserChoseMode(true);
+    setRenderOpened(true);
+    setRendered((prev) => !prev);
+  }, []);
 
   const loadFile = useCallback(async (path: string) => {
     // 先查缓存，但校验 mtime 防止脏读
@@ -153,6 +178,22 @@ export function FileRenderer({ tab, wordWrap }: TabRendererProps) {
     setSnapshotInvalidated(false);
   }, [filePath]);
 
+  // filePath 变化时重置渲染预览状态（同一 tab 复用打开不同文件，新文件重新走默认渲染）
+  useEffect(() => {
+    setRendered(false);
+    setRenderOpened(false);
+    setUserChoseMode(false);
+  }, [filePath]);
+
+  // md / html 默认进入渲染视图（声明在上方重置 effect 之后，保证重置先执行）；
+  // 用户手动切换过后（userChoseMode）文件内容重载不再覆盖其选择
+  useEffect(() => {
+    if (renderable && !userChoseMode) {
+      setRendered(true);
+      setRenderOpened(true);
+    }
+  }, [filePath, renderable, userChoseMode]);
+
   const displayPath = filePath.replace(/\\/g, "/");
 
   return (
@@ -163,6 +204,16 @@ export function FileRenderer({ tab, wordWrap }: TabRendererProps) {
           {displayPath.split("/").pop()}
         </span>
         <div className="ml-auto flex items-center gap-1 shrink-0">
+          {/* 渲染预览切换（仅 md / html） */}
+          {renderable && (
+            <button
+              onClick={toggleRendered}
+              title={rendered ? "查看源码" : "预览渲染结果"}
+              className={`p-1.5 rounded transition-colors ${rendered ? "text-t-primary bg-hover" : "text-t-faint hover:text-t-primary hover:bg-hover"}`}
+            >
+              {rendered ? <Code2 size={16} /> : <BookOpen size={16} />}
+            </button>
+          )}
           {/* 换行切换 */}
           <button
             onClick={() => useInspector.getState().toggleWordWrap()}
@@ -174,20 +225,36 @@ export function FileRenderer({ tab, wordWrap }: TabRendererProps) {
         </div>
       </div>
 
-      {/* 代码预览 */}
+      {/* 内容预览：源码 / 渲染 双视图切换 */}
       <div className="flex-1 min-h-0 bg-surface">
         {file ? (
-          <CodeDiff
-            oldValue=""
-            newValue={file.content}
-            language={file.language}
-            fileName={displayPath}
-            viewMode="preview"
-            theme="light"
-            showToolbar={false}
-            wrapLines={wordWrap}
-            style={{ height: "100%" }}
-          />
+          <>
+            {/* 源码视图（rendered 状态下隐藏但保持挂载，切回无需重新高亮） */}
+            <div className={rendered && renderable ? "hidden" : "h-full"}>
+              <CodeDiff
+                oldValue=""
+                newValue={file.content}
+                language={file.language}
+                fileName={displayPath}
+                viewMode="preview"
+                theme="light"
+                showToolbar={false}
+                wrapLines={wordWrap}
+                style={{ height: "100%" }}
+              />
+            </div>
+            {/* 渲染视图：首次切换才挂载；markdown keep-alive（隐藏切换），
+                html iframe 仅在展示时挂载，避免后台持续执行脚本 */}
+            {renderable && renderOpened && (
+              <div className={rendered ? "h-full" : "hidden"}>
+                {file.language === "markdown" ? (
+                  <MarkdownPreview content={file.content} />
+                ) : rendered ? (
+                  <HtmlPreview content={file.content} title={displayPath} />
+                ) : null}
+              </div>
+            )}
+          </>
         ) : (
           <div className="h-full flex items-center justify-center">
             {loading && <Loader2 size={16} className="animate-spin text-t-ghost" />}
