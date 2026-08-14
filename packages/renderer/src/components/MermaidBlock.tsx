@@ -14,9 +14,12 @@
  * - svg 字符串改写（stripSvgSize）结果 useMemo：拖拽/缩放每帧重渲染时不重跑正则
  * - 拖拽/缩放高频路径零 React 渲染：ref 持真值 + syncDom 直改 DOM（rAF 合并），
  *   彻底避免每次 mousemove 让整个 lightbox（含几百 KB svg 容器）reconcile——拖动卡顿主因
+ * - 清晰度：viewer 保持内联 SVG 矢量 + 不用常驻 will-change（会锁死合成层光栅化分辨率，
+ *   transform 放大变位图拉伸而模糊）——Chrome 在 scale 变化后按新比例重光栅化，矢量保真；
+ *   拖拽平移不改变采样密度，仍然走纯合成层路径
  * - 消息内图表容器 content-visibility:auto —— 视口外的 SVG 跳过渲染与布局，
  *   长消息列表滚动只渲染可见图表；放大查看打开时内联副本降为 hidden 进一步省一份
- * - viewer 图表容器 will-change:transform 提升合成层
+ * - 打开时两帧预热（0.1% 缩放往返）提前完成首帧光栅化，消除首次拖动一卡
  * - 渲染 id 单调递增（renderCounter），并发 render 无 id 冲突
  */
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
@@ -251,25 +254,6 @@ export const MermaidBlock = memo(function MermaidBlock({ code }: { code: string 
     [svg],
   );
 
-  // viewer 位图路径：svg → blob URL <img>。img 纹理在加载时上传 GPU（与 ImageViewer
-  // 同一硬件路径），首次拖动无需现场光栅化整棵 SVG DOM（那是首卡根源）。
-  // 条件：环境支持 createObjectURL 且 svg 无 foreignObject（img 内不渲染则丢文本）。
-  const viewerImgUrl = useMemo(() => {
-    if (!svg || svg.includes("foreignObject")) return null;
-    if (typeof URL?.createObjectURL !== "function") return null;
-    try {
-      return URL.createObjectURL(new Blob([svg], { type: "image/svg+xml" }));
-    } catch {
-      return null;
-    }
-  }, [svg]);
-
-  useEffect(() => {
-    return () => {
-      if (viewerImgUrl) URL.revokeObjectURL(viewerImgUrl);
-    };
-  }, [viewerImgUrl]);
-
   // 图表固有尺寸（viewBox）——inline 与 viewer 适配计算的依据
   const intrinsic = useMemo(
     () => (svg ? intrinsicSizeOf(svg) : null),
@@ -354,29 +338,19 @@ export const MermaidBlock = memo(function MermaidBlock({ code }: { code: string 
           <div
             ref={boxRef}
             data-testid="mmd-viewer-box"
-            className="select-none overflow-hidden rounded-lg bg-white shadow-2xl will-change-transform"
+            className="select-none overflow-hidden rounded-lg bg-white shadow-2xl"
             style={{
               // 显式像素尺寸：svg 剥掉宽高后无内在尺寸，不给定会塌缩为 0（图表看不见）；
-              // transform/cursor 由 syncDom 直改（拖拽缩放零 React 渲染），初值即 100% 居中
+              // transform/cursor 由 syncDom 直改（拖拽缩放零 React 渲染），初值即 100% 居中。
+              // 刻意不加 will-change：常驻会固定合成层光栅化分辨率，transform 放大是位图拉伸（糊）；
+              // 不加时 Chrome 会在 scale 变化后按新比例重新光栅化 SVG——矢量保真。
               width: viewerBox ? `${fitBox(viewerBox).w}px` : "min(92vw, 900px)",
               height: viewerBox ? `${fitBox(viewerBox).h}px` : "auto",
               transform: "translate(0px, 0px) scale(1)",
               transition: "transform 0.15s ease-out",
             }}
-          >
-            {viewerImgUrl ? (
-              // 位图路径：img 纹理加载即上传 GPU，首次拖动不卡（同 ImageViewer）
-              <img
-                src={viewerImgUrl}
-                alt="Mermaid 图表"
-                draggable={false}
-                className="h-full w-full select-none object-contain"
-              />
-            ) : (
-              // 回退：foreignObject（htmlLabels）或不支持 blob URL 时直接内联 SVG
-              <div className="h-full w-full" dangerouslySetInnerHTML={{ __html: viewerSvg }} />
-            )}
-          </div>
+            dangerouslySetInnerHTML={{ __html: viewerSvg }}
+          />
         )}
       </div>
 
