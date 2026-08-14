@@ -5,14 +5,14 @@
  *   [展示名](file:///E:/proj/src/main.py)      基本格式
  *   [展示名](file:///E:/proj/src/main.py#L42)  指定行号
  *
- * 本组件把它渲染为与网址链接不同的「文件 chip」UI（文件类型图标 + 等宽字体），
- * 点击在编辑器面板打开该文件（与 read/write 工具打开 tab 同一逻辑）：
- *   - 带行号 → handleOpenFileAtLine（打开并跳转到行）
- *   - 无行号 → handleOpenFile
+ * 本组件把它渲染为与网址链接不同的「文件 chip」UI（文件类型图标 + 等宽字体）。
+ * 点击在右侧 Inspector 面板打开文件预览 tab——与 read/write 工具卡片的打开逻辑
+ * 完全一致（openFilePreview + 确保 inspector 面板可见），支持行号跳转。
  */
 import { memo, useCallback } from "react";
+import { useInspector } from "@/stores/inspector";
+import { useLayout } from "@/stores/layout";
 import { FileIconView } from "./FileIconView";
-import { handleOpenFile, handleOpenFileAtLine } from "@/features/chat/toolActions";
 
 export interface FileLinkTarget {
   /** 本地绝对路径（正斜杠形式，如 E:/proj/src/main.py） */
@@ -56,17 +56,26 @@ export const FileLink = memo(function FileLink({
   label: string;
 }) {
   const target = parseFileLink(href);
+
   const handleClick = useCallback(
     (e: React.MouseEvent) => {
       e.preventDefault();
-      if (!target) return;
-      if (target.line != null) {
-        void handleOpenFileAtLine(target.path, target.line);
-      } else {
-        void handleOpenFile(target.path);
+      const t = target ?? parseFileLink(href);
+      if (!t) return;
+      // 与 InlineToolCallCard（read/write 工具卡片）同款逻辑：
+      // Inspector 右侧面板打开文件预览 tab + 面板不可见时展开
+      useInspector.getState().openFilePreview(
+        `file-link:${t.path}`,
+        t.path,
+        undefined,
+        t.line ?? undefined,
+        undefined,
+      );
+      if (!useLayout.getState().panelVisible.inspector) {
+        useLayout.getState().togglePanelVisible("inspector");
       }
     },
-    [target],
+    [href, target],
   );
 
   if (!target) {
@@ -91,3 +100,4 @@ export const FileLink = memo(function FileLink({
     </button>
   );
 });
+
