@@ -18,7 +18,7 @@ interface WorkspaceState {
   /** 最近打开过的文件夹路径列表（手动排序） */
   recentFolders: string[];
   setRootPath: (path: string) => void;
-  /** 从持久化存储恢复上次打开的文件夹 */
+  /** 初始化工作区：从后端 config 的 default_workspace 读取（启动时调用一次） */
   restore: () => Promise<void>;
   /** 从最近列表中移除一个文件夹 */
   removeRecentFolder: (path: string) => void;
@@ -88,8 +88,8 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
     const updatedRecent = pushRecent(get().recentFolders, path);
     set({ rootPath: path, recentFolders: updatedRecent });
     saveRecentFolders(updatedRecent);
-    // 持久化当前工作区
-    window.desktop?.store?.set("lastWorkspace", path).catch(() => {});
+    // 不持久化：工作区默认始终来自后端 config 的 default_workspace（restore 时读取），
+    // 「打开文件夹」只在本次会话内生效。
 
     // 切换工作区时保存当前 ViewState
 
@@ -126,14 +126,18 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
     if (get().restored) return;
     // 恢复最近文件夹列表
     const recentFolders = loadRecentFolders();
+    // 工作区默认值：后端 config 的 default_workspace（单一事实源）。
+    // 旧版持久化 lastWorkspace 已移除——不再跨重启记忆「上次打开的文件夹」。
     try {
-      const result = await window.desktop?.store?.get("lastWorkspace");
-      const saved = result?.value as string | null;
-      if (saved) {
+      const { fetchAppConfig } = await import("@/services/api");
+      const cfg = await fetchAppConfig();
+      const def = cfg?.default_workspace;
+      if (typeof def === "string" && def.trim()) {
+        const trimmed = def.trim();
         set({
-          rootPath: saved,
+          rootPath: trimmed,
           restored: true,
-          recentFolders: pushRecent(recentFolders, saved),
+          recentFolders: pushRecent(recentFolders, trimmed),
         });
       } else {
         set({ restored: true, recentFolders });
