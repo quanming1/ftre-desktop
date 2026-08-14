@@ -13,8 +13,9 @@
 import { memo } from "react";
 import ReactMarkdown from "react-markdown";
 import rehypeHighlight from "rehype-highlight";
-import { remarkPlugins, rehypePlugins } from "@/lib/markdown-plugins";
+import { remarkPlugins, rehypePlugins, urlTransform } from "@/lib/markdown-plugins";
 import { MermaidBlock } from "@/components/MermaidBlock";
+import { FileLink } from "@/components/FileLink";
 
 const markdownComponents = {
   code({ className, children, ...props }: React.ComponentPropsWithoutRef<"code"> & { className?: string }) {
@@ -26,6 +27,13 @@ const markdownComponents = {
         {children}
       </code>
     );
+  },
+  a({ href, children }: React.ComponentPropsWithoutRef<"a">) {
+    if (href && /^file:\/\//i.test(href)) {
+      const label = typeof children === "string" ? children : "";
+      return <FileLink href={href} label={label} />;
+    }
+    return <a href={href}>{children}</a>;
   },
 };
 
@@ -41,6 +49,7 @@ export const MarkdownPreview = memo(function MarkdownPreview({
           remarkPlugins={[...remarkPlugins]}
           rehypePlugins={[...rehypePlugins, rehypeHighlight]}
           components={markdownComponents}
+          urlTransform={urlTransform}
         >
           {content}
         </ReactMarkdown>

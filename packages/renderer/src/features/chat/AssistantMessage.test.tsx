@@ -33,6 +33,12 @@ vi.mock("mermaid", () => ({
   },
 }));
 
+// FileLink 点击后的打开逻辑（真实实现在 toolActions，走 IPC + editor store）
+vi.mock("./toolActions", () => ({
+  handleOpenFile: vi.fn().mockResolvedValue(undefined),
+  handleOpenFileAtLine: vi.fn().mockResolvedValue(undefined),
+}));
+
 describe("AssistantMessage tool result rendering", () => {
   it("re-renders a running edit tool immediately when TOOL_RESULT_END completes it", () => {
     const blocks: ContentBlock[] = [{
@@ -508,5 +514,65 @@ describe("AssistantMessage mermaid 渲染与源码/渲染切换", () => {
     // 关闭查看器
     fireEvent.click(closeBtn);
     await waitFor(() => expect(screen.queryByRole("button", { name: "关闭" })).not.toBeInTheDocument());
+  });
+});
+
+describe("AssistantMessage 本地文件链接（file://）", () => {
+  it("file:// 链接渲染为文件 chip，点击在编辑器打开文件", async () => {
+    const message: ChatMessage = {
+      id: "reply-filelink",
+      role: "assistant",
+      content: "见 [main.py](file:///E:/ftre/src/ftre/main.py) 的启动逻辑",
+      timestamp: 1,
+      streaming: false,
+    };
+    render(<AssistantMessage message={message} />);
+
+    // 渲染为 chip（button，非 <a>），title 为完整路径
+    const chip = screen.getByTitle("E:/ftre/src/ftre/main.py");
+    expect(chip.tagName).toBe("BUTTON");
+    expect(chip.textContent).toContain("main.py");
+
+    // 点击 → handleOpenFile（与 read/write 打开 tab 同一逻辑）
+    const { handleOpenFile } = await import("./toolActions");
+    fireEvent.click(chip);
+    await waitFor(() =>
+      expect(handleOpenFile).toHaveBeenCalledWith("E:/ftre/src/ftre/main.py"),
+    );
+  });
+
+  it("带 #L 行号的链接打开并跳转到行", async () => {
+    const message: ChatMessage = {
+      id: "reply-filelink-line",
+      role: "assistant",
+      content: "入口在 [context.py:37](file:///E:/ftre/src/ftre/plugin/kernel/context.py#L37)",
+      timestamp: 1,
+      streaming: false,
+    };
+    render(<AssistantMessage message={message} />);
+
+    const chip = screen.getByTitle("E:/ftre/src/ftre/plugin/kernel/context.py:37");
+    expect(chip.textContent).toContain(":37");
+
+    const { handleOpenFileAtLine } = await import("./toolActions");
+    fireEvent.click(chip);
+    await waitFor(() =>
+      expect(handleOpenFileAtLine).toHaveBeenCalledWith("E:/ftre/src/ftre/plugin/kernel/context.py", 37),
+    );
+  });
+
+  it("http 链接不受影响（仍渲染为 <a>）", () => {
+    const message: ChatMessage = {
+      id: "reply-weblink",
+      role: "assistant",
+      content: "参考 [文档](https://example.com/docs)",
+      timestamp: 1,
+      streaming: false,
+    };
+    render(<AssistantMessage message={message} />);
+
+    const link = screen.getByTitle("Ctrl + 点击在浏览器打开");
+    expect(link.tagName).toBe("A");
+    expect(link).toHaveAttribute("href", "https://example.com/docs");
   });
 });
