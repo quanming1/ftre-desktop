@@ -9,9 +9,10 @@ import { TurnFileChanges, type TurnFileChange } from "./TurnFileChanges";
 import { ChevronRight, Copy, Check, BookOpen, Code2 } from "lucide-react";
 import { Tooltip, TooltipProvider } from "@ftre/ui";
 import { useNotification } from "@/stores/notification";
-import { remarkPlugins, rehypePlugins } from "@/lib/markdown-plugins";
+import { remarkPlugins, rehypePlugins, urlTransform } from "@/lib/markdown-plugins";
 import { useAutoScrollToBottom } from "@/hooks/auto-scroll";
 import { MermaidBlock } from "@/components/MermaidBlock";
+import { FileLink } from "@/components/FileLink";
 import {
   assistantMessagePropsEqual,
   contentBlocksEqual,
@@ -49,7 +50,12 @@ const markdownComponents = {
     if (m) return <CodeBlock language={m[1]} code={String(children).replace(/\n$/, "")} />;
     return <code className={className} {...props}>{children}</code>;
   },
-  a({ href, children, ...props }: React.ComponentPropsWithoutRef<"a">) {
+  a({ href, children, node: _node, ...props }: React.ComponentPropsWithoutRef<"a"> & { node?: unknown }) {
+    // file:// 本地文件链接 → 文件 chip UI，点击在编辑器面板打开（read/write 同款逻辑）
+    if (href && /^file:\/\//i.test(href)) {
+      const label = typeof children === "string" ? children : "";
+      return <FileLink href={href} label={label} />;
+    }
     const handleClick = (e: React.MouseEvent) => {
       e.preventDefault();
       if (e.ctrlKey || e.metaKey) {
@@ -81,7 +87,7 @@ const markdownComponents = {
 const MarkdownBlock = memo(
   ({ content }: { content: string }) => (
     <div className="markdown-body">
-      <ReactMarkdown remarkPlugins={[...remarkPlugins]} rehypePlugins={[...rehypePlugins]} components={markdownComponents}>
+      <ReactMarkdown remarkPlugins={[...remarkPlugins]} rehypePlugins={[...rehypePlugins]} components={markdownComponents} urlTransform={urlTransform}>
         {content}
       </ReactMarkdown>
     </div>
