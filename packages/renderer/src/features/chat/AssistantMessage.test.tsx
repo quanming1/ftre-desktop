@@ -24,11 +24,12 @@ vi.mock("@/hooks/auto-scroll", () => ({
   }),
 }));
 
-// mermaid 是动态 import，vitest 对动态 import 的 mock 同样生效
+// mermaid 是动态 import，vitest 对动态 import 的 mock 同样生效；
+// viewBox 是真实 mermaid 输出必带的，intrinsicSizeOf 依赖它计算 viewer 像素尺寸
 vi.mock("mermaid", () => ({
   default: {
     initialize: vi.fn(),
-    render: vi.fn().mockResolvedValue({ svg: '<svg data-testid="mmd-svg"></svg>' }),
+    render: vi.fn().mockResolvedValue({ svg: '<svg data-testid="mmd-svg" viewBox="0 0 400 200"></svg>' }),
   },
 }));
 
@@ -467,6 +468,11 @@ describe("AssistantMessage mermaid 渲染与源码/渲染切换", () => {
     expect(closeBtn).toBeInTheDocument();
     expect(screen.getByText("100%")).toBeInTheDocument();
     const overlay = closeBtn.closest("div.fixed") as HTMLElement;
+
+    // 图表容器必须拿到显式像素尺寸（svg 无内在尺寸，缺失会塌缩为 0 → 图表不可见）
+    const viewBox = within(overlay).getByTestId("mmd-viewer-box");
+    expect(viewBox.style.width).toMatch(/px$/);
+    expect(viewBox.style.height).toMatch(/px$/);
 
     // 底部操作栏切换源码：显示该图 mermaid 源码，图表隐藏
     fireEvent.click(screen.getByRole("button", { name: "查看源码" }));
