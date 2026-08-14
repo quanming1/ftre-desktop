@@ -492,11 +492,11 @@ describe("AssistantMessage mermaid 渲染与源码/渲染切换", () => {
     // 底部操作栏切换源码：显示该图 mermaid 源码，图表隐藏
     fireEvent.click(screen.getByRole("button", { name: "查看源码" }));
     expect(within(overlay).getByText(/graph TD/)).toBeInTheDocument();
-    expect(within(overlay).queryByTestId("mmd-svg")).not.toBeInTheDocument();
+    expect(within(overlay).queryByTestId("mmd-viewer-box")).not.toBeInTheDocument();
 
-    // 返回渲染视图
+    // 返回渲染视图：viewer 恢复（位图 img 或内联 svg，取决于环境/foreignObject）
     fireEvent.click(screen.getByRole("button", { name: "预览渲染结果" }));
-    await waitFor(() => expect(within(overlay).getByTestId("mmd-svg")).toBeInTheDocument());
+    await waitFor(() => expect(within(overlay).getByTestId("mmd-viewer-box")).toBeInTheDocument());
 
     // 缩放：放大 → 130%，缩小 → 100%（syncDom 走 rAF，百分比异步更新）
     fireEvent.click(screen.getByRole("button", { name: "放大图表" }));

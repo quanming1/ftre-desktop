@@ -193,8 +193,22 @@ export const MermaidBlock = memo(function MermaidBlock({ code }: { code: string 
     dragging.current = false;
     setShowCode(false);
     setZoomed(true);
-    // 挂载后把初始 transform/cursor 写到 DOM（style 初值即 100%/居中，此处兜底）
-    requestAnimationFrame(() => syncDom());
+    // 挂载后预热：先同步初值，再两帧内做一次 0.1% 缩放往返，
+    // 强制浏览器提前完成合成层光栅化/纹理上传——消除首次拖动的一卡。
+    // 归位前校验 scaleRef 仍是自己写的 1.001：期间用户若已缩放则不打扰。
+    requestAnimationFrame(() => {
+      syncDom();
+      if (boxRef.current) boxRef.current.style.transition = "none";
+      scaleRef.current = 1.001;
+      syncDom();
+      requestAnimationFrame(() => {
+        if (scaleRef.current === 1.001) {
+          scaleRef.current = 1;
+          syncDom();
+        }
+        if (boxRef.current) boxRef.current.style.transition = "";
+      });
+    });
   }, [syncDom]);
 
   const closeLightbox = useCallback(() => setZoomed(false), []);
@@ -236,6 +250,26 @@ export const MermaidBlock = memo(function MermaidBlock({ code }: { code: string 
     () => stripSvgSize(svg, "width:100%;height:100%;display:block;"),
     [svg],
   );
+
+  // viewer 位图路径：svg → blob URL <img>。img 纹理在加载时上传 GPU（与 ImageViewer
+  // 同一硬件路径），首次拖动无需现场光栅化整棵 SVG DOM（那是首卡根源）。
+  // 条件：环境支持 createObjectURL 且 svg 无 foreignObject（img 内不渲染则丢文本）。
+  const viewerImgUrl = useMemo(() => {
+    if (!svg || svg.includes("foreignObject")) return null;
+    if (typeof URL?.createObjectURL !== "function") return null;
+    try {
+      return URL.createObjectURL(new Blob([svg], { type: "image/svg+xml" }));
+    } catch {
+      return null;
+    }
+  }, [svg]);
+
+  useEffect(() => {
+    return () => {
+      if (viewerImgUrl) URL.revokeObjectURL(viewerImgUrl);
+    };
+  }, [viewerImgUrl]);
+
   // 图表固有尺寸（viewBox）——inline 与 viewer 适配计算的依据
   const intrinsic = useMemo(
     () => (svg ? intrinsicSizeOf(svg) : null),
@@ -329,8 +363,20 @@ export const MermaidBlock = memo(function MermaidBlock({ code }: { code: string 
               transform: "translate(0px, 0px) scale(1)",
               transition: "transform 0.15s ease-out",
             }}
-            dangerouslySetInnerHTML={{ __html: viewerSvg }}
-          />
+          >
+            {viewerImgUrl ? (
+              // 位图路径：img 纹理加载即上传 GPU，首次拖动不卡（同 ImageViewer）
+              <img
+                src={viewerImgUrl}
+                alt="Mermaid 图表"
+                draggable={false}
+                className="h-full w-full select-none object-contain"
+              />
+            ) : (
+              // 回退：foreignObject（htmlLabels）或不支持 blob URL 时直接内联 SVG
+              <div className="h-full w-full" dangerouslySetInnerHTML={{ __html: viewerSvg }} />
+            )}
+          </div>
         )}
       </div>
 
