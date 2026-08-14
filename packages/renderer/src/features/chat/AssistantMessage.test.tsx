@@ -461,30 +461,30 @@ describe("AssistantMessage mermaid 渲染与源码/渲染切换", () => {
     render(<AssistantMessage message={mermaidMessage} />);
     await waitFor(() => expect(screen.getByTestId("mmd-svg")).toBeInTheDocument());
 
-    // 点击放大按钮 → 全屏 overlay 打开
-    fireEvent.click(screen.getByTitle("放大"));
-    expect(screen.getByText("Mermaid 图表")).toBeInTheDocument();
+    // 点击放大按钮 → 全屏查看器打开（ImageViewer UI）
+    fireEvent.click(screen.getByTitle("放大查看"));
+    const closeBtn = screen.getByRole("button", { name: "关闭" });
+    expect(closeBtn).toBeInTheDocument();
     expect(screen.getByText("100%")).toBeInTheDocument();
-    // overlay 容器（fixed 全屏层）
-    const overlay = screen.getByText("Mermaid 图表").closest(".fixed") as HTMLElement;
+    const overlay = closeBtn.closest("div.fixed") as HTMLElement;
 
-    // 弹窗内切换源码：overlay 内显示该图 mermaid 源码，图表隐藏
+    // 底部操作栏切换源码：显示该图 mermaid 源码，图表隐藏
     fireEvent.click(screen.getByRole("button", { name: "查看源码" }));
     expect(within(overlay).getByText(/graph TD/)).toBeInTheDocument();
     expect(within(overlay).queryByTestId("mmd-svg")).not.toBeInTheDocument();
 
-    // 切回渲染
+    // 返回渲染视图
     fireEvent.click(screen.getByRole("button", { name: "预览渲染结果" }));
     await waitFor(() => expect(within(overlay).getByTestId("mmd-svg")).toBeInTheDocument());
 
-    // 缩放：放大 → 125%，缩小 → 100%
+    // 缩放：放大 → 130%，缩小 → 100%
     fireEvent.click(screen.getByRole("button", { name: "放大图表" }));
-    expect(screen.getByText("125%")).toBeInTheDocument();
+    expect(screen.getByText("130%")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "缩小图表" }));
     expect(screen.getByText("100%")).toBeInTheDocument();
 
-    // 关闭 overlay 后标题消失
-    fireEvent.click(screen.getByRole("button", { name: "关闭" }));
-    await waitFor(() => expect(screen.queryByText("Mermaid 图表")).not.toBeInTheDocument());
+    // 关闭查看器
+    fireEvent.click(closeBtn);
+    await waitFor(() => expect(screen.queryByRole("button", { name: "关闭" })).not.toBeInTheDocument());
   });
 });
