@@ -426,8 +426,11 @@ describe("AssistantMessage mermaid 渲染与源码/渲染切换", () => {
 
     // 切换按钮可见（含 mermaid 且流式结束）
     expect(screen.getByTitle("查看源码")).toBeInTheDocument();
-    // 渲染视图：mermaid 渲染为 SVG
+    // 渲染视图：mermaid 渲染为 SVG，inline 容器拿到显式像素（防塌缩/超高回归）
     await waitFor(() => expect(screen.getByTestId("mmd-svg")).toBeInTheDocument());
+    const inlineBox = screen.getByTestId("mmd-inline-box");
+    expect(inlineBox.style.width).toMatch(/px$/);
+    expect(inlineBox.style.height).toMatch(/px$/);
 
     // 切到源码：显示原始 markdown（含 mermaid 围栏），SVG 消失
     fireEvent.click(screen.getByTitle("查看源码"));
@@ -437,6 +440,18 @@ describe("AssistantMessage mermaid 渲染与源码/渲染切换", () => {
     // 切回渲染：图表重新出现
     fireEvent.click(screen.getByTitle("预览渲染结果"));
     await waitFor(() => expect(screen.getByTestId("mmd-svg")).toBeInTheDocument());
+  });
+
+  it("竖向图表（高>宽）消息内高度受约束，不随宽度爆炸", async () => {
+    render(<AssistantMessage message={mermaidMessage} />);
+    await waitFor(() => expect(screen.getByTestId("mmd-inline-box")).toBeInTheDocument());
+    const inlineBox = screen.getByTestId("mmd-inline-box");
+    expect(inlineBox.style.width).toMatch(/px$/);
+    expect(inlineBox.style.height).toMatch(/px$/);
+    // 适配高度上限：min(innerHeight*0.6, 640)；jsdom innerHeight=768 → ≤ 461px
+    const h = parseFloat(inlineBox.style.height);
+    expect(h).toBeGreaterThan(0);
+    expect(h).toBeLessThanOrEqual(640);
   });
 
   it("流式中不显示切换按钮", () => {

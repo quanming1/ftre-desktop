@@ -77,3 +77,4 @@
 | 2026-08-14 | mermaid 查看器 UI/交互整体对齐 @ftre/ui ImageViewer（聊天图片放大组件）：高斯模糊遮罩 + 右上角圆形关闭 + 底部居中圆角操作栏（24px 大图标：放大/百分比/缩小/重置/源码）+ 滚轮 0.2~10x + 拖拽 + transform 动画 + Esc/点空白关闭 + portal 到 body；消息内 svg 去 width/height 撑满容器宽（修复默认显示过小） | 用户反馈：要图片放大组件的同款 UI 与缩放，默认图表太小 |
 | 2026-08-14 | 性能优化（FR4 markdown 渲染）：mermaid.initialize 模块级单次（多图并发无重复初始化/竞态）；stripSvgSize 结果 useMemo（拖拽缩放每帧重渲染不重跑全文正则，svg 可达几百 KB）；MarkdownPreview components 提模块级（content 变化不再重挂 code 子树导致图表重渲）；消息内图表 content-visibility:auto（视口外跳过渲染，列表滚动流畅），viewer 打开时内联副本降为 hidden；error 提示截断 500 字符 | 用户要求：做好性能优化 |
 | 2026-08-14 | 修复放大查看图表不可见：svg 剥掉固有宽高后在 flex 容器中无内在尺寸（不同于 img）而塌缩为 0——改为解析 viewBox 固有尺寸，图表容器显式给定适配像素（撑满 92vw × 80vh，等价 img object-contain）；测试 mock 补 viewBox 并断言容器像素尺寸防回归 | 用户反馈：点放大查看后看不到图表 |
+| 2026-08-14 | 修复消息内 mermaid 图表高度爆炸：竖向图（viewBox 高>>宽）撑满消息宽后高度等比放大至数千像素——改为满宽 wrapper + ResizeObserver 测容器宽，按 容器宽 × min(60vh,640) 双向 contain 显式给像素（横图按宽、竖图按高）；contain-intrinsic-size 同步用实际高度 | 用户反馈：markdown 中渲染的图高度非常高 |
