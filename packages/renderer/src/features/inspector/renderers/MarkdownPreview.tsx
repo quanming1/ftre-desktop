@@ -12,7 +12,7 @@ import { memo } from "react";
 import ReactMarkdown from "react-markdown";
 import rehypeHighlight from "rehype-highlight";
 import { remarkPlugins, rehypePlugins } from "@/lib/markdown-plugins";
-import { MermaidBlock } from "./MermaidBlock";
+import { MermaidBlock } from "@/components/MermaidBlock";
 
 export const MarkdownPreview = memo(function MarkdownPreview({
   content,

@@ -24,6 +24,14 @@ vi.mock("@/hooks/auto-scroll", () => ({
   }),
 }));
 
+// mermaid 是动态 import，vitest 对动态 import 的 mock 同样生效
+vi.mock("mermaid", () => ({
+  default: {
+    initialize: vi.fn(),
+    render: vi.fn().mockResolvedValue({ svg: '<svg data-testid="mmd-svg"></svg>' }),
+  },
+}));
+
 describe("AssistantMessage tool result rendering", () => {
   it("re-renders a running edit tool immediately when TOOL_RESULT_END completes it", () => {
     const blocks: ContentBlock[] = [{
@@ -400,5 +408,65 @@ describe("AssistantMessage collapsed display", () => {
     );
     expect(thinkingButton.querySelector("span")).not.toHaveClass("animate-process-breath");
     expect(bashButton.querySelector("span")).toHaveClass("animate-process-breath");
+  });
+});
+
+describe("AssistantMessage mermaid 渲染与源码/渲染切换", () => {
+  const mermaidMessage: ChatMessage = {
+    id: "reply-mermaid",
+    role: "assistant",
+    content: "流程如下：\n\n```mermaid\ngraph TD\nA-->B\n```",
+    timestamp: 1,
+    streaming: false,
+  };
+
+  it("含 mermaid 的消息渲染图表，并可切源码/渲染", async () => {
+    render(<AssistantMessage message={mermaidMessage} />);
+
+    // 切换按钮可见（含 mermaid 且流式结束）
+    expect(screen.getByTitle("查看源码")).toBeInTheDocument();
+    // 渲染视图：mermaid 渲染为 SVG
+    await waitFor(() => expect(screen.getByTestId("mmd-svg")).toBeInTheDocument());
+
+    // 切到源码：显示原始 markdown（含 mermaid 围栏），SVG 消失
+    fireEvent.click(screen.getByTitle("查看源码"));
+    expect(screen.getByText(/graph TD/)).toBeInTheDocument();
+    expect(screen.queryByTestId("mmd-svg")).not.toBeInTheDocument();
+
+    // 切回渲染：图表重新出现
+    fireEvent.click(screen.getByTitle("预览渲染结果"));
+    await waitFor(() => expect(screen.getByTestId("mmd-svg")).toBeInTheDocument());
+  });
+
+  it("流式中不显示切换按钮", () => {
+    render(
+      <AssistantMessage
+        message={{ ...mermaidMessage, streaming: true }}
+      />,
+    );
+    expect(screen.queryByTitle("查看源码")).not.toBeInTheDocument();
+  });
+
+  it("不含 mermaid 的消息不显示切换按钮", () => {
+    render(
+      <AssistantMessage
+        message={{ id: "reply-plain", role: "assistant", content: "普通回答", timestamp: 1, streaming: false }}
+      />,
+    );
+    expect(screen.queryByTitle("查看源码")).not.toBeInTheDocument();
+    expect(screen.queryByTitle("预览渲染结果")).not.toBeInTheDocument();
+  });
+
+  it("mermaid 图表可放大全屏展示（Modal）", async () => {
+    render(<AssistantMessage message={mermaidMessage} />);
+    await waitFor(() => expect(screen.getByTestId("mmd-svg")).toBeInTheDocument());
+
+    // 点击放大按钮 → 全屏 Modal 打开
+    fireEvent.click(screen.getByTitle("放大"));
+    expect(screen.getByText("Mermaid 图表")).toBeInTheDocument();
+
+    // 关闭 Modal 后标题消失（framer-motion exit 动画需等待）
+    fireEvent.click(screen.getByRole("button", { name: "关闭" }));
+    await waitFor(() => expect(screen.queryByText("Mermaid 图表")).not.toBeInTheDocument());
   });
 });

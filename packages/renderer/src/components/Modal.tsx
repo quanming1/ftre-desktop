@@ -71,6 +71,7 @@ export function Modal({
               )}
               <button
                 onClick={onClose}
+                aria-label="关闭"
                 className="w-10 h-10 rounded-full flex items-center justify-center text-t-ghost hover:text-t-primary hover:bg-hover transition-colors"
               >
                 <X size={18} />
