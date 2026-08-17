@@ -71,3 +71,18 @@
 | 日期 | 变更内容 | 理由 |
 |---|---|---|
 | 2026-08-12 | 初始定稿 | — |
+| 2026-08-14 | 新增：AI 消息 markdown 内 ```mermaid 代码块渲染为图表（MermaidBlock，动态 import mermaid、strict 安全、失败回退源码）；含 mermaid 的消息显示「源码/渲染」切换按钮（流式结束后显示）；mermaid 图右上角放大按钮，Modal 全屏展示。文件预览（MarkdownPreview）同步支持。自动化测试：AssistantMessage mermaid 4 用例 + FileRenderer mermaid 1 用例 | 用户需求：聊天消息 md 中的 mermaid/html 等可渲染内容要能可视化 + 源码/渲染切换 + 放大查看 |
+| 2026-08-14 | 优化放大弹窗：放弃 Modal（标准 header 过大），改为轻量全屏 overlay——细工具条（h-10：源码/渲染切换 + 缩放 +/-/重置 + 关闭），弹窗内可切换该图 mermaid 源码，图表 25%~400% 缩放（放大后可滚动）；标题小字显示 | 用户反馈：弹窗 header 太大、图标不能缩放、弹窗内需源码切换 |
+| 2026-08-14 | 放大查看器重做为标准图片查看器交互：打开即 fit 适应视口（小图放大撑满、大图缩小放下，解决默认过小）；滚轮缩放（以光标为中心，非 passive 监听可 preventDefault）；拖拽平移（scale>1 时 grab 光标）；双击复位；工具条 缩放/百分比/适应窗口/源码/关闭 | 用户反馈：要图片放大组件的缩放效果、默认显示太小 |
+| 2026-08-14 | mermaid 查看器 UI/交互整体对齐 @ftre/ui ImageViewer（聊天图片放大组件）：高斯模糊遮罩 + 右上角圆形关闭 + 底部居中圆角操作栏（24px 大图标：放大/百分比/缩小/重置/源码）+ 滚轮 0.2~10x + 拖拽 + transform 动画 + Esc/点空白关闭 + portal 到 body；消息内 svg 去 width/height 撑满容器宽（修复默认显示过小） | 用户反馈：要图片放大组件的同款 UI 与缩放，默认图表太小 |
+| 2026-08-14 | 性能优化（FR4 markdown 渲染）：mermaid.initialize 模块级单次（多图并发无重复初始化/竞态）；stripSvgSize 结果 useMemo（拖拽缩放每帧重渲染不重跑全文正则，svg 可达几百 KB）；MarkdownPreview components 提模块级（content 变化不再重挂 code 子树导致图表重渲）；消息内图表 content-visibility:auto（视口外跳过渲染，列表滚动流畅），viewer 打开时内联副本降为 hidden；error 提示截断 500 字符 | 用户要求：做好性能优化 |
+| 2026-08-14 | 修复放大查看图表不可见：svg 剥掉固有宽高后在 flex 容器中无内在尺寸（不同于 img）而塌缩为 0——改为解析 viewBox 固有尺寸，图表容器显式给定适配像素（撑满 92vw × 80vh，等价 img object-contain）；测试 mock 补 viewBox 并断言容器像素尺寸防回归 | 用户反馈：点放大查看后看不到图表 |
+| 2026-08-14 | 修复消息内 mermaid 图表高度爆炸：竖向图（viewBox 高>>宽）撑满消息宽后高度等比放大至数千像素——改为满宽 wrapper + ResizeObserver 测容器宽，按 容器宽 × min(60vh,640) 双向 contain 显式给像素（横图按宽、竖图按高）；contain-intrinsic-size 同步用实际高度 | 用户反馈：markdown 中渲染的图高度非常高 |
+| 2026-08-14 | 拖拽/缩放性能重构：高频交互路径零 React 渲染——scale/position/isDragging 改 ref 真值 + syncDom 直改 DOM（transform/百分比/cursor，rAF 合并一帧多次调用），拖动 mousemove 不再触发整个 lightbox（含几百 KB svg 容器）reconcile；viewer 容器 will-change:transform 提升合成层；React state 仅保留 zoomed/showCode 低频结构切换 | 用户反馈：拖动的时候性能不好 |
+| 2026-08-14 | 消除首次拖动卡顿：viewer 内 svg 转 blob URL <img> 位图渲染（img 纹理加载即上传 GPU，与 ImageViewer 同硬件路径；svg 含 foreignObject 或环境不支持时自动回退内联 SVG）；打开 lightbox 后两帧预热（0.1% 缩放往返，强制提前光栅化，归位前校验未被打扰） | 用户反馈：首次拖动的时候会卡一下 |
+| 2026-08-14 | 修复大图放大模糊：撤销 viewer 位图化（svg 转 img 后是位图，transform 放大即位图拉伸必然糊）并移除常驻 will-change:transform（锁死合成层光栅化分辨率同样导致放大糊）——恢复内联 SVG 矢量路径，Chrome 在 scale 变化后按新比例重新光栅化（矢量保真）；拖拽流畅性不受影响（平移不改变采样密度仍走合成层，React 零渲染机制不变），打开预热保留 | 用户反馈：大流程图放大会很糊 |
+| 2026-08-14 | 新增本地文件链接（file://）：AI 消息/文件预览 markdown 中 [名](file:///E:/abs/path[#L42]) 渲染为文件 chip（FileIconView 图标+等宽字体，区别于网址链接），点击经 handleOpenFile/handleOpenFileAtLine 在编辑器面板打开（与 read/write 工具同款逻辑，支持行号跳转）；markdown-plugins 新增 urlTransform（默认白名单+file 协议，仅两处接入点放行，未拦截处保持清空的安全默认）；a 组件剔除 react-markdown v10 的 node prop 泄漏。配套后端 system_prompt 约定（ftre C5） | 用户需求：AI 输出本地文件特殊链接，点击在右侧面板打开 |
+| 2026-08-14 | 文件链接 UI 轻量化：去背景/边框，文件名加粗 + 绿色虚线下边框（仅名字文本），hover 变绿并提示完整绝对路径，图标与行号不参与下划线 | 用户设计反馈 |
+| 2026-08-14 | 文件链接 hover 提示从原生 title（Electron 约 1s 延迟且不明显）换为 @ftre/ui Tooltip（radix，delayDuration=0 即时显示，深色浮层，side=bottom），与消息操作栏同组件 | 用户反馈：没看到 tooltip |
+| 2026-08-14 | 文件链接展示名自带行号（#L88-L102 / main.py:42 形式）时不再追加重复的 :line 后缀；行号跳转不受影响（仍取 href 的 #L） | 用户反馈：实际渲染中行号显示两遍 |
+| 2026-08-17 | 修复 ChatInput 发送按钮状态陈旧：Slate 非受控，打普通文本时唯一 setState（skillSearch）为 null 被 React 跳过 → hasDraft 停留旧值、按钮保持禁用；改为 onChange 显式同步 hasText state，hasDraft 改读 state。新增回归测试（mock Slate 边界捕获 onChange 驱动输入） | 修复：输入文字后发送按钮不可点 |

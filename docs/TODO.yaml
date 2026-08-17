@@ -102,3 +102,17 @@ stages:
           - Sidebar extensions / MCP view
           - terminal / global-search / bottom-panel
         acceptance: 设置可持久化，终端可交互，搜索结果正确，MCP 服务器列表可刷新
+
+  - id: D
+    name: 会话体验
+    steps:
+      - id: D1
+        title: 会话内容搜索
+        status: in_progress
+        date: 2026-08-17
+        prd: docs/prd/PRD-D1-session-search.md
+        prd_status: 开发中
+        modules:
+          - packages/renderer/src/features/session/SessionSearchResults.tsx
+          - packages/renderer/src/features/session/SessionPanel.tsx
+        acceptance: 会话面板顶部搜索框，防抖调后端 /sessions/search，结果高亮命中词与摘要，点击跳转会话，Esc/清空退出搜索

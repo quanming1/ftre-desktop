@@ -169,7 +169,7 @@ export function WsLogInspectorPanel({ active }: { active: boolean }) {
           <ToolbarButton title="打开日志目录" onClick={() => void window.desktop.wsLog.reveal()}>
             <ExternalLink size={13} />
           </ToolbarButton>
-          <ToolbarButton title="刷新" onClick={() => void load(false)}>
+          <ToolbarButton title="刷新" onClick={() => void load(false)} disabled={loading}>
             <RefreshCw size={13} className={loading ? "animate-spin" : ""} />
           </ToolbarButton>
           <ToolbarButton title="清空日志" onClick={() => void clear()}>
@@ -298,8 +298,17 @@ function RawPreview({ raw, fileName }: { raw: string; fileName: string }) {
   );
 }
 
-function ToolbarButton({ title, onClick, children }: { title: string; onClick: () => void; children: ReactNode }) {
-  return <button title={title} onClick={onClick} className="rounded p-1.5 text-t-ghost hover:bg-hover hover:text-t-primary">{children}</button>;
+function ToolbarButton({ title, onClick, children, disabled = false }: { title: string; onClick: () => void; children: ReactNode; disabled?: boolean }) {
+  return (
+    <button
+      title={title}
+      onClick={onClick}
+      disabled={disabled}
+      className={`rounded p-1.5 text-t-ghost hover:bg-hover hover:text-t-primary ${disabled ? "cursor-not-allowed opacity-50 hover:bg-transparent hover:text-t-ghost" : ""}`}
+    >
+      {children}
+    </button>
+  );
 }
 
 function CenteredText({ children }: { children: ReactNode }) {

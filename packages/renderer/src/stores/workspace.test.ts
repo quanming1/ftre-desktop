@@ -31,6 +31,14 @@ vi.mock('@/services/terminal', () => ({
     },
 }));
 
+// Mock 后端 config API：workspace.restore 从 default_workspace 初始化（不再读 Electron store）
+vi.mock('@/services/api', () => ({
+    fetchAppConfig: vi.fn(),
+}));
+
+import { fetchAppConfig } from '@/services/api';
+const mockFetchConfig = vi.mocked(fetchAppConfig);
+
 // Mock window.desktop.store
 const mockStoreGet = vi.fn();
 const mockStoreSet = vi.fn().mockResolvedValue(undefined);
@@ -44,6 +52,7 @@ beforeEach(() => {
     };
     mockStoreGet.mockReset();
     mockStoreSet.mockReset().mockResolvedValue(undefined);
+    mockFetchConfig.mockReset();
     vi.mocked(terminalManager.switchWorkspace).mockReset();
 });
 
@@ -53,9 +62,10 @@ describe('workspace store — setRootPath', () => {
         expect(useWorkspace.getState().rootPath).toBe('/project-a');
     });
 
-    it('persists path via window.desktop.store.set', () => {
+    it('does NOT persist rootPath（默认值只来自后端 config，不写 Electron store）', () => {
         useWorkspace.getState().setRootPath('/project-a');
-        expect(mockStoreSet).toHaveBeenCalledWith('lastWorkspace', '/project-a');
+        expect(useWorkspace.getState().rootPath).toBe('/project-a');
+        expect(mockStoreSet).not.toHaveBeenCalled();
     });
 
     it('does NOT run cleanup when setting rootPath for the first time (prev is null)', () => {
@@ -125,17 +135,17 @@ describe('workspace store — setRootPath', () => {
 });
 
 describe('workspace store — restore', () => {
-    it('restores rootPath from persisted storage', async () => {
-        mockStoreGet.mockResolvedValue({ value: '/saved-project' });
+    it('restores rootPath from backend default_workspace', async () => {
+        mockFetchConfig.mockResolvedValue({ default_workspace: '/backend-default' });
 
         await useWorkspace.getState().restore();
 
-        expect(useWorkspace.getState().rootPath).toBe('/saved-project');
+        expect(useWorkspace.getState().rootPath).toBe('/backend-default');
         expect(useWorkspace.getState().restored).toBe(true);
     });
 
-    it('sets restored=true even when no saved value', async () => {
-        mockStoreGet.mockResolvedValue({ value: null });
+    it('sets restored=true with no rootPath when config has no default_workspace', async () => {
+        mockFetchConfig.mockResolvedValue({});
 
         await useWorkspace.getState().restore();
 
@@ -143,8 +153,8 @@ describe('workspace store — restore', () => {
         expect(useWorkspace.getState().restored).toBe(true);
     });
 
-    it('sets restored=true on error', async () => {
-        mockStoreGet.mockRejectedValue(new Error('storage error'));
+    it('sets restored=true on fetch error', async () => {
+        mockFetchConfig.mockRejectedValue(new Error('config fetch error'));
 
         await useWorkspace.getState().restore();
 
@@ -152,14 +162,14 @@ describe('workspace store — restore', () => {
     });
 
     it('does not restore twice', async () => {
-        mockStoreGet.mockResolvedValue({ value: '/saved-project' });
+        mockFetchConfig.mockResolvedValue({ default_workspace: '/backend-default' });
 
         await useWorkspace.getState().restore();
-        mockStoreGet.mockResolvedValue({ value: '/other-project' });
+        mockFetchConfig.mockResolvedValue({ default_workspace: '/other-project' });
         await useWorkspace.getState().restore();
 
         // Still the first value
-        expect(useWorkspace.getState().rootPath).toBe('/saved-project');
-        expect(mockStoreGet).toHaveBeenCalledTimes(1);
+        expect(useWorkspace.getState().rootPath).toBe('/backend-default');
+        expect(mockFetchConfig).toHaveBeenCalledTimes(1);
     });
 });

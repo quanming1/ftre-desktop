@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 
 import type { ChatMessage, ContentBlock } from "@/stores/chat";
 import { AssistantMessage } from "./AssistantMessage";
@@ -23,6 +23,18 @@ vi.mock("@/hooks/auto-scroll", () => ({
     resetLock: vi.fn(),
   }),
 }));
+
+// mermaid 是动态 import，vitest 对动态 import 的 mock 同样生效；
+// viewBox 是真实 mermaid 输出必带的，intrinsicSizeOf 依赖它计算 viewer 像素尺寸
+vi.mock("mermaid", () => ({
+  default: {
+    initialize: vi.fn(),
+    render: vi.fn().mockResolvedValue({ svg: '<svg data-testid="mmd-svg" viewBox="0 0 400 200"></svg>' }),
+  },
+}));
+
+import { useInspector } from "@/stores/inspector";
+import { useLayout } from "@/stores/layout";
 
 describe("AssistantMessage tool result rendering", () => {
   it("re-renders a running edit tool immediately when TOOL_RESULT_END completes it", () => {
@@ -400,5 +412,186 @@ describe("AssistantMessage collapsed display", () => {
     );
     expect(thinkingButton.querySelector("span")).not.toHaveClass("animate-process-breath");
     expect(bashButton.querySelector("span")).toHaveClass("animate-process-breath");
+  });
+});
+
+describe("AssistantMessage mermaid 渲染与源码/渲染切换", () => {
+  const mermaidMessage: ChatMessage = {
+    id: "reply-mermaid",
+    role: "assistant",
+    content: "流程如下：\n\n```mermaid\ngraph TD\nA-->B\n```",
+    timestamp: 1,
+    streaming: false,
+  };
+
+  it("含 mermaid 的消息渲染图表，并可切源码/渲染", async () => {
+    render(<AssistantMessage message={mermaidMessage} />);
+
+    // 切换按钮可见（含 mermaid 且流式结束）
+    expect(screen.getByTitle("查看源码")).toBeInTheDocument();
+    // 渲染视图：mermaid 渲染为 SVG，inline 容器拿到显式像素（防塌缩/超高回归）
+    await waitFor(() => expect(screen.getByTestId("mmd-svg")).toBeInTheDocument());
+    const inlineBox = screen.getByTestId("mmd-inline-box");
+    expect(inlineBox.style.width).toMatch(/px$/);
+    expect(inlineBox.style.height).toMatch(/px$/);
+
+    // 切到源码：显示原始 markdown（含 mermaid 围栏），SVG 消失
+    fireEvent.click(screen.getByTitle("查看源码"));
+    expect(screen.getByText(/graph TD/)).toBeInTheDocument();
+    expect(screen.queryByTestId("mmd-svg")).not.toBeInTheDocument();
+
+    // 切回渲染：图表重新出现
+    fireEvent.click(screen.getByTitle("预览渲染结果"));
+    await waitFor(() => expect(screen.getByTestId("mmd-svg")).toBeInTheDocument());
+  });
+
+  it("竖向图表（高>宽）消息内高度受约束，不随宽度爆炸", async () => {
+    render(<AssistantMessage message={mermaidMessage} />);
+    await waitFor(() => expect(screen.getByTestId("mmd-inline-box")).toBeInTheDocument());
+    const inlineBox = screen.getByTestId("mmd-inline-box");
+    expect(inlineBox.style.width).toMatch(/px$/);
+    expect(inlineBox.style.height).toMatch(/px$/);
+    // 适配高度上限：min(innerHeight*0.6, 640)；jsdom innerHeight=768 → ≤ 461px
+    const h = parseFloat(inlineBox.style.height);
+    expect(h).toBeGreaterThan(0);
+    expect(h).toBeLessThanOrEqual(640);
+  });
+
+  it("流式中不显示切换按钮", () => {
+    render(
+      <AssistantMessage
+        message={{ ...mermaidMessage, streaming: true }}
+      />,
+    );
+    expect(screen.queryByTitle("查看源码")).not.toBeInTheDocument();
+  });
+
+  it("不含 mermaid 的消息不显示切换按钮", () => {
+    render(
+      <AssistantMessage
+        message={{ id: "reply-plain", role: "assistant", content: "普通回答", timestamp: 1, streaming: false }}
+      />,
+    );
+    expect(screen.queryByTitle("查看源码")).not.toBeInTheDocument();
+    expect(screen.queryByTitle("预览渲染结果")).not.toBeInTheDocument();
+  });
+
+  it("mermaid 图表可放大全屏展示，弹窗内可切换源码并缩放", async () => {
+    render(<AssistantMessage message={mermaidMessage} />);
+    await waitFor(() => expect(screen.getByTestId("mmd-svg")).toBeInTheDocument());
+
+    // 点击放大按钮 → 全屏查看器打开（ImageViewer UI）
+    fireEvent.click(screen.getByTitle("放大查看"));
+    const closeBtn = screen.getByRole("button", { name: "关闭" });
+    expect(closeBtn).toBeInTheDocument();
+    expect(screen.getByText("100%")).toBeInTheDocument();
+    const overlay = closeBtn.closest("div.fixed") as HTMLElement;
+
+    // 图表容器必须拿到显式像素尺寸（svg 无内在尺寸，缺失会塌缩为 0 → 图表不可见）
+    const viewBox = within(overlay).getByTestId("mmd-viewer-box");
+    expect(viewBox.style.width).toMatch(/px$/);
+    expect(viewBox.style.height).toMatch(/px$/);
+
+    // 底部操作栏切换源码：显示该图 mermaid 源码，图表隐藏
+    fireEvent.click(screen.getByRole("button", { name: "查看源码" }));
+    expect(within(overlay).getByText(/graph TD/)).toBeInTheDocument();
+    expect(within(overlay).queryByTestId("mmd-viewer-box")).not.toBeInTheDocument();
+
+    // 返回渲染视图：viewer 恢复（内联 SVG，矢量缩放保清晰）
+    fireEvent.click(screen.getByRole("button", { name: "预览渲染结果" }));
+    await waitFor(() => expect(within(overlay).getByTestId("mmd-viewer-box")).toBeInTheDocument());
+    expect(within(overlay).getByTestId("mmd-viewer-box").querySelector("svg")).not.toBeNull();
+
+    // 缩放：放大 → 130%，缩小 → 100%（syncDom 走 rAF，百分比异步更新）
+    fireEvent.click(screen.getByRole("button", { name: "放大图表" }));
+    await waitFor(() => expect(screen.getByText("130%")).toBeInTheDocument());
+    fireEvent.click(screen.getByRole("button", { name: "缩小图表" }));
+    await waitFor(() => expect(screen.getByText("100%")).toBeInTheDocument());
+
+    // 关闭查看器
+    fireEvent.click(closeBtn);
+    await waitFor(() => expect(screen.queryByRole("button", { name: "关闭" })).not.toBeInTheDocument());
+  });
+});
+
+describe("AssistantMessage 本地文件链接（file://）", () => {
+  it("file:// 链接渲染为文件 chip，点击在 Inspector 面板打开文件", () => {
+    const message: ChatMessage = {
+      id: "reply-filelink",
+      role: "assistant",
+      content: "见 [main.py](file:///E:/ftre/src/ftre/main.py) 的启动逻辑",
+      timestamp: 1,
+      streaming: false,
+    };
+    render(<AssistantMessage message={message} />);
+
+    // 渲染为链接按钮（非 <a>），文件名加粗显示
+    const chip = screen.getByRole("button", { name: /main\.py/ });
+    expect(chip.tagName).toBe("BUTTON");
+    expect(chip.textContent).toContain("main.py");
+
+    // 面板初始隐藏 → 点击后打开 file tab 且 inspector 面板可见（与 read/write 同款）
+    useLayout.setState({ panelVisible: { ...useLayout.getState().panelVisible, inspector: false } });
+    fireEvent.click(chip);
+    const tabs = useInspector.getState().tabs;
+    expect(tabs.some((t) => t.type === "file" && t.filePath === "E:/ftre/src/ftre/main.py")).toBe(true);
+    expect(useLayout.getState().panelVisible.inspector).toBe(true);
+  });
+
+  it("带 #L 行号的链接打开并携带跳转行号", () => {
+    const message: ChatMessage = {
+      id: "reply-filelink-line",
+      role: "assistant",
+      content: "入口在 [context.py:37](file:///E:/ftre/src/ftre/plugin/kernel/context.py#L37)",
+      timestamp: 1,
+      streaming: false,
+    };
+    render(<AssistantMessage message={message} />);
+
+    const chip = screen.getByRole("button", { name: /context\.py/ });
+    expect(chip.textContent).toContain(":37");
+
+    fireEvent.click(chip);
+    const tab = useInspector.getState().tabs.find(
+      (t) => t.type === "file" && t.filePath === "E:/ftre/src/ftre/plugin/kernel/context.py",
+    ) as { revealLine?: number } | undefined;
+    expect(tab?.revealLine).toBe(37);
+  });
+
+  it("展示名自带行号（#L88-L102）时不再追加重复的 :line 后缀", () => {
+    const message: ChatMessage = {
+      id: "reply-filelink-range",
+      role: "assistant",
+      content: "codex（[codex-adapter.ts #L88-L102](file:///E:/x/codex-adapter.ts#L88)）比我们多两项",
+      timestamp: 1,
+      streaming: false,
+    };
+    render(<AssistantMessage message={message} />);
+
+    const chip = screen.getByRole("button", { name: /codex-adapter/ });
+    // label 里的 #L88-L102 保留，且不重复追加 ":88" 后缀
+    expect(chip.textContent).toContain("#L88-L102");
+    expect(chip.textContent).not.toContain(":88");
+    // 行号跳转仍生效
+    fireEvent.click(chip);
+    const tab = useInspector.getState().tabs.find(
+      (t) => t.type === "file" && t.filePath === "E:/x/codex-adapter.ts",
+    ) as { revealLine?: number } | undefined;
+    expect(tab?.revealLine).toBe(88);
+  });
+
+  it("http 链接不受影响（仍渲染为 <a>）", () => {
+    const message: ChatMessage = {
+      id: "reply-weblink",
+      role: "assistant",
+      content: "参考 [文档](https://example.com/docs)",
+      timestamp: 1,
+      streaming: false,
+    };
+    render(<AssistantMessage message={message} />);
+
+    const link = screen.getByTitle("Ctrl + 点击在浏览器打开");
+    expect(link.tagName).toBe("A");
+    expect(link).toHaveAttribute("href", "https://example.com/docs");
   });
 });

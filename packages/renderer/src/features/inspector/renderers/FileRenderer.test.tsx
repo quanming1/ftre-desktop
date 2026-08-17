@@ -11,6 +11,14 @@ vi.mock("@jiang_quan_ming/react-code-diff", () => ({
   ),
 }));
 
+// mermaid 是动态 import，vitest 对动态 import 的 mock 同样生效
+vi.mock("mermaid", () => ({
+  default: {
+    initialize: vi.fn(),
+    render: vi.fn().mockResolvedValue({ svg: '<svg data-testid="mmd-svg"></svg>' }),
+  },
+}));
+
 beforeEach(() => {
   // FileRenderer 的 snapshot 注册 / 轮询会调用 fs.stat
   window.desktop = {
@@ -93,5 +101,27 @@ describe("FileRenderer 渲染预览", () => {
 
     expect(screen.queryByTitle("预览渲染结果")).not.toBeInTheDocument();
     expect(screen.queryByTitle("查看源码")).not.toBeInTheDocument();
+  });
+
+  it("md 内 mermaid 代码块渲染为图表，切源码视图可见 mermaid 源码", async () => {
+    const tab = makeTab({
+      content: "# 流程\n\n```mermaid\ngraph TD\nA-->B\n```",
+    });
+    const { container } = render(
+      <FileRenderer tab={tab} active wordWrap={false} />,
+    );
+
+    // 渲染视图：mermaid 块渲染为 SVG
+    await waitFor(() => expect(screen.getByTestId("mmd-svg")).toBeInTheDocument());
+
+    // 切到源码视图：mermaid 源码在 CodeDiff 中可见，SVG 隐藏
+    fireEvent.click(screen.getByTitle("查看源码"));
+    expect(screen.getByTestId("code-diff").textContent).toContain("graph TD");
+    expect(screen.getByTestId("mmd-svg").closest(".hidden")).not.toBeNull();
+
+    // 切回渲染视图：图表重新可见
+    fireEvent.click(screen.getByTitle("预览渲染结果"));
+    await waitFor(() => expect(screen.getByTestId("mmd-svg").closest(".hidden")).toBeNull());
+    expect(container.querySelector(".markdown-body")).not.toBeNull();
   });
 });

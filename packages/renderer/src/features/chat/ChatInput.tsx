@@ -308,6 +308,8 @@ export function ChatInput() {
   const sessionId = useChat((s) => s.sessionId);
   const autoFollow = useLayout((s) => s.autoFollowFiles);
   const toggleAutoFollow = useLayout((s) => s.toggleAutoFollowFiles);
+  /** 输入框是否有文字（Slate 非受控，需在 onChange 中显式同步，见 handleSlateChange） */
+  const [hasText, setHasText] = useState(false);
 
   // ── Session 切换时恢复输入框草稿 ──
   // 保存采用实时策略（在 onChange 中每次都存），避免组件卸载时丢失草稿。
@@ -397,6 +399,9 @@ export function ChatInput() {
     (value: import("slate").Descendant[]) => {
       inputEditor.onChange(value);
       setSkillSearch(inputEditor.getSkillSearch());
+      // Slate 非受控：打普通文本不会触发上层重渲染（skillSearch 无变化时 setState 被跳过），
+      // 必须显式同步"是否有文字"，否则发送按钮的 hasDraft 一直是旧值。
+      setHasText(!inputEditor.isEmpty);
       // 恢复期间跳过保存：setContent/clear 触发的 onChange 不应写入草稿
       if (restoringRef.current) return;
       // 实时保存草稿：每次编辑都存，避免组件卸载时丢失
@@ -736,7 +741,7 @@ export function ChatInput() {
     return () => window.removeEventListener("ftre:plan-next-step", handler);
   }, []);
 
-  const hasDraft = !inputEditor.isEmpty || attachments.length > 0;
+  const hasDraft = hasText || attachments.length > 0;
   const canSend =
     sessionStatus !== "compacting"
     && (!hasCoordinatorState || clientCanSend)
