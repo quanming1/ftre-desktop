@@ -84,3 +84,4 @@
 | 2026-08-14 | 新增本地文件链接（file://）：AI 消息/文件预览 markdown 中 [名](file:///E:/abs/path[#L42]) 渲染为文件 chip（FileIconView 图标+等宽字体，区别于网址链接），点击经 handleOpenFile/handleOpenFileAtLine 在编辑器面板打开（与 read/write 工具同款逻辑，支持行号跳转）；markdown-plugins 新增 urlTransform（默认白名单+file 协议，仅两处接入点放行，未拦截处保持清空的安全默认）；a 组件剔除 react-markdown v10 的 node prop 泄漏。配套后端 system_prompt 约定（ftre C5） | 用户需求：AI 输出本地文件特殊链接，点击在右侧面板打开 |
 | 2026-08-14 | 文件链接 UI 轻量化：去背景/边框，文件名加粗 + 绿色虚线下边框（仅名字文本），hover 变绿并提示完整绝对路径，图标与行号不参与下划线 | 用户设计反馈 |
 | 2026-08-14 | 文件链接 hover 提示从原生 title（Electron 约 1s 延迟且不明显）换为 @ftre/ui Tooltip（radix，delayDuration=0 即时显示，深色浮层，side=bottom），与消息操作栏同组件 | 用户反馈：没看到 tooltip |
+| 2026-08-14 | 文件链接展示名自带行号（#L88-L102 / main.py:42 形式）时不再追加重复的 :line 后缀；行号跳转不受影响（仍取 href 的 #L） | 用户反馈：实际渲染中行号显示两遍 |

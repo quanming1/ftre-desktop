@@ -558,6 +558,28 @@ describe("AssistantMessage 本地文件链接（file://）", () => {
     expect(tab?.revealLine).toBe(37);
   });
 
+  it("展示名自带行号（#L88-L102）时不再追加重复的 :line 后缀", () => {
+    const message: ChatMessage = {
+      id: "reply-filelink-range",
+      role: "assistant",
+      content: "codex（[codex-adapter.ts #L88-L102](file:///E:/x/codex-adapter.ts#L88)）比我们多两项",
+      timestamp: 1,
+      streaming: false,
+    };
+    render(<AssistantMessage message={message} />);
+
+    const chip = screen.getByRole("button", { name: /codex-adapter/ });
+    // label 里的 #L88-L102 保留，且不重复追加 ":88" 后缀
+    expect(chip.textContent).toContain("#L88-L102");
+    expect(chip.textContent).not.toContain(":88");
+    // 行号跳转仍生效
+    fireEvent.click(chip);
+    const tab = useInspector.getState().tabs.find(
+      (t) => t.type === "file" && t.filePath === "E:/x/codex-adapter.ts",
+    ) as { revealLine?: number } | undefined;
+    expect(tab?.revealLine).toBe(88);
+  });
+
   it("http 链接不受影响（仍渲染为 <a>）", () => {
     const message: ChatMessage = {
       id: "reply-weblink",
