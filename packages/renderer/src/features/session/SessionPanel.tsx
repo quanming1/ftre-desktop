@@ -77,6 +77,7 @@ import { ContextMenu, type ContextMenuItem } from "@/components/ContextMenu";
 import { Tooltip, TooltipProvider, ConfirmDialog } from "@ftre/ui";
 import { normalizePathForCompare } from "@/utils/pathUtils";
 import type { SessionSummary } from "@/services/api";
+import { SessionSearch } from "./SessionSearch";
 
 // ─── 水波纹（从共享组件导入） ──────────────────────────────────────
 import { useRipple, RippleLayer, type RippleItem } from "@/components/Ripple";
@@ -295,6 +296,8 @@ export function SessionPanel() {
   }, [sessionsCollapsed]);
 
   const [hoveredSession, setHoveredSession] = useState<string | null>(null);
+  /** 搜索模式：输入非空时列表区让位给搜索结果 */
+  const [searchActive, setSearchActive] = useState(false);
   /** 待确认删除的会话（null = 无确认弹窗） */
   const [confirmDeleteSession, setConfirmDeleteSession] = useState<SessionSummary | null>(null);
   /** 每个 group 已展开多少条；未列入即 PER_GROUP_DEFAULT */
@@ -1028,15 +1031,24 @@ export function SessionPanel() {
           />
         </div>
 
-        {/* ── 段头 + 排序模式切换 ── */}
+        {/* ── 会话搜索（结果替代下方列表渲染）── */}
+        <SessionSearch
+          onOpenSession={handleSwitchSession}
+          onActiveChange={setSearchActive}
+        />
+
+        {/* ── 段头 + 排序模式切换（搜索模式时隐藏，让位给搜索结果）── */}
+        {!searchActive && (
         <div className="shrink-0 px-3 pb-1 flex items-center justify-between">
           <span className="text-[12px] text-t-ghost font-medium">
             {sortMode === "workspace" ? "Ws Threads" : "All Threads"}
           </span>
           <SortModeToggle sortMode={sortMode} onToggle={setSortMode} />
         </div>
+        )}
 
-        {/* 列表 */}
+        {/* 列表（搜索模式时由 SessionSearch 内的结果列表替代） */}
+        {!searchActive && (
         <div className="flex-1 overflow-y-auto scrollbar-thin px-2 py-2">
           {totalCount === 0 ? (
             <div className="text-t-ghost px-2 py-12 text-center text-[13px]">
@@ -1211,9 +1223,13 @@ export function SessionPanel() {
                   )}
                 </>
               )}
-            </>
-          )}
+             </>
+           )}
         </div>
+        )}
+        {/* /搜索模式列表隐藏 */}
+
+        {/* ── 底部动作区（设置）── */}
 
         {/* ── 底部动作区（设置）── */}
         <div className="shrink-0 px-2 py-2">
