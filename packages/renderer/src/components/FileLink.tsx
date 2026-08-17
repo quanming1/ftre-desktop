@@ -85,6 +85,9 @@ export const FileLink = memo(function FileLink({
   }
 
   const displayName = label?.trim() || target.path;
+  // 展示名自带行号（如 "codex-adapter.ts #L88-L102"、'main.py:42'）时不再追加 :line，
+  // 避免同一行号显示两遍
+  const labelHasLine = /#L\d/i.test(displayName) || /:\d+\s*$/.test(displayName);
 
   const tooltipContent = target.line != null ? `${target.path}:${target.line}` : target.path;
 
@@ -103,7 +106,7 @@ export const FileLink = memo(function FileLink({
           >
             {displayName}
           </span>
-          {target.line != null && (
+          {target.line != null && !labelHasLine && (
             <span className="shrink-0 text-t-muted">:{target.line}</span>
           )}
         </button>
