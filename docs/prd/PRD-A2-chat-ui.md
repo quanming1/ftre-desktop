@@ -85,3 +85,4 @@
 | 2026-08-14 | 文件链接 UI 轻量化：去背景/边框，文件名加粗 + 绿色虚线下边框（仅名字文本），hover 变绿并提示完整绝对路径，图标与行号不参与下划线 | 用户设计反馈 |
 | 2026-08-14 | 文件链接 hover 提示从原生 title（Electron 约 1s 延迟且不明显）换为 @ftre/ui Tooltip（radix，delayDuration=0 即时显示，深色浮层，side=bottom），与消息操作栏同组件 | 用户反馈：没看到 tooltip |
 | 2026-08-14 | 文件链接展示名自带行号（#L88-L102 / main.py:42 形式）时不再追加重复的 :line 后缀；行号跳转不受影响（仍取 href 的 #L） | 用户反馈：实际渲染中行号显示两遍 |
+| 2026-08-17 | 修复 ChatInput 发送按钮状态陈旧：Slate 非受控，打普通文本时唯一 setState（skillSearch）为 null 被 React 跳过 → hasDraft 停留旧值、按钮保持禁用；改为 onChange 显式同步 hasText state，hasDraft 改读 state。新增回归测试（mock Slate 边界捕获 onChange 驱动输入） | 修复：输入文字后发送按钮不可点 |
