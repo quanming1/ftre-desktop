@@ -136,6 +136,59 @@ export interface SessionPage {
   offset: number;
 }
 
+// ─── Session Search（后端 E1：内存态检索）──────────────────────────
+
+/** 单条命中摘要（后端按命中位置截取 ~160 字符） */
+export interface SessionSearchHit {
+  mid: string;
+  role: string;
+  snippet: string;
+}
+
+export interface SessionSearchResult {
+  session_id: string;
+  title: string;
+  workspace: string;
+  channel: string;
+  updated_at: string;
+  title_matched: boolean;
+  hits: SessionSearchHit[];
+}
+
+export interface SessionSearchResponse {
+  query: string;
+  total: number;
+  results: SessionSearchResult[];
+}
+
+/**
+ * 按关键字检索会话标题与正文（后端内存态扫描，百毫秒级）。
+ * signal 用于防抖窗口内取消旧请求：被取消时返回 null（调用方静默丢弃）。
+ */
+export async function fetchSessionSearch(
+  opts: { q: string; limit?: number; workspace?: string | null; signal?: AbortSignal },
+): Promise<SessionSearchResponse | null> {
+  const params = new URLSearchParams({ q: opts.q });
+  params.set("limit", String(opts.limit ?? 30));
+  if (opts.workspace != null) params.set("workspace", opts.workspace);
+  try {
+    const res = await fetch(
+      `${API_BASE}/api/sessions/search?${params.toString()}`,
+      { signal: opts.signal },
+    );
+    if (!res.ok) return null;
+    const data = await res.json();
+    return {
+      query: typeof data.query === "string" ? data.query : opts.q,
+      total: typeof data.total === "number" ? data.total : 0,
+      results: Array.isArray(data.results) ? data.results : [],
+    };
+  } catch (err) {
+    if (err instanceof DOMException && err.name === "AbortError") return null;
+    return null;
+  }
+}
+
 /** 工作区摘要（侧边栏按工作区分组用） */
 export interface WorkspaceSummary {
   workspace: string;
