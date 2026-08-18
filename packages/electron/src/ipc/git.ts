@@ -442,4 +442,33 @@ export function registerGitIPC(): void {
       }
     },
   );
+
+  // 暂存区 Diff 前置查询：按文件绝对路径定位其所在仓库并读取暂存区版本。
+  // 与工作区级 status 缓存解耦——Inspector 预览的文件可能位于任意仓库，
+  // 应用工作区根目录本身甚至不是 git 仓库。
+  ipcMain.handle(
+    "git:index-diff",
+    async (_event, { filePath }: { filePath: string }) => {
+      try {
+        const dir = path.dirname(filePath);
+        // porcelain 输出 "XY path"：X = 暂存区状态，Y = 工作区状态；
+        // Y 为 M/T 表示工作区相对暂存区有修改（未暂存的 M）
+        const status = await gitExec(
+          ["status", "--porcelain", "--", filePath],
+          dir,
+        );
+        if (!status) return { available: false };
+        const y = status[1];
+        if (y !== "M" && y !== "T") return { available: false };
+        // ":./名字" = 相对 cwd 的索引（暂存区）版本；cwd 是文件所在目录
+        const staged = await gitExec(
+          ["show", `:./${path.basename(filePath)}`],
+          dir,
+        );
+        return { available: true, staged: staged ?? "" };
+      } catch (err: any) {
+        return { available: false, error: err.message };
+      }
+    },
+  );
 }

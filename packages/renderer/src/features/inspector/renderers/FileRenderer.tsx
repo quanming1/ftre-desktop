@@ -7,14 +7,18 @@
  * 使用 @jiang_quan_ming/react-code-diff 的 preview 模式展示文件内容。
  * md / html 文件额外支持「渲染预览」：markdown 走共享渲染管线（MarkdownPreview），
  * html 走 sandbox iframe（HtmlPreview），默认打开即渲染视图，工具栏按钮可切回源码。
+ * git 已跟踪且有未暂存修改（M）的文件，工具栏显示「暂存区 Diff」按钮：
+ * 点击新开一个 DiffTab（before = 暂存区版本 git show :path，after = 当前工作区内容）。
  */
 import { useState, useEffect, useCallback, useMemo } from "react";
-import { BookOpen, Code2, Loader2, WrapText } from "lucide-react";
+import { BookOpen, Code2, GitCompareArrows, Loader2, WrapText } from "lucide-react";
 import { CodeDiff } from "@jiang_quan_ming/react-code-diff";
 import { useInspector } from "@/stores/inspector";
 import { filePreviewCache } from "../filePreviewCache";
 import { MarkdownPreview } from "./MarkdownPreview";
 import { HtmlPreview } from "./HtmlPreview";
+import { PreviewHeader, PreviewToolbarButton } from "./PreviewHeader";
+import { codeDiffLightConfig } from "./codeDiffConfig";
 import type { TabRendererProps } from "../tabRegistry";
 import type { FileTab } from "@/stores/inspector";
 
@@ -38,8 +42,9 @@ interface LoadedFile {
   language: string;
 }
 
-export function FileRenderer({ tab, wordWrap }: TabRendererProps) {
+export function FileRenderer({ tab, active, wordWrap }: TabRendererProps) {
   const { filePath, content, revealNonce } = tab as FileTab;
+  const displayPath = filePath.replace(/\\/g, "/");
 
   // 有 content 快照时直接使用，不走磁盘读取和缓存
   const snapshotFile = useMemo<LoadedFile | null>(() => {
@@ -84,6 +89,57 @@ export function FileRenderer({ tab, wordWrap }: TabRendererProps) {
     setRenderOpened(true);
     setRendered((prev) => !prev);
   }, []);
+
+  // ── 暂存区 Diff（git 已跟踪且有未暂存修改 M 的文件）──────────────
+  // 按文件自身路径查询其所在仓库（indexDiff IPC），不依赖工作区级
+  // gitService 缓存——预览的文件可能位于任意仓库，工作区根目录甚至不是
+  // git 仓库。available=true 表示工作区与暂存区有真实差异（Y 列为 M）；
+  // 仅已暂存的修改（"M "）工作区与暂存区一致，无 diff 可看。
+  // 按钮点击后新开一个 DiffTab（openDiffPreview），不在本预览 tab 内嵌。
+  const [diffAvailable, setDiffAvailable] = useState(false);
+
+  // 查询时机：挂载 / 换文件 / 文件重载（mtime 失效）/ tab 重新激活
+  // （切走再切回可捕获外部的 stage / 还原操作）。查询失败视为不可用。
+  // 注意：preload 与 renderer 可能短暂版本撕裂（dev 下主进程不随 HMR 重启），
+  // indexDiff 不存在或抛错时静默降级为无按钮，不产生 unhandled rejection。
+  useEffect(() => {
+    if (!active) return;
+    if (typeof window.desktop.git?.indexDiff !== "function") return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const result = await window.desktop.git.indexDiff(filePath);
+        if (!cancelled) {
+          setDiffAvailable(!result.error && result.available === true);
+        }
+      } catch {
+        if (!cancelled) setDiffAvailable(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [filePath, active, reloadNonce, revealNonce]);
+
+  // 点击时重新查询一次拿新鲜暂存区内容（与按钮显示的查询解耦），
+  // 然后新开 DiffTab：before = 暂存区版本，after = 当前预览内容。
+  const openIndexDiff = useCallback(async () => {
+    if (typeof window.desktop.git?.indexDiff !== "function") return;
+    try {
+      const result = await window.desktop.git.indexDiff(filePath);
+      if (result.error || !result.available) return;
+      const name = displayPath.split("/").pop() ?? displayPath;
+      useInspector.getState().openDiffPreview(
+        `gitdiff-${displayPath}`,
+        filePath,
+        result.staged ?? "",
+        file?.content ?? "",
+        0,
+        0,
+        name,
+      );
+    } catch {
+      // 查询失败静默：按钮本身不可见，点不到这里
+    }
+  }, [filePath, file?.content, displayPath]);
 
   const loadFile = useCallback(async (path: string) => {
     // 先查缓存，但校验 mtime 防止脏读
@@ -183,6 +239,7 @@ export function FileRenderer({ tab, wordWrap }: TabRendererProps) {
     setRendered(false);
     setRenderOpened(false);
     setUserChoseMode(false);
+    setDiffAvailable(false);
   }, [filePath]);
 
   // md / html 默认进入渲染视图（声明在上方重置 effect 之后，保证重置先执行）；
@@ -194,36 +251,40 @@ export function FileRenderer({ tab, wordWrap }: TabRendererProps) {
     }
   }, [filePath, renderable, userChoseMode]);
 
-  const displayPath = filePath.replace(/\\/g, "/");
-
   return (
     <div className="flex flex-col h-full bg-surface relative p-2 gap-2">
-      {/* 文件信息 */}
-      <div className="px-3 py-1.5 shrink-0 flex items-center gap-2 bg-surface overflow-hidden rounded-md border border-border">
-        <span className="text-[12px] font-mono text-t-ghost truncate min-w-0" title={filePath}>
-          {displayPath.split("/").pop()}
-        </span>
-        <div className="ml-auto flex items-center gap-1 shrink-0">
-          {/* 渲染预览切换（仅 md / html） */}
-          {renderable && (
-            <button
-              onClick={toggleRendered}
-              title={rendered ? "查看源码" : "预览渲染结果"}
-              className={`p-1.5 rounded transition-colors ${rendered ? "text-t-primary bg-hover" : "text-t-faint hover:text-t-primary hover:bg-hover"}`}
+      {/* 文件信息（与 diff 预览共用矮版 header，见 PreviewHeader） */}
+      <PreviewHeader
+        fileName={filePath}
+        right={
+          <>
+            {/* 暂存区 Diff（仅 git 已跟踪且有未暂存修改的文件，点击新开 DiffTab） */}
+            {diffAvailable && (
+              <PreviewToolbarButton title="查看与暂存区的差异" onClick={openIndexDiff}>
+                <GitCompareArrows size={14} />
+              </PreviewToolbarButton>
+            )}
+            {/* 渲染预览切换（仅 md / html） */}
+            {renderable && (
+              <PreviewToolbarButton
+                title={rendered ? "查看源码" : "预览渲染结果"}
+                onClick={toggleRendered}
+                active={rendered}
+              >
+                {rendered ? <Code2 size={14} /> : <BookOpen size={14} />}
+              </PreviewToolbarButton>
+            )}
+            {/* 换行切换 */}
+            <PreviewToolbarButton
+              title={wordWrap ? "关闭自动换行" : "开启自动换行"}
+              onClick={() => useInspector.getState().toggleWordWrap()}
+              active={wordWrap}
             >
-              {rendered ? <Code2 size={16} /> : <BookOpen size={16} />}
-            </button>
-          )}
-          {/* 换行切换 */}
-          <button
-            onClick={() => useInspector.getState().toggleWordWrap()}
-            title={wordWrap ? "关闭自动换行" : "开启自动换行"}
-            className={`p-1.5 rounded transition-colors ${wordWrap ? "text-t-primary bg-hover" : "text-t-faint hover:text-t-primary hover:bg-hover"}`}
-          >
-            {wordWrap ? <WrapText size={16} /> : <WrapText size={16} className="opacity-40" />}
-          </button>
-        </div>
-      </div>
+              {wordWrap ? <WrapText size={14} /> : <WrapText size={14} className="opacity-40" />}
+            </PreviewToolbarButton>
+          </>
+        }
+      />
 
       {/* 内容预览：源码 / 渲染 双视图切换 */}
       <div className="flex-1 min-h-0 bg-surface">
@@ -238,6 +299,7 @@ export function FileRenderer({ tab, wordWrap }: TabRendererProps) {
                 fileName={displayPath}
                 viewMode="preview"
                 theme="light"
+                config={codeDiffLightConfig}
                 showToolbar={false}
                 wrapLines={wordWrap}
                 style={{ height: "100%" }}

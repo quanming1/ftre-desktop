@@ -111,6 +111,12 @@ interface DesktopGit {
     staged: boolean,
     oldPath?: string,
   ): Promise<{ original: string; modified: string; error?: string }>;
+  /** 按文件绝对路径查询：工作区相对暂存区是否有修改（未暂存的 M），有则附暂存区版本 */
+  indexDiff(filePath: string): Promise<{
+    available: boolean;
+    staged?: string;
+    error?: string;
+  }>;
 }
 
 interface DesktopTerminal {
