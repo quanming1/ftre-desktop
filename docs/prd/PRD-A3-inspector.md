@@ -30,6 +30,7 @@
 - [x] FR6：FileTreeSidebar 文件树侧栏（目录懒加载 + git 状态标识）
 - [x] FR7：FileRenderer md / html 渲染预览（markdown 走共享渲染管线，html 走 sandbox iframe；默认渲染视图，可切换源码）
 - [x] FR8：FileRenderer 暂存区 Diff 按钮——git 已跟踪且有未暂存修改（M）的文件，工具栏显示「查看与暂存区的差异」按钮（按文件自身路径查询所在仓库的 index 版本，不依赖工作区级 git 缓存），点击新开 DiffTab（before=暂存区版本，after=工作区内容）
+- [x] FR9：FileTreeSidebar 树结构实时刷新——对 session 工作区注册递归 fs watcher（IPC 按路径幂等、不 unwatch），文件变更事件 150ms 防抖聚合后按受影响目录增量刷新（根目录 → rootEntries；子目录 → 版本号驱动 TreeItem 重读），agent 新建/删除文件后文件树自动更新；工作区外路径与 .git 内部变更不触发
 
 ### 2.2 非功能需求
 
@@ -60,6 +61,7 @@
 - [x] AC4：tab 支持拖拽排序，同 toolCallId 不重复开 tab
 - [x] AC5：md / html 文件默认打开渲染视图且可切回源码（keep-alive 切换）；html 以 sandbox iframe 隔离渲染；非 md / html 文件不受影响（自动化测试 3/3 通过）
 - [x] AC6：git 已跟踪且有未暂存修改（M）的文件，FileRenderer 工具栏显示暂存区 Diff 按钮，点击新开 DiffTab 展示工作区 vs 暂存区差异；干净 / 仅已暂存 / untracked 文件不显示；文件被 stage / 还原后按钮消失（自动化测试 FileRenderer.test 7/7 通过）
+- [x] AC7：agent 在 session 工作区新建/删除文件后，右侧文件树约 150ms（防抖窗口）内自动出现/移除该条目；工作区外路径与 .git 内部变更不触发树刷新（自动化测试 FileTreeSidebar.test 5/5 通过）
 
 ## 6. 测试计划
 
@@ -73,3 +75,4 @@
 | 2026-08-14 | 新增 FR7 / AC5：FileRenderer 支持 md / html 渲染预览——markdown 复用共享渲染管线（markdown-plugins + rehype-highlight），html 走 sandbox iframe；默认打开即渲染视图，工具栏可切回源码（markdown keep-alive、iframe 切回即卸载）。原 AC1-AC4 不受影响，新增 AC5 自动化测试 3/3 通过 | 用户需求：文件预览 md / html 时直接看渲染结果 |
 | 2026-08-14 | 增强 AC5：md 渲染视图内 ```mermaid 代码块由 MermaidBlock 渲染为图表（动态 import mermaid ^11.16.1、securityLevel 默认 strict、渲染失败回退源码）；源码/渲染切换按钮沿用文件级切换，切源码可见 mermaid 源码。新增自动化测试（FileRenderer.test 4/4 通过） | 用户需求：md 中的 mermaid 图表应可视化展示 |
 | 2026-08-18 | 新增 FR8 / AC6：FileRenderer 暂存区 Diff 按钮——git 已跟踪且有未暂存修改（M）的文件工具栏显示「查看与暂存区的差异」（新增 git:index-diff IPC 按文件自身路径查询所在仓库 index 版本，不依赖工作区级 git 缓存），点击新开 DiffTab（before=暂存区、after=工作区），干净 / 仅已暂存 / untracked 不显示、stage / 还原后消失；同时预览 header 统一为矮版共享组件（PreviewHeader），文件 / diff 预览 CodeDiff 背景对齐 --ftre-bg-surface。原 AC1-AC5 不受影响，自动化测试 7/7 通过 | 用户需求：查看工作区与暂存区的差异；统一预览 header 高度与背景色差 |
+| 2026-08-18 | 新增 FR9 / AC7：FileTreeSidebar 树结构实时刷新——树结构此前只在展开时读一次（git 徽标走 1s 轮询、内容走 mtime 失效，唯独结构不刷），且 Workbench 只 watch 应用工作区、session 工作区在其外时无事件源。现对 session 工作区注册递归 watcher（IPC 幂等、不 unwatch），变更事件 150ms 防抖聚合后按受影响目录增量刷新（根→rootEntries、子目录→版本号驱动 memo 节点重读）。原 AC1-AC6 不受影响，自动化测试 5/5 通过 | 用户反馈：agent 编辑/新建文件后文件树不更新 |

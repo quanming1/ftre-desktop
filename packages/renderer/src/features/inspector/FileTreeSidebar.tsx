@@ -193,6 +193,11 @@ async function readDirSorted(dir: string): Promise<TreeNode[]> {
   return sortEntries(filtered);
 }
 
+/** 路径归一化：反斜杠→正斜杠、去尾斜杠、小写（Windows 大小写不敏感，做 map key 用） */
+function normKey(p: string): string {
+  return p.replace(/\\/g, "/").replace(/\/+$/, "").toLowerCase();
+}
+
 /** 单个树节点 */
 const TreeItem = memo(function TreeItem({
   node,
@@ -200,6 +205,8 @@ const TreeItem = memo(function TreeItem({
   expandedPaths,
   selectedFilePath,
   gitStatusMap,
+  dirVersion,
+  getDirVersion,
   onToggle,
   onFileClick,
   onContextMenu,
@@ -209,6 +216,10 @@ const TreeItem = memo(function TreeItem({
   expandedPaths: Set<string>;
   selectedFilePath: string | null;
   gitStatusMap: Map<string, GitStatus> | null;
+  /** 本节点目录的刷新版本号（父 render 求值传入；number 变化穿透 memo 触发重读） */
+  dirVersion: number;
+  /** 目录路径 → 版本号（子节点 render 求值用） */
+  getDirVersion: (path: string) => number;
   onToggle: (path: string) => void;
   onFileClick: (path: string) => void;
   onContextMenu: (e: React.MouseEvent, path: string, isDir: boolean) => void;
@@ -217,15 +228,19 @@ const TreeItem = memo(function TreeItem({
   const [children, setChildren] = useState<TreeNode[]>([]);
   const [loading, setLoading] = useState(false);
 
+  // 展开时懒加载；dirVersion 变化（目录内容有文件变更事件）时重读。
+  // 收起期间 version 变化不读，再次展开时 isExpanded 翻转同样触发本 effect 拿到最新。
   useEffect(() => {
-    if (isExpanded && node.isDir && !loading && children.length === 0) {
-      setLoading(true);
-      readDirSorted(node.path).then((entries) => {
-        setChildren(entries);
-        setLoading(false);
-      });
-    }
-  }, [isExpanded, node.isDir, node.path]);
+    if (!isExpanded || !node.isDir) return;
+    let cancelled = false;
+    setLoading(true);
+    readDirSorted(node.path).then((entries) => {
+      if (cancelled) return;
+      setChildren(entries);
+      setLoading(false);
+    });
+    return () => { cancelled = true; };
+  }, [isExpanded, node.isDir, node.path, dirVersion]);
 
   const padding = 8 + depth * 16;
 
@@ -259,6 +274,8 @@ const TreeItem = memo(function TreeItem({
             expandedPaths={expandedPaths}
             selectedFilePath={selectedFilePath}
             gitStatusMap={gitStatusMap}
+            dirVersion={getDirVersion(child.path)}
+            getDirVersion={getDirVersion}
             onToggle={onToggle}
             onFileClick={onFileClick}
             onContextMenu={onContextMenu}
@@ -478,11 +495,22 @@ export function FileTreeSidebar() {
   const [gitStatusMap, setGitStatusMap] = useState<Map<string, GitStatus> | null>(null);
   const [changedFiles, setChangedFiles] = useState<GitFileStatus[]>([]);
   const gitEtagRef = useRef<string>("");
+  // 目录路径（normKey 小写）→ 刷新版本号：文件变更事件驱动 +1，
+  // TreeItem 按各自 version 重读 children（memo 粒度刷新，不动全树）
+  const [dirVersions, setDirVersions] = useState<Map<string, number>>(new Map());
+  const dirVersionsRef = useRef(dirVersions);
+  dirVersionsRef.current = dirVersions;
   const [contextMenu, setContextMenu] = useState<{
     position: { x: number; y: number };
     path: string;
     isDir: boolean;
   } | null>(null);
+
+  // 稳定引用：TreeItem memo 依赖此函数，内部走 ref 读最新 map
+  const getDirVersion = useCallback(
+    (p: string) => dirVersionsRef.current.get(normKey(p)) ?? 0,
+    [],
+  );
 
   // 监听 active tab 变化，同步文件树/Changes 的选中状态
   const activeTabId = useInspector((s) => s.activeTabId);
@@ -542,6 +570,75 @@ export function FileTreeSidebar() {
       setRootEntries(entries);
       setLoading(false);
     });
+  }, [workspace]);
+
+  // ── 文件变更驱动的树结构刷新 ──────────────────────────────────────
+  // 树结构（目录条目）此前只在展开时读一次，agent 新建/删除文件后不更新。
+  // 这里对 session workspace 注册递归 watcher（Workbench 只 watch 应用
+  // rootPath，session 工作区在其外时根本没有事件源），订阅变更事件后
+  // 按受影响目录增量刷新：根目录 → rootEntries；子目录 → dirVersions +1
+  // 让对应 TreeItem 重读。注意 watcher IPC 是共享的（按路径去重），
+  // 这里绝不 unwatch，否则会关掉 Workbench 等其他消费者的同名 watcher。
+  useEffect(() => {
+    if (!workspace) return;
+    window.desktop.fs.watch(workspace);
+
+    const wsNorm = normKey(workspace);
+    let flushTimer: ReturnType<typeof setTimeout> | null = null;
+    const pendingDirs = new Set<string>();
+    let pendingRoot = false;
+    let cancelled = false;
+
+    const flush = () => {
+      flushTimer = null;
+      if (cancelled) {
+        pendingDirs.clear();
+        pendingRoot = false;
+        return;
+      }
+      // 变更落在根目录本身 → 刷新 rootEntries
+      if (pendingRoot) {
+        pendingRoot = false;
+        readDirSorted(workspace).then((entries) => {
+          if (!cancelled) setRootEntries(entries);
+        });
+      }
+      // 变更落在子目录 → 版本 +1，对应 TreeItem 重读（未展开目录无消费者，纯数字无开销）
+      if (pendingDirs.size > 0) {
+        const dirs = [...pendingDirs];
+        pendingDirs.clear();
+        setDirVersions((prev) => {
+          const next = new Map(prev);
+          for (const d of dirs) next.set(d, (prev.get(d) ?? 0) + 1);
+          return next;
+        });
+      }
+    };
+
+    const unsubscribe = window.desktop.fs.onFileChanged((changedPath: string) => {
+      const norm = normKey(changedPath);
+      // 只关心本工作区子树内的事件（watcher 可能被多处注册，事件是广播的）
+      if (norm !== wsNorm && !norm.startsWith(wsNorm + "/")) return;
+      // .git 内部变化只影响 git 状态（已有 1s 轮询），不刷新树结构
+      if (/[\\/]\.git([\\/]|$)/.test(changedPath)) return;
+
+      // 变更文件的父目录才是要刷新的目录；事件本身就是目录时刷新其父（增删条目发生在父）
+      const sep = norm.lastIndexOf("/");
+      const parent = sep > 0 ? norm.slice(0, sep) : wsNorm;
+      if (parent === wsNorm) {
+        pendingRoot = true;
+      } else {
+        pendingDirs.add(parent);
+      }
+      if (!flushTimer) flushTimer = setTimeout(flush, 150);
+    });
+
+    return () => {
+      cancelled = true;
+      if (flushTimer) clearTimeout(flushTimer);
+      unsubscribe();
+      // 故意不调 fs.unwatch：watcher 按路径共享，unwatch 会关掉其他消费者的
+    };
   }, [workspace]);
 
   useEffect(() => {
@@ -796,6 +893,8 @@ export function FileTreeSidebar() {
                   expandedPaths={expandedPaths}
                   selectedFilePath={selectedFilePath}
                   gitStatusMap={gitStatusMap}
+                  dirVersion={getDirVersion(node.path)}
+                  getDirVersion={getDirVersion}
                   onToggle={handleToggle}
                   onFileClick={handleFileClick}
                   onContextMenu={handleContextMenu}
