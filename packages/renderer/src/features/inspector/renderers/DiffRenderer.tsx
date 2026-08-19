@@ -10,6 +10,8 @@ import { GitCompareArrows, WrapText, FileText, Columns2, Rows2, ChevronUp, Chevr
 import { CodeDiff } from "@jiang_quan_ming/react-code-diff";
 import type { ToolbarRenderProps } from "@jiang_quan_ming/react-code-diff";
 import { useInspector } from "@/stores/inspector";
+import { PreviewHeader, PreviewToolbarButton } from "./PreviewHeader";
+import { codeDiffLightConfig } from "./codeDiffConfig";
 import type { TabRendererProps } from "../tabRegistry";
 import type { DiffTab } from "@/stores/inspector";
 
@@ -39,83 +41,78 @@ export function DiffRenderer({ tab, wordWrap }: TabRendererProps) {
 
   const renderToolbar = useCallback((props: ToolbarRenderProps) => {
     return (
-      <div className="px-2.5 py-1 shrink-0 flex items-center gap-1.5 bg-surface overflow-hidden rounded-md border border-border" style={{ height: "30px" }}>
-        <GitCompareArrows size={12} className="text-t-ghost shrink-0" />
-        <span className="text-[11px] font-mono text-t-ghost truncate min-w-0" title={filePath}>
-          {displayPath.split("/").pop()}
-        </span>
-        {additions > 0 && (
-          <span className="text-[10px] font-mono text-green-600 shrink-0">+{additions}</span>
-        )}
-        {deletions > 0 && (
-          <span className="text-[10px] font-mono text-red-500 shrink-0">-{deletions}</span>
-        )}
-        <div className="ml-auto flex items-center gap-0.5 shrink-0">
-          {/* 上一个变更 */}
-          {props.changeCount > 0 && (
-            <>
-              <button
-                onClick={() => props.onNavigateChange("prev")}
-                title="上一个变更"
-                className="p-1 rounded transition-colors text-t-faint hover:text-t-primary hover:bg-hover"
-              >
-                <ChevronUp size={13} />
-              </button>
-              <span className="text-[10px] text-t-ghost px-0.5">{props.changeCount}</span>
-              <button
-                onClick={() => props.onNavigateChange("next")}
-                title="下一个变更"
-                className="p-1 rounded transition-colors text-t-faint hover:text-t-primary hover:bg-hover"
-              >
-                <ChevronDown size={13} />
-              </button>
-            </>
-          )}
-          {/* 搜索 */}
-          <button
-            onClick={props.onToggleSearch}
-            title="搜索"
-            className={`p-1 rounded transition-colors ${props.searchOpen ? "text-t-primary bg-hover" : "text-t-faint hover:text-t-primary hover:bg-hover"}`}
-          >
-            <Search size={13} />
-          </button>
-          {/* 只看变更行 */}
-          <button
-            onClick={toggleDiffOnly}
-            title={showDiffOnly ? "显示全部行" : "只看变更行"}
-            className={`p-1 rounded transition-colors ${showDiffOnly ? "text-t-primary bg-hover" : "text-t-faint hover:text-t-primary hover:bg-hover"}`}
-          >
-            <Eye size={13} />
-          </button>
-          {/* 换行切换 */}
-          <button
-            onClick={toggleWordWrap}
-            title={wordWrap ? "关闭自动换行" : "开启自动换行"}
-            className={`p-1 rounded transition-colors ${wordWrap ? "text-t-primary bg-hover" : "text-t-faint hover:text-t-primary hover:bg-hover"}`}
-          >
-            {wordWrap ? <WrapText size={14} /> : <WrapText size={14} className="opacity-40" />}
-          </button>
-          {/* 拆分/统一视图切换 */}
-          <button
-            onClick={toggleSideBySide}
-            title={renderSideBySide ? "切换为统一视图" : "切换为拆分视图"}
-            className={`p-1 rounded transition-colors ${renderSideBySide ? "text-t-primary bg-hover" : "text-t-faint hover:text-t-primary hover:bg-hover"}`}
-          >
-            {renderSideBySide ? <Columns2 size={14} /> : <Rows2 size={14} />}
-          </button>
-          {/* 打开原始文件 */}
-          <button
-            onClick={() => {
-              const absPath = filePath.replace(/\\/g, "/");
-              openFilePreview(`original-${absPath}`, filePath, undefined, undefined, undefined, undefined);
-            }}
-            title="打开原始文件"
-            className="p-1 rounded transition-colors text-t-faint hover:text-t-primary hover:bg-hover"
-          >
-            <FileText size={13} />
-          </button>
-        </div>
-      </div>
+      <PreviewHeader
+        fileName={filePath}
+        left={
+          <>
+            <GitCompareArrows size={12} className="text-t-ghost shrink-0" />
+            {additions > 0 && (
+              <span className="text-[10px] font-mono text-green-600 shrink-0">+{additions}</span>
+            )}
+            {deletions > 0 && (
+              <span className="text-[10px] font-mono text-red-500 shrink-0">-{deletions}</span>
+            )}
+          </>
+        }
+        right={
+          <>
+            {/* 上一个变更 */}
+            {props.changeCount > 0 && (
+              <>
+                <PreviewToolbarButton title="上一个变更" onClick={() => props.onNavigateChange("prev")}>
+                  <ChevronUp size={13} />
+                </PreviewToolbarButton>
+                <span className="text-[10px] text-t-ghost px-0.5">{props.changeCount}</span>
+                <PreviewToolbarButton title="下一个变更" onClick={() => props.onNavigateChange("next")}>
+                  <ChevronDown size={13} />
+                </PreviewToolbarButton>
+              </>
+            )}
+            {/* 搜索 */}
+            <PreviewToolbarButton
+              title="搜索"
+              onClick={props.onToggleSearch}
+              active={props.searchOpen}
+            >
+              <Search size={13} />
+            </PreviewToolbarButton>
+            {/* 只看变更行 */}
+            <PreviewToolbarButton
+              title={showDiffOnly ? "显示全部行" : "只看变更行"}
+              onClick={toggleDiffOnly}
+              active={showDiffOnly}
+            >
+              <Eye size={13} />
+            </PreviewToolbarButton>
+            {/* 换行切换 */}
+            <PreviewToolbarButton
+              title={wordWrap ? "关闭自动换行" : "开启自动换行"}
+              onClick={toggleWordWrap}
+              active={wordWrap}
+            >
+              {wordWrap ? <WrapText size={14} /> : <WrapText size={14} className="opacity-40" />}
+            </PreviewToolbarButton>
+            {/* 拆分/统一视图切换 */}
+            <PreviewToolbarButton
+              title={renderSideBySide ? "切换为统一视图" : "切换为拆分视图"}
+              onClick={toggleSideBySide}
+              active={renderSideBySide}
+            >
+              {renderSideBySide ? <Columns2 size={14} /> : <Rows2 size={14} />}
+            </PreviewToolbarButton>
+            {/* 打开原始文件 */}
+            <PreviewToolbarButton
+              title="打开原始文件"
+              onClick={() => {
+                const absPath = filePath.replace(/\\/g, "/");
+                openFilePreview(`original-${absPath}`, filePath, undefined, undefined, undefined, undefined);
+              }}
+            >
+              <FileText size={13} />
+            </PreviewToolbarButton>
+          </>
+        }
+      />
     );
   }, [filePath, displayPath, additions, deletions, wordWrap, renderSideBySide, showDiffOnly, openFilePreview, toggleSideBySide, toggleDiffOnly, toggleWordWrap]);
 
@@ -129,6 +126,7 @@ export function DiffRenderer({ tab, wordWrap }: TabRendererProps) {
           fileName={displayPath}
           viewMode={renderSideBySide ? "split" : "unified"}
           theme="light"
+          config={codeDiffLightConfig}
           showToolbar={true}
           renderToolbar={renderToolbar}
           showDiffOnly={showDiffOnly}

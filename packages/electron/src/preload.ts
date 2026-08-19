@@ -76,6 +76,8 @@ const api: DesktopAPI = {
         staged,
         oldPath,
       }),
+    indexDiff: (filePath: string) =>
+      ipcRenderer.invoke("git:index-diff", { filePath }),
   },
 
   window: {

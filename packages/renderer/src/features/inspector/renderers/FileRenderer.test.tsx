@@ -2,14 +2,24 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { FileRenderer } from "./FileRenderer";
+import { useInspector } from "@/stores/inspector";
 import type { FileTab } from "@/stores/inspector";
 
-// CodeDiff 依赖真实高亮/布局环境，测试只关心切换逻辑，mock 为纯文本容器
-vi.mock("@jiang_quan_ming/react-code-diff", () => ({
-  CodeDiff: ({ newValue }: { newValue?: string }) => (
-    <div data-testid="code-diff">{newValue}</div>
-  ),
-}));
+// CodeDiff 依赖真实高亮/布局环境，测试只关心切换逻辑，mock 为纯文本容器。
+// 源码视图 oldValue 恒为 ""，diff 视图 oldValue 为暂存区内容——用 testid 区分两者。
+// codeDiffConfig 会 import 库的 mergeConfig，这里把它也转发出来（真实实现）。
+vi.mock("@jiang_quan_ming/react-code-diff", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@jiang_quan_ming/react-code-diff")>();
+  return {
+    ...actual,
+    CodeDiff: ({ oldValue, newValue }: { oldValue?: string; newValue?: string }) => (
+      <div data-testid={oldValue ? "code-diff-git" : "code-diff"}>{newValue}</div>
+    ),
+  };
+});
+
+// indexDiff IPC 由测试直接控制（beforeEach 里重置为"无未暂存修改"）
+const { mockIndexDiff } = vi.hoisted(() => ({ mockIndexDiff: vi.fn() }));
 
 // mermaid 是动态 import，vitest 对动态 import 的 mock 同样生效
 vi.mock("mermaid", () => ({
@@ -20,13 +30,17 @@ vi.mock("mermaid", () => ({
 }));
 
 beforeEach(() => {
-  // FileRenderer 的 snapshot 注册 / 轮询会调用 fs.stat
+  // FileRenderer 的 snapshot 注册 / 轮询会调用 fs.stat；暂存区 Diff 走 git.indexDiff
   window.desktop = {
     fs: {
       stat: vi.fn().mockResolvedValue({ mtime: 1 }),
       readFile: vi.fn().mockResolvedValue({ content: "", language: null, error: null }),
     },
+    git: {
+      indexDiff: mockIndexDiff,
+    },
   } as unknown as typeof window.desktop;
+  mockIndexDiff.mockReset().mockResolvedValue({ available: false });
 });
 
 function makeTab(overrides: Partial<FileTab> = {}): FileTab {
@@ -101,6 +115,66 @@ describe("FileRenderer 渲染预览", () => {
 
     expect(screen.queryByTitle("预览渲染结果")).not.toBeInTheDocument();
     expect(screen.queryByTitle("查看源码")).not.toBeInTheDocument();
+  });
+
+  it("git 无未暂存修改（干净 / 仅已暂存 / untracked）的文件不显示暂存区 Diff 按钮", () => {
+    // indexDiff 默认 available:false（beforeEach），覆盖干净、仅已暂存、untracked
+    render(
+      <FileRenderer
+        tab={makeTab({ filePath: "E:/docs/a.ts", title: "a.ts", content: "const a = 1;" })}
+        active
+        wordWrap={false}
+      />,
+    );
+    expect(screen.queryByTitle("查看与暂存区的差异")).not.toBeInTheDocument();
+  });
+
+  it("点击暂存区 Diff 按钮新开 DiffTab（before=暂存区，after=当前内容）", async () => {
+    mockIndexDiff.mockResolvedValue({ available: true, staged: "const a = 1;" });
+    const openDiffSpy = vi.spyOn(useInspector.getState(), "openDiffPreview");
+    try {
+      render(
+        <FileRenderer
+          tab={makeTab({ filePath: "E:/docs/a.ts", title: "a.ts", content: "const a = 2;" })}
+          active
+          wordWrap={false}
+        />,
+      );
+
+      fireEvent.click(await screen.findByTitle("查看与暂存区的差异"));
+      // openIndexDiff 是 async（await indexDiff），等其完成后再断言
+      await waitFor(() => expect(openDiffSpy).toHaveBeenCalledTimes(1));
+      expect(openDiffSpy).toHaveBeenCalledWith(
+        "gitdiff-E:/docs/a.ts",
+        "E:/docs/a.ts",
+        "const a = 1;", // before：暂存区版本
+        "const a = 2;", // after：当前预览内容（工作区）
+        0,
+        0,
+        "a.ts",
+      );
+    } finally {
+      openDiffSpy.mockRestore();
+    }
+  });
+
+  it("git 状态变为无未暂存修改后（stage / 还原）按钮消失", async () => {
+    mockIndexDiff.mockResolvedValue({ available: true, staged: "const a = 1;" });
+    const tab = makeTab({
+      filePath: "E:/docs/a.ts", title: "a.ts", content: "const a = 2;",
+    });
+    const { rerender } = render(
+      <FileRenderer tab={tab} active wordWrap={false} />,
+    );
+    expect(await screen.findByTitle("查看与暂存区的差异")).toBeInTheDocument();
+
+    // 切走再切回（effect 以 active 为依赖重新查询），此时 git 已无未暂存修改
+    mockIndexDiff.mockResolvedValue({ available: false });
+    rerender(<FileRenderer tab={tab} active={false} wordWrap={false} />);
+    rerender(<FileRenderer tab={tab} active wordWrap={false} />);
+    await waitFor(() => {
+      expect(screen.queryByTitle("查看与暂存区的差异")).not.toBeInTheDocument();
+    });
   });
 
   it("md 内 mermaid 代码块渲染为图表，切源码视图可见 mermaid 源码", async () => {
