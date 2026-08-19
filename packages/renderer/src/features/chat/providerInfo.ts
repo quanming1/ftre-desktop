@@ -34,6 +34,24 @@ export function getProviderLabel(name: string): string {
     return PROVIDER_LABELS[name] || name;
 }
 
+/**
+ * 切换模型后决定 reasoning_effort 的去留。
+ *
+ * 新模型通过 reasoning_effort_values 声明支持哪些推理强度值；
+ * 若当前值不在其中（或新模型根本不支持推理强度），必须清空，
+ * 否则旧模型残留的 effort 会被拼接进新模型请求，导致 400
+ * （如"该模型始终思考，不支持关闭思考"）。
+ */
+export function resolveEffortOnModelSwitch(
+    currentEffort: string,
+    newModelValues: string[] | undefined,
+): string {
+    if (newModelValues && newModelValues.length > 0) {
+        return newModelValues.includes(currentEffort) ? currentEffort : "";
+    }
+    return "";
+}
+
 export function buildProviderInfos(
     providersDict: Record<string, any> | null | undefined,
 ): ProviderInfo[] {
