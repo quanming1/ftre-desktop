@@ -320,7 +320,7 @@ async function main() {
     for (const dep of allDeps) {
       log(`  pip install ${dep}`);
       execSync(
-        `"${pythonExe}" -m pip install ${dep} --no-warn-script-location --no-cache-dir -q --only-binary :all:`,
+        `"${pythonExe}" -m pip install ${dep} --no-warn-script-location --no-cache-dir -q`,
         { stdio: "inherit", cwd: pythonDir },
       );
     }
