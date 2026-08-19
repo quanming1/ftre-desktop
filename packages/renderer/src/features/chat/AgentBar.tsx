@@ -11,7 +11,7 @@ import { useChat } from "@/stores/chat";
 import { useSession } from "@/stores/session";
 import { fetchAppConfig } from "@/services/api";
 import { ModelPicker, type ProviderInfo } from "./ModelPicker";
-import { buildProviderInfos } from "./providerInfo";
+import { buildProviderInfos, resolveEffortOnModelSwitch } from "./providerInfo";
 import { ReasoningEffortControl } from "./ReasoningEffortControl";
 import { useLayout } from "@/stores/layout";
 
@@ -144,7 +144,13 @@ export function AgentBar() {
     setModel(modelId);
     setProvider(providerName);
     setContextWindow(findContextWindow(providerName, modelId));
-    await updateAgentLlm(providerName, modelId);
+    // 切换模型后按新模型是否支持推理强度决定 effort 的去留：
+    // 新模型支持且当前值在可选列表内 → 保留；否则清空，
+    // 避免上一个模型的 effort 残留导致新模型请求 400（参见 providerInfo.resolveEffortOnModelSwitch）。
+    const p = providers.find((x) => x.name === providerName);
+    const m = p?.models.find((mm) => mm.id === modelId);
+    const nextEffort = resolveEffortOnModelSwitch(currentEffort, m?.reasoning_effort_values);
+    await updateAgentLlm(providerName, modelId, nextEffort);
   };
 
   const handleSelectAgent = (id: string) => {
