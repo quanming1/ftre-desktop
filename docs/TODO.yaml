@@ -116,3 +116,27 @@ stages:
           - packages/renderer/src/features/session/SessionSearchResults.tsx
           - packages/renderer/src/features/session/SessionPanel.tsx
         acceptance: 会话面板顶部搜索框，防抖调后端 /sessions/search，结果高亮命中词与摘要，点击跳转会话，Esc/清空退出搜索
+
+      - id: D2
+        title: 会话消息历史定位导航
+        status: done
+        date: 2026-08-20
+        prd: docs/prd/PRD-D2-message-history-navigation.md
+        prd_status: 已验收
+        modules:
+          - packages/renderer/src/features/chat/ChatOutline.tsx
+          - packages/renderer/src/features/chat/ChatMessageList.tsx
+          - packages/renderer/src/features/chat/ChatHeader.tsx
+        acceptance: 消息列表左侧中部展示所有已加载用户消息的定位标记；悬停或聚焦显示摘要，点击定位对应消息；Header 不再显示旧会话目录入口；窄窗口不遮挡正文
+
+      - id: D3
+        title: 运行详情弹窗
+        status: done
+        date: 2026-08-20
+        prd: docs/prd/PRD-D3-run-context-popover.md
+        prd_status: 已验收
+        modules:
+          - packages/renderer/src/features/chat/RunContextPopover.tsx
+          - packages/renderer/src/features/chat/ChatHeader.tsx
+          - packages/renderer/src/features/chat/ChatView.tsx
+        acceptance: pending messages 仍显示在输入框上方；运行状态、模型、时长、任务、文件变更、Git 分支与 Git 变更迁移到 Header 右上角弹窗；详情可展开且两类 Diff 都可打开

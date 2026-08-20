@@ -21,8 +21,7 @@ export const QueuedMessagesBanner = memo(function QueuedMessagesBanner({
   const sessionId = useChat((state) => state.sessionId);
   const addNotification = useNotification((state) => state.addNotification);
   const [removing, setRemoving] = useState<Set<string>>(() => new Set());
-  // 横幅内还会同时承载任务、文件变更等摘要；队列默认折叠为一行，
-  // 需要查看或编辑具体消息时再展开，避免运行区不断向上挤占聊天空间。
+  // 队列默认折叠为一行；需要查看或编辑具体消息时再展开。
   const [expanded, setExpanded] = useState(false);
 
   const removeFromQueue = useCallback(async (requestId: string): Promise<boolean> => {
