@@ -14,6 +14,7 @@ import {
 import { HighlightText } from "@/components/HighlightText";
 
 const DEBOUNCE_MS = 300;
+const PAGE_SIZE = 50;
 
 // ─── 防抖 + 请求取消 ─────────────────────────────────────────
 
@@ -21,33 +22,78 @@ export function useSessionSearch() {
   const [query, setQuery] = useState("");
   const [response, setResponse] = useState<SessionSearchResponse | null>(null);
   const [loading, setLoading] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
+  const loadMoreAbortRef = useRef<AbortController | null>(null);
+  const requestVersionRef = useRef(0);
 
   const trimmed = query.trim();
   const active = trimmed.length > 0;
 
   useEffect(() => {
+    // 查询变化时立即取消旧请求，而非等下一个 300ms 防抖窗口结束。
+    abortRef.current?.abort();
+    abortRef.current = null;
+    loadMoreAbortRef.current?.abort();
+    loadMoreAbortRef.current = null;
+    const requestVersion = ++requestVersionRef.current;
     if (!trimmed) {
-      abortRef.current?.abort();
-      abortRef.current = null;
       setResponse(null);
       setLoading(false);
+      setLoadingMore(false);
       return;
     }
     setLoading(true);
     const timer = window.setTimeout(async () => {
-      abortRef.current?.abort();
       const ctrl = new AbortController();
       abortRef.current = ctrl;
-      const res = await fetchSessionSearch({ q: trimmed, signal: ctrl.signal });
-      if (ctrl.signal.aborted) return;
-      setResponse(res);
-      setLoading(false);
+      try {
+        const res = await fetchSessionSearch({
+          q: trimmed, limit: PAGE_SIZE, offset: 0, signal: ctrl.signal,
+        });
+        if (ctrl.signal.aborted || requestVersion !== requestVersionRef.current) return;
+        setResponse(res);
+      } finally {
+        if (!ctrl.signal.aborted && requestVersion === requestVersionRef.current) {
+          setLoading(false);
+        }
+      }
     }, DEBOUNCE_MS);
     return () => window.clearTimeout(timer);
   }, [trimmed]);
 
-  useEffect(() => () => abortRef.current?.abort(), []);
+  useEffect(() => () => {
+    abortRef.current?.abort();
+    loadMoreAbortRef.current?.abort();
+  }, []);
+
+  const loadMore = useCallback(async () => {
+    if (!response?.has_more || loadingMore) return;
+    const offset = (response.offset ?? 0) + response.results.length;
+    const ctrl = new AbortController();
+    loadMoreAbortRef.current?.abort();
+    loadMoreAbortRef.current = ctrl;
+    const requestVersion = requestVersionRef.current;
+    setLoadingMore(true);
+    try {
+      const page = await fetchSessionSearch({
+        q: trimmed, limit: PAGE_SIZE, offset, signal: ctrl.signal,
+      });
+      if (!page || ctrl.signal.aborted || requestVersion !== requestVersionRef.current) return;
+      setResponse((current) => {
+        if (!current || current.query !== page.query) return current;
+        return {
+          ...page,
+          offset: current.offset ?? 0,
+          results: [...current.results, ...page.results],
+        };
+      });
+    } finally {
+      if (!ctrl.signal.aborted && requestVersion === requestVersionRef.current) {
+        setLoadingMore(false);
+      }
+    }
+  }, [loadingMore, response, trimmed]);
 
   /** 打开会话并清空搜索（open 由调用方传入，避免闭包顺序问题） */
   const openAndReset = useCallback((sid: string, open: (sid: string) => void) => {
@@ -55,7 +101,17 @@ export function useSessionSearch() {
     open(sid);
   }, []);
 
-  return { query, setQuery, response, loading, active, trimmed, openAndReset };
+  return {
+    query,
+    setQuery,
+    response,
+    loading: loading || loadingMore,
+    loadingMore,
+    active,
+    trimmed,
+    loadMore,
+    openAndReset,
+  };
 }
 
 // ─── 输入框（透明融入面板背景，无独立边框盒子）────────────────
@@ -183,11 +239,15 @@ export const SessionSearchResults = memo(function SessionSearchResults({
   query,
   response,
   loading,
+  loadingMore = false,
+  onLoadMore,
   onOpen,
 }: {
   query: string;
   response: SessionSearchResponse | null;
   loading: boolean;
+  loadingMore?: boolean;
+  onLoadMore?: () => void;
   onOpen: (sid: string) => void;
 }) {
   return (
@@ -206,6 +266,16 @@ export const SessionSearchResults = memo(function SessionSearchResults({
       {response?.results.map((r) => (
         <ResultRow key={r.session_id} result={r} query={query} onOpen={onOpen} />
       ))}
+      {response?.has_more && onLoadMore && (
+        <button
+          type="button"
+          onClick={onLoadMore}
+          disabled={loadingMore}
+          className="mx-2 my-2 w-[calc(100%-1rem)] rounded-lg py-2 text-[12px] text-t-muted transition-colors hover:bg-hover disabled:cursor-wait"
+        >
+          {loadingMore ? "加载中..." : `显示更多（已显示 ${response.results.length}/${response.total}）`}
+        </button>
+      )}
     </div>
   );
 });

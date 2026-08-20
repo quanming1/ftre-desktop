@@ -159,6 +159,9 @@ export interface SessionSearchResponse {
   query: string;
   total: number;
   results: SessionSearchResult[];
+  limit?: number;
+  offset?: number;
+  has_more?: boolean;
 }
 
 /**
@@ -166,10 +169,11 @@ export interface SessionSearchResponse {
  * signal 用于防抖窗口内取消旧请求：被取消时返回 null（调用方静默丢弃）。
  */
 export async function fetchSessionSearch(
-  opts: { q: string; limit?: number; workspace?: string | null; signal?: AbortSignal },
+  opts: { q: string; limit?: number; offset?: number; workspace?: string | null; signal?: AbortSignal },
 ): Promise<SessionSearchResponse | null> {
   const params = new URLSearchParams({ q: opts.q });
   params.set("limit", String(opts.limit ?? 30));
+  if (opts.offset != null) params.set("offset", String(opts.offset));
   if (opts.workspace != null) params.set("workspace", opts.workspace);
   try {
     const res = await fetch(
@@ -182,6 +186,9 @@ export async function fetchSessionSearch(
       query: typeof data.query === "string" ? data.query : opts.q,
       total: typeof data.total === "number" ? data.total : 0,
       results: Array.isArray(data.results) ? data.results : [],
+      limit: typeof data.limit === "number" ? data.limit : undefined,
+      offset: typeof data.offset === "number" ? data.offset : undefined,
+      has_more: data.has_more === true,
     };
   } catch (err) {
     if (err instanceof DOMException && err.name === "AbortError") return null;
