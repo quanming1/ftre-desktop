@@ -166,7 +166,6 @@ export class ClientSessionProjection implements SessionProjectionState {
       this.hasMoreHistory = hasMoreHistory;
       return;
     }
-    if (this.messages[this.messages.length - 1]?.streaming) return;
 
     const incomingIds = new Set(messages.map((message) => message.id));
     this.messages = [

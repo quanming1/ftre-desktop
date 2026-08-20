@@ -17,7 +17,7 @@ import {
   useRef,
   useState,
 } from "react";
-import { ChevronDown, ExternalLink, Folder, FolderOpen, GitBranch } from "lucide-react";
+import { ChevronDown, ExternalLink, Folder, FolderOpen } from "lucide-react";
 import { useSession } from "@/stores/session";
 import { useChat, useSessionId } from "@/stores/chat";
 import { useNotification } from "@/stores/notification";
@@ -131,56 +131,6 @@ function WorkspaceEditor({
           {saving ? "保存中..." : "保存"}
         </button>
       </div>
-    </div>
-  );
-}
-
-/**
- * GitBranchBadge — 只读展示当前工作区的 git 分支名
- *
- * 直接调 window.desktop.git.info(workspace) 查询，不依赖全局 gitService
- * （gitService 绑定的是 explorer 的 rootPath，可能与 session workspace 不同）。
- *
- * 边界：workspace 为空 / 非 git 仓库 / 加载中 / detached HEAD 均正确处理。
- * 刷新时机：workspace 变化时重新查询；分支 checkout 不主动感知（只读展示，可接受）。
- */
-function GitBranchBadge({ workspace }: { workspace: string }) {
-  const [info, setInfo] = useState<{
-    branch: string | null;
-    isGitRepo: boolean;
-  } | null>(null);
-
-  useEffect(() => {
-    if (!workspace) {
-      setInfo(null);
-      return;
-    }
-    let cancelled = false;
-    window.desktop?.git
-      ?.info?.(workspace)
-      .then((result) => {
-        if (cancelled) return;
-        setInfo({ branch: result.branch, isGitRepo: result.isGitRepo });
-      })
-      .catch(() => {
-        if (cancelled) return;
-        setInfo(null);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [workspace]);
-
-  if (!info || !info.isGitRepo || !info.branch) return null;
-
-  return (
-    <div
-      className="flex h-8 min-w-0 flex-1 select-none items-center gap-1 px-1.5 font-mono text-[12px] text-t-dim"
-      title={`分支: ${info.branch}`}
-    >
-      <GitBranch size={11} strokeWidth={1.5} className="shrink-0 opacity-70" />
-      {/* 长分支名优先让出空间，完整名称仍可通过 title 查看。 */}
-      <span className="min-w-0 flex-1 truncate">{info.branch}</span>
     </div>
   );
 }
@@ -317,9 +267,6 @@ export function WorkspaceBadge() {
           </button>
         )}
       </div>
-
-      <GitBranchBadge workspace={workspace} />
-
       {editing && (
         <div
           className="absolute bottom-full left-0 mb-1 z-[100]"

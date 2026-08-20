@@ -1,199 +1,237 @@
 /**
- * ChatOutline — 会话目录浮层（hover ChatHeader 上的目录按钮触发）
+ * ChatOutline — 消息列表左侧的会话历史定位导航。
  *
- * 列出当前会话所有 user 消息，点击 instant 跳转到对应锚点。
- * 锚点：UserMessage 渲染时挂的 id="msg-<message.id>"。
- *
- * 滚动容器通过 [data-chat-scroll-container] querySelector 拿，避免在 ChatHeader →
- * ChatView → ChatMessageList 这条链上做 ref 透传。
- *
- * 性能：
- * - summarize 结果按 message.id 缓存
- * - 不订阅滚动事件、不算 active 项；触发显示后是个静态目录（用户点完就收起）
+ * 所有已加载的 user 消息都会成为一个纵向标记。仅鼠标悬停会激活标记：
+ * 当前标记展开，周围标记按距离递减，预览卡与当前标记中心对齐。
  */
-import { memo, useEffect, useMemo, useRef, useState } from "react";
-import { useChat } from "@/stores/chat";
-import { useSession } from "@/stores/session";
+import {
+  memo,
+  useCallback,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
+import type { RefObject } from "react";
+import { createPortal } from "react-dom";
 import type { ChatMessage } from "@/stores/chat";
 
 interface ChatOutlineProps {
-  /** 浮层是否显示 */
-  open: boolean;
-  /** 点击外部 / 选中条目后关闭 */
-  onClose: () => void;
-  /** 触发按钮 DOM ref（用于点击外部判定时排除自己） */
-  triggerRef?: React.RefObject<HTMLElement | null>;
+  messages: ChatMessage[];
+  scrollContainerRef: RefObject<HTMLElement | null>;
 }
 
-/** 把 user 消息平铺成一行简短文字，给目录显示用 */
+interface HistoryItem {
+  id: string;
+  text: string;
+  responseText: string;
+  index: number;
+}
+
+interface RailPosition {
+  left: number;
+  top: number;
+  width: number;
+}
+
+const MARKER_MIN_WIDTH = 6;
+const MARKER_MAX_WIDTH = 27;
+const MARKER_WIDTH_STEP = 3.25;
+
+/** 把 user 消息平铺成一行简短文字，给预览卡显示用。 */
 function summarize(message: ChatMessage): string {
-  return (message.content ?? "").trim();
+  return (message.content ?? "").replace(/\s+/g, " ").trim();
 }
 
-export const ChatOutline = memo(function ChatOutline({
-  open,
-  onClose,
-  triggerRef,
-}: ChatOutlineProps) {
-  const messages = useChat((s) => s.messages);
-  const sessionId = useChat((s) => s.sessionId);
-  const hasMoreHistory = useChat((s) =>
-    sessionId ? s.hasMoreHistory(sessionId) : false,
-  );
-  const loadEarlier = useSession((s) => s.loadEarlierMessages);
-
-  const items = useMemo(() => {
-    const out: { id: string; text: string; index: number }[] = [];
-    const cache = summarizeCache;
-    for (let i = 0; i < messages.length; i++) {
-      const m = messages[i];
-      if (m.role !== "user") continue;
-      let text = cache.get(m.id);
-      if (text == null) {
-        text = summarize(m);
-        cache.set(m.id, text);
-      }
-      out.push({ id: m.id, text, index: i });
+function getHistoryItems(messages: ChatMessage[]): HistoryItem[] {
+  const items: HistoryItem[] = [];
+  for (const message of messages) {
+    if (message.role === "user") {
+      items.push({
+        id: message.id,
+        text: summarize(message),
+        responseText: "",
+        index: items.length,
+      });
+      continue;
     }
-    return out;
-  }, [messages]);
-
-  const popoverRef = useRef<HTMLDivElement>(null);
-  const [activeId, setActiveId] = useState<string | null>(null);
-
-  // 浮窗打开瞬间快照一次：找滚动容器视口顶部最近的 user 消息作为 active
-  useEffect(() => {
-    if (!open) return;
-    const container = document.querySelector<HTMLElement>(
-      "[data-chat-scroll-container]",
-    );
-    if (!container || items.length === 0) {
-      setActiveId(null);
-      return;
+    // 一轮中可能有多条 assistant 事件，取最后一条有正文的回复作为摘要。
+    if (message.role === "assistant" && items.length > 0) {
+      const responseText = summarize(message);
+      if (responseText) items[items.length - 1].responseText = responseText;
     }
-    const containerTop = container.getBoundingClientRect().top;
-    let bestId: string | null = null;
-    let bestDistance = -Infinity;
-    for (const it of items) {
-      const el = document.getElementById(`msg-${it.id}`);
-      if (!el) continue;
-      const distance = el.getBoundingClientRect().top - containerTop;
-      // 锚点在视口顶部以上或刚好顶部 → 候选；选最靠近 0 的
-      if (distance <= 16 && distance > bestDistance) {
-        bestDistance = distance;
-        bestId = it.id;
-      }
-    }
-    setActiveId(bestId ?? items[items.length - 1].id);
-  }, [open, items]);
-
-  // active 项打开时自动滚到目录可见位置
-  useEffect(() => {
-    if (!open || !activeId) return;
-    const el = popoverRef.current?.querySelector<HTMLElement>(
-      `[data-outline-item="${activeId}"]`,
-    );
-    el?.scrollIntoView({ block: "nearest", behavior: "auto" });
-  }, [open, activeId]);
-
-  // 点击浮层外（且不是触发按钮自身）→ 关闭
-  useEffect(() => {
-    if (!open) return;
-    const onDown = (e: MouseEvent) => {
-      const t = e.target as Node;
-      if (popoverRef.current?.contains(t)) return;
-      if (triggerRef?.current?.contains(t)) return;
-      onClose();
-    };
-    document.addEventListener("mousedown", onDown);
-    return () => document.removeEventListener("mousedown", onDown);
-  }, [open, onClose, triggerRef]);
-
-  // ESC 关闭
-  useEffect(() => {
-    if (!open) return;
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
-    };
-    document.addEventListener("keydown", onKey);
-    return () => document.removeEventListener("keydown", onKey);
-  }, [open, onClose]);
-
-  const handleClick = async (item: { id: string; index: number }) => {
-    const tryScroll = () => {
-      const el = document.getElementById(`msg-${item.id}`);
-      if (!el) return false;
-      el.scrollIntoView({ behavior: "auto", block: "start" });
-      return true;
-    };
-
-    if (tryScroll()) {
-      onClose();
-      return;
-    }
-
-    // 锚点不在 DOM —— 该消息还在分页未渲染区。
-    // 先反复 loadEarlier 直到桶里包含这条目标，再滚。
-    if (!sessionId) return;
-    let guard = 8; // 防失控（每页 200 events，扩到 1600 已经过头了）
-    while (guard-- > 0) {
-      const got = await loadEarlier(sessionId);
-      if (!got) break;
-      if (tryScroll()) {
-        onClose();
-        return;
-      }
-    }
-    // 还是定位不到，至少把目录关掉避免假死
-    onClose();
-  };
-
-  if (!open) return null;
-  if (items.length === 0) {
-    return (
-      <div
-        ref={popoverRef}
-        className="absolute right-2 top-full mt-1 z-30 w-[260px] py-3 px-3 bg-surface rounded-lg shadow-[0_8px_24px_rgba(0,0,0,0.12)] text-[12px] text-t-ghost"
-      >
-        当前会话还没有消息。
-      </div>
-    );
   }
+  return items;
+}
 
-  return (
-    <div
-      ref={popoverRef}
-      className="absolute right-2 top-full mt-1 z-30 w-[260px] max-h-[60vh] overflow-y-auto bg-surface rounded-lg shadow-[0_8px_24px_rgba(0,0,0,0.12)] py-1.5 px-1.5 scrollbar-thin"
+function getPreviewText(text: string): string {
+  const limit = 180;
+  return text.length > limit ? `${text.slice(0, limit)}…` : text || "(空消息)";
+}
+
+/** 悬停条为最长，距它越远，横线越短；无悬停时全为短线。 */
+function getMarkerWidth(index: number, hoveredIndex: number): number {
+  if (hoveredIndex < 0) return MARKER_MIN_WIDTH;
+  return Math.max(
+    MARKER_MIN_WIDTH,
+    Math.round(MARKER_MAX_WIDTH - Math.abs(index - hoveredIndex) * MARKER_WIDTH_STEP),
+  );
+}
+
+function getMarkerOpacity(index: number, hoveredIndex: number): number {
+  if (hoveredIndex < 0) return 0.72;
+  return Math.max(0.5, 1 - Math.abs(index - hoveredIndex) * 0.08);
+}
+
+/**
+ * 以 rail 的 DOM 尺寸为坐标系保持标记在消息区域左侧中部。
+ * 通过 portal 挂到 document.body，避免 Workbench 的 transform 让 fixed
+ * 被错误地改成相对居中正文列的定位上下文。
+ */
+export const ChatOutline = memo(function ChatOutline({
+  messages,
+  scrollContainerRef,
+}: ChatOutlineProps) {
+  const items = useMemo(() => getHistoryItems(messages), [messages]);
+  const railRef = useRef<HTMLOListElement>(null);
+  const markerRefs = useRef(new Map<string, HTMLButtonElement>());
+  const [hoveredId, setHoveredId] = useState<string | null>(null);
+  const [previewTop, setPreviewTop] = useState<number | null>(null);
+  const [railPosition, setRailPosition] = useState<RailPosition | null>(null);
+
+  // 消息列表或窗口尺寸变化时重新计算 fixed 轨道坐标。
+  useLayoutEffect(() => {
+    // HMR 或首次切换会话时 ref 回调可能晚于该组件的 layout effect；
+    // 用 data 属性兜底，不能因此让轨道永远停留在未渲染状态。
+    const container = scrollContainerRef.current
+      ?? document.querySelector<HTMLElement>("[data-chat-scroll-container]");
+    if (!container) return;
+
+    const updatePosition = () => {
+      const rect = container.getBoundingClientRect();
+      const next = {
+        left: Math.round(rect.left + 12),
+        top: Math.round(rect.top + rect.height / 2),
+        width: Math.round(rect.width),
+      };
+      setRailPosition((previous) =>
+        previous
+        && previous.left === next.left
+        && previous.top === next.top
+        && previous.width === next.width
+          ? previous
+          : next,
+      );
+    };
+
+    updatePosition();
+    window.addEventListener("resize", updatePosition);
+    const observer = typeof ResizeObserver === "undefined"
+      ? null
+      : new ResizeObserver(updatePosition);
+    observer?.observe(container);
+    return () => {
+      window.removeEventListener("resize", updatePosition);
+      observer?.disconnect();
+    };
+  }, [scrollContainerRef, items.length]);
+
+  const scrollToItem = useCallback((item: HistoryItem) => {
+    const element = document.getElementById(`msg-${item.id}`);
+    if (!element) return;
+    element.scrollIntoView({ behavior: "auto", block: "start" });
+  }, []);
+
+  const updatePreviewTop = useCallback((id: string) => {
+    const rail = railRef.current;
+    const marker = markerRefs.current.get(id);
+    if (!rail || !marker) return;
+    setPreviewTop(marker.offsetTop - rail.scrollTop + marker.offsetHeight / 2);
+  }, []);
+
+  const handleMarkerHover = useCallback((id: string) => {
+    setHoveredId(id);
+    updatePreviewTop(id);
+  }, [updatePreviewTop]);
+
+  const clearHover = useCallback(() => {
+    setHoveredId(null);
+    setPreviewTop(null);
+  }, []);
+
+  const handleKeyDown = useCallback((event: React.KeyboardEvent, item: HistoryItem) => {
+    if (event.key !== "Enter" && event.key !== " ") return;
+    event.preventDefault();
+    scrollToItem(item);
+  }, [scrollToItem]);
+
+  if (items.length === 0 || !railPosition) return null;
+
+  const hoveredIndex = items.findIndex((item) => item.id === hoveredId);
+  const preview = hoveredIndex >= 0 ? items[hoveredIndex] : null;
+  const showPreview = railPosition.width >= 720;
+
+  return createPortal(
+    <aside
+      aria-label="会话消息历史"
+      className="fixed z-20 -translate-y-1/2"
+      style={{ left: railPosition.left, top: railPosition.top }}
+      onMouseLeave={clearHover}
     >
-      <ol className="space-y-px">
-        {items.map((it) => {
-          const isActive = it.id === activeId;
+      <ol
+        ref={railRef}
+        className="flex max-h-[42vh] w-7 flex-col items-center overflow-y-auto py-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+        aria-label="用户消息定位标记"
+        onScroll={() => hoveredId && updatePreviewTop(hoveredId)}
+      >
+        {items.map((item, index) => {
+          const isHovered = index === hoveredIndex;
           return (
-            <li key={it.id}>
+            <li key={item.id} className="flex h-[10px] w-full shrink-0 justify-start">
               <button
-                data-outline-item={it.id}
-                onClick={() => handleClick(it)}
-                title={it.text}
-                className={`w-full flex items-center px-2 h-7 rounded text-left text-[12px] truncate transition-colors ${
-                  isActive
-                    ? "bg-active text-t-primary font-medium"
-                    : "text-t-secondary hover:text-t-primary hover:bg-hover"
+                ref={(node) => {
+                  if (node) markerRefs.current.set(item.id, node);
+                  else markerRefs.current.delete(item.id);
+                }}
+                type="button"
+                data-history-item={item.id}
+                onClick={() => scrollToItem(item)}
+                onKeyDown={(event) => handleKeyDown(event, item)}
+                onMouseEnter={() => handleMarkerHover(item.id)}
+                aria-label={`定位到第 ${item.index + 1} 条用户消息：${getPreviewText(item.text)}`}
+                className={`flex h-full items-center rounded-full after:block after:h-[2px] after:w-full after:rounded-full after:bg-t-muted/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent ${
+                  isHovered ? "after:bg-t-primary" : "hover:after:bg-t-secondary"
                 }`}
-              >
-                <span className="truncate">{it.text || "(空消息)"}</span>
-              </button>
+                style={{
+                  width: getMarkerWidth(index, hoveredIndex),
+                  opacity: getMarkerOpacity(index, hoveredIndex),
+                }}
+              />
             </li>
           );
         })}
-        {hasMoreHistory && (
-          <li className="px-2 py-1 text-[11px] text-t-ghost italic">
-            还有更早的消息，点击具体条目时会自动加载。
-          </li>
-        )}
       </ol>
-    </div>
+
+      {preview && showPreview && (
+        <div
+          className="absolute left-9 w-[324px] -translate-y-1/2 rounded-lg border border-border-subtle bg-surface px-3 py-2.5 shadow-[0_3px_10px_rgba(15,23,42,0.08)]"
+          style={{ top: previewTop ?? 0 }}
+        >
+          <p className="line-clamp-1 whitespace-pre-wrap break-words text-[13px] font-medium leading-5 text-t-primary">
+            {getPreviewText(preview.text)}
+          </p>
+          {preview.responseText ? (
+            <p className="mt-1 line-clamp-2 whitespace-pre-wrap break-words text-[12px] leading-[18px] text-t-ghost">
+              {getPreviewText(preview.responseText)}
+            </p>
+          ) : (
+            <p className="mt-1 text-[11px] text-t-ghost">用户消息 {preview.index + 1}</p>
+          )}
+        </div>
+      )}
+    </aside>,
+    document.body,
   );
 });
 
-/** 模块级 summarize 缓存（按 message id 复用） */
-const summarizeCache = new Map<string, string>();
+export { getHistoryItems, getMarkerWidth, getPreviewText };

@@ -6,9 +6,10 @@
 |---|---|
 | 阶段 | D1 |
 | 名称 | 会话内容搜索（前端搜索框 / 高亮 / 跳转） |
-| 状态 | approved |
+| 状态 | 已验收 |
 | 创建日期 | 2026-08-17 |
 | 定稿日期 | 2026-08-17 |
+| 验收日期 | 2026-08-20 |
 | 关联文档 | docs/TODO.yaml 阶段 D1；后端 ftre E1（GET /sessions/search） |
 
 ## 1. 背景与目标
@@ -21,11 +22,12 @@
 
 ### 2.1 功能需求
 
-- [ ] FR1：展开态会话面板顶部显示搜索输入框（折叠态不显示）；输入 ≥1 字符进入搜索模式，清空退出恢复原列表。
-- [ ] FR2：输入防抖 300ms 后调 `GET /sessions/search`；连续输入时 AbortController 取消旧请求，仅渲染最新结果。
-- [ ] FR3：结果项显示：标题（命中词高亮，标题命中加"标题"角标）、命中摘要（命中词高亮，最多 3 条）、workspace 名与更新时间；显示总命中数。
-- [ ] FR4：点击结果项切换到该会话（复用 handleSwitchSession）并清空搜索。
-- [ ] FR5：Esc 清空搜索退出；加载中显示 spinner；空结果显示"无匹配会话"；接口失败静默保留上次结果。
+- [x] FR1：展开态会话面板顶部显示搜索输入框（折叠态不显示）；输入 ≥1 字符进入搜索模式，清空退出恢复原列表。
+- [x] FR2：输入防抖 300ms 后调 `GET /sessions/search`；连续输入时 AbortController 立即取消旧请求，仅渲染最新结果。
+- [x] FR3：结果项显示：标题（命中词高亮，标题命中加"标题"角标）、命中摘要（命中词高亮，最多 3 条）、workspace 名与更新时间；显示总命中数。
+- [x] FR4：点击结果项切换到该会话（复用 handleSwitchSession）并清空搜索。
+- [x] FR5：Esc 清空搜索退出；加载中显示 spinner；空结果显示"无匹配会话"；接口失败静默保留上次结果。
+- [x] FR6：完整结果分页——首屏请求 50 条；接口返回 `has_more` 时可点击“显示更多”连续加载后续页面，不因默认 30 条而遗漏旧会话。
 
 ### 2.2 非功能需求
 
@@ -34,21 +36,22 @@
 
 ## 3. 技术方案
 
-- `services/api.ts`：`fetchSessionSearch({q, limit, workspace?, signal?})` → `{total, results}`；AbortError 静默返回 null（调用方区分取消与失败）。
+- `services/api.ts`：`fetchSessionSearch({q, limit, offset?, workspace?, signal?})` → `{total, results, has_more}`；AbortError 静默返回 null（调用方区分取消与失败）。
 - `components/HighlightText.tsx`：`({text, query})` 大小写不敏感分段渲染 `<mark>`（黄色底）。
 - `features/session/SessionSearchResults.tsx`：结果列表（纯展示，props: query/results/onOpen）。
-- `SessionPanel.tsx`：顶部 `SessionSearchBox`（本地 state + 防抖 + AbortController）；搜索态时列表区渲染 SessionSearchResults 替换分组列表。
+- `SessionPanel.tsx`：顶部 `SessionSearchBox`（本地 state + 防抖 + AbortController）；搜索态时列表区渲染 SessionSearchResults 替换分组列表，并按 `has_more` 加载后续页面。
 
 ## 4. 接口定义
 
-消费后端 E1：`GET /sessions/search?q=&limit=30&workspace=`（见 ftre PRD-E1）。
+消费后端 E1：`GET /sessions/search?q=&limit=50&offset=&workspace=`（见 ftre PRD-E1）。
 
 ## 5. 验收标准
 
-- [ ] AC1：输入关键字 → 300ms 后出结果，标题与摘要命中词高亮。
-- [ ] AC2：快速连续输入只发最后一个请求（旧请求被 abort）。
-- [ ] AC3：点击结果跳转会话且搜索清空；Esc 清空退出。
-- [ ] AC4：vitest 新用例（HighlightText 分段、SearchResults 渲染、防抖+abort 时序）全过；tsc 零错误；相关既有测试不回归。
+- [x] AC1：输入关键字 → 300ms 后出结果，标题与摘要命中词高亮。
+- [x] AC2：快速连续输入只发最后一个请求（旧请求被 abort）。
+- [x] AC3：点击结果跳转会话且搜索清空；Esc 清空退出。
+- [x] AC4：SessionSearch 专项 vitest 9 项通过，Renderer 生产构建通过；全量 tsc 的存量基线错误不由本阶段引入。
+- [x] AC5：匹配数超过首屏时，点击“显示更多”会以 offset 获取并追加后续会话；查询切换立即取消旧首屏/后续页请求，旧响应不得覆盖新查询。
 
 ## 6. 测试计划
 
@@ -61,3 +64,5 @@
 | 日期 | 变更内容 | 理由 |
 |---|---|---|
 | 2026-08-17 | 初始定稿 | — |
+| 2026-08-20 | 新增 FR6 / AC5：首屏从默认 30 提高至 50，并支持 offset 分页加载全部匹配会话；查询改变时立即取消请求 | 修复：后端虽报告全部 total，客户端却只请求首 30 条，正文命中较多时旧会话被静默遗漏 |
+| 2026-08-20 | 验收完成 | 前端搜索输入、防抖取消、结果高亮/摘要、会话跳转与分页专项测试 9 项通过，Renderer 生产构建通过；与后端 E1 联动验证 |

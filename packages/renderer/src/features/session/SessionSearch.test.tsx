@@ -94,6 +94,42 @@ describe("useSessionSearch", () => {
     expect(mockSearch.mock.calls[0][0].signal).toBeInstanceOf(AbortSignal);
   });
 
+  it("按页继续取得超过首屏上限的结果", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    mockSearch
+      .mockResolvedValueOnce({
+        query: "目标",
+        total: 51,
+        offset: 0,
+        has_more: true,
+        results: [{
+          session_id: "s1", title: "目标一", workspace: "", channel: "ws",
+          updated_at: "2026-08-17T10:00:00+08:00", title_matched: false, hits: [],
+        }],
+      })
+      .mockResolvedValueOnce({
+        query: "目标",
+        total: 51,
+        offset: 1,
+        has_more: false,
+        results: [{
+          session_id: "s2", title: "目标二", workspace: "", channel: "ws",
+          updated_at: "2026-08-17T10:00:00+08:00", title_matched: false, hits: [],
+        }],
+      });
+    let hook: ReturnType<typeof useSessionSearch> | null = null;
+    render(<HookHost onRender={(h) => { hook = h; }} />);
+
+    act(() => hook!.setQuery("目标"));
+    await flushDebounce();
+    await waitFor(() => expect(hook!.response?.has_more).toBe(true));
+    await act(async () => { await hook!.loadMore(); });
+
+    expect(mockSearch.mock.calls[1][0]).toMatchObject({ q: "目标", limit: 50, offset: 1 });
+    expect(hook!.response?.results.map((item) => item.session_id)).toEqual(["s1", "s2"]);
+    expect(hook!.response?.has_more).toBe(false);
+  });
+
   it("openAndReset 清空搜索并回调", () => {
     const open = vi.fn();
     let hook: ReturnType<typeof useSessionSearch> | null = null;
@@ -168,5 +204,21 @@ describe("SessionSearchResults", () => {
       <SessionSearchResults query="zzz" response={null} loading={false} onOpen={vi.fn()} />,
     );
     expect(screen.getByText("无匹配会话")).toBeInTheDocument();
+  });
+
+  it("有下一页时提供加载更多入口", () => {
+    const onLoadMore = vi.fn();
+    render(
+      <SessionSearchResults
+        query="目标"
+        response={{ ...response, total: 2, has_more: true }}
+        loading={false}
+        onLoadMore={onLoadMore}
+        onOpen={vi.fn()}
+      />,
+    );
+
+    fireEvent.click(screen.getByText("显示更多（已显示 1/2）"));
+    expect(onLoadMore).toHaveBeenCalledOnce();
   });
 });
