@@ -8,7 +8,8 @@
  * - Embedded panels (preview, debug)
  */
 import { memo, useRef, useEffect, useState, useCallback } from "react";
-import { ChevronUp, Loader2, Archive, AlertCircle, ChevronRight, Copy } from "lucide-react";
+import type { ReactNode } from "react";
+import { Loader2, Archive, AlertCircle, ChevronRight, Copy } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import type { ChatMessage } from "@/stores/chat";
 import { useAutoScrollToBottom } from "@/hooks/auto-scroll";
@@ -20,6 +21,7 @@ import { ChatOutline } from "./ChatOutline";
 import type { TurnFileChange } from "./TurnFileChanges";
 import { ContextMenu, type ContextMenuItem } from "@/components/ContextMenu";
 import { remarkPlugins, rehypePlugins } from "@/lib/markdown-plugins";
+import { shouldShowTurnActions } from "./turnActions";
 
 // ─── Types ──────────────────────────────────────────────────────────
 
@@ -33,6 +35,10 @@ export interface ChatMessageListProps {
   maxHeight?: string;
   /** Class name for the outer container */
   className?: string;
+  /** Three-column grid used to align the left rail, message body, and right rail. */
+  layoutClassName?: string;
+  /** Optional content rendered in the right layout rail. */
+  rightRail?: ReactNode;
 }
 
 // ─── Component ──────────────────────────────────────────────────────
@@ -43,7 +49,10 @@ export const ChatMessageList = memo(function ChatMessageList({
   autoScroll = true,
   maxHeight,
   className = "",
+  layoutClassName = "grid-cols-[minmax(0,1fr)_minmax(0,848px)_minmax(0,1fr)]",
+  rightRail,
 }: ChatMessageListProps) {
+  const safeMessages = Array.isArray(messages) ? messages : [];
   const containerRef = useRef<HTMLDivElement>(null);
 
   // ─── 右键菜单（选中文本后复制）────────────────────────────────────
@@ -104,7 +113,7 @@ export const ChatMessageList = memo(function ChatMessageList({
   // ─── 尾部消息指纹 —— 覆盖流式期间所有增量来源 ─────────────────
   // 流式期间 messages.length 不变，但最后一条的 content/parts/toolCalls 在涨。
   // 指纹变化 → scrollToBottom，锁由 hook 内部管理。
-  const lastMsg = messages[messages.length - 1];
+  const lastMsg = safeMessages[safeMessages.length - 1];
   const tailFingerprint =
     !lastMsg
       ? ""
@@ -163,14 +172,16 @@ export const ChatMessageList = memo(function ChatMessageList({
       ref={mergedRef}
       data-chat-scroll-container=""
       onContextMenu={handleContextMenu}
-      className={`overflow-y-auto overflow-x-hidden px-6 pt-3 pb-20 ${className}`}
+      className={`overflow-y-auto overflow-x-hidden ${className}`}
       style={{
         maxHeight,
       }}
     >
-      <ChatOutline messages={messages} scrollContainerRef={containerRef} />
+      <div className={`grid min-h-full ${layoutClassName}`}>
+        <ChatOutline messages={safeMessages} />
 
-      <div className="mx-auto w-full max-w-[800px] space-y-4 break-words">
+        <div className="col-start-2 min-w-0 px-6 pb-0 pt-3">
+          <div className="mx-auto w-full max-w-[800px] space-y-4 break-words">
         {/* Load more */}
         {hasMoreHistory && (
           <div className="text-center py-2">
@@ -185,28 +196,25 @@ export const ChatMessageList = memo(function ChatMessageList({
                   加载中...
                 </>
               ) : (
-                <>
-                  <ChevronUp size={14} />
-                  从服务器加载更早的消息
-                </>
+                <>从服务器加载更早的消息</>
               )}
             </button>
           </div>
         )}
 
-        {messages.length === 0 && !isBusy && (
+        {safeMessages.length === 0 && !isBusy && (
           <div className="text-center text-t-dim text-sm py-12">
             No messages
           </div>
         )}
 
-        {messages.map((msg, i) => {
-          const next = messages[i + 1];
+        {safeMessages.map((msg, i) => {
+          const next = safeMessages[i + 1];
           const isTurnEnd =
             msg.role === "assistant" &&
             !msg.streaming &&
             (!next || next.role !== "assistant");
-          const isLastOfTurn = isTurnEnd && !isBusy;
+          const showTurnActions = shouldShowTurnActions(safeMessages, i, isBusy);
 
           // 本轮所有 assistant 消息的文本列表（从上一个 user 消息之后到本条）
           let turnTexts: string[] | undefined;
@@ -215,7 +223,7 @@ export const ChatMessageList = memo(function ChatMessageList({
             // 找本轮起始：上一个 user 消息
             let turnStart = 0;
             for (let j = i - 1; j >= 0; j--) {
-              if (messages[j].role === "user") {
+              if (safeMessages[j].role === "user") {
                 turnStart = j + 1;
                 break;
               }
@@ -224,7 +232,7 @@ export const ChatMessageList = memo(function ChatMessageList({
             // 按文件路径合并：同一文件多次修改只保留第一次的 before 和最后一次的 after
             const fileMap = new Map<string, TurnFileChange>();
             for (let j = turnStart; j <= i; j++) {
-              const m = messages[j];
+              const m = safeMessages[j];
               if (m.role !== "assistant") continue;
               const text = m.content ?? "";
               if (text) turnTexts.push(text);
@@ -267,7 +275,7 @@ export const ChatMessageList = memo(function ChatMessageList({
             <MessageItem
               key={msg.id}
               message={msg}
-              showActions={isLastOfTurn}
+              showActions={showTurnActions}
               turnTexts={turnTexts}
               turnFileChanges={turnFileChanges}
               turnDurationSec={msg.durationSec}
@@ -276,6 +284,14 @@ export const ChatMessageList = memo(function ChatMessageList({
           );
         })}
 
+          </div>
+        </div>
+
+        {rightRail && (
+          <aside className="sticky top-0 col-start-3 row-start-1 min-h-0 self-start px-4 pb-4 pt-2">
+            {rightRail}
+          </aside>
+        )}
       </div>
 
       {/* 选中文本右键菜单 */}

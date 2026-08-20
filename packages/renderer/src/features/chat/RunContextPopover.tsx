@@ -60,6 +60,18 @@ function persistPopoverOpen(open: boolean): void {
   }
 }
 
+export function useRunContextPanelState() {
+  const [open, setOpen] = useState(getPersistedPopoverOpen);
+  const toggleOpen = useCallback(() => {
+    setOpen((value) => {
+      const next = !value;
+      persistPopoverOpen(next);
+      return next;
+    });
+  }, []);
+  return { open, toggleOpen };
+}
+
 function formatRunningDuration(ms: number): string {
   const totalSeconds = Math.max(0, Math.floor(ms / 1000));
   const hours = Math.floor(totalSeconds / 3600);
@@ -143,8 +155,50 @@ function collectActiveTurnFileChanges(
   return Array.from(fileMap.values());
 }
 
-export function RunContextPopover() {
-  const messages = useChat((state) => state.messages);
+interface RunContextButtonProps {
+  open: boolean;
+  onToggle: () => void;
+}
+
+export function RunContextButton({ open, onToggle }: RunContextButtonProps) {
+  const sessionStatus = useChat((state) => state.sessionStatus);
+  const sessionActivity = useChat((state) => state.sessionActivity);
+  const queueDepth = useChat((state) => state.queueDepth);
+  const blockedReason = useChat((state) => state.blockedReason);
+  const retryState = useChat((state) => state.retryState);
+  const commandName = useChat((state) => state.commandName);
+  const turnStartTs = useChat((state) => state.turnStartTs);
+  const label = getRunLabel({
+    sessionStatus,
+    sessionActivity,
+    queueDepth,
+    blockedReason,
+    retryState,
+    commandName,
+    turnStartTs,
+  });
+  const isWorking = sessionStatus === "running" || sessionStatus === "compacting";
+
+  return (
+    <Tooltip content="运行详情" side="bottom">
+      <button
+        type="button"
+        aria-label={`${label}，${open ? "关闭" : "打开"}运行详情`}
+        aria-expanded={open}
+        onClick={onToggle}
+        className={`relative flex h-7 w-7 items-center justify-center rounded-md transition-colors duration-150 ${
+          open ? "bg-black/[0.06] text-t-primary" : "text-t-muted hover:bg-black/[0.04] hover:text-t-primary"
+        }`}
+      >
+        <ListFilter size={15} strokeWidth={1.6} />
+        {isWorking && <span aria-hidden="true" className="absolute right-1 top-1 h-1 w-1 rounded-full bg-[#36a177] motion-safe:animate-pulse" />}
+      </button>
+    </Tooltip>
+  );
+}
+
+export function RunContextPanel() {
+  const messages = useChat((state) => Array.isArray(state.messages) ? state.messages : []);
   const sessionId = useChat((state) => state.sessionId);
   const isBusy = useChat((state) => state.isBusy);
   const sessionStatus = useChat((state) => state.sessionStatus);
@@ -159,7 +213,6 @@ export function RunContextPopover() {
   const sessions = useSession((state) => state.sessions);
   const allSessions = useSession((state) => state.allSessions);
   const [now, setNow] = useState(() => Date.now());
-  const [open, setOpen] = useState(getPersistedPopoverOpen);
   const [planExpanded, setPlanExpanded] = useState(false);
   const [changesExpanded, setChangesExpanded] = useState(false);
   const [gitExpanded, setGitExpanded] = useState(false);
@@ -201,14 +254,6 @@ export function RunContextPopover() {
     return findWorkspace(sessions) || findWorkspace(allSessions);
   }, [sessionId, sessions, allSessions]);
   const currentGitInfo = workspaceGitInfo;
-
-  const toggleOpen = useCallback(() => {
-    setOpen((value) => {
-      const next = !value;
-      persistPopoverOpen(next);
-      return next;
-    });
-  }, []);
 
   useEffect(() => {
     if (!hasRunContext) return;
@@ -312,51 +357,33 @@ export function RunContextPopover() {
     showInspector();
   }, [sessionWorkspace]);
 
-  const isWorking = sessionStatus === "running" || sessionStatus === "compacting";
   return (
-    <div className="relative">
-      <Tooltip content="运行详情" side="bottom">
-        <button
-          type="button"
-          aria-label={`${label}，${open ? "关闭" : "打开"}运行详情`}
-          aria-expanded={open}
-          onClick={toggleOpen}
-          className={`relative flex h-7 w-7 items-center justify-center rounded-md transition-colors duration-150 ${
-            open ? "bg-black/[0.06] text-t-primary" : "text-t-muted hover:bg-black/[0.04] hover:text-t-primary"
-          }`}
-        >
-          <ListFilter size={15} strokeWidth={1.6} />
-          {isWorking && <span aria-hidden="true" className="absolute right-1 top-1 h-1 w-1 rounded-full bg-[#36a177] motion-safe:animate-pulse" />}
-        </button>
-      </Tooltip>
-
-      {open && (
-        <section
-          aria-label="运行详情"
-          className="animate-in fade-in slide-in-from-top-1 duration-150 absolute right-0 top-full z-40 mt-2 w-[320px] origin-top-right overflow-hidden rounded-2xl bg-surface py-2 shadow-[0_10px_28px_rgba(15,23,42,0.12)]"
-        >
+    <section
+      aria-label="运行详情"
+      className="animate-in fade-in slide-in-from-top-1 w-full origin-top-right overflow-hidden rounded-2xl bg-surface py-2 shadow-[0_10px_28px_rgba(15,23,42,0.12)] duration-150"
+    >
           <div className="flex h-8 items-center px-4">
-            <span className="text-[12px] font-medium tracking-[0.01em] text-t-secondary">运行详情</span>
+            <span className="text-[13px] font-medium tracking-[0.01em] text-t-secondary">运行详情</span>
           </div>
 
           <div className="flex h-9 min-w-0 items-center gap-2 px-4">
-            <span className="shrink-0 text-[12px] font-medium text-t-primary">{label}</span>
-            {runningDuration && <span className="shrink-0 font-mono text-[10px] tabular-nums text-t-faint">{runningDuration}</span>}
+            <span className="shrink-0 text-[13px] font-medium text-t-primary">{label}</span>
+            {runningDuration && <span className="shrink-0 font-mono text-[11px] tabular-nums text-t-faint">{runningDuration}</span>}
             <span className="min-w-0 flex-1" />
-            {model && <span className="max-w-[148px] shrink truncate rounded-[3px] bg-black/[0.045] px-1.5 py-0.5 font-mono text-[10px] leading-none text-t-secondary">{model}</span>}
+            {model && <span className="max-w-[160px] shrink truncate rounded-[3px] bg-black/[0.045] px-1.5 py-0.5 font-mono text-[11px] leading-none text-t-secondary">{model}</span>}
           </div>
 
           {planSteps.length > 0 && (
             <div className="px-2.5 pt-1">
               <button type="button" aria-expanded={planExpanded} onClick={() => setPlanExpanded((value) => !value)} className="flex h-8 w-full items-center gap-2 rounded-md px-1.5 text-left transition-colors hover:bg-black/[0.035] hover:text-t-primary">
                 <ListTodo size={14} strokeWidth={1.6} className="shrink-0 text-t-muted" />
-                <span className="shrink-0 text-[12px] text-t-secondary">任务</span>
-                <span className="min-w-0 flex-1 truncate text-right text-[11px] text-t-primary">{plan?.goal}</span>
-                <span className="shrink-0 font-mono text-[10px] text-t-faint">{completedCount}/{planSteps.length}</span>
+                <span className="shrink-0 text-[13px] text-t-secondary">任务</span>
+                <span className="min-w-0 flex-1 truncate text-right text-[12px] text-t-primary">{plan?.goal}</span>
+                <span className="shrink-0 font-mono text-[11px] text-t-faint">{completedCount}/{planSteps.length}</span>
                 <ChevronDown size={13} strokeWidth={1.7} className={`shrink-0 text-t-faint transition-transform duration-150 ${planExpanded ? "rotate-180" : ""}`} />
               </button>
               {planExpanded && <div className="animate-in fade-in slide-in-from-top-1 duration-150 ml-5 max-h-[156px] overflow-y-auto pb-1 pt-0.5">
-                {planSteps.map((step) => <div key={step.id} className="flex items-start gap-2 rounded-md px-1.5 py-1 text-[11px]">
+                {planSteps.map((step) => <div key={step.id} className="flex items-start gap-2 rounded-md px-1.5 py-1 text-[12px]">
                   {step.status === "completed" ? <Check size={13} strokeWidth={1.8} className="mt-0.5 shrink-0 text-[#36a177]" /> : step.status === "in_progress" ? <Loader2 size={13} strokeWidth={1.8} className="mt-0.5 shrink-0 animate-spin text-[#36a177]" /> : <Circle size={13} strokeWidth={1.5} className="mt-0.5 shrink-0 text-t-faint/40" />}
                   <span className={step.status === "completed" ? "text-t-faint line-through" : "text-t-secondary"}>{step.content}</span>
                 </div>)}
@@ -368,18 +395,18 @@ export function RunContextPopover() {
             <div className="px-2.5 pt-1">
               <button type="button" aria-expanded={changesExpanded} onClick={() => setChangesExpanded((value) => !value)} className="flex h-8 w-full items-center gap-2 rounded-md px-1.5 text-left transition-colors hover:bg-black/[0.035] hover:text-t-primary">
                 <FileDiff size={14} strokeWidth={1.6} className="shrink-0 text-t-muted" />
-                <span className="shrink-0 text-[12px] text-t-secondary">本轮修改</span>
-                <span className="rounded-full bg-black/[0.05] px-1.5 py-px font-mono text-[10px] text-t-faint">{fileChanges.length}</span>
+                <span className="shrink-0 text-[13px] text-t-secondary">本轮修改</span>
+                <span className="rounded-full bg-black/[0.05] px-1.5 py-px font-mono text-[11px] text-t-faint">{fileChanges.length}</span>
                 <span className="min-w-0 flex-1" />
-                <span className="shrink-0 font-mono text-[10px]"><span className="text-[#21835f]">+{totalAdditions}</span><span className="ml-1 text-[#d05959]">-{totalDeletions}</span></span>
+                <span className="shrink-0 font-mono text-[11px]"><span className="text-[#21835f]">+{totalAdditions}</span><span className="ml-1 text-[#d05959]">-{totalDeletions}</span></span>
                 <ChevronDown size={13} strokeWidth={1.7} className={`shrink-0 text-t-faint transition-transform duration-150 ${changesExpanded ? "rotate-180" : ""}`} />
               </button>
               {changesExpanded && <div className="animate-in fade-in slide-in-from-top-1 duration-150 ml-5 max-h-[156px] overflow-y-auto pb-1 pt-0.5">
                 {fileChanges.map((change) => <button key={change.toolCallId} type="button" onClick={() => openDiff(change)} className="flex min-h-7 w-full items-center gap-2 rounded-md px-1.5 py-1 text-left transition-colors hover:bg-black/[0.035]">
                   <FileIconView path={change.filePath} size={14} />
-                  <span className="min-w-0 flex-1 truncate text-[11px] text-t-secondary">{basename(change.filePath)}</span>
+                  <span className="min-w-0 flex-1 truncate text-[12px] text-t-secondary">{basename(change.filePath)}</span>
                   <span className="shrink-0 text-[10px] text-t-faint">{change.operation === "write" ? <FilePlus2 size={12} strokeWidth={1.6} /> : <FileEdit size={12} strokeWidth={1.6} />}</span>
-                  <span className="shrink-0 font-mono text-[10px]"><span className="text-[#21835f]">+{change.additions}</span><span className="ml-1 text-[#d05959]">-{change.deletions}</span></span>
+                  <span className="shrink-0 font-mono text-[11px]"><span className="text-[#21835f]">+{change.additions}</span><span className="ml-1 text-[#d05959]">-{change.deletions}</span></span>
                 </button>)}
               </div>}
             </div>
@@ -389,8 +416,8 @@ export function RunContextPopover() {
             <div className="px-2.5 pt-1">
               <div className="flex h-8 min-w-0 items-center gap-2 rounded-md px-1.5">
                 <GitBranch size={14} strokeWidth={1.6} className="shrink-0 text-t-muted" />
-                <span className="shrink-0 text-[12px] text-t-secondary">Git 分支</span>
-                <span className="min-w-0 flex-1 truncate text-right font-mono text-[11px] text-t-secondary">{currentGitInfo.branch || "detached HEAD"}</span>
+                <span className="shrink-0 text-[13px] text-t-secondary">Git 分支</span>
+                <span className="min-w-0 flex-1 truncate text-right font-mono text-[12px] text-t-secondary">{currentGitInfo.branch || "detached HEAD"}</span>
               </div>
             </div>
           )}
@@ -401,11 +428,11 @@ export function RunContextPopover() {
                 <span aria-hidden="true" className="inline-flex h-4 w-4 shrink-0 items-center justify-center">
                   <Icon icon="vscode-icons:file-type-git" width={14} height={14} style={{ color: "#f05032" }} />
                 </span>
-                <span className="shrink-0 text-[12px] text-t-secondary">Changes</span>
-                <span className="rounded-full bg-black/[0.05] px-1.5 py-px font-mono text-[10px] text-t-faint">{workspaceGitFiles.length}</span>
+                <span className="shrink-0 text-[13px] text-t-secondary">Changes</span>
+                <span className="rounded-full bg-black/[0.05] px-1.5 py-px font-mono text-[11px] text-t-faint">{workspaceGitFiles.length}</span>
                 <span className="min-w-0 flex-1" />
-                {stagedGitFiles.length > 0 && <span className="shrink-0 text-[10px] text-t-faint">暂存 {stagedGitFiles.length}</span>}
-                {unstagedGitFiles.length > 0 && <span className="shrink-0 text-[10px] text-t-faint">更改 {unstagedGitFiles.length}</span>}
+                {stagedGitFiles.length > 0 && <span className="shrink-0 text-[11px] text-t-faint">暂存 {stagedGitFiles.length}</span>}
+                {unstagedGitFiles.length > 0 && <span className="shrink-0 text-[11px] text-t-faint">更改 {unstagedGitFiles.length}</span>}
                 <ChevronDown size={13} strokeWidth={1.7} className={`shrink-0 text-t-faint transition-transform duration-150 ${gitExpanded ? "rotate-180" : ""}`} />
               </button>
               {gitExpanded && <div className="animate-in fade-in slide-in-from-top-1 duration-150 ml-5 max-h-[156px] overflow-y-auto pb-1 pt-0.5">
@@ -413,16 +440,25 @@ export function RunContextPopover() {
                   <span className="block px-1.5 py-1 text-[11px] text-t-faint">没有变更</span>
                 ) : workspaceGitFiles.map((file) => (
                   <button key={`${file.path}:${file.staged}`} type="button" disabled={file.isDir} onClick={() => void openGitDiff(file)} className="flex min-h-7 w-full min-w-0 items-center gap-2 rounded-md px-1.5 py-1 text-left transition-colors hover:bg-black/[0.035] disabled:cursor-default disabled:hover:bg-transparent">
-                    <span className="w-3 shrink-0 text-center font-mono text-[10px] font-medium" style={{ color: GIT_STATUS_COLORS[file.status] ?? "#89919a" }}>{GIT_STATUS_LABELS[file.status] ?? "?"}</span>
-                    <span className="min-w-0 flex-1 truncate text-[11px] text-t-secondary">{file.path}{file.isDir ? "/" : ""}</span>
-                    {file.staged && <span className="shrink-0 text-[10px] text-t-faint">暂存</span>}
+                    <span className="w-3 shrink-0 text-center font-mono text-[11px] font-medium" style={{ color: GIT_STATUS_COLORS[file.status] ?? "#89919a" }}>{GIT_STATUS_LABELS[file.status] ?? "?"}</span>
+                    <span className="min-w-0 flex-1 truncate text-[12px] text-t-secondary">{file.path}{file.isDir ? "/" : ""}</span>
+                    {file.staged && <span className="shrink-0 text-[11px] text-t-faint">暂存</span>}
                   </button>
                 ))}
               </div>}
             </div>
           )}
-        </section>
-      )}
+    </section>
+  );
+}
+
+/** 兼容独立渲染与组件测试；产品布局会把按钮和面板拆到 Header / 右侧栏。 */
+export function RunContextPopover() {
+  const { open, toggleOpen } = useRunContextPanelState();
+  return (
+    <div>
+      <RunContextButton open={open} onToggle={toggleOpen} />
+      {open && <RunContextPanel />}
     </div>
   );
 }
