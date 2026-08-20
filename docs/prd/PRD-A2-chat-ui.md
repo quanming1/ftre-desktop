@@ -30,6 +30,7 @@
 - [x] FR6：CodeBlock 代码块（语法高亮 + 复制按钮）
 - [x] FR7：InlineToolCallCard 工具调用卡片（状态展示 + 可折叠）
 - [x] FR8：streamingMarkdown 流式 markdown 解析渲染
+- [x] FR9：压缩横幅模型准确展示——处于 `compacting` 状态时，只显示后端 `context_compact_start.model` 提供的实际摘要模型；协议未提供时不显示模型，不能复用上一条 assistant 回复或当前选择的普通对话模型。
 
 ### 2.2 非功能需求
 
@@ -61,6 +62,7 @@
 - [x] AC2：流式输出追加过程无闪烁、无重复渲染
 - [x] AC3：工具调用卡片可折叠展开，状态显示正确
 - [x] AC4：代码块语法高亮正确，支持复制
+- [x] AC5：压缩横幅展示 `context_compact_start.model`；即使最近 assistant 回复和当前选择的普通模型都是其他值，也不得误显示为压缩模型。
 
 ## 6. 测试计划
 
@@ -86,3 +88,4 @@
 | 2026-08-14 | 文件链接 hover 提示从原生 title（Electron 约 1s 延迟且不明显）换为 @ftre/ui Tooltip（radix，delayDuration=0 即时显示，深色浮层，side=bottom），与消息操作栏同组件 | 用户反馈：没看到 tooltip |
 | 2026-08-14 | 文件链接展示名自带行号（#L88-L102 / main.py:42 形式）时不再追加重复的 :line 后缀；行号跳转不受影响（仍取 href 的 #L） | 用户反馈：实际渲染中行号显示两遍 |
 | 2026-08-17 | 修复 ChatInput 发送按钮状态陈旧：Slate 非受控，打普通文本时唯一 setState（skillSearch）为 null 被 React 跳过 → hasDraft 停留旧值、按钮保持禁用；改为 onChange 显式同步 hasText state，hasDraft 改读 state。新增回归测试（mock Slate 边界捕获 onChange 驱动输入） | 修复：输入文字后发送按钮不可点 |
+| 2026-08-20 | 新增 FR9 / AC5：压缩横幅的模型标签改为只读取 `context_compact_start.model`，旧服务端未提供该字段时留空；增加“最近普通回复为 GLM、压缩为 DeepSeek”回归测试 | 修复：横幅此前复用上一条 assistant 回复的模型，把普通对话模型误标为压缩模型 |

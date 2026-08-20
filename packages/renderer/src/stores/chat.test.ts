@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { applyEvent, applyMailboxSnapshot, useChat } from "./chat";
+import { applyEvent, applyMailboxSnapshot, applyReplySnapshot, useChat } from "./chat";
+import { ClientSessionProjection } from "./clientSessionProjection";
 import { UserMessageEventType } from "@/services/websocket-client";
 
 vi.mock("@/services/websocket-client", async (importOriginal) => {
@@ -70,6 +71,29 @@ describe("chat store", () => {
       provider: "openai",
       agentId: "reviewer",
     });
+  });
+
+  it("stores the actual compact model from context_compact_start", () => {
+    const projection = new ClientSessionProjection({
+      applyEvent,
+      applyReplySnapshot,
+    });
+
+    projection.apply({
+      type: "CUSTOM",
+      eventId: "compact-start",
+      data: {
+        name: "context_compact_start",
+        value: { model: "deepseek-v4-flash", tokens: 2_000 },
+      },
+    });
+
+    expect(projection.messages).toEqual([expect.objectContaining({
+      compact: expect.objectContaining({
+        status: "running",
+        model: "deepseek-v4-flash",
+      }),
+    })]);
   });
 
   it("newChat resets the active conversation", async () => {
