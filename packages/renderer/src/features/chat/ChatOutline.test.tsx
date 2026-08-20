@@ -35,7 +35,6 @@ function setRect(element: HTMLElement, rect: Partial<DOMRect> = {}) {
 function renderOutline(messages: ChatMessage[], width = 900) {
   const container = document.createElement("div");
   setRect(container, { width, right: 40 + width });
-  const scrollContainerRef = { current: container };
   const scrollIntoView = vi.fn();
 
   const anchors = messages
@@ -53,7 +52,7 @@ function renderOutline(messages: ChatMessage[], width = 900) {
     });
 
   const result = render(
-    <ChatOutline messages={messages} scrollContainerRef={scrollContainerRef} />,
+    <ChatOutline messages={messages} />,
   );
   return { ...result, anchors, scrollIntoView };
 }
@@ -107,15 +106,18 @@ describe("ChatOutline", () => {
     expect(scrollIntoView).toHaveBeenCalledWith({ behavior: "auto", block: "start" });
   });
 
-  it("离开导航后轨道立即恢复短线，且不使用过渡动画", () => {
+  it("窄布局也显示预览；离开导航后轨道立即恢复短线", () => {
     renderOutline([message("u1", "user", "窄窗口摘要")], 640);
 
+    const outline = screen.getByLabelText("会话消息历史");
+    expect(outline).toHaveClass("sticky");
+    expect(outline).not.toHaveClass("fixed");
     const marker = screen.getByRole("button", { name: /定位到第 1 条用户消息/ });
     fireEvent.mouseEnter(marker);
-    expect(screen.queryByText("窄窗口摘要")).not.toBeInTheDocument();
+    expect(screen.getByText("窄窗口摘要")).toBeInTheDocument();
     expect(marker).toHaveStyle({ width: "27px" });
 
-    fireEvent.mouseLeave(screen.getByLabelText("会话消息历史"));
+    fireEvent.mouseLeave(outline);
     expect(marker).toHaveStyle({ width: "6px" });
     expect(marker.className).not.toContain("transition-");
   });

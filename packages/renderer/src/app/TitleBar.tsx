@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from "react";
-import { Minus, Square, X, Copy, Terminal, GitBranch, ChevronRight, Plug, PanelRight } from "lucide-react";
+import { Minus, Square, X, Copy, Terminal, GitBranch, ChevronRight, Plug } from "lucide-react";
 import { PixelLogo } from "@/components/PixelLogo";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { Tooltip, TooltipProvider } from "@ftre/ui";
@@ -23,8 +23,6 @@ export function TitleBar() {
   const mcpPopoverOpen = useLayout((s) => s.mcpPopoverOpen);
   const toggleMcpPopover = useLayout((s) => s.toggleMcpPopover);
   const setMcpPopoverOpen = useLayout((s) => s.setMcpPopoverOpen);
-  const inspectorVisible = useLayout((s) => s.panelVisible.inspector);
-  const togglePanelVisible = useLayout((s) => s.togglePanelVisible);
   const mcpAreaRef = useRef<HTMLDivElement>(null);
   const gitInfo = useGitService((s) => s.getInfo());
 
@@ -185,18 +183,7 @@ export function TitleBar() {
             {mcpPopoverOpen && <McpPopover />}
           </div>
 
-          {/* Inspector 面板切换 */}
-          <Tooltip content={inspectorVisible ? "隐藏侧面板" : "显示侧面板"} side="bottom">
-            <button
-              onClick={() => togglePanelVisible("inspector")}
-              className={`h-full px-3 flex items-center gap-1.5 text-[12px] font-mono transition-colors ${
-                inspectorVisible ? "text-t-primary bg-hover" : "text-t-dim hover:bg-hover hover:text-t-muted"
-              }`}
-            >
-              <PanelRight size={14} strokeWidth={1.5} />
-            </button>
-          </Tooltip>
-         </TooltipProvider>
+        </TooltipProvider>
 
         <div className="w-[1px] h-[14px] bg-border mx-0.5" />
 
