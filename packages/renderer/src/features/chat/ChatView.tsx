@@ -22,6 +22,7 @@ import { useInspector } from "@/stores/inspector";
 import { useLayout } from "@/stores/layout";
 import type { TurnFileChange } from "./TurnFileChanges";
 import { basename } from "@/utils/pathUtils";
+import { resolveRunningBannerModel } from "./runningBannerModel";
 
 function formatRunningDuration(ms: number): string {
   const totalSeconds = Math.max(0, Math.floor(ms / 1000));
@@ -84,16 +85,15 @@ export function ChatView() {
     || pendingMessages.length > 0
   ) && canSend;
 
-  // 本轮使用的模型：优先取本轮最后一条 assistant 消息的 model，兜底 store 选中的 model
-  const turnModel = useMemo(() => {
-    if (!isBusy) return null;
-    for (let j = conversationMessages.length - 1; j >= 0; j--) {
-      if (conversationMessages[j].role === "assistant" && conversationMessages[j].model) {
-        return conversationMessages[j].model!;
-      }
-    }
-    return storeModel ?? null;
-  }, [isBusy, conversationMessages, storeModel]);
+  const runningModel = useMemo(
+    () => resolveRunningBannerModel({
+      isBusy,
+      sessionStatus,
+      messages: conversationMessages,
+      storeModel,
+    }),
+    [isBusy, sessionStatus, conversationMessages, storeModel],
+  );
 
   const bannerLabel = sessionStatus === "compacting"
     ? "Compacting context"
@@ -225,7 +225,7 @@ export function ChatView() {
                     >
                       <RunningBannerContent
                         bannerLabel={bannerLabel}
-                        turnModel={turnModel}
+                        model={runningModel}
                         runningDuration={runningDuration}
                         retryState={retryState}
                         fileChanges={activeTurnFileChanges}
@@ -262,7 +262,7 @@ export function ChatView() {
 
 function RunningBannerContent({
   bannerLabel,
-  turnModel,
+  model,
   runningDuration,
   retryState,
   fileChanges,
@@ -270,7 +270,7 @@ function RunningBannerContent({
   queuedItems,
 }: {
   bannerLabel: string;
-  turnModel: string | null;
+  model: string | null;
   runningDuration: string | null;
   retryState: RetryState | null;
   fileChanges: TurnFileChange[];
@@ -310,7 +310,7 @@ function RunningBannerContent({
           <>
             <span className={`shrink-0 ${bannerLabel === "Running" ? "running-shimmer" : ""}`}>{bannerLabel}</span>
             {runningDuration && <span className="shrink-0 tabular-nums text-[11px] text-t-muted">{runningDuration}</span>}
-            {turnModel && <span className="shrink-0 inline-flex items-center rounded-full bg-black/[0.05] px-1.5 py-0.5 text-[10px] font-mono text-t-faint leading-none">{turnModel}</span>}
+            {model && <span className="shrink-0 inline-flex items-center rounded-full bg-black/[0.05] px-1.5 py-0.5 text-[10px] font-mono text-t-faint leading-none">{model}</span>}
             <span className="flex-1" />
           </>
         )}

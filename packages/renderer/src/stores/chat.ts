@@ -102,6 +102,8 @@ export interface ChatMessage {
   compact?: {
     status: "running" | "done" | "failed";
     mode?: "summary" | "fast";
+    /** context_compact_start 中的实际摘要模型；仅运行中的压缩使用。 */
+    model?: string;
     tokensBefore?: number;
     tokensAfter?: number;
     summaryPreview?: string;
@@ -1104,6 +1106,9 @@ export function applyEvent(b: SessionProjectionState, ev: BusEvent): void {
             timestamp: ts,
             compact: {
               status: "running",
+              model: typeof phaseData.model === "string" && phaseData.model
+                ? phaseData.model
+                : undefined,
               tokensBefore: typeof phaseData.tokens === "number" ? phaseData.tokens : undefined,
             },
           },
