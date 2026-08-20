@@ -16,6 +16,7 @@ import { useChat } from "@/stores/chat";
 import { useSession } from "@/stores/session";
 import { UserMessage } from "./UserMessage";
 import { AssistantMessage } from "./AssistantMessage";
+import { ChatOutline } from "./ChatOutline";
 import type { TurnFileChange } from "./TurnFileChanges";
 import { ContextMenu, type ContextMenuItem } from "@/components/ContextMenu";
 import { remarkPlugins, rehypePlugins } from "@/lib/markdown-plugins";
@@ -167,6 +168,8 @@ export const ChatMessageList = memo(function ChatMessageList({
         maxHeight,
       }}
     >
+      <ChatOutline messages={messages} scrollContainerRef={containerRef} />
+
       <div className="mx-auto w-full max-w-[800px] space-y-4 break-words">
         {/* Load more */}
         {hasMoreHistory && (
