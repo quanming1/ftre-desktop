@@ -108,10 +108,10 @@ stages:
     steps:
       - id: D1
         title: 会话内容搜索
-        status: in_progress
-        date: 2026-08-17
+        status: done
+        date: 2026-08-20
         prd: docs/prd/PRD-D1-session-search.md
-        prd_status: 开发中
+        prd_status: 已验收
         modules:
           - packages/renderer/src/features/session/SessionSearchResults.tsx
           - packages/renderer/src/features/session/SessionPanel.tsx
