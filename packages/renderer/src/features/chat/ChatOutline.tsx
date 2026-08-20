@@ -7,18 +7,14 @@
 import {
   memo,
   useCallback,
-  useLayoutEffect,
   useMemo,
   useRef,
   useState,
 } from "react";
-import type { RefObject } from "react";
-import { createPortal } from "react-dom";
 import type { ChatMessage } from "@/stores/chat";
 
 interface ChatOutlineProps {
   messages: ChatMessage[];
-  scrollContainerRef: RefObject<HTMLElement | null>;
 }
 
 interface HistoryItem {
@@ -26,12 +22,6 @@ interface HistoryItem {
   text: string;
   responseText: string;
   index: number;
-}
-
-interface RailPosition {
-  left: number;
-  top: number;
-  width: number;
 }
 
 const MARKER_MIN_WIDTH = 6;
@@ -44,6 +34,8 @@ function summarize(message: ChatMessage): string {
 }
 
 function getHistoryItems(messages: ChatMessage[]): HistoryItem[] {
+  // WebSocket 重连/HMR 期间旧状态可能短暂不是数组；导航轨道应退化为空，不能阻断整个会话面板。
+  if (!Array.isArray(messages)) return [];
   const items: HistoryItem[] = [];
   for (const message of messages) {
     if (message.role === "user") {
@@ -83,58 +75,15 @@ function getMarkerOpacity(index: number, hoveredIndex: number): number {
   return Math.max(0.5, 1 - Math.abs(index - hoveredIndex) * 0.08);
 }
 
-/**
- * 以 rail 的 DOM 尺寸为坐标系保持标记在消息区域左侧中部。
- * 通过 portal 挂到 document.body，避免 Workbench 的 transform 让 fixed
- * 被错误地改成相对居中正文列的定位上下文。
- */
+/** 导航作为消息布局左栏的 sticky 项，不再使用 portal/fixed 计算坐标。 */
 export const ChatOutline = memo(function ChatOutline({
   messages,
-  scrollContainerRef,
 }: ChatOutlineProps) {
   const items = useMemo(() => getHistoryItems(messages), [messages]);
   const railRef = useRef<HTMLOListElement>(null);
   const markerRefs = useRef(new Map<string, HTMLButtonElement>());
   const [hoveredId, setHoveredId] = useState<string | null>(null);
   const [previewTop, setPreviewTop] = useState<number | null>(null);
-  const [railPosition, setRailPosition] = useState<RailPosition | null>(null);
-
-  // 消息列表或窗口尺寸变化时重新计算 fixed 轨道坐标。
-  useLayoutEffect(() => {
-    // HMR 或首次切换会话时 ref 回调可能晚于该组件的 layout effect；
-    // 用 data 属性兜底，不能因此让轨道永远停留在未渲染状态。
-    const container = scrollContainerRef.current
-      ?? document.querySelector<HTMLElement>("[data-chat-scroll-container]");
-    if (!container) return;
-
-    const updatePosition = () => {
-      const rect = container.getBoundingClientRect();
-      const next = {
-        left: Math.round(rect.left + 12),
-        top: Math.round(rect.top + rect.height / 2),
-        width: Math.round(rect.width),
-      };
-      setRailPosition((previous) =>
-        previous
-        && previous.left === next.left
-        && previous.top === next.top
-        && previous.width === next.width
-          ? previous
-          : next,
-      );
-    };
-
-    updatePosition();
-    window.addEventListener("resize", updatePosition);
-    const observer = typeof ResizeObserver === "undefined"
-      ? null
-      : new ResizeObserver(updatePosition);
-    observer?.observe(container);
-    return () => {
-      window.removeEventListener("resize", updatePosition);
-      observer?.disconnect();
-    };
-  }, [scrollContainerRef, items.length]);
 
   const scrollToItem = useCallback((item: HistoryItem) => {
     const element = document.getElementById(`msg-${item.id}`);
@@ -165,17 +114,14 @@ export const ChatOutline = memo(function ChatOutline({
     scrollToItem(item);
   }, [scrollToItem]);
 
-  if (items.length === 0 || !railPosition) return null;
+  if (items.length === 0) return null;
 
   const hoveredIndex = items.findIndex((item) => item.id === hoveredId);
   const preview = hoveredIndex >= 0 ? items[hoveredIndex] : null;
-  const showPreview = railPosition.width >= 720;
-
-  return createPortal(
+  return (
     <aside
       aria-label="会话消息历史"
-      className="fixed z-20 -translate-y-1/2"
-      style={{ left: railPosition.left, top: railPosition.top }}
+      className="sticky top-1/2 z-20 col-start-1 row-start-1 ml-3 w-7 -translate-y-1/2 self-start"
       onMouseLeave={clearHover}
     >
       <ol
@@ -212,7 +158,7 @@ export const ChatOutline = memo(function ChatOutline({
         })}
       </ol>
 
-      {preview && showPreview && (
+      {preview && (
         <div
           className="absolute left-9 w-[324px] -translate-y-1/2 rounded-lg border border-border-subtle bg-surface px-3 py-2.5 shadow-[0_3px_10px_rgba(15,23,42,0.08)]"
           style={{ top: previewTop ?? 0 }}
@@ -229,8 +175,7 @@ export const ChatOutline = memo(function ChatOutline({
           )}
         </div>
       )}
-    </aside>,
-    document.body,
+    </aside>
   );
 });
 

@@ -110,6 +110,7 @@ describe("RunContextPopover", () => {
     fireEvent.click(screen.getByRole("button", { name: "空闲，打开运行详情" }));
     const popover = screen.getByRole("region", { name: "运行详情" });
     expect(popover).toBeInTheDocument();
+    expect(popover).not.toHaveClass("fixed");
     expect(popover).not.toHaveClass("border");
     expect(popover.querySelector('[class*="border-t"]')).toBeNull();
     expect(screen.getByText("空闲")).toBeInTheDocument();

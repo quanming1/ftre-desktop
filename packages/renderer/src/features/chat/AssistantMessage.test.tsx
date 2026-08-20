@@ -37,6 +37,42 @@ import { useInspector } from "@/stores/inspector";
 import { useLayout } from "@/stores/layout";
 
 describe("AssistantMessage tool result rendering", () => {
+  it("copies every text block from the current assistant message", async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    const previousClipboard = navigator.clipboard;
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: { writeText },
+    });
+
+    try {
+      render(
+        <AssistantMessage
+          message={{
+            id: "reply-copy-all-text",
+            role: "assistant",
+            content: "第一段第二段",
+            timestamp: 1,
+            streaming: false,
+            blocks: [
+              { type: "text", text: "第一段", blockId: "text-1" },
+              { type: "text", text: "第二段", blockId: "text-2" },
+            ],
+          }}
+          showActions
+        />,
+      );
+
+      fireEvent.click(screen.getByRole("button", { name: "复制" }));
+      await waitFor(() => expect(writeText).toHaveBeenCalledWith("第一段第二段"));
+    } finally {
+      Object.defineProperty(navigator, "clipboard", {
+        configurable: true,
+        value: previousClipboard,
+      });
+    }
+  });
+
   it("re-renders a running edit tool immediately when TOOL_RESULT_END completes it", () => {
     const blocks: ContentBlock[] = [{
       type: "toolCall",

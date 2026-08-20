@@ -20,7 +20,6 @@ import {
 } from "./assistantMessageEquality";
 import {
   collapsedAssistantBlocks,
-  lastDisplayTextBlock,
   summarizeNonTextBlocks,
 } from "./assistantMessageDisplay";
 
@@ -535,13 +534,20 @@ export const AssistantMessage = memo(
     const collapsedBlocks = collapsedAssistantBlocks(allBlocks, message.toolResults);
     const hasProcess = allBlocks.length > collapsedBlocks.length;
     const displayBlocks = processExpanded ? allBlocks : collapsedBlocks;
-    const finalText = lastDisplayTextBlock(allBlocks)?.text;
+    // 复制当前 AI 消息的全部 Text block，而不是只复制折叠视图里的最后一段。
+    // content 是历史/旧消息的兼容聚合字段，blocks 优先避免遗漏分段文本。
+    const copyText = allBlocks
+      .filter((block): block is Extract<ContentBlock, { type: "text" }> => block.type === "text")
+      .map((block) => block.text)
+      .join("");
+    const hasTokenUsage = Boolean(message.token?.usage);
+    const hasTurnDuration = !hasProcess && typeof turnDurationSec === "number" && turnDurationSec >= 0;
+    const hasTurnModel = Boolean(turnModel);
 
     // 复制
     const [copied, setCopied] = useState(false);
     const handleCopy = useCallback(async () => {
-      // 默认界面只展示最后一段回答，复制行为与可见内容保持一致。
-      const text = finalText ?? message.content ?? "";
+      const text = copyText || message.content || "";
       try {
         await navigator.clipboard.writeText(text);
         setCopied(true);
@@ -549,7 +555,7 @@ export const AssistantMessage = memo(
       } catch {
         useNotification.getState().addNotification({ level: "error", message: "复制失败" });
       }
-    }, [finalText, message.content]);
+    }, [copyText, message.content]);
 
     return (
       <div data-assistant-message="true" className="flex justify-start">
@@ -628,54 +634,65 @@ export const AssistantMessage = memo(
               )}
 
                 {showActions && !isStreaming && !message.isError && (
-                  <div className="mt-2 flex items-center gap-2">
+                  <div className="mt-2.5 flex min-h-7 flex-wrap items-center gap-2.5 text-[12px] leading-none text-t-ghost">
                     <TooltipProvider>
                       <Tooltip content={copied ? "已复制" : "复制"} side="top">
                         <button
+                          type="button"
+                          aria-label={copied ? "已复制" : "复制"}
                           onClick={handleCopy}
-                          className="flex items-center justify-center w-8 h-8 text-t-ghost hover:text-t-secondary rounded-full hover:bg-hover transition-colors"
+                          className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-t-ghost transition-colors hover:bg-hover hover:text-t-primary"
                         >
-                          {copied ? <Check size={15} className="text-green-500" /> : <Copy size={15} />}
+                          {copied ? <Check size={14} className="text-green-500" /> : <Copy size={14} />}
                         </button>
                       </Tooltip>
-                      {message.token?.usage && (
-                        <Tooltip
-                          content={
-                            <div className="text-[11px] leading-snug">
-                              <table className="border-collapse">
-                                <tbody>
-                                  <tr>
-                                    <td className="pr-3 text-t-muted">输入</td>
-                                    <td className="text-right font-mono text-t-secondary">{message.token.usage.prompt_tokens}</td>
-                                  </tr>
-                                  <tr>
-                                    <td className="pr-3 text-t-muted">输出</td>
-                                    <td className="text-right font-mono text-t-secondary">{message.token.usage.completion_tokens}</td>
-                                  </tr>
-                                  <tr>
-                                    <td className="pr-3 text-t-muted">合计</td>
-                                    <td className="text-right font-mono text-t-secondary">{message.token.usage.total_tokens}</td>
-                                  </tr>
-                                </tbody>
-                              </table>
-                            </div>
-                          }
-                          side="top"
-                        >
-                          <span className="ml-1 inline-flex items-center h-8 px-2 text-[11px] font-mono text-t-ghost rounded-md hover:bg-hover hover:text-t-secondary transition-colors cursor-default">
-                            {fmtTokens(message.token.usage.total_tokens)}
-                          </span>
-                        </Tooltip>
-                      )}
-                      {!hasProcess && typeof turnDurationSec === "number" && turnDurationSec >= 0 && (
-                        <span className="ml-1 inline-flex items-center h-8 px-2 text-[11px] font-mono text-t-ghost rounded-md hover:bg-hover hover:text-t-secondary transition-colors cursor-default">
-                          {formatDuration(turnDurationSec)}
-                        </span>
-                      )}
-                      {turnModel && (
-                        <span className="ml-1 inline-flex items-center h-8 px-2 text-[11px] font-mono text-t-ghost rounded-md hover:bg-hover hover:text-t-secondary transition-colors cursor-default">
-                          {turnModel}
-                        </span>
+
+                      {(hasTokenUsage || hasTurnDuration || hasTurnModel) && (
+                        <div className="inline-flex min-w-0 max-w-full items-center gap-2.5 text-t-muted">
+                          {hasTokenUsage && message.token?.usage && (
+                            <Tooltip
+                              content={
+                                <div className="text-[11px] leading-snug">
+                                  <table className="border-collapse">
+                                    <tbody>
+                                      <tr>
+                                        <td className="pr-3 text-t-muted">输入</td>
+                                        <td className="text-right font-mono text-t-secondary">{message.token.usage.prompt_tokens}</td>
+                                      </tr>
+                                      <tr>
+                                        <td className="pr-3 text-t-muted">输出</td>
+                                        <td className="text-right font-mono text-t-secondary">{message.token.usage.completion_tokens}</td>
+                                      </tr>
+                                      <tr>
+                                        <td className="pr-3 text-t-muted">合计</td>
+                                        <td className="text-right font-mono text-t-secondary">{message.token.usage.total_tokens}</td>
+                                      </tr>
+                                    </tbody>
+                                  </table>
+                                </div>
+                              }
+                              side="top"
+                            >
+                              <span className="cursor-default font-mono tabular-nums text-t-muted transition-colors hover:text-t-primary">
+                                {fmtTokens(message.token.usage.total_tokens)}
+                              </span>
+                            </Tooltip>
+                          )}
+                          {hasTokenUsage && (hasTurnDuration || hasTurnModel) && (
+                            <span aria-hidden="true" className="text-t-ghost/50">·</span>
+                          )}
+                          {hasTurnDuration && (
+                            <span className="font-mono tabular-nums text-t-muted">{formatDuration(turnDurationSec)}</span>
+                          )}
+                          {hasTurnDuration && hasTurnModel && (
+                            <span aria-hidden="true" className="text-t-ghost/50">·</span>
+                          )}
+                          {hasTurnModel && (
+                            <span className="min-w-0 max-w-[240px] truncate font-mono text-t-ghost">
+                              {turnModel}
+                            </span>
+                          )}
+                        </div>
                       )}
                     </TooltipProvider>
                   </div>
