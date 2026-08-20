@@ -62,6 +62,9 @@ export interface GitFileStatus {
   staged: boolean;
   /** 是否为目录（未跟踪目录） */
   isDir: boolean;
+  /** 变更行数，由 git:poll 返回 */
+  additions?: number;
+  deletions?: number;
 }
 
 export interface DesktopGit {
@@ -104,8 +107,17 @@ export interface DesktopGit {
     staged?: string;
     error?: string;
   }>;
-  numstat(rootPath: string): Promise<{ files: { file: string; added: number; deleted: number }[]; error?: string }>;
-  poll(rootPath: string, lastEtag?: string, force?: boolean): Promise<{ etag: string | null; changed: boolean; status?: any; numstat?: any; error?: string }>;
+  numstat(rootPath: string): Promise<{ stats: Record<string, { additions: number; deletions: number }> }>;
+  poll(
+    rootPath: string,
+    lastEtag?: string,
+    force?: boolean,
+  ): Promise<{
+    changed: boolean;
+    etag: string;
+    files?: GitFileStatus[];
+    stats?: Record<string, { additions: number; deletions: number }>;
+  }>;
 }
 
 export interface DesktopTerminal {
