@@ -6,6 +6,7 @@ import { useNotification } from "@/stores/notification";
 import { updateSession, triggerCompaction } from "@/services/api";
 import { ContextMenu, type ContextMenuItem } from "@/components/ContextMenu";
 import { Tooltip } from "@ftre/ui";
+import { RunContextPopover } from "./RunContextPopover";
 
 export function ChatHeader() {
   const sessionId = useChat((s) => s.sessionId);
@@ -117,7 +118,6 @@ export function ChatHeader() {
     }
   }, [isRenaming]);
 
-
   return (
     <div className="relative flex items-center justify-between px-4 py-2.5 bg-surface shrink-0">
       <div className="flex items-center min-w-0 flex-1">
@@ -147,6 +147,7 @@ export function ChatHeader() {
 
       {sessionId && (
         <div className="flex items-center gap-1">
+          <RunContextPopover />
           <Tooltip content="更多操作" side="bottom">
             <button
               onClick={showContextMenu}
@@ -157,7 +158,6 @@ export function ChatHeader() {
           </Tooltip>
         </div>
       )}
-
 
       {contextMenu && (
         <ContextMenu
