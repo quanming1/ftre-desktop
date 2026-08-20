@@ -6,28 +6,40 @@ import { RunContextPopover, collectActiveTurnFileChanges, getRunLabel } from "./
 
 const {
   chatState,
+  sessionState,
   openDiffPreview,
+  openFilePreview,
   togglePanelVisible,
   gitFiles,
   gitInfo,
+  gitInfoRequest,
+  gitPoll,
   gitDiffFile,
-  editorAddDiff,
 } = vi.hoisted(() => ({
   chatState: {} as Record<string, unknown>,
+  sessionState: {
+    sessions: [] as Array<{ session_id: string; workspace: string }>,
+    allSessions: [] as Array<{ session_id: string; workspace: string }>,
+  },
   openDiffPreview: vi.fn(),
+  openFilePreview: vi.fn(),
   togglePanelVisible: vi.fn(),
   gitFiles: [] as Array<Record<string, unknown>>,
   gitInfo: { branch: null, changedFiles: 0, isGitRepo: false },
+  gitInfoRequest: vi.fn(),
+  gitPoll: vi.fn(),
   gitDiffFile: vi.fn(),
-  editorAddDiff: vi.fn(),
 }));
 
 vi.mock("@/stores/chat", () => ({
   useChat: (selector: (state: typeof chatState) => unknown) => selector(chatState),
 }));
+vi.mock("@/stores/session", () => ({
+  useSession: (selector: (state: typeof sessionState) => unknown) => selector(sessionState),
+}));
 vi.mock("@/stores/inspector", () => ({
   useInspector: {
-    getState: () => ({ openDiffPreview }),
+    getState: () => ({ openDiffPreview, openFilePreview }),
   },
 }));
 vi.mock("@/stores/layout", () => ({
@@ -38,20 +50,8 @@ vi.mock("@/stores/layout", () => ({
     }),
   },
 }));
-vi.mock("@/stores/editor", () => ({
-  useEditor: {
-    getState: () => ({ addDiff: editorAddDiff }),
-  },
-}));
 vi.mock("@/services/visibility-manager", () => ({
   createManagedPoller: () => () => {},
-}));
-vi.mock("@/services/git-service", () => ({
-  gitService: { diffFile: (...args: unknown[]) => gitDiffFile(...args) },
-  useGitService: (selector: (service: { getFiles: () => typeof gitFiles; getInfo: () => typeof gitInfo }) => unknown) => selector({
-    getFiles: () => gitFiles,
-    getInfo: () => gitInfo,
-  }),
 }));
 vi.mock("@ftre/ui", () => ({
   Tooltip: ({ children }: { children: ReactNode }) => children,
@@ -78,19 +78,51 @@ function resetChatState(overrides: Record<string, unknown> = {}) {
 }
 
 beforeEach(() => {
+  localStorage.removeItem("ftre:run-context-popover-open");
   resetChatState();
+  sessionState.sessions.splice(0);
+  sessionState.allSessions.splice(0);
   openDiffPreview.mockReset();
+  openFilePreview.mockReset();
   togglePanelVisible.mockReset();
+  gitInfoRequest.mockReset();
+  gitPoll.mockReset();
   gitDiffFile.mockReset();
-  editorAddDiff.mockReset();
   gitFiles.splice(0);
   Object.assign(gitInfo, { branch: null, changedFiles: 0, isGitRepo: false });
+  gitInfoRequest.mockImplementation(async () => gitInfo);
+  gitPoll.mockImplementation(async () => ({ changed: true, etag: "test", files: gitFiles }));
+  Object.defineProperty(window, "desktop", {
+    configurable: true,
+    value: {
+      git: {
+        info: (...args: unknown[]) => gitInfoRequest(...args),
+        poll: (...args: unknown[]) => gitPoll(...args),
+        diffFile: (...args: unknown[]) => gitDiffFile(...args),
+      },
+    },
+  });
 });
 
 describe("RunContextPopover", () => {
-  it("没有运行上下文时不渲染 Header 按钮", () => {
+  it("空闲时仍常驻 Header 按钮，并可打开详情", () => {
     render(<RunContextPopover />);
-    expect(screen.queryByLabelText(/打开运行详情/)).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "空闲，打开运行详情" }));
+    const popover = screen.getByRole("region", { name: "运行详情" });
+    expect(popover).toBeInTheDocument();
+    expect(popover).not.toHaveClass("border");
+    expect(popover.querySelector('[class*="border-t"]')).toBeNull();
+    expect(screen.getByText("空闲")).toBeInTheDocument();
+  });
+
+  it("将弹窗开关作为全局偏好持久化，不随会话切换丢失", () => {
+    const { unmount } = render(<RunContextPopover />);
+    fireEvent.click(screen.getByRole("button", { name: "空闲，打开运行详情" }));
+    expect(localStorage.getItem("ftre:run-context-popover-open")).toBe("true");
+
+    unmount();
+    render(<RunContextPopover />);
+    expect(screen.getByRole("region", { name: "运行详情" })).toBeInTheDocument();
   });
 
   it("将运行状态、任务、文件变更和 Git 变更收进可展开的 Header 弹窗", async () => {
@@ -122,6 +154,7 @@ describe("RunContextPopover", () => {
       },
     ];
     resetChatState({
+      sessionId: "session-1",
       messages,
       isBusy: true,
       sessionStatus: "running",
@@ -144,6 +177,7 @@ describe("RunContextPopover", () => {
     });
     Object.assign(gitInfo, { branch: "develop", changedFiles: 1, isGitRepo: true });
     gitDiffFile.mockResolvedValue({ original: "old", modified: "new" });
+    sessionState.sessions.push({ session_id: "session-1", workspace: "E:/ftre" });
 
     render(<RunContextPopover />);
     fireEvent.click(screen.getByRole("button", { name: /打开运行详情/ }));
@@ -152,27 +186,31 @@ describe("RunContextPopover", () => {
     expect(screen.getByText("Running")).toBeInTheDocument();
     expect(screen.getByText("tencent/glm-5.3")).toBeInTheDocument();
     expect(screen.getByText("任务")).toBeInTheDocument();
-    expect(screen.getByText("文件变更")).toBeInTheDocument();
-    expect(screen.getByText("Git 分支")).toBeInTheDocument();
-    expect(screen.getByText("develop")).toBeInTheDocument();
-    expect(screen.getByText("Git 变更")).toBeInTheDocument();
+    expect(screen.getByText("本轮修改")).toBeInTheDocument();
+    await waitFor(() => {
+      expect(screen.getByText("Git 分支")).toBeInTheDocument();
+      expect(screen.getByText("develop")).toBeInTheDocument();
+      expect(screen.getByText("Changes")).toBeInTheDocument();
+      expect(gitInfoRequest).toHaveBeenCalledWith("E:/ftre");
+      expect(gitPoll).toHaveBeenCalledWith("E:/ftre", "", true);
+    });
 
     fireEvent.click(screen.getByRole("button", { name: /任务/ }));
     expect(screen.getByText("更新界面")).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: /文件变更/ }));
+    fireEvent.click(screen.getByRole("button", { name: /本轮修改/ }));
     fireEvent.click(screen.getByRole("button", { name: /docs\/plan\.md/ }));
     expect(openDiffPreview).toHaveBeenCalledWith(
       "edit-1", "docs/plan.md", "before", "after", 4, 1,
     );
     expect(togglePanelVisible).toHaveBeenCalledWith("inspector");
 
-    fireEvent.click(screen.getByRole("button", { name: /Git 变更/ }));
+    fireEvent.click(screen.getByRole("button", { name: /Changes/ }));
     fireEvent.click(screen.getByRole("button", { name: /src\/main\.ts/ }));
-    await waitFor(() => expect(editorAddDiff).toHaveBeenCalledWith(expect.objectContaining({
-      id: "git-change:E:/ftre/src/main.ts",
-      toolName: "Git",
-    })));
+    await waitFor(() => expect(openDiffPreview).toHaveBeenLastCalledWith(
+      "gitfile-E:/ftre/src/main.ts", "E:/ftre/src/main.ts", "old", "new", 0, 0, "main.ts",
+    ));
+    expect(gitDiffFile).toHaveBeenCalledWith("E:/ftre", "src/main.ts", "modified", false, undefined);
 
     fireEvent.mouseDown(document.body);
     expect(screen.getByRole("region", { name: "运行详情" })).toBeInTheDocument();

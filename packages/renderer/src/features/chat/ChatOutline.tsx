@@ -7,7 +7,6 @@
 import {
   memo,
   useCallback,
-  useEffect,
   useLayoutEffect,
   useMemo,
   useRef,
@@ -99,28 +98,6 @@ export const ChatOutline = memo(function ChatOutline({
   const [hoveredId, setHoveredId] = useState<string | null>(null);
   const [previewTop, setPreviewTop] = useState<number | null>(null);
   const [railPosition, setRailPosition] = useState<RailPosition | null>(null);
-  const closePreviewTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  const cancelPreviewClose = useCallback(() => {
-    if (closePreviewTimerRef.current) {
-      clearTimeout(closePreviewTimerRef.current);
-      closePreviewTimerRef.current = null;
-    }
-  }, []);
-
-  const schedulePreviewClose = useCallback(() => {
-    cancelPreviewClose();
-    closePreviewTimerRef.current = setTimeout(() => {
-      setHoveredId(null);
-      setPreviewTop(null);
-    }, 140);
-  }, [cancelPreviewClose]);
-
-  useEffect(() => {
-    return () => {
-      if (closePreviewTimerRef.current) clearTimeout(closePreviewTimerRef.current);
-    };
-  }, []);
 
   // 消息列表或窗口尺寸变化时重新计算 fixed 轨道坐标。
   useLayoutEffect(() => {
@@ -162,7 +139,7 @@ export const ChatOutline = memo(function ChatOutline({
   const scrollToItem = useCallback((item: HistoryItem) => {
     const element = document.getElementById(`msg-${item.id}`);
     if (!element) return;
-    element.scrollIntoView({ behavior: "smooth", block: "start" });
+    element.scrollIntoView({ behavior: "auto", block: "start" });
   }, []);
 
   const updatePreviewTop = useCallback((id: string) => {
@@ -173,10 +150,14 @@ export const ChatOutline = memo(function ChatOutline({
   }, []);
 
   const handleMarkerHover = useCallback((id: string) => {
-    cancelPreviewClose();
     setHoveredId(id);
     updatePreviewTop(id);
-  }, [cancelPreviewClose, updatePreviewTop]);
+  }, [updatePreviewTop]);
+
+  const clearHover = useCallback(() => {
+    setHoveredId(null);
+    setPreviewTop(null);
+  }, []);
 
   const handleKeyDown = useCallback((event: React.KeyboardEvent, item: HistoryItem) => {
     if (event.key !== "Enter" && event.key !== " ") return;
@@ -195,8 +176,7 @@ export const ChatOutline = memo(function ChatOutline({
       aria-label="会话消息历史"
       className="fixed z-20 -translate-y-1/2"
       style={{ left: railPosition.left, top: railPosition.top }}
-      onMouseEnter={cancelPreviewClose}
-      onMouseLeave={schedulePreviewClose}
+      onMouseLeave={clearHover}
     >
       <ol
         ref={railRef}
@@ -219,7 +199,7 @@ export const ChatOutline = memo(function ChatOutline({
                 onKeyDown={(event) => handleKeyDown(event, item)}
                 onMouseEnter={() => handleMarkerHover(item.id)}
                 aria-label={`定位到第 ${item.index + 1} 条用户消息：${getPreviewText(item.text)}`}
-                className={`flex h-full items-center rounded-full transition-[width,opacity] duration-150 ease-out after:block after:h-[2px] after:w-full after:rounded-full after:bg-t-muted/70 after:transition-colors after:duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent ${
+                className={`flex h-full items-center rounded-full after:block after:h-[2px] after:w-full after:rounded-full after:bg-t-muted/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent ${
                   isHovered ? "after:bg-t-primary" : "hover:after:bg-t-secondary"
                 }`}
                 style={{
@@ -236,8 +216,6 @@ export const ChatOutline = memo(function ChatOutline({
         <div
           className="absolute left-9 w-[324px] -translate-y-1/2 rounded-lg border border-border-subtle bg-surface px-3 py-2.5 shadow-[0_3px_10px_rgba(15,23,42,0.08)]"
           style={{ top: previewTop ?? 0 }}
-          onMouseEnter={cancelPreviewClose}
-          onMouseLeave={schedulePreviewClose}
         >
           <p className="line-clamp-1 whitespace-pre-wrap break-words text-[13px] font-medium leading-5 text-t-primary">
             {getPreviewText(preview.text)}

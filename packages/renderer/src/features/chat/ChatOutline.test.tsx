@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ChatMessage } from "@/stores/chat";
 import {
@@ -60,7 +60,6 @@ function renderOutline(messages: ChatMessage[], width = 900) {
 
 afterEach(() => {
   document.querySelectorAll('[id^="msg-"]').forEach((element) => element.remove());
-  vi.useRealTimers();
 });
 
 describe("ChatOutline", () => {
@@ -105,11 +104,10 @@ describe("ChatOutline", () => {
     expect(screen.getByText("第二条用户消息")).toBeInTheDocument();
 
     fireEvent.click(firstMarker);
-    expect(scrollIntoView).toHaveBeenCalledWith({ behavior: "smooth", block: "start" });
+    expect(scrollIntoView).toHaveBeenCalledWith({ behavior: "auto", block: "start" });
   });
 
-  it("离开导航后轨道恢复短线；窄窗口不显示遮挡正文的预览卡", () => {
-    vi.useFakeTimers();
+  it("离开导航后轨道立即恢复短线，且不使用过渡动画", () => {
     renderOutline([message("u1", "user", "窄窗口摘要")], 640);
 
     const marker = screen.getByRole("button", { name: /定位到第 1 条用户消息/ });
@@ -118,7 +116,7 @@ describe("ChatOutline", () => {
     expect(marker).toHaveStyle({ width: "27px" });
 
     fireEvent.mouseLeave(screen.getByLabelText("会话消息历史"));
-    act(() => vi.advanceTimersByTime(140));
     expect(marker).toHaveStyle({ width: "6px" });
+    expect(marker.className).not.toContain("transition-");
   });
 });
