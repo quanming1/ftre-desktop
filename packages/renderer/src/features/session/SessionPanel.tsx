@@ -1060,6 +1060,8 @@ export function SessionPanel() {
               query={sessionSearch.trimmed}
               response={sessionSearch.response}
               loading={sessionSearch.loading}
+              loadingMore={sessionSearch.loadingMore}
+              onLoadMore={sessionSearch.loadMore}
               onOpen={(sid) => sessionSearch.openAndReset(sid, handleSwitchSession)}
             />
           ) : totalCount === 0 ? (
