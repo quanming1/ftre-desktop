@@ -6,12 +6,13 @@ function assistant(
   id: string,
   content: string,
   streaming = false,
+  timestamp = 1_000,
 ): ChatMessage {
   return {
     id,
     role: "assistant",
     content,
-    timestamp: 1_000,
+    timestamp,
     streaming,
     blocks: [{ type: "text", text: content, blockId: `${id}-text` }],
     toolResults: {},
@@ -78,6 +79,37 @@ describe("ClientSessionProjection", () => {
       "user-1",
       "user-2",
     ]);
+  });
+
+  it("prepends an earlier page while the current reply is streaming", () => {
+    const projection = new ClientSessionProjection({
+      applyEvent: vi.fn(),
+      applyReplySnapshot: vi.fn(),
+    });
+    projection.messages = [
+      { id: "user-current", role: "user", content: "current", timestamp: 2_000 },
+      assistant("reply-current", "still streaming", true, 2_500),
+    ];
+    projection.earliestTs = 2;
+    projection.hasMoreHistory = true;
+
+    projection.prependHistory([
+      { id: "user-earlier", role: "user", content: "earlier", timestamp: 1_000 },
+      { id: "reply-earlier", role: "assistant", content: "earlier reply", timestamp: 1_500 },
+    ], true);
+
+    expect(projection.messages.map((message) => message.id)).toEqual([
+      "user-earlier",
+      "reply-earlier",
+      "user-current",
+      "reply-current",
+    ]);
+    expect(projection.messages.at(-1)).toMatchObject({
+      id: "reply-current",
+      streaming: true,
+    });
+    expect(projection.earliestTs).toBe(1);
+    expect(projection.hasMoreHistory).toBe(true);
   });
 
   it("preserves realtime dedup state and authoritative running status during hydrate", () => {
