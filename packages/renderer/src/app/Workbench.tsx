@@ -418,7 +418,7 @@ export function Workbench() {
             className="h-full overflow-hidden py-1 pl-1.5"
             style={getPanelStyle("sessions")}
           >
-            <div className="h-full overflow-hidden rounded-l-xl bg-surface/42 backdrop-blur-xl backdrop-saturate-150">
+            <div className="h-full overflow-hidden rounded-l-xl border-l border-y border-white/30 bg-surface/42 backdrop-blur-xl backdrop-saturate-150">
               <ErrorBoundary>
                 <SessionPanel />
               </ErrorBoundary>
@@ -501,7 +501,7 @@ export function Workbench() {
             className={`h-full overflow-hidden py-1 ${panelVisible.inspector ? "" : "pr-1.5"}`}
             style={getPanelStyle("chat")}
           >
-            <div className="h-full overflow-hidden rounded-none bg-surface">
+            <div className="h-full overflow-hidden rounded-xl bg-surface">
               <ErrorBoundary>
                 <ChatPanel key={rootPath} />
               </ErrorBoundary>
