@@ -1,7 +1,7 @@
 /**
  * SettingsPanel — 设置面板（右侧面板模式）
  *
- * 从 SettingsDialog 改造而来，去掉了 Modal 包裹，
+ * 从旧设置弹窗改造而来，去掉了 Modal 包裹，
  * 直接作为右侧面板渲染（与 Skills/Cron/Traces 同级切换）。
  */
 import { useState, useEffect } from "react";

@@ -3,7 +3,7 @@ import { Search, X } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useWorkspace } from "@/stores/workspace";
 import { useEditor } from "@/stores/editor";
-import { getFileIcon } from "@/lib/file-icons";
+import { getFileIcon } from "@ftre/editor/file-icons";
 import {
   getIndexedFiles,
   type IndexedFileItem,

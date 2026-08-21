@@ -5,8 +5,7 @@ import { useSession } from "@/stores/session";
 import { useLayout } from "@/stores/layout";
 import { useNotification } from "@/stores/notification";
 import { updateSession } from "@/services/api";
-import { ContextMenu, type ContextMenuItem } from "@/components/ContextMenu";
-import { Tooltip } from "@ftre/ui";
+import { ContextMenu, type ContextMenuItem, Tooltip } from "@ftre/ui";
 import { RunContextButton } from "./RunContextPopover";
 
 interface ChatHeaderProps {

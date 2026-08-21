@@ -12,7 +12,7 @@ Phase 2: IPC 通道恢复
 ## 涉及文件
 - `packages/electron/src/ipc/git.ts`
 - `packages/renderer/src/services/git-service.ts`
-- `packages/renderer/src/features/explorer/GitChangesView.tsx`
+- `packages/renderer/src/features/inspector/FileTreeSidebar.tsx`
 
 ## 具体任务
 1. 确认 `git:info` 返回仓库信息（分支名、remote 等）
@@ -21,7 +21,7 @@ Phase 2: IPC 通道恢复
 4. 确认 `git:diff-file` / `git:show` 返回 diff 内容
 
 ## 验收标准
-- 侧栏 Git Changes 面板显示变更文件列表
+- Inspector 文件树中的 Changes 节点显示变更文件列表
 - 标题栏显示当前分支名
 - 可以暂存、提交
 

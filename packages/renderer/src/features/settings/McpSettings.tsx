@@ -349,7 +349,6 @@ function McpServerCard({
   const isDisabled = !!server.disabled;
   const status = server.status;
   const isConnected = status === "connected";
-  const isConnecting = status === "connecting";
 
   return (
     <div className="rounded-xl border border-black/[0.06] bg-white hover:border-black/[0.1] transition-colors">
@@ -376,7 +375,7 @@ function McpServerCard({
               <>
                 <span className="text-black/15">·</span>
                 <span className="flex items-center gap-1 text-[11px] text-black/40">
-                  <span className={`h-1.5 w-1.5 rounded-full ${isConnected ? "bg-black/40" : isConnecting ? "bg-black/20 animate-pulse" : "bg-black/15"}`} />
+                  <span className={`h-1.5 w-1.5 rounded-full ${isConnected ? "bg-black/40" : "bg-black/15"}`} />
                   {status || "未知"}
                 </span>
               </>

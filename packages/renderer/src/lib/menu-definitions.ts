@@ -1,6 +1,5 @@
 import { useEditor } from "@/stores/editor";
 import { useWorkspace } from "@/stores/workspace";
-import { useLayout } from "@/stores/layout";
 
 export interface MenuItem {
     label: string;
@@ -68,11 +67,6 @@ export function buildMenuDefinitions(
                 action: () => {
                     window.dispatchEvent(new CustomEvent("ftre:open-terminal-tab"));
                 },
-            },
-            {
-                label: "切换侧边栏",
-                shortcut: "Ctrl+B",
-                action: () => useLayout.getState().toggleSidebar(),
             },
             {
                 label: "命令面板",

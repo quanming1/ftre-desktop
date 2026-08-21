@@ -1,10 +1,7 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { useWorkspace } from './workspace';
 import { useEditor } from './editor';
-import { useSearch } from './search';
-import { useLayout } from './layout';
 import { useDiagnostics } from './diagnostics';
-import { useOutput } from './output';
 import { useNotification } from './notification';
 import { terminalManager } from '@/services/terminal';
 
@@ -70,15 +67,12 @@ describe('workspace store — setRootPath', () => {
 
     it('does NOT run cleanup when setting rootPath for the first time (prev is null)', () => {
         const suspendEditor = vi.spyOn(useEditor.getState(), 'suspendForWorkspace');
-        const clearResults = vi.spyOn(useSearch.getState(), 'clearResults');
 
         useWorkspace.getState().setRootPath('/project-a');
 
         expect(suspendEditor).not.toHaveBeenCalled();
-        expect(clearResults).not.toHaveBeenCalled();
         expect(terminalManager.switchWorkspace).not.toHaveBeenCalled();
         suspendEditor.mockRestore();
-        clearResults.mockRestore();
     });
 
     it('runs full cleanup when switching from one workspace to another', () => {
@@ -89,10 +83,7 @@ describe('workspace store — setRootPath', () => {
         const suspendEditor = vi.spyOn(useEditor.getState(), 'suspendForWorkspace');
         const closeAllFiles = vi.spyOn(useEditor.getState(), 'closeAllFiles');
         const resumeEditor = vi.spyOn(useEditor.getState(), 'resumeForWorkspace');
-        const clearResults = vi.spyOn(useSearch.getState(), 'clearResults');
-        const setActiveSidebarView = vi.spyOn(useLayout.getState(), 'setActiveSidebarView');
         const clearDiagnostics = vi.spyOn(useDiagnostics.getState(), 'clear');
-        const clearOutput = vi.spyOn(useOutput.getState(), 'clearAllChannels');
         const clearNotifications = vi.spyOn(useNotification.getState(), 'clearAll');
 
         useWorkspace.getState().setRootPath('/project-b');
@@ -101,24 +92,16 @@ describe('workspace store — setRootPath', () => {
         expect(suspendEditor).toHaveBeenCalledWith('/project-a');
         expect(closeAllFiles).toHaveBeenCalled();
         expect(resumeEditor).toHaveBeenCalledWith('/project-b');
-        // 搜索清空
-        expect(clearResults).toHaveBeenCalled();
         // 终端：通知全局 terminalManager 切换工作区
         expect(terminalManager.switchWorkspace).toHaveBeenCalledWith('/project-b');
-        // 侧边栏切到 explorer
-        expect(setActiveSidebarView).toHaveBeenCalledWith('explorer');
-        // 诊断、输出、通知清空
+        // 诊断、通知清空
         expect(clearDiagnostics).toHaveBeenCalled();
-        expect(clearOutput).toHaveBeenCalled();
         expect(clearNotifications).toHaveBeenCalled();
 
         suspendEditor.mockRestore();
         closeAllFiles.mockRestore();
         resumeEditor.mockRestore();
-        clearResults.mockRestore();
-        setActiveSidebarView.mockRestore();
         clearDiagnostics.mockRestore();
-        clearOutput.mockRestore();
         clearNotifications.mockRestore();
     });
 

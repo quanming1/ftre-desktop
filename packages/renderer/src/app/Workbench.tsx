@@ -1,7 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from "react";
-import { ErrorBoundary } from "@ftre/ui";
+import { ErrorBoundary, ResizeHandle } from "@ftre/ui";
 import { TitleBar } from "./TitleBar";
-import { Sidebar } from "@/features/explorer/Sidebar";
 import { pathParent } from "@/utils/pathUtils";
 import { ChatPanel } from "@/features/chat/ChatPanel";
 import { SessionPanel } from "@/features/session/SessionPanel";
@@ -13,7 +12,6 @@ import { FilePalette } from "@/components/FilePalette";
 import { CommandPalette } from "@/components/CommandPalette";
 import { GlobalSearchPalette } from "@/features/global-search/GlobalSearchPalette";
 import { Toaster } from "sonner";
-import { ResizeHandle } from "@/components/ResizeHandle";
 import { useLayout, type PanelId, INSPECTOR_WIDTH_MIN, INSPECTOR_WIDTH_MAX } from "@/stores/layout";
 import { useWorkspace } from "@/stores/workspace";
 import { useEditor } from "@/stores/editor";
@@ -39,15 +37,12 @@ export function Workbench() {
   const resolvedMode = useTheme((s) => s.resolvedMode);
 
   // Layout store state
-  const sidebarWidth = useLayout((s) => s.sidebarWidth);
-  const setSidebarWidth = useLayout((s) => s.setSidebarWidth);
   const sessionsWidth = useLayout((s) => s.sessionsWidth);
   const setSessionsWidth = useLayout((s) => s.setSessionsWidth);
   const sessionsCollapsed = useLayout((s) => s.sessionsCollapsed);
   const centerRatio = useLayout((s) => s.centerRatio);
   const inspectorWidth = useLayout((s) => s.inspectorWidth);
   const setCenterRatio = useLayout((s) => s.setCenterRatio);
-  const activeSidebarView = useLayout((s) => s.activeSidebarView);
   const panelOrder = useLayout((s) => s.panelOrder);
   const panelVisible = useLayout((s) => s.panelVisible);
   const activeLeftPanel = useLayout((s) => s.activeLeftPanel);
@@ -228,7 +223,7 @@ export function Workbench() {
   };
 
   // Compute flex style for each panel
-  // sessions and sidebar use fixed width, editor and chat share remaining space
+  // sessions uses fixed width; chat and inspector share the remaining space
   // transition 恒为 "width 160ms ease"（折叠/展开动画）；拖动时由 startLiveDrag 直接操作 DOM 覆盖为 none
   // contain: layout 隔离面板间 reflow 传播（chat 内消息列表 DOM 最多，隔离收益最大）
   const getPanelStyle = (id: PanelId): React.CSSProperties => {
@@ -241,9 +236,6 @@ export function Workbench() {
         contain: "layout",
       };
     }
-    if (id === "sidebar") {
-      return { width: sidebarWidth, flexShrink: 0, order: getOrder(id), contain: "layout" };
-    }
     if (id === "inspector") {
       return {
         width: inspectorWidth,
@@ -254,9 +246,7 @@ export function Workbench() {
       };
     }
     // For editor and chat, use flex-grow with ratio
-    const flexPanels = visiblePanels.filter(
-      (p) => p !== "sidebar" && p !== "sessions",
-    );
+    const flexPanels = visiblePanels.filter((p) => p !== "sessions");
     const flexIndex = flexPanels.indexOf(id);
     if (flexPanels.length === 1) {
       return { flex: 1, order: getOrder(id), contain: "layout" };
@@ -273,12 +263,12 @@ export function Workbench() {
     return index >= 0 && index < visiblePanels.length - 1;
   };
 
-  // Create resize handler for fixed-width panels (sessions, sidebar)
+  // Create resize handler for fixed-width panels (sessions, inspector)
   // The resize handle is placed AFTER afterPanelId, so:
   // - If the target panel === afterPanelId, it's on the LEFT of the handle -> delta positive = grow
   // - If the target panel === nextPanelId, it's on the RIGHT of the handle -> delta positive = shrink
   const createFixedPanelResizeHandler = useCallback(
-    (targetPanel: "sessions" | "sidebar" | "inspector", afterPanelId: PanelId) => {
+    (targetPanel: "sessions" | "inspector", afterPanelId: PanelId) => {
       return (delta: number): number => {
         const state = useLayout.getState();
         const drag = dragStateRef.current;
@@ -287,13 +277,9 @@ export function Workbench() {
         // Live drag 时从 dragState 取实时宽度（store 未更新），否则从 store 取
         const currentWidth = isLiveDrag
           ? drag.currentWidth
-          : targetPanel === "sessions" ? state.sessionsWidth
-          : targetPanel === "sidebar" ? state.sidebarWidth
-          : state.inspectorWidth;
+          : targetPanel === "sessions" ? state.sessionsWidth : state.inspectorWidth;
         const setWidth =
-          targetPanel === "sessions" ? state.setSessionsWidth
-          : targetPanel === "sidebar" ? state.setSidebarWidth
-          : state.setInspectorWidth;
+          targetPanel === "sessions" ? state.setSessionsWidth : state.setInspectorWidth;
 
         const currentOrder = state.panelOrder;
         const index = currentOrder.indexOf(afterPanelId);
@@ -301,7 +287,7 @@ export function Workbench() {
         const reverse = nextPanelId === targetPanel;
         const adjustedDelta = reverse ? -delta : delta;
         const clampedWidth = Math.max(
-          targetPanel === "inspector" ? INSPECTOR_WIDTH_MIN : 140,
+            targetPanel === "inspector" ? INSPECTOR_WIDTH_MIN : 140,
           Math.min(
             targetPanel === "inspector" ? INSPECTOR_WIDTH_MAX : 400,
             currentWidth + adjustedDelta,
@@ -318,7 +304,7 @@ export function Workbench() {
             ref.current.style.width = `${clampedWidth}px`;
           }
         } else {
-          // 非拖动场景（如 sidebar）走 store 更新
+          // 非拖动场景走 store 更新
           setWidth(clampedWidth);
         }
         return reverse ? -appliedAdjusted : appliedAdjusted;
@@ -339,24 +325,20 @@ export function Workbench() {
         const {
           panelVisible: pv,
           sessionsWidth: sw,
-          sidebarWidth: sbw,
           centerRatio: cr,
           panelOrder: po,
         } = state;
 
         // Available width = container width minus fixed panels
         const sessionsW = pv.sessions ? sw : 0;
-        const sidebarW = pv.sidebar ? sbw : 0;
-        const availableWidth = container.offsetWidth - sessionsW - sidebarW;
+        const availableWidth = container.offsetWidth - sessionsW;
         if (availableWidth <= 0) return 0;
         // Convert pixel delta to ratio delta
         const ratioDelta = (delta / availableWidth) * 100;
 
         // centerRatio is assigned to the FIRST flex panel
         const visiblePs = po.filter((id) => pv[id]);
-        const flexPanels = visiblePs.filter(
-          (p) => p !== "sidebar" && p !== "sessions",
-        );
+        const flexPanels = visiblePs.filter((p) => p !== "sessions");
         const firstPanel = flexPanels[0];
 
         // If afterPanelId === firstPanel, dragging right increases firstPanel
@@ -379,9 +361,6 @@ export function Workbench() {
     const nextPanelId = panelOrder[index + 1];
     if (afterPanelId === "sessions" || nextPanelId === "sessions") {
       return createFixedPanelResizeHandler("sessions", afterPanelId);
-    }
-    if (afterPanelId === "sidebar" || nextPanelId === "sidebar") {
-      return createFixedPanelResizeHandler("sidebar", afterPanelId);
     }
     if (afterPanelId === "inspector" || nextPanelId === "inspector") {
       return createFixedPanelResizeHandler("inspector", afterPanelId);
@@ -500,32 +479,6 @@ export function Workbench() {
           </div>
         )}
 
-        {/* Sidebar Panel - 只在 chat 模式显示 */}
-        {activeLeftPanel === "chat" && panelVisible.sidebar && (
-          <div
-            className="h-full overflow-hidden"
-            style={getPanelStyle("sidebar")}
-          >
-            <ErrorBoundary>
-              <Sidebar />
-            </ErrorBoundary>
-          </div>
-        )}
-        {activeLeftPanel === "chat" &&
-          panelVisible.sidebar &&
-          isResizeHandleVisible("sidebar") && (
-            <div
-              className="h-full shrink-0"
-              style={{ order: getResizeHandleOrder("sidebar") }}
-            >
-              <ResizeHandle
-                direction="horizontal"
-                onResize={getResizeHandler("sidebar")}
-              />
-            </div>
-          )}
-
-        {/* Editor Panel - 只在 chat 模式显示 */}
         {/* Chat Panel */}
         {panelVisible.chat && activeLeftPanel === "chat" && (
           <div

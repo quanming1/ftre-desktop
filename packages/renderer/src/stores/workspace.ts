@@ -1,13 +1,10 @@
 import { create } from "zustand";
 import { useEditor } from "./editor";
-import { useSearch } from "./search";
-import { useLayout } from "./layout";
 import { useDiagnostics } from "./diagnostics";
-import { useOutput } from "./output";
 import { useNotification } from "./notification";
 import { useGlobalSearch } from "./global-search";
 import { terminalManager } from "@/services/terminal";
-import { normalizePathForCompare } from "@/utils/pathUtils";
+import { normalizePathForCompare } from "@ftre/editor/utils";
 
 const RECENT_FOLDERS_KEY = "ftre-recent-folders";
 const MAX_RECENT_FOLDERS = 12;
@@ -101,17 +98,11 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
       useEditor.getState().suspendForWorkspace(prev);
       useEditor.getState().closeAllFiles(); // 先清空，再异步恢复
       useEditor.getState().resumeForWorkspace(path);
-      // 清空搜索结果
-      useSearch.getState().clearResults();
       // 终端：通知全局 terminalManager 切换工作区（旧终端 detach 但不销毁，新终端等待 UI 挂载）
       terminalManager.switchWorkspace(path);
-      // Spec: open_folder — 侧边栏切换到 Explorer 视图
-      useLayout.getState().setActiveSidebarView("explorer");
       // Note: workspace switching for chat is handled by session store
       // 清空诊断信息（文件路径属于旧工作区）
       useDiagnostics.getState().clear();
-      // 清空输出频道（旧工作区的日志不应留在新工作区）
-      useOutput.getState().clearAllChannels();
       // 清空通知（旧工作区的通知不应干扰新工作区）
       useNotification.getState().clearAll();
       // 关闭全局搜索面板（结果属于旧工作区）

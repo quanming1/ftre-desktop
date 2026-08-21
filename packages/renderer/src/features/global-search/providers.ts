@@ -233,15 +233,19 @@ export const sessionProvider: SearchProvider = {
         const results: SearchResult[] = [];
 
         for (const session of sessions) {
-            const titleMatch = fuzzyMatch(query, session.title);
+            const title = session.title ?? session.session_id;
+            const titleMatch = fuzzyMatch(query, title);
             if (!titleMatch) continue;
 
-            const dateStr = new Date(session.updated_at * 1000).toLocaleDateString();
+            const updatedAt = session.updated_at ?? session.created_at;
+            const dateStr = updatedAt
+                ? new Date(updatedAt * 1000).toLocaleDateString()
+                : "";
 
             results.push({
                 id: `session:${session.session_id}`,
                 category: 'session',
-                title: session.title,
+                title,
                 subtitle: dateStr,
                 score: titleMatch.score,
                 titleHighlight: titleMatch.highlights,

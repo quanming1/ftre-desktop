@@ -12,7 +12,7 @@ Phase 2: IPC 通道恢复
 ## 涉及文件
 - `packages/electron/src/ipc/fs.ts`
 - `packages/renderer/src/stores/workspace.ts`
-- `packages/renderer/src/features/explorer/ExplorerView.tsx`
+- `packages/renderer/src/features/inspector/FileTreeSidebar.tsx`
 
 ## 具体任务
 1. 确认 `fs:readDir` 返回正确的 FileEntry 数组
@@ -21,7 +21,7 @@ Phase 2: IPC 通道恢复
 4. 确认 `fs:createFile` / `fs:createFolder` / `fs:rename` / `fs:delete` 正常
 
 ## 验收标准
-- 前端打开文件夹 → 文件树正确显示
+- 前端打开文件夹 → Inspector 文件树正确显示
 - 点击文件 → 编辑器打开文件内容
 - 保存文件 → 文件内容写入磁盘
 

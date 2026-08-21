@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { ChatMessageList } from "./ChatMessageList";
 import type { ChatMessage } from "@/stores/chat";
@@ -51,7 +51,7 @@ const message = (
 });
 
 describe("ChatMessageList", () => {
-  it("collapses older complete turns to their user head and final assistant tail", () => {
+  it("renders all messages from earlier complete turns", () => {
     const messages: ChatMessage[] = [
       message("u0", "user", "user zero"),
       message("a0a", "assistant", "assistant zero a"),
@@ -66,8 +66,8 @@ describe("ChatMessageList", () => {
     render(<ChatMessageList messages={messages} />);
 
     expect(screen.getByText("user zero")).toBeInTheDocument();
-    expect(screen.queryByText("assistant zero a")).not.toBeInTheDocument();
-    expect(screen.queryByText("assistant zero b")).not.toBeInTheDocument();
+    expect(screen.getByText("assistant zero a")).toBeInTheDocument();
+    expect(screen.getByText("assistant zero b")).toBeInTheDocument();
     expect(screen.getByText("assistant zero c")).toBeInTheDocument();
     expect(screen.getByText("user one")).toBeInTheDocument();
     expect(screen.getByText("assistant one")).toBeInTheDocument();
@@ -75,7 +75,7 @@ describe("ChatMessageList", () => {
     expect(screen.getByText("assistant two")).toBeInTheDocument();
   });
 
-  it("shows a collapse control above all messages after expanding an older turn", () => {
+  it("keeps earlier messages visible while the latest turn is rendered", () => {
     const messages: ChatMessage[] = [
       message("u0", "user", "user zero"),
       message("a0a", "assistant", "assistant zero a"),
@@ -87,25 +87,23 @@ describe("ChatMessageList", () => {
       message("a2", "assistant", "assistant two"),
     ];
 
-    const { container } = render(<ChatMessageList messages={messages} />);
+    const { container } = render(<ChatMessageList messages={messages} isBusy />);
 
-    fireEvent.click(screen.getByRole("button"));
-
+    expect(screen.getByText("user zero")).toBeInTheDocument();
     expect(screen.getByText("assistant zero a")).toBeInTheDocument();
     expect(screen.getByText("assistant zero b")).toBeInTheDocument();
 
-    const firstTurn = container.querySelector("[class='space-y-12']");
-    const firstTurnContent = firstTurn?.textContent ?? "";
-    expect(firstTurnContent.indexOf("user zero")).toBeGreaterThan(-1);
-    expect(firstTurnContent.indexOf("assistant zero a")).toBeGreaterThan(
-      firstTurnContent.indexOf("user zero"),
+    const content = container.textContent ?? "";
+    expect(content.indexOf("user zero")).toBeGreaterThan(-1);
+    expect(content.indexOf("assistant zero a")).toBeGreaterThan(
+      content.indexOf("user zero"),
     );
-    expect(firstTurnContent.indexOf("assistant zero c")).toBeGreaterThan(
-      firstTurnContent.indexOf("assistant zero b"),
+    expect(content.indexOf("assistant zero c")).toBeGreaterThan(
+      content.indexOf("assistant zero b"),
     );
   });
 
-  it("extends a local page cut back to the turn user before collapsing it", () => {
+  it("renders every message in a locally paged history", () => {
     const messages: ChatMessage[] = [
       message("u0", "user", "original user message"),
       message("a1", "assistant", "tail assistant one"),
@@ -123,8 +121,8 @@ describe("ChatMessageList", () => {
     render(<ChatMessageList messages={messages} />);
 
     expect(screen.getByText("original user message")).toBeInTheDocument();
-    expect(screen.queryByText("tail assistant one")).not.toBeInTheDocument();
-    expect(screen.queryByText("tail assistant two")).not.toBeInTheDocument();
+    expect(screen.getByText("tail assistant one")).toBeInTheDocument();
+    expect(screen.getByText("tail assistant two")).toBeInTheDocument();
     expect(screen.getByText("tail assistant three")).toBeInTheDocument();
   });
 });

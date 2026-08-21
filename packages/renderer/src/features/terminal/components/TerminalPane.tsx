@@ -6,7 +6,7 @@
  */
 
 import { useCallback, useState } from "react";
-import { ContextMenu, type ContextMenuItem } from "@/components/ContextMenu";
+import { ContextMenu, type ContextMenuItem } from "@ftre/ui";
 import { terminalManager } from "@/services/terminal";
 import type { TerminalInstance } from "@/stores/terminal";
 

@@ -2,7 +2,7 @@ import { useEffect, useRef, useCallback, useMemo } from 'react';
 import { Search, X, FileCode, MessageSquare, Terminal, Loader2 } from 'lucide-react';
 import { useGlobalSearch } from '@/stores/global-search';
 import { CATEGORY_ORDER, type SearchCategory, type SearchResult, type ContentMatch } from './types';
-import { getFileIcon } from '@/lib/file-icons';
+import { getFileIcon } from "@ftre/editor/file-icons";
 
 // ── Category config ─────────────────────────────────────────────────
 

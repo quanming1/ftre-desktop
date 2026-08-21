@@ -106,7 +106,9 @@ describe("inspector audit tab", () => {
       }],
     });
     expect(useInspector.getState().tabs).toHaveLength(3);
-    expect(useInspector.getState().tabs.find((tab) => tab.type === "audit" && tab.turnId === "message-1")?.turnChanges).toHaveLength(1);
+    const turnTab = useInspector.getState().tabs.find((tab) => tab.type === "audit" && tab.turnId === "message-1");
+    expect(turnTab?.type).toBe("audit");
+    if (turnTab?.type === "audit") expect(turnTab.turnChanges).toHaveLength(1);
 
     expect(workspaceTab?.type).toBe("audit");
     if (workspaceTab) useInspector.getState().closeTab(workspaceTab.id);

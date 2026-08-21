@@ -153,7 +153,7 @@ export function ModelSettings() {
     const name = formName.trim();
     const nameCheck = validateProviderName(name);
     if (!nameCheck.valid) {
-      setError(nameCheck.error);
+      setError(nameCheck.error ?? "供应商名称无效");
       return;
     }
     if (editingName && name !== editingName) {

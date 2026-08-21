@@ -14,7 +14,7 @@ import {
   deleteSessionRemote,
 } from "@/services/api";
 import { useWorkspace } from "./workspace";
-import { workspaceHash } from "@/utils/pathUtils";
+import { workspaceHash } from "@ftre/editor/utils";
 import { wsClient } from "@/services/websocket-client";
 
 export type { SessionSummary };

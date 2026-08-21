@@ -55,8 +55,13 @@ function snapshot(phase: string, revision: number, pendingCount: number, accepti
 }
 
 /** ChatInput 的 canSend 公式（逐字复刻） */
-function canSendOf(b: { sessionStatus: string; hasCoordinatorState: boolean; clientCanSend: boolean }, hasDraft: boolean) {
-  return b.sessionStatus !== "compacting" && (!b.hasCoordinatorState || b.clientCanSend) && hasDraft;
+function canSendOf(
+  b: Pick<SessionProjectionState, "sessionStatus" | "hasCoordinatorState" | "clientCanSend">,
+  hasDraft: boolean,
+) {
+  const hasCoordinatorState = b.hasCoordinatorState ?? false;
+  const clientCanSend = b.clientCanSend ?? true;
+  return b.sessionStatus !== "compacting" && (!hasCoordinatorState || clientCanSend) && hasDraft;
 }
 
 describe("发送按钮卡死复现（按 WS 日志事件序列）", () => {

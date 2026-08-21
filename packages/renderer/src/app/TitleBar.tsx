@@ -1,8 +1,7 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { Minus, Square, X, Copy, GitBranch, ChevronRight, Plug } from "lucide-react";
 import { PixelLogo } from "@/components/PixelLogo";
-import { ConfirmDialog } from "@/components/ConfirmDialog";
-import { Tooltip, TooltipProvider } from "@ftre/ui";
+import { ConfirmDialog, Tooltip, TooltipProvider } from "@ftre/ui";
 import { useEditor } from "@/stores/editor";
 import { useLayout } from "@/stores/layout";
 import { useGitService } from "@/services/git-service";

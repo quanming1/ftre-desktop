@@ -14,19 +14,18 @@
 
 ## 1. 背景与目标
 
-- **背景**：桌面客户端需要统一的设置入口与扩展能力——MCP 服务器管理、内嵌终端、全局搜索、底部面板。
-- **目标**：提供可持久化的设置对话框与侧边栏扩展视图，集成终端、全局搜索与底部面板。
+- **背景**：桌面客户端需要统一的设置入口与扩展能力——MCP 服务器管理、内嵌终端与全局搜索。
+- **目标**：提供可持久化的设置面板与侧边栏扩展视图，集成终端与全局搜索。
 - **非目标**：不做插件市场与第三方扩展安装；不做终端的多会话标签页管理。
 
 ## 2. 需求范围
 
 ### 2.1 功能需求
 
-- [x] FR1：SettingsDialog 设置面板（配置项编辑 + 持久化）
-- [x] FR2：Sidebar extensions / MCP view（MCP 服务器列表展示与刷新）
+- [x] FR1：SettingsPanel 设置面板（配置项编辑 + 持久化）
+- [x] FR2：McpPopover MCP 管理视图（MCP 服务器列表展示与刷新）
 - [x] FR3：terminal 终端集成（xterm 交互式终端）
 - [x] FR4：global-search 全局搜索（跨文件内容搜索）
-- [x] FR5：bottom-panel 底部面板（可展开 / 收起的辅助信息面板）
 
 ### 2.2 非功能需求
 
@@ -37,11 +36,10 @@
 ## 3. 技术方案
 
 - 模块设计（`packages/renderer/src/features/`）：
-  - `settings/SettingsDialog.tsx`：设置对话框（配置表单 + 持久化）
-  - `extensions/`：侧边栏扩展与 MCP view
+  - `settings/SettingsPanel.tsx`：设置面板（配置表单 + 持久化）
+  - `mcp/McpPopover.tsx`：MCP 管理视图
   - `terminal/`：xterm 终端组件（pty 桥接主进程）
   - `global-search/`：全局搜索（结果列表 + 高亮跳转）
-  - `bottom-panel/`：底部面板容器
 - 依赖选型：xterm.js、ripgrep（或后端搜索服务）
 
 ## 4. 接口定义
@@ -66,3 +64,4 @@
 | 日期 | 变更内容 | 理由 |
 |---|---|---|
 | 2026-08-12 | 初始定稿 | — |
+| 2026-08-21 | 收尾清理：设置入口统一为 SettingsPanel；移除无消费者的旧 SettingsDialog 与 bottom-panel Owner | 以当前客户端架构为准，避免保留失效入口 |

@@ -22,6 +22,9 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
   ErrorBoundary,
+  ContextMenu,
+  type ContextMenuItem,
+  ResizeHandle,
 } from "@ftre/ui";
 import {
   INSPECTOR_SESSION_STATE_TAB_ID,
@@ -34,8 +37,6 @@ import { useWorkspace } from "@/stores/workspace";
 import { useChat } from "@/stores/chat";
 import { useSession } from "@/stores/session";
 import { terminalManager } from "@/services/terminal";
-import { ContextMenu, type ContextMenuItem } from "@/components/ContextMenu";
-import { ResizeHandle } from "@/components/ResizeHandle";
 import { useLayout, FILE_TREE_WIDTH_MIN, FILE_TREE_WIDTH_MAX } from "@/stores/layout";
 import { FileTreeSidebar } from "./FileTreeSidebar";
 import { FileIconView } from "@/components/FileIconView";
@@ -159,7 +160,9 @@ export function InspectorPanel() {
   const handleCloseOtherTabs = useCallback((tabId: string) => {
     useInspector.getState().tabs
       .filter((tab) => tab.id !== tabId && tab.type === "terminal")
-      .forEach((tab) => terminalManager.closeTerminal(tab.terminalId));
+      .forEach((tab) => {
+        if (tab.type === "terminal") terminalManager.closeTerminal(tab.terminalId);
+      });
     closeOtherTabs(tabId);
   }, [closeOtherTabs]);
 
@@ -169,7 +172,9 @@ export function InspectorPanel() {
     if (index >= 0) {
       allTabs.slice(index + 1)
         .filter((tab) => tab.type === "terminal")
-        .forEach((tab) => terminalManager.closeTerminal(tab.terminalId));
+        .forEach((tab) => {
+          if (tab.type === "terminal") terminalManager.closeTerminal(tab.terminalId);
+        });
     }
     closeTabsToRight(tabId);
   }, [closeTabsToRight]);
@@ -177,7 +182,9 @@ export function InspectorPanel() {
   const handleCloseAllTabs = useCallback(() => {
     useInspector.getState().tabs
       .filter((tab) => tab.type === "terminal")
-      .forEach((tab) => terminalManager.closeTerminal(tab.terminalId));
+      .forEach((tab) => {
+        if (tab.type === "terminal") terminalManager.closeTerminal(tab.terminalId);
+      });
     closeAllTabs();
   }, [closeAllTabs]);
 

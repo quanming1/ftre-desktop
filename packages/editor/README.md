@@ -20,7 +20,7 @@
 
 2024 年，我们启动了编辑器独立包拆分计划，分 5 个阶段渐进迁移：
 
-- **Phase 1**: 迁移 `editorCore` 非响应式内核
+- **Phase 1**: 迁移非响应式编辑器内核
 - **Phase 2**: 迁移 `saveFile` 和 `HostBridge` 运行时管道
 - **Phase 3**: 迁移 Monaco UI 组件
 - **Phase 4**: 迁移 TabBar 和 Breadcrumb 导航组件
@@ -109,11 +109,7 @@ editorRef.current?.mergeAllGroups();
 │   ├── editorGroup.ts         # 编辑器组
 │   ├── editorPart.ts          # 多组管理
 │   ├── textCodeEditorPane.ts  # 代码编辑器面板
-│   ├── textModelResolverService.ts  # TextModel 管理
-│   └── viewStateCompat.ts     # ViewState 兼容层
-├── core/                # 核心服务
-│   ├── text-model.ts
-│   └── code-editor.ts
+│   └── textModelResolverService.ts  # TextModel 管理
 ├── runtime/             # 运行时管道
 │   ├── host-bridge.ts
 │   └── save-file.ts
@@ -133,29 +129,6 @@ editorRef.current?.mergeAllGroups();
 └── utils/               # 工具函数
     ├── path-utils.ts
     └── breadcrumb-utils.ts
-```
-
-### 核心模块
-
-#### `@ftre/editor/core`
-
-非响应式编辑器内核，使用原生 `Map` 管理数据，不触发 React 渲染：
-
-```typescript
-import { editorCore } from "@ftre/editor/core";
-
-// 内容缓存
-editorCore.setContent(path, content);
-editorCore.setDiskContent(path, content);
-editorCore.isDirty(path);
-
-// Monaco 实例注册
-editorCore.registerInstance(path, editor);
-editorCore.getInstance(path);
-
-// 视图状态 (scroll/cursor/selections)
-editorCore.saveViewState(path, state);
-editorCore.getViewState(path);
 ```
 
 #### `@ftre/editor/runtime`
@@ -226,10 +199,9 @@ import { MonacoEditor, TabBar, Breadcrumb } from "@ftre/editor/ui";
 
 ```typescript
 // 主入口
-import { editorCore, saveFile, MonacoEditor, ... } from "@ftre/editor";
+import { saveFile, MonacoDiffViewer, ... } from "@ftre/editor";
 
 // 子路径导入
-import { editorCore } from "@ftre/editor/core";
 import { saveFile, registerHostBridge } from "@ftre/editor/runtime";
 import { MonacoEditor, TabBar, Breadcrumb } from "@ftre/editor/ui";
 import { createEditorActions, type EditorStore } from "@ftre/editor/store";

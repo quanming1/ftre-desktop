@@ -1,5 +1,4 @@
 import { useShortcut } from '../stores/shortcut';
-import { useLayout } from '../stores/layout';
 import { useGlobalSearch } from '../stores/global-search';
 
 /**
@@ -42,18 +41,6 @@ export function registerDefaultShortcuts(): void {
         context: 'global',
         execute: () => {
             window.dispatchEvent(new CustomEvent('ftre:open-terminal-tab'));
-        },
-    });
-
-    // Ctrl+B → Toggle Sidebar
-    register({
-        id: 'toggleSidebar',
-        keys: 'ctrl+b',
-        label: '切换侧边栏',
-        category: '视图',
-        context: 'global',
-        execute: () => {
-            useLayout.getState().toggleSidebar();
         },
     });
 

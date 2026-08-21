@@ -1,5 +1,7 @@
 # 文件树交互深度分析
 
+> 状态：历史交互分析。当前文件打开与编辑器状态由 renderer 的 `useEditor` 宿主 store 和 `@ftre/editor` 共同负责；文中 `editorCore` / `editorManager` 仅代表旧实现，不再是现存 Owner。
+
 基于 Deep Interaction Analysis Skill 进行的系统化交互审查。
 
 **最后更新**: 迭代 3 - 修复重命名无响应的严重 bug

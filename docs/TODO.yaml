@@ -58,7 +58,7 @@ stages:
         prd: docs/prd/PRD-A4-file-tree-git.md
         prd_status: 已验收
         modules:
-          - ExplorerView / FileTreeItem
+          - InspectorPanel / FileTreeSidebar
           - GitService / git poll / Changes 节点
         acceptance: 文件树正确展示，git 状态染色，Changes 节点 diff 预览，文件操作正常
 
@@ -127,9 +127,9 @@ stages:
         prd: docs/prd/PRD-C1-settings-extensions.md
         prd_status: 已验收
         modules:
-          - SettingsDialog
-          - Sidebar extensions / MCP view
-          - terminal / global-search / bottom-panel
+          - features/settings/SettingsPanel
+          - McpPopover / MCP 管理视图
+          - terminal / global-search
         acceptance: 设置可持久化，终端可交互，搜索结果正确，MCP 服务器列表可刷新
 
   - id: D

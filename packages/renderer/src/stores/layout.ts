@@ -1,22 +1,15 @@
 import { create } from 'zustand';
 import { INSPECTOR_TRACE_TAB_ID, useInspector } from './inspector';
 
-export type SidebarView = 'explorer' | 'git' | 'extensions';
-export type BottomTab = 'terminal' | 'problems' | 'output';
 export type LeftPanelType = 'chat' | 'skills' | 'cron' | 'settings';
 
-export type SplitMode = 'ai-center' | 'code-center';
-export type PanelId = 'sessions' | 'sidebar' | 'editor' | 'chat' | 'inspector';
-export type LayoutMode = 'chat' | 'agent';
+export type PanelId = 'sessions' | 'chat' | 'inspector';
 
 const STORAGE_KEY = 'ftre-layout-state';
 
 // Range constants for resize clamping
-export const SIDEBAR_WIDTH_MIN = 140;
-export const SIDEBAR_WIDTH_MAX = 400;
-export const BOTTOM_PANEL_HEIGHT_MIN = 100;
-export const BOTTOM_PANEL_HEIGHT_MAX = 500;
-
+export const SESSIONS_WIDTH_MIN = 140;
+export const SESSIONS_WIDTH_MAX = 400;
 // Center panel ratio: percentage of available width for the center panel (0-100)
 // Default 70% center, 30% side — no min/max clamping, drag freely
 export const CENTER_RATIO_DEFAULT = 70;
@@ -35,21 +28,13 @@ const PERSIST_DEBOUNCE_MS = 300;
 let persistTimer: ReturnType<typeof setTimeout> | null = null;
 
 interface PersistedLayoutData {
-    activeSidebarView: SidebarView | null;
-    sidebarWidth: number;
     sessionsWidth: number;      // sessions panel width
     sessionsCollapsed: boolean; // whether sessions panel is collapsed to icon rail
     centerRatio: number;        // percentage (0-100) of center panel width
-    bottomPanelHeight: number;
-    sidebarVisible: boolean;
-    bottomPanelVisible: boolean;
-    activeBottomTab: BottomTab;
     minimapEnabled: boolean;
-    splitMode: SplitMode;       // deprecated, kept for migration
     panelOrder: PanelId[];      // panel arrangement from left to right
     panelVisible: Record<PanelId, boolean>;  // visibility of each panel
     autoFollowFiles: boolean;
-    layoutMode: LayoutMode;     // 'chat' or 'agent' layout mode
     activeLeftPanel: LeftPanelType;
     inspectorWidth: number;     // inspector panel width
     fileTreeWidth: number;      // file tree sidebar width
@@ -59,23 +44,14 @@ export interface LayoutState extends PersistedLayoutData {
     persist: () => void;
     restore: () => void;
 
-    setActiveSidebarView: (view: SidebarView | null) => void;
-    toggleSidebar: () => void;
-    setSidebarWidth: (w: number) => void;
     setSessionsWidth: (w: number) => void;
     toggleSessionsCollapsed: () => void;
     setCenterRatio: (ratio: number) => void;
     setInspectorWidth: (w: number) => void;
     setFileTreeWidth: (w: number) => void;
-    setBottomPanelHeight: (h: number) => void;
-    toggleBottomPanel: () => void;
-    setActiveBottomTab: (tab: BottomTab) => void;
     toggleMinimap: () => void;
-    setSplitMode: (mode: SplitMode) => void;
-    setPanelOrder: (order: PanelId[]) => void;
     togglePanelVisible: (panel: PanelId) => void;
     toggleAutoFollowFiles: () => void;
-    setLayoutMode: (mode: LayoutMode) => void;
     setActiveLeftPanel: (panel: LeftPanelType) => void;
 
     /** Session 右键定位 Trace（运行时状态，不持久化） */
@@ -100,69 +76,34 @@ export interface LayoutState extends PersistedLayoutData {
 const DEFAULT_PANEL_ORDER: PanelId[] = ['sessions', 'chat', 'inspector'];
 const DEFAULT_PANEL_VISIBLE: Record<PanelId, boolean> = {
     sessions: true,
-    sidebar: false,
-    editor: false,
     chat: true,
     inspector: false,
 };
 
-// 写死为 Agent 模式：只显示会话列表 + 聊天，不再有 IDE（文件树/编辑器）。
-const DEFAULT_LAYOUT_MODE: LayoutMode = 'agent';
-
-const MODE_CONFIGS: Record<LayoutMode, {
-    panelOrder: PanelId[];
-    panelVisible: Record<PanelId, boolean>;
-}> = {
-    chat: {
-        panelOrder: ['sessions', 'sidebar', 'editor', 'chat', 'inspector'],
-        panelVisible: { sessions: true, sidebar: true, editor: true, chat: true, inspector: false },
-    },
-    agent: {
-        panelOrder: ['sessions', 'chat', 'inspector'],
-        panelVisible: { sessions: true, sidebar: false, editor: false, chat: true, inspector: false },
-    },
-};
-
 const defaults: PersistedLayoutData = {
-    activeSidebarView: 'explorer',
-    sidebarWidth: 220,
     sessionsWidth: 240,
     sessionsCollapsed: false,
     centerRatio: CENTER_RATIO_DEFAULT,
     inspectorWidth: INSPECTOR_WIDTH_DEFAULT,
-    bottomPanelHeight: 200,
-    sidebarVisible: true,
-    bottomPanelVisible: false,
-    activeBottomTab: 'terminal',
     minimapEnabled: false,
-    splitMode: 'ai-center',
     panelOrder: DEFAULT_PANEL_ORDER,
     panelVisible: DEFAULT_PANEL_VISIBLE,
     autoFollowFiles: true,
-    layoutMode: DEFAULT_LAYOUT_MODE,
     activeLeftPanel: 'chat' as LeftPanelType,
     fileTreeWidth: FILE_TREE_WIDTH_DEFAULT,
 };
 
 function getPersistedData(state: LayoutState): PersistedLayoutData {
     return {
-        activeSidebarView: state.activeSidebarView,
-        sidebarWidth: state.sidebarWidth,
         sessionsWidth: state.sessionsWidth,
         sessionsCollapsed: state.sessionsCollapsed,
         centerRatio: state.centerRatio,
         inspectorWidth: state.inspectorWidth,
         fileTreeWidth: state.fileTreeWidth,
-        bottomPanelHeight: state.bottomPanelHeight,
-        sidebarVisible: state.sidebarVisible,
-        bottomPanelVisible: state.bottomPanelVisible,
-        activeBottomTab: state.activeBottomTab,
         minimapEnabled: state.minimapEnabled,
-        splitMode: state.splitMode,
         panelOrder: state.panelOrder,
         panelVisible: state.panelVisible,
         autoFollowFiles: state.autoFollowFiles,
-        layoutMode: state.layoutMode,
         activeLeftPanel: state.activeLeftPanel,
     };
 }
@@ -187,29 +128,9 @@ export const useLayout = create<LayoutState>((set, get) => ({
             const raw = localStorage.getItem(STORAGE_KEY);
             if (raw) {
                 const parsed = JSON.parse(raw) as Partial<PersistedLayoutData>;
-                // Migrate old splitMode values to new ones
-                if (parsed.splitMode && !['ai-center', 'code-center'].includes(parsed.splitMode)) {
-                    parsed.splitMode = 'ai-center';
-                }
                 // Migrate old aiPanelWidth to centerRatio (drop it, use default)
                 if ((parsed as any).aiPanelWidth !== undefined && parsed.centerRatio === undefined) {
                     parsed.centerRatio = CENTER_RATIO_DEFAULT;
-                }
-                // Migrate splitMode to panelOrder if panelOrder doesn't exist
-                if (!parsed.panelOrder && parsed.splitMode) {
-                    if (parsed.splitMode === 'ai-center') {
-                        parsed.panelOrder = ['sessions', 'sidebar', 'chat', 'editor'];
-                    } else {
-                        parsed.panelOrder = ['sessions', 'sidebar', 'editor', 'chat'];
-                    }
-                }
-                // Validate panelOrder has all 5 panels
-                if (parsed.panelOrder && parsed.panelOrder.length !== 5) {
-                    parsed.panelOrder = DEFAULT_PANEL_ORDER;
-                }
-                // Migrate panelVisible if not present
-                if (!parsed.panelVisible || !('inspector' in parsed.panelVisible)) {
-                    parsed.panelVisible = DEFAULT_PANEL_VISIBLE;
                 }
                 // Migrate inspectorWidth if not present
                 if (typeof parsed.inspectorWidth !== 'number') {
@@ -219,23 +140,13 @@ export const useLayout = create<LayoutState>((set, get) => ({
                 if (typeof parsed.fileTreeWidth !== 'number') {
                     parsed.fileTreeWidth = FILE_TREE_WIDTH_DEFAULT;
                 }
-                // Migrate layoutMode if not present
-                if (!parsed.layoutMode) {
-                    // Infer from old panelVisible state
-                    if (parsed.panelVisible?.sidebar === false && parsed.panelVisible?.editor === false) {
-                        parsed.layoutMode = 'agent';
-                    } else {
-                        parsed.layoutMode = 'chat';
-                    }
-                }
                 // Traces 已迁移到右侧 Inspector 固定 Tab。
                 if ((parsed.activeLeftPanel as string | undefined) === 'traces') {
                     parsed.activeLeftPanel = 'chat';
                 }
-                // 写死 Agent 模式：忽略历史持久化的 IDE 布局，强制只显示 sessions + chat。
-                parsed.layoutMode = 'agent';
-                parsed.panelOrder = MODE_CONFIGS.agent.panelOrder;
-                parsed.panelVisible = MODE_CONFIGS.agent.panelVisible;
+                // 当前客户端只保留 sessions + chat 的 Agent 布局；旧 IDE 布局不再恢复。
+                parsed.panelOrder = DEFAULT_PANEL_ORDER;
+                parsed.panelVisible = DEFAULT_PANEL_VISIBLE;
                 set({ ...defaults, ...parsed });
             }
         } catch {
@@ -245,31 +156,8 @@ export const useLayout = create<LayoutState>((set, get) => ({
         }
     },
 
-    setActiveSidebarView: (view) => {
-        set({ activeSidebarView: view });
-        get().persist();
-    },
-
-    toggleSidebar: () => {
-        const { sidebarVisible, activeSidebarView } = get();
-        if (sidebarVisible) {
-            set({ sidebarVisible: false });
-        } else {
-            set({
-                sidebarVisible: true,
-                activeSidebarView: activeSidebarView ?? 'explorer',
-            });
-        }
-        get().persist();
-    },
-
-    setSidebarWidth: (w) => {
-        set({ sidebarWidth: Math.max(SIDEBAR_WIDTH_MIN, Math.min(SIDEBAR_WIDTH_MAX, w)) });
-        get().persist();
-    },
-
     setSessionsWidth: (w) => {
-        set({ sessionsWidth: Math.max(SIDEBAR_WIDTH_MIN, Math.min(SIDEBAR_WIDTH_MAX, w)) });
+        set({ sessionsWidth: Math.max(SESSIONS_WIDTH_MIN, Math.min(SESSIONS_WIDTH_MAX, w)) });
         get().persist();
     },
 
@@ -293,33 +181,8 @@ export const useLayout = create<LayoutState>((set, get) => ({
         get().persist();
     },
 
-    setBottomPanelHeight: (h) => {
-        set({ bottomPanelHeight: Math.max(BOTTOM_PANEL_HEIGHT_MIN, Math.min(BOTTOM_PANEL_HEIGHT_MAX, h)) });
-        get().persist();
-    },
-
-    toggleBottomPanel: () => {
-        set({ bottomPanelVisible: !get().bottomPanelVisible });
-        get().persist();
-    },
-
-    setActiveBottomTab: (tab) => {
-        set({ activeBottomTab: tab });
-        get().persist();
-    },
-
     toggleMinimap: () => {
         set({ minimapEnabled: !get().minimapEnabled });
-        get().persist();
-    },
-
-    setSplitMode: (mode) => {
-        set({ splitMode: mode });
-        get().persist();
-    },
-
-    setPanelOrder: (order) => {
-        set({ panelOrder: order });
         get().persist();
     },
 
@@ -331,17 +194,6 @@ export const useLayout = create<LayoutState>((set, get) => ({
 
     toggleAutoFollowFiles: () => {
         set({ autoFollowFiles: !get().autoFollowFiles });
-        get().persist();
-    },
-
-    setLayoutMode: (_mode) => {
-        // 模式已写死为 Agent：忽略任何切回 chat（IDE）的请求，始终保持 agent 布局。
-        const config = MODE_CONFIGS.agent;
-        set({
-            layoutMode: 'agent',
-            panelOrder: config.panelOrder,
-            panelVisible: config.panelVisible,
-        });
         get().persist();
     },
 

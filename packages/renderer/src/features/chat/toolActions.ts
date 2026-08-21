@@ -1,5 +1,6 @@
 import type { ToolCallMessage } from "@/types/chat";
-import { useEditor, buildDiffId, buildDiffTabPath } from "@/stores/editor";
+import { buildDiffId, buildDiffTabPath } from "@ftre/editor/store";
+import { useEditor } from "@/stores/editor";
 import { useNotification } from "@/stores/notification";
 import { resolveFilePath, basename } from "@/utils/pathUtils";
 import { getToolFilePath } from "./toolClassification";
@@ -281,6 +282,13 @@ export function activateExistingDiff(diffId: string): void {
     language: guessLanguage(diff.filePath),
     content: diff.newContent,
   });
+  // openFile 复用已有 tab 时只切换 active，不覆盖内容；显式 hydrate 确保
+  // 重复打开同一 diff 时编辑器内容与 pendingDiff 保持一致。
+  store.hydrateFileContent(
+    diff.tabPath,
+    diff.newContent,
+    guessLanguage(diff.filePath),
+  );
   store.setActive(diff.tabPath);
 }
 

@@ -1,3 +1,4 @@
+import { normalizePathForCompare } from "@ftre/editor/utils";
 import { useWorkspace } from "@/stores/workspace";
 
 /**
@@ -42,42 +43,10 @@ export function normalizePath(p: string): string {
 }
 
 /**
- * 用于路径比较的规范化函数。
- * - 统一斜杠方向为 `/`
- * - 去掉尾部斜杠
- * - Windows 盘符转小写（避免 E: 和 e: 被认为是不同路径）
- *
- * 注意：此函数专门用于路径**比较**场景（如去重、判断是否相等），
- * 不应用于需要保持原始盘符大小写的场景（如显示、存储）。
- */
-export function normalizePathForCompare(p: string): string {
-  let normalized = p.replace(/\\/g, "/").replace(/\/+$/, "");
-  // Windows 盘符小写化
-  if (/^[A-Za-z]:\//.test(normalized)) {
-    normalized = normalized[0].toLowerCase() + normalized.slice(1);
-  }
-  return normalized;
-}
-
-/**
  * Extract the last segment of a path as the file name.
  */
 export function basename(filePath: string): string {
   return filePath.split(/[\\/]/).pop() ?? filePath;
-}
-
-/**
- * 给工作区路径生成稳定的短 hash，用于 localStorage key 区分不同工作区。
- * 同一路径（不论斜杠方向、尾部斜杠、盘符大小写）永远产生相同结果。
- */
-export function workspaceHash(rootPath: string): string {
-  // 使用 normalizePathForCompare 确保相同工作区（不论盘符大小写）生成相同 hash
-  const normalized = normalizePathForCompare(rootPath);
-  let h = 0;
-  for (let i = 0; i < normalized.length; i++) {
-    h = ((h << 5) - h + normalized.charCodeAt(i)) | 0;
-  }
-  return Math.abs(h).toString(36);
 }
 
 /**

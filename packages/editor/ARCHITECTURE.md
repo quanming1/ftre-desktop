@@ -39,12 +39,6 @@ packages/editor/src/
 │   │                                 # - 编辑器打开/切换逻辑
 │   └── index.ts                      # 模块导出
 │
-├── core/                             # 核心实现（兼容旧 API）
-│   ├── text-model.ts                # TextModelService 文本模型服务
-│   ├── view-state-manager.ts        # ViewStateManager（简化版）
-│   ├── code-editor.ts               # CodeEditor 包装类
-│   └── index.ts
-│
 ├── ui/                               # UI 组件（React）
 │   ├── SimpleEditor.tsx             # 简化版编辑器组件
 │   ├── MonacoDiffViewer.tsx         # Diff 查看器
@@ -265,10 +259,10 @@ TextCodeEditor.setInput(input)
 
 | VSCode 概念 | 新实现 | 旧实现 |
 |-------------|--------|--------|
-| `ITextModel` | `common/editorCommon.ts` | `core/text-model.ts` |
+| `ITextModel` | `common/editorCommon.ts` | Monaco model API |
 | `ICodeEditor` | `browser/editorBrowser.ts` | Monaco's `IStandaloneCodeEditor` |
 | `EditorInput` | `workbench/editorInput.ts` | `store/types.ts` OpenFile |
-| `EditorMemento` | `workbench/editorMemento.ts` | `core/view-state-manager.ts` |
+| `EditorMemento` | `workbench/editorMemento.ts` | 旧 ViewState 兼容层（已删除） |
 | `EditorPane` | `workbench/editorPane.ts` | `ui/SimpleEditor.tsx` |
 | `EditorPanes` | `workbench/editorPanes.ts` | - (需要实现) |
 
@@ -306,14 +300,14 @@ TextCodeEditor.setInput(input)
 - [x] 实现分屏功能
 
 ### Phase 5: ✅ 集成和清理 (已完成)
-- [x] 创建 `workbench/viewStateCompat.ts` - ViewState 兼容层
-- [x] 更新所有导出
+- [x] 统一由 `workbench/editorMemento.ts` 管理 ViewState
+- [x] 更新所有导出，移除未被运行时使用的兼容层
 
 ### Phase 6: ✅ 旧版兼容去除 (已完成)
 - [x] 删除 `core/view-state-manager.ts` - 被 EditorMemento 替代
 - [x] 删除 `ui/SimpleEditor.tsx` - 被 CodeEditorWidget 替代
 - [x] 更新 `renderer/EditorArea.tsx` - 使用 CodeEditorWidget
-- [x] 更新 `renderer/stores/workspace.ts` - 使用 saveAllViewStates
+- [x] 更新编辑器组件 - 使用 `saveAllEditorMementos`
 - [x] 清理所有旧版 API 导出
 
 🎉 **架构迁移已完成！代码库已简化！**

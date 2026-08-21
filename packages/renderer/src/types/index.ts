@@ -1,6 +1,25 @@
-import type { SearchOptions, SearchMatch, SearchFileResult } from '../stores/search';
+/** Search result contracts remain part of the desktop filesystem API even though
+ * the renderer no longer owns a dedicated search store or panel. */
+export interface SearchMatch {
+    lineNumber: number;
+    lineContent: string;
+    matchStart: number;
+    matchEnd: number;
+}
 
-export type { SearchOptions, SearchMatch, SearchFileResult };
+export interface SearchFileResult {
+    filePath: string;
+    fileName: string;
+    matches: SearchMatch[];
+}
+
+export interface SearchOptions {
+    caseSensitive: boolean;
+    wholeWord: boolean;
+    useRegex: boolean;
+    includePattern: string;
+    excludePattern: string;
+}
 
 export interface FileEntry {
     name: string;

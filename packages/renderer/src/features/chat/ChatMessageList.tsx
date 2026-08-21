@@ -19,7 +19,7 @@ import { UserMessage } from "./UserMessage";
 import { AssistantMessage } from "./AssistantMessage";
 import { ChatOutline } from "./ChatOutline";
 import type { TurnFileChange } from "./TurnFileChanges";
-import { ContextMenu, type ContextMenuItem } from "@/components/ContextMenu";
+import { ContextMenu, type ContextMenuItem } from "@ftre/ui";
 import { remarkPlugins, rehypePlugins } from "@/lib/markdown-plugins";
 import { shouldShowTurnActions } from "./turnActions";
 

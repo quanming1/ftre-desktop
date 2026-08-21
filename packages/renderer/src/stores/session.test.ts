@@ -4,7 +4,6 @@ import { useChat } from "./chat";
 
 // Mock the API module
 vi.mock("@/services/api", () => ({
-  fetchSessions: vi.fn().mockResolvedValue([]),
   fetchSessionMessages: vi.fn().mockResolvedValue([]),
   fetchSessionMessagesPage: vi.fn().mockResolvedValue({
     messages: [],
@@ -51,18 +50,14 @@ function resetStores() {
   });
   useChat.setState({
     sessionId: null,
-    activeChatId: null,
     messages: [],
     sessionStatus: "idle",
     isBusy: false,
     error: null,
     connected: false,
     model: null,
-    mode: "chat",
     agentId: "default",
     retryState: null,
-    toolCalls: [],
-    progress: null,
   });
 }
 
@@ -179,8 +174,8 @@ describe("session store — basic operations", () => {
   it("deleteSession removes from sessions", async () => {
     useSession.setState({
       sessions: [
-        { session_id: "s1", title: "Test" },
-        { session_id: "s2", title: "Test2" },
+        { session_id: "s1", title: "Test", channel: "ws" },
+        { session_id: "s2", title: "Test2", channel: "ws" },
       ],
     });
     await useSession.getState().deleteSession("s1");
@@ -192,7 +187,7 @@ describe("session store — basic operations", () => {
   it("patchSession updates session meta", () => {
     useSession.setState({
       sessions: [
-        { session_id: "s1", title: "Test", agent_id: "default", meta: {} },
+        { session_id: "s1", title: "Test", agent_id: "default", meta: {}, channel: "ws" },
       ],
     });
     useSession

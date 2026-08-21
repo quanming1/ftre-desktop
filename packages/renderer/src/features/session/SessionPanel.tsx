@@ -74,9 +74,8 @@ import { useLayout } from "@/stores/layout";
 import { useInspector } from "@/stores/inspector";
 import { useNotification } from "@/stores/notification";
 import { updateSession, forkSessionRemote } from "@/services/api";
-import { ContextMenu, type ContextMenuItem } from "@/components/ContextMenu";
-import { Tooltip, TooltipProvider, ConfirmDialog } from "@ftre/ui";
-import { normalizePathForCompare } from "@/utils/pathUtils";
+import { ContextMenu, type ContextMenuItem, Tooltip, TooltipProvider, ConfirmDialog } from "@ftre/ui";
+import { normalizePathForCompare } from "@ftre/editor/utils";
 import type { SessionSummary } from "@/services/api";
 import {
   SessionSearchInput,
