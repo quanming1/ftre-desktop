@@ -287,12 +287,22 @@ function replySnapshotToChatMessage(raw: any): ChatMessage | null {
       });
     } else if (block?.type === "tool_call") {
       const id = String(block.id ?? "");
-      blocks.push({
-        type: "toolCall",
-        id,
-        name: String(block.name ?? ""),
-        arguments: block.arguments && typeof block.arguments === "object" ? block.arguments : {},
-      });
+      const existingIndex = id
+        ? blocks.findIndex((item) => item.type === "toolCall" && item.id === id)
+        : -1;
+      if (existingIndex >= 0) {
+        const existing = blocks[existingIndex];
+        if (existing.type === "toolCall" && !existing.name && block.name) {
+          blocks[existingIndex] = { ...existing, name: String(block.name) };
+        }
+      } else {
+        blocks.push({
+          type: "toolCall",
+          id,
+          name: String(block.name ?? ""),
+          arguments: block.arguments && typeof block.arguments === "object" ? block.arguments : {},
+        });
+      }
       // 待确认工具调用（state==="asking"）在快照里没有配对 tool_result，
       // 合成一个 asking ToolResult，让确认卡片在刷新/重连后仍可渲染。
       // reason 未持久化，卡片用通用文案。
@@ -885,19 +895,31 @@ export function applyEvent(b: SessionProjectionState, ev: BusEvent): void {
 
     case "TOOL_CALL_START":
       ensure();
-      replaceReply((message) => ({
-        ...message,
-        blocks: [
-          ...(message.blocks || []),
-          {
-            type: "toolCall",
-            id: d.tool_call_id,
-            name: d.tool_call_name || "",
-            arguments: {},
-            argumentsText: "",
-          },
-        ],
-      }));
+      replaceReply((message) => {
+        const blocks = [...(message.blocks || [])];
+        const existing = blocks.find(
+          (block) => block.type === "toolCall" && block.id === d.tool_call_id,
+        );
+        if (existing?.type === "toolCall") {
+          // TOOL_CALL_START 可能在重试/回放时重复到达；tool_call_id 是调用身份，
+          // 同一 reply 内必须保持一个 block，后续 DELTA/END 继续更新它。
+          if (existing.name || !d.tool_call_name) return message;
+          return {
+            ...message,
+            blocks: blocks.map((block) => block === existing
+              ? { ...block, name: d.tool_call_name }
+              : block),
+          };
+        }
+        blocks.push({
+          type: "toolCall",
+          id: d.tool_call_id,
+          name: d.tool_call_name || "",
+          arguments: {},
+          argumentsText: "",
+        });
+        return { ...message, blocks };
+      });
       return;
 
     case "TOOL_CALL_DELTA":

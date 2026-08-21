@@ -1,5 +1,12 @@
 # Changelog
 
+## [未发布]
+
+### 修复
+
+- A2：重复的 TOOL_CALL_START 事件按 tool_call_id 幂等处理，消除聊天工具卡片 duplicate key 警告；Reply 快照转换同样按 id 去重。
+- A1：renderer 声明 Content-Security-Policy（index.html meta + 开发模式响应头注入），消除 Electron 开发模式 Insecure Content-Security-Policy 警告。
+
 ## [0.1.8] - 2026-08-20
 
 ### 新增
