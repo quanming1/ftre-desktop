@@ -8,7 +8,13 @@ vi.mock("@/stores/session", () => ({
     selector({
       allSessions: [],
       sessionsTotal: 0,
+      workspacePaging: {},
+      wsFlatPaging: { total: 0, loaded: 0 },
+      sortMode: "workspace",
       loadAllSessions: vi.fn(),
+      loadMoreWorkspaceSessions: vi.fn(),
+      loadMoreGlobalSessions: vi.fn(),
+      setSortMode: vi.fn(),
       loadMoreSessions: vi.fn(),
       switchSession: vi.fn(),
       deleteSession: vi.fn(),
@@ -33,8 +39,11 @@ vi.mock("@/stores/layout", () => ({
   useLayout: (selector: (s: any) => any) =>
     selector({
       activeLeftPanel: "chat",
+      sessionsCollapsed: false,
+      sessionsWidth: 240,
       setActiveLeftPanel: vi.fn(),
       locateTraceSession: vi.fn(),
+      toggleSessionsCollapsed: vi.fn(),
     }),
 }));
 
@@ -54,15 +63,15 @@ describe("SessionPanel", () => {
 
   it("renders the top action zone (New thread / Cron / Skills)", () => {
     render(<SessionPanel />);
-    expect(screen.getByText("New thread")).toBeInTheDocument();
-    expect(screen.getByText("Cron")).toBeInTheDocument();
-    expect(screen.getByText("Skills")).toBeInTheDocument();
+    expect(screen.getByText("新会话")).toBeInTheDocument();
+    expect(screen.getByText("定时任务")).toBeInTheDocument();
+    expect(screen.getByText("技能")).toBeInTheDocument();
   });
 
   it("renders the Threads section header and bottom Settings action", () => {
     render(<SessionPanel />);
     expect(screen.getByText("Ws Threads")).toBeInTheDocument();
-    expect(screen.getByText("Settings")).toBeInTheDocument();
+    expect(screen.getByText("设置")).toBeInTheDocument();
   });
 
   it("shows empty placeholder when no sessions exist", () => {

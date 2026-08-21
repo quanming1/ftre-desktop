@@ -43,6 +43,7 @@ export function DiffRenderer({ tab, wordWrap }: TabRendererProps) {
     return (
       <PreviewHeader
         fileName={filePath}
+        variant="breadcrumb"
         left={
           <>
             <GitCompareArrows size={12} className="text-t-ghost shrink-0" />

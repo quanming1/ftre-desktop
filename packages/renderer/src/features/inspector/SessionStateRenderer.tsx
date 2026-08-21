@@ -166,15 +166,14 @@ export function SessionStateRenderer({ active }: { active: boolean }) {
 
   return (
     <div className="flex h-full min-h-0 flex-col bg-surface text-t-primary">
-      <div className="flex h-10 shrink-0 items-center border-b border-border px-4">
-        <span className="text-[14px] font-medium">会话状态</span>
-        <span className="ml-2 min-w-0 truncate font-mono text-[12px] text-t-ghost" title={sessionId}>
+      <div className="flex h-8 shrink-0 items-center gap-2 bg-white px-4 text-[11px]">
+        <span className="min-w-0 truncate font-mono text-t-ghost" title={sessionId}>
           {sessionId}
         </span>
         <button
           type="button"
           title="在资源管理器中打开 state.json"
-          className="ml-2 inline-flex shrink-0 items-center gap-1 rounded px-1.5 py-1 text-[11px] text-t-muted hover:bg-hover hover:text-t-primary"
+          className="inline-flex shrink-0 items-center gap-1 rounded-md px-1.5 py-1 text-t-muted transition-colors hover:bg-hover hover:text-t-primary"
           onClick={() => {
             const reveal = window.desktop?.fs?.revealInExplorer;
             if (!reveal) {
@@ -188,7 +187,7 @@ export function SessionStateRenderer({ active }: { active: boolean }) {
         >
           <FolderOpen size={13} /> 打开文件
         </button>
-        {hasNewerState && <span className="ml-2 text-[12px] text-t-muted">有更新</span>}
+        {hasNewerState && <span className="text-t-muted">有更新</span>}
         <div className="ml-auto flex items-center gap-1">
           <ToolbarButton
             title="复制当前页 JSON"

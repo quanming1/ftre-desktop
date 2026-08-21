@@ -13,6 +13,8 @@ export const INSPECTOR_SESSION_STATE_TAB_ID = "inspector-session-state";
 export const INSPECTOR_TRACE_TAB_ID = "inspector-traces";
 /** 固定的 WebSocket 审计日志入口，不参与可关闭文件 Tab 的生命周期。 */
 export const INSPECTOR_WS_LOG_TAB_ID = "inspector-ws-logs";
+/** 可关闭的终端入口前缀；每个 PTY 实例对应一个独立 Inspector Tab。 */
+export const INSPECTOR_TERMINAL_TAB_ID = "inspector-terminal";
 
 // ─── localStorage 持久化（全局偏好）─────────────────────────────
 
@@ -46,7 +48,7 @@ const initialPrefs = loadPrefs();
 
 // ─── Tab 类型（discriminated union）──────────────────────────────
 
-export type InspectorTabType = "file" | "diff" | "image";
+export type InspectorTabType = "file" | "diff" | "image" | "terminal";
 
 /** 所有 tab 共享的基础字段 */
 interface TabBase {
@@ -91,7 +93,13 @@ export interface ImageTab extends TabBase {
   filePath: string;
 }
 
-export type InspectorTab = FileTab | DiffTab | ImageTab;
+/** terminal tab：绑定一个独立的 TerminalManager/PTY 实例。 */
+export interface TerminalTab extends TabBase {
+  type: "terminal";
+  terminalId: string;
+}
+
+export type InspectorTab = FileTab | DiffTab | ImageTab | TerminalTab;
 
 // ─── Store 接口 ─────────────────────────────────────────────────
 
@@ -117,6 +125,8 @@ export interface InspectorState {
   ) => void;
   /** 打开一个图片预览 tab（同 toolCallId 复用） */
   openImagePreview: (toolCallId: string, path: string, title?: string) => void;
+  /** 打开或激活指定 PTY 对应的终端 Tab */
+  openTerminalTab: (terminalId: string, title: string) => void;
   /** 切换激活 tab */
   setActiveTab: (id: string) => void;
   /** 关闭 tab */
@@ -226,6 +236,25 @@ export const useInspector = create<InspectorState>((set, get) => ({
   },
 
   setActiveTab: (id) => set({ activeTabId: id }),
+
+  openTerminalTab: (terminalId, title) => {
+    const existing = get().tabs.find(
+      (tab) => tab.type === "terminal" && tab.terminalId === terminalId,
+    );
+    if (existing) {
+      set({ activeTabId: existing.id });
+      return;
+    }
+    const tab: TerminalTab = {
+      id: `${INSPECTOR_TERMINAL_TAB_ID}-${terminalId}`,
+      type: "terminal",
+      title,
+      toolCallId: `${INSPECTOR_TERMINAL_TAB_ID}-${terminalId}`,
+      revealNonce: 0,
+      terminalId,
+    };
+    set({ tabs: [...get().tabs, tab], activeTabId: tab.id });
+  },
 
   closeTab: (id) => {
     const closing = get().tabs.find((t) => t.id === id);

@@ -849,10 +849,10 @@ export function ChatInput() {
 
             {/* Agent/模型 + 上下文用量 + 发送 */}
             <div className="flex min-w-0 flex-[0_1_340px] items-center justify-end gap-1.5">
-              <div className="min-w-0 flex-1">
+              <div className="flex min-w-0 items-center gap-1.5">
+                <TokenRing />
                 <AgentBar />
               </div>
-              <TokenRing />
               {showStopButton ? (
                 <button
                   onClick={handleCancel}

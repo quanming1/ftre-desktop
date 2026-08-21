@@ -571,6 +571,17 @@ html[data-theme="dark"] .tool-highlight .hljs-type {
   display: none;
 }
 
+/* xterm 默认把 viewport 设为黑色，且 canvas 只绘制字符区域；
+   终端容器、viewport 和 screen 必须共享同一层背景，避免顶部/底部出现色块。 */
+[data-terminal-panel],
+[data-terminal-panel] > div,
+[data-terminal-panel] .xterm,
+[data-terminal-panel] .xterm .xterm-viewport,
+[data-terminal-panel] .xterm .xterm-screen,
+[data-terminal-panel] .xterm .xterm-screen canvas {
+  background-color: var(--ftre-bg-surface) !important;
+}
+
 /* Diff minimap 装饰：让 minimap 中能看到 diff 变更行的颜色 */
 .diff-minimap-added {
   background: rgba(22, 163, 74, 0.15) !important;

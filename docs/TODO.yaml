@@ -62,6 +62,19 @@ stages:
           - GitService / git poll / Changes 节点
         acceptance: 文件树正确展示，git 状态染色，Changes 节点 diff 预览，文件操作正常
 
+      - id: A5
+        title: Inspector 终端 Tab
+        status: in_progress
+        date: 2026-08-21
+        prd: docs/prd/PRD-A5-inspector-terminal-tab.md
+        prd_status: 开发中
+        modules:
+          - packages/renderer/src/features/inspector/InspectorPanel.tsx
+          - packages/renderer/src/stores/inspector.ts
+          - packages/renderer/src/features/terminal/TerminalManager.tsx
+          - packages/renderer/src/app/TitleBar.tsx
+        acceptance: Inspector tabs 右侧 + 菜单可创建终端 Tab，终端内容可交互展示，Header 原终端入口迁移完成
+
   - id: B
     name: 协议与可观测
     steps:

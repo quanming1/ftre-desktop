@@ -66,7 +66,7 @@ export function buildMenuDefinitions(
                 label: "切换终端",
                 shortcut: "Ctrl+`",
                 action: () => {
-                    useLayout.getState().toggleTerminalDropdown();
+                    window.dispatchEvent(new CustomEvent("ftre:open-terminal-tab"));
                 },
             },
             {

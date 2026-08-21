@@ -9,7 +9,6 @@ import { SkillsPanel } from "@/features/skills/SkillsPanel";
 import { ScheduledTaskPanel } from "@/features/task/ScheduledTaskPanel";
 import { SettingsPanel } from "@/features/settings/SettingsPanel";
 import { InspectorPanel } from "@/features/inspector/InspectorPanel";
-import { TerminalDropdown } from "@/features/terminal/TerminalDropdown";
 import { FilePalette } from "@/components/FilePalette";
 import { CommandPalette } from "@/components/CommandPalette";
 import { GlobalSearchPalette } from "@/features/global-search/GlobalSearchPalette";
@@ -24,6 +23,15 @@ import { useGlobalShortcuts } from "@/lib/shortcuts";
 import { registerDefaultShortcuts } from "@/lib/default-shortcuts";
 import { globalEventStream } from "@/services/global-event-stream";
 import { performanceMetrics } from "@/services/performance-metrics";
+
+function GlassGutter({ className }: { className: string }) {
+  return (
+    <div
+      aria-hidden="true"
+      className={`pointer-events-none shrink-0 bg-surface/75 backdrop-blur-xl backdrop-saturate-150 ${className}`}
+    />
+  );
+}
 
 export function Workbench() {
   const [filePaletteOpen, setFilePaletteOpen] = useState(false);
@@ -382,22 +390,40 @@ export function Workbench() {
   };
 
   return (
-    <div className="h-screen w-screen flex flex-col bg-[#f6f7f9] overflow-hidden">
+    <div
+      className="h-screen w-screen flex flex-col overflow-hidden"
+      style={{
+        background: [
+          "radial-gradient(circle at 4% 0%, color-mix(in srgb, var(--ftre-status-info) 18%, transparent), transparent 42%)",
+          "radial-gradient(circle at 72% 8%, color-mix(in srgb, var(--ftre-accent-default) 7%, transparent), transparent 38%)",
+          "radial-gradient(circle at 96% 100%, color-mix(in srgb, var(--ftre-status-error) 8%, transparent), transparent 48%)",
+          "var(--ftre-bg-workbench)",
+        ].join(", "),
+      }}
+    >
       <TitleBar />
 
       {/* Main area - use CSS order to control panel arrangement without remounting */}
       <div className="flex-1 flex overflow-hidden" ref={containerRef}>
         {/* Content area with rounded top-left corner */}
-        <div className="flex-1 flex overflow-hidden bg-[#f6f7f9]">
+        <div className="flex-1 flex overflow-hidden bg-transparent">
 
         {activeLeftPanel === "settings" ? (
           /* Settings 模式：SettingsPanel 完全接管左侧 SessionPanel + 右侧区域 */
-          <div className="flex-1 h-full overflow-hidden py-1 px-1.5">
-            <div className="h-full overflow-hidden rounded-xl bg-surface">
-              <ErrorBoundary>
-                <SettingsPanel />
-              </ErrorBoundary>
+          <div className="flex h-full flex-1 flex-col overflow-hidden">
+            <GlassGutter className="h-1" />
+            <div className="flex min-h-0 flex-1 overflow-hidden">
+              <GlassGutter className="w-1.5" />
+              <div className="relative min-w-0 flex-1 overflow-hidden bg-surface/75 backdrop-blur-xl backdrop-saturate-150">
+                <div className="relative z-10 h-full overflow-hidden rounded-xl bg-surface">
+                  <ErrorBoundary>
+                    <SettingsPanel />
+                  </ErrorBoundary>
+                </div>
+              </div>
+              <GlassGutter className="w-1.5" />
             </div>
+            <GlassGutter className="h-1" />
           </div>
         ) : (
         <>
@@ -405,24 +431,30 @@ export function Workbench() {
         {panelVisible.sessions && (
           <div
             ref={sessionsRef}
-            className="h-full overflow-hidden py-1 pl-1.5"
+            className="flex h-full flex-col overflow-hidden"
             style={getPanelStyle("sessions")}
           >
-            <div className="h-full overflow-hidden rounded-xl bg-[#f6f7f9]">
-              <ErrorBoundary>
-                <SessionPanel />
-              </ErrorBoundary>
+            <GlassGutter className="h-1" />
+            <div className="flex min-h-0 flex-1 overflow-hidden">
+              <GlassGutter className="w-1.5" />
+              <div className="min-w-0 flex-1 overflow-hidden bg-surface/75 backdrop-blur-xl backdrop-saturate-150">
+                <ErrorBoundary>
+                  <SessionPanel />
+                </ErrorBoundary>
+              </div>
             </div>
+            <GlassGutter className="h-1" />
           </div>
         )}
         {panelVisible.sessions &&
           isResizeHandleVisible("sessions") && (
             <div
-              className="h-full shrink-0"
+              className="relative z-20 h-full w-0 shrink-0"
               style={{ order: getResizeHandleOrder("sessions") }}
             >
               <ResizeHandle
                 direction="horizontal"
+                className="absolute left-0 top-0 z-20 h-full w-2.5 -translate-x-1/2"
                 onResize={getResizeHandler("sessions")}
                 onResizeStart={() => startLiveDrag("sessions")}
                 onResizeEnd={() => endLiveDrag()}
@@ -433,28 +465,38 @@ export function Workbench() {
         {/* Skills 模式：占满 SessionPanel 右侧的所有空间 */}
         {activeLeftPanel === "skills" && (
           <div
-            className="flex-1 h-full overflow-hidden py-1 pr-1.5"
+            className="flex h-full flex-1 flex-col overflow-hidden"
             style={{ order: 999 }}
           >
-            <div className="h-full overflow-hidden rounded-xl bg-surface">
-              <ErrorBoundary>
-                <SkillsPanel />
-              </ErrorBoundary>
+            <GlassGutter className="h-1" />
+            <div className="flex min-h-0 flex-1 overflow-hidden">
+              <div className="min-w-0 flex-1 overflow-hidden rounded-xl bg-surface">
+                <ErrorBoundary>
+                  <SkillsPanel />
+                </ErrorBoundary>
+              </div>
+              <GlassGutter className="w-1.5" />
             </div>
+            <GlassGutter className="h-1" />
           </div>
         )}
 
         {/* Cron 模式：占满 SessionPanel 右侧的所有空间 */}
         {activeLeftPanel === "cron" && (
           <div
-            className="flex-1 h-full overflow-hidden py-1 pr-1.5"
+            className="flex h-full flex-1 flex-col overflow-hidden"
             style={{ order: 999 }}
           >
-            <div className="h-full overflow-hidden rounded-xl bg-surface">
-              <ErrorBoundary>
-                <ScheduledTaskPanel />
-              </ErrorBoundary>
+            <GlassGutter className="h-1" />
+            <div className="flex min-h-0 flex-1 overflow-hidden">
+              <div className="min-w-0 flex-1 overflow-hidden rounded-xl bg-surface">
+                <ErrorBoundary>
+                  <ScheduledTaskPanel />
+                </ErrorBoundary>
+              </div>
+              <GlassGutter className="w-1.5" />
             </div>
+            <GlassGutter className="h-1" />
           </div>
         )}
 
@@ -487,25 +529,37 @@ export function Workbench() {
         {/* Chat Panel */}
         {panelVisible.chat && activeLeftPanel === "chat" && (
           <div
-            className={`h-full overflow-hidden py-1 ${panelVisible.inspector ? "" : "pr-1.5"}`}
+            className="flex h-full flex-col overflow-hidden"
             style={getPanelStyle("chat")}
           >
-            <div className="h-full overflow-hidden rounded-xl bg-surface">
-              <ErrorBoundary>
-                <ChatPanel key={rootPath} />
-              </ErrorBoundary>
+            <GlassGutter className="h-1" />
+            <div className="flex min-h-0 flex-1 overflow-hidden">
+              <div className="relative min-w-0 flex-1 overflow-hidden bg-surface/75 backdrop-blur-xl backdrop-saturate-150">
+                <div className="relative z-10 h-full overflow-hidden rounded-l-xl bg-surface">
+                  <ErrorBoundary>
+                    <ChatPanel key={rootPath} />
+                  </ErrorBoundary>
+                </div>
+              </div>
+              {!panelVisible.inspector && <GlassGutter className="w-1.5" />}
             </div>
+            <GlassGutter className="h-1" />
           </div>
         )}
         {panelVisible.chat &&
           activeLeftPanel === "chat" &&
           isResizeHandleVisible("chat") && (
             <div
-              className="h-full shrink-0"
+              className="relative z-20 h-full w-0 shrink-0"
               style={{ order: getResizeHandleOrder("chat") }}
             >
+              <div
+                aria-hidden="true"
+                className="pointer-events-none absolute left-0 top-0 z-10 h-full w-px bg-border-subtle/70"
+              />
               <ResizeHandle
                 direction="horizontal"
+                className="absolute left-0 top-0 z-20 h-full w-2.5 -translate-x-1/2"
                 onResize={getResizeHandler("chat")}
                 onResizeStart={() => startLiveDrag("inspector")}
                 onResizeEnd={() => endLiveDrag()}
@@ -516,18 +570,23 @@ export function Workbench() {
         {/* Inspector Panel — 右侧扩展面板（CSS 隐藏，不销毁组件，保持文件树状态） */}
         <div
           ref={inspectorRef}
-          className="h-full overflow-hidden"
+          className="flex h-full flex-col overflow-hidden"
           style={
             (panelVisible.inspector && activeLeftPanel === "chat")
-              ? { ...getPanelStyle("inspector"), padding: "4px 6px 4px 0" }
-              : { width: 0, minWidth: 0, maxWidth: 0, padding: 0, opacity: 0, overflow: "hidden" }
+              ? getPanelStyle("inspector")
+              : { width: 0, minWidth: 0, maxWidth: 0, opacity: 0, overflow: "hidden" }
           }
         >
-          <div className="h-full overflow-hidden rounded-xl bg-surface">
-            <ErrorBoundary>
-              <InspectorPanel />
-            </ErrorBoundary>
+          <GlassGutter className="h-1" />
+          <div className="flex min-h-0 flex-1 overflow-hidden">
+            <div className="min-w-0 flex-1 overflow-hidden rounded-none bg-surface">
+              <ErrorBoundary>
+                <InspectorPanel />
+              </ErrorBoundary>
+            </div>
+            <GlassGutter className="w-1.5" />
           </div>
+          <GlassGutter className="h-1" />
         </div>
         {panelVisible.inspector &&
           activeLeftPanel === "chat" &&
@@ -548,9 +607,6 @@ export function Workbench() {
         )}
         </div>
       </div>
-
-      {/* 终端下拉弹窗 — 始终挂载，CSS 控制显隐 */}
-      <TerminalDropdown />
 
       <FilePalette
         open={filePaletteOpen}

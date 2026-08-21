@@ -859,7 +859,7 @@ export function FileTreeSidebar() {
 
   if (!workspace) {
     return (
-      <div className="w-full h-full flex items-center justify-center text-[12px] text-t-ghost p-4 text-center">
+      <div className="w-full h-full flex items-center justify-center bg-white text-[12px] text-t-ghost p-4 text-center">
         未设置工作区
       </div>
     );
@@ -867,7 +867,7 @@ export function FileTreeSidebar() {
 
   return (
     <>
-    <div className="h-full w-full overflow-y-auto filetree-scroll">
+    <div className="h-full w-full overflow-y-auto bg-white filetree-scroll">
       <div className="py-1 min-h-full">
         {loading ? (
           <div className="text-[12px] text-t-ghost px-3 py-2">加载中...</div>

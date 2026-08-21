@@ -1,7 +1,7 @@
 /**
  * TokenRing — 上下文水位指示
  *
- * 视觉：跟 ModelSelector 同款的纯文字按钮（mono 字体 + hover 高亮），
+ * 视觉：固定尺寸的小圆环，用环形进度表示上下文占比；
  *      只在水位 ≥ 70% 时着警示色，其他情况保持中性灰，避免抢眼。
  *
  * 数据来源：
@@ -12,27 +12,63 @@
  *   - total:               last_call_usage 实算 + pending 估算
  * - contextWindow：当前选中模型的 context_window，由 ModelSelector 同步进 chat store
  *
- * 没有 contextWindow 时退化为只显示压缩 token 数。
+ * 没有 contextWindow 时退化为未填充圆环，详细 token 数仍在 tooltip 中展示。
  * tokenUsage 为 null（首次加载 / fetch 失败）时显示加载占位。
  */
+import { forwardRef, type ComponentPropsWithoutRef } from "react";
 import { useChat } from "@/stores/chat";
 import { Tooltip } from "@ftre/ui";
 
-function formatTokens(n: number): string {
-  if (n >= 1_000_000) {
-    const v = n / 1_000_000;
-    return (v >= 10 ? Math.round(v) : Math.round(v * 10) / 10) + "M";
-  }
-  if (n >= 1000) {
-    const v = n / 1000;
-    return (v >= 10 ? Math.round(v) : Math.round(v * 10) / 10) + "K";
-  }
-  return String(n);
-}
+const RING_RADIUS = 6;
+const RING_CIRCUMFERENCE = 2 * Math.PI * RING_RADIUS;
 
-const BUTTON_CLASS =
-  // Token 水位属于固定操作区，不参与收缩；缩小横向留白给名称控件腾出空间。
-  "flex shrink-0 items-center text-[13px] h-8 px-2 rounded-full font-mono cursor-default transition-colors duration-150 hover:bg-[#e7e7e8]";
+type ContextRingProps = ComponentPropsWithoutRef<"div"> & {
+  value: number;
+  colorClass: string;
+};
+
+const ContextRing = forwardRef<HTMLDivElement, ContextRingProps>(({ value, colorClass, className, ...props }, ref) => {
+  const progress = Math.min(100, Math.max(0, value));
+  const dashOffset = RING_CIRCUMFERENCE * (1 - progress / 100);
+
+  return (
+    <div
+      ref={ref}
+      {...props}
+      className={`relative flex h-4 w-4 shrink-0 translate-y-px items-center justify-center rounded-full text-t-ghost transition-colors duration-150 hover:bg-hover ${className ?? ""}`}
+    >
+      <svg
+        aria-hidden="true"
+        className="absolute inset-0 h-4 w-4 -rotate-90"
+        viewBox="0 0 16 16"
+      >
+        <circle
+          cx="8"
+          cy="8"
+          r={RING_RADIUS}
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2.2"
+          className="text-border-subtle"
+        />
+        <circle
+          cx="8"
+          cy="8"
+          r={RING_RADIUS}
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2.2"
+          strokeLinecap="round"
+          strokeDasharray={RING_CIRCUMFERENCE}
+          strokeDashoffset={dashOffset}
+          className={`${colorClass} transition-[stroke-dashoffset,stroke] duration-300 ease-out`}
+        />
+      </svg>
+    </div>
+  );
+});
+
+ContextRing.displayName = "ContextRing";
 
 export function TokenRing() {
   const usage = useChat((s) => s.tokenUsage);
@@ -47,9 +83,7 @@ export function TokenRing() {
         }
         side="top"
       >
-        <div className={`${BUTTON_CLASS} text-t-ghost`}>
-          <span className="tabular-nums">—</span>
-        </div>
+        <ContextRing value={0} colorClass="text-t-ghost" />
       </Tooltip>
     );
   }
@@ -68,10 +102,7 @@ export function TokenRing() {
       ? "text-red-500"
       : rawPct >= 70
         ? "text-amber-500"
-        : "text-t-muted hover:text-t-primary";
-
-  // 显示文本：有窗口时百分比，没窗口时压缩 token 数
-  const label = hasWindow ? `${Math.round(rawPct)}%` : formatTokens(total);
+        : "text-t-dim";
 
   // ─── Tooltip 详情 ───
   const tooltip = (
@@ -127,10 +158,8 @@ export function TokenRing() {
   );
 
   return (
-    <Tooltip content={tooltip} side="top" className="rounded-lg">
-      <div className={`${BUTTON_CLASS} ${colorClass}`}>
-        <span className="tabular-nums">{label}</span>
-      </div>
+    <Tooltip content={tooltip} side="top">
+      <ContextRing value={rawPct} colorClass={colorClass} />
     </Tooltip>
   );
 }
