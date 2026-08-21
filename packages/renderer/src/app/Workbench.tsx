@@ -382,13 +382,23 @@ export function Workbench() {
   };
 
   return (
-    <div className="h-screen w-screen flex flex-col bg-[#f6f7f9] overflow-hidden">
+    <div
+      className="h-screen w-screen flex flex-col overflow-hidden bg-base"
+      style={{
+        background: [
+          "radial-gradient(circle at 4% 0%, color-mix(in srgb, var(--ftre-status-info) 22%, transparent), transparent 42%)",
+          "radial-gradient(circle at 72% 8%, color-mix(in srgb, var(--ftre-accent-default) 9%, transparent), transparent 38%)",
+          "radial-gradient(circle at 96% 100%, color-mix(in srgb, var(--ftre-status-error) 14%, transparent), transparent 48%)",
+          "var(--ftre-bg-base)",
+        ].join(", "),
+      }}
+    >
       <TitleBar />
 
       {/* Main area - use CSS order to control panel arrangement without remounting */}
       <div className="flex-1 flex overflow-hidden" ref={containerRef}>
         {/* Content area with rounded top-left corner */}
-        <div className="flex-1 flex overflow-hidden bg-[#f6f7f9]">
+        <div className="flex-1 flex overflow-hidden bg-transparent">
 
         {activeLeftPanel === "settings" ? (
           /* Settings 模式：SettingsPanel 完全接管左侧 SessionPanel + 右侧区域 */
@@ -408,7 +418,7 @@ export function Workbench() {
             className="h-full overflow-hidden py-1 pl-1.5"
             style={getPanelStyle("sessions")}
           >
-            <div className="h-full overflow-hidden rounded-xl bg-[#f6f7f9]">
+            <div className="h-full overflow-hidden rounded-l-xl bg-surface/42 backdrop-blur-xl backdrop-saturate-150">
               <ErrorBoundary>
                 <SessionPanel />
               </ErrorBoundary>
@@ -423,6 +433,7 @@ export function Workbench() {
             >
               <ResizeHandle
                 direction="horizontal"
+                className="z-20 w-[6px] -mx-[3px]"
                 onResize={getResizeHandler("sessions")}
                 onResizeStart={() => startLiveDrag("sessions")}
                 onResizeEnd={() => endLiveDrag()}
@@ -490,7 +501,7 @@ export function Workbench() {
             className={`h-full overflow-hidden py-1 ${panelVisible.inspector ? "" : "pr-1.5"}`}
             style={getPanelStyle("chat")}
           >
-            <div className="h-full overflow-hidden rounded-xl bg-surface">
+            <div className="h-full overflow-hidden rounded-none bg-surface">
               <ErrorBoundary>
                 <ChatPanel key={rootPath} />
               </ErrorBoundary>
@@ -523,7 +534,7 @@ export function Workbench() {
               : { width: 0, minWidth: 0, maxWidth: 0, padding: 0, opacity: 0, overflow: "hidden" }
           }
         >
-          <div className="h-full overflow-hidden rounded-xl bg-surface">
+          <div className="h-full overflow-hidden rounded-none bg-surface">
             <ErrorBoundary>
               <InspectorPanel />
             </ErrorBoundary>

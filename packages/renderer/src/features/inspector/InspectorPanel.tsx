@@ -13,10 +13,16 @@ import {
   type PointerEvent as ReactPointerEvent,
   type ReactNode,
 } from "react";
-import { Activity, X, FileText, Braces, ListTree, ScrollText } from "lucide-react";
+import { Activity, X, FileText, Braces, ChevronDown, Folder, FolderOpen, ScrollText } from "lucide-react";
 import { GitCompareArrows } from "lucide-react";
 import { OverlayScrollbarsComponent, type OverlayScrollbarsComponentRef } from "overlayscrollbars-react";
-import { ErrorBoundary } from "@ftre/ui";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+  ErrorBoundary,
+} from "@ftre/ui";
 import {
   INSPECTOR_SESSION_STATE_TAB_ID,
   INSPECTOR_TRACE_TAB_ID,
@@ -115,11 +121,11 @@ export function InspectorPanel() {
       <div className="flex-1 min-h-0 flex overflow-hidden">
             <div
               ref={fileTreeOuterRef}
-              className="shrink-0 border-r border-border overflow-hidden"
+              className={`shrink-0 overflow-hidden ${fileTreeOpen ? "border-r border-border-subtle" : ""}`}
               style={{
                 width: fileTreeOpen ? fileTreeWidth : 0,
                 minWidth: fileTreeOpen ? fileTreeWidth : 0,
-                background: "#f9fafb",
+                background: "#ffffff",
                 overflow: "hidden",
               }}
             >
@@ -130,6 +136,7 @@ export function InspectorPanel() {
             {fileTreeOpen && (
               <ResizeHandle
                 direction="horizontal"
+                className="w-[3px]"
                 onResizeStart={() => {
                   fileTreeDragRef.current = useLayout.getState().fileTreeWidth;
                 }}
@@ -327,6 +334,14 @@ function InspectorTabBar({
 
   const closeContextMenu = useCallback(() => setContextMenu(null), []);
 
+  const fixedTabs = [
+    { id: INSPECTOR_SESSION_STATE_TAB_ID, label: "state.json", Icon: Braces },
+    { id: INSPECTOR_TRACE_TAB_ID, label: "Traces", Icon: Activity },
+    { id: INSPECTOR_WS_LOG_TAB_ID, label: "WS Logs", Icon: ScrollText },
+  ] as const;
+  const activeFixedTab = fixedTabs.find((tab) => tab.id === activeTabId) ?? fixedTabs[0];
+  const ActiveFixedIcon = activeFixedTab.Icon;
+
   const getContextMenuItems = useCallback(
     (tabId: string): ContextMenuItem[] => {
       const tab = tabs.find((t) => t.id === tabId);
@@ -405,60 +420,50 @@ function InspectorTabBar({
   );
 
   return (
-    <div className="h-[34px] flex items-end shrink-0 border-b border-border" style={{ background: "#f9fafb" }}>
+    <div className="h-10 flex items-center gap-1 shrink-0 px-2" style={{ background: "#ffffff" }}>
       <button
         onClick={onToggleFileTree}
         title="文件树"
-        className={`h-full w-[32px] shrink-0 flex items-center justify-center border-r border-border transition-colors ${
+        className={`flex h-7 w-[52px] shrink-0 items-center justify-center gap-1 rounded-lg transition-colors ${
           fileTreeOpen
-            ? "text-t-primary bg-surface"
-            : "text-t-ghost hover:text-t-secondary hover:bg-elevated"
+            ? "bg-surface text-t-primary shadow-sm"
+            : "text-t-ghost hover:bg-hover hover:text-t-secondary"
         }`}
       >
-        <ListTree size={15} />
+        {fileTreeOpen ? <FolderOpen size={14} /> : <Folder size={14} />}
       </button>
-      <button
-        type="button"
-        title="当前会话 state.json"
-        onClick={() => onActivate(INSPECTOR_SESSION_STATE_TAB_ID)}
-        className={`relative flex h-full shrink-0 items-center gap-2 border-r border-border px-3 text-[12px] font-mono transition-colors ${
-          activeTabId === INSPECTOR_SESSION_STATE_TAB_ID
-            ? "bg-[#f0f1f3] text-t-primary"
-            : "text-t-muted hover:bg-elevated hover:text-t-secondary"
-        }`}
-        style={activeTabId === INSPECTOR_SESSION_STATE_TAB_ID ? { boxShadow: "inset 0 -2px 0 currentColor" } : undefined}
-      >
-        <Braces size={14} />
-        <span>state.json</span>
-      </button>
-      <button
-        type="button"
-        title="Agent Traces"
-        onClick={() => onActivate(INSPECTOR_TRACE_TAB_ID)}
-        className={`relative flex h-full shrink-0 items-center gap-2 border-r border-border px-3 text-[12px] transition-colors ${
-          activeTabId === INSPECTOR_TRACE_TAB_ID
-            ? "bg-[#f0f1f3] text-t-primary"
-            : "text-t-muted hover:bg-elevated hover:text-t-secondary"
-        }`}
-        style={activeTabId === INSPECTOR_TRACE_TAB_ID ? { boxShadow: "inset 0 -2px 0 currentColor" } : undefined}
-      >
-        <Activity size={14} />
-        <span>Traces</span>
-      </button>
-      <button
-        type="button"
-        title="WebSocket 审计日志"
-        onClick={() => onActivate(INSPECTOR_WS_LOG_TAB_ID)}
-        className={`relative flex h-full shrink-0 items-center gap-2 border-r border-border px-3 text-[12px] transition-colors ${
-          activeTabId === INSPECTOR_WS_LOG_TAB_ID
-            ? "bg-[#f0f1f3] text-t-primary"
-            : "text-t-muted hover:bg-elevated hover:text-t-secondary"
-        }`}
-        style={activeTabId === INSPECTOR_WS_LOG_TAB_ID ? { boxShadow: "inset 0 -2px 0 currentColor" } : undefined}
-      >
-        <ScrollText size={14} />
-        <span>WS Logs</span>
-      </button>
+      <div className="mx-1 h-5 w-px shrink-0 bg-border" />
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <button
+            type="button"
+            title="切换固定面板"
+            className="flex h-7 shrink-0 items-center gap-1.5 rounded-lg bg-surface px-2.5 text-[12px] text-t-primary shadow-sm transition-colors hover:bg-hover"
+          >
+            <ActiveFixedIcon size={14} />
+            <span>{activeFixedTab.label}</span>
+            <ChevronDown size={12} className="text-t-ghost" />
+          </button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent
+          align="start"
+          sideOffset={5}
+          className="min-w-[150px] rounded-xl border-0 bg-surface shadow-[0_8px_24px_rgba(15,23,42,0.14)]"
+        >
+          {fixedTabs.map(({ id, label, Icon }) => (
+            <DropdownMenuItem
+              key={id}
+              onSelect={() => onActivate(id)}
+              className={id === activeFixedTab.id
+                ? "bg-hover text-t-primary"
+                : "text-t-secondary hover:bg-hover hover:text-t-primary"}
+            >
+              <Icon size={14} />
+              <span>{label}</span>
+            </DropdownMenuItem>
+          ))}
+        </DropdownMenuContent>
+      </DropdownMenu>
       <div className="relative flex-1 min-w-0 h-full">
         <OverlayScrollbarsComponent
           ref={overlayRef}
@@ -470,16 +475,16 @@ function InspectorTabBar({
           className="h-full tabbar-scroll-area"
           onScroll={updateScrollState}
         >
-          <div className="flex items-end justify-start h-full min-w-max">
+          <div className="flex items-center justify-start h-full min-w-max px-1">
             <div
               ref={tabDrag.containerRef}
-              className="flex items-end justify-start h-full"
+              className="flex items-center justify-start h-full gap-1"
             >
               {tabs.map((tab, index) => (
                 <div
                   key={tab.id}
                   data-tab-id={tab.id}
-                  className="h-full shrink-0"
+                  className="flex h-full shrink-0 items-center"
                   style={tabDrag.getItemStyle(tab.id, index)}
                 >
                   <TabButton
@@ -500,12 +505,12 @@ function InspectorTabBar({
           </div>
         </OverlayScrollbarsComponent>
         {hiddenLeft > 0 && (
-          <div className="absolute left-0 top-0 bottom-0 flex items-center pointer-events-none bg-[#f9fafb] pr-2 pl-1 shadow-[4px_0_4px_-2px_rgba(0,0,0,0.08)]">
+          <div className="absolute left-0 top-0 bottom-0 flex items-center pointer-events-none bg-white pr-2 pl-1 shadow-[4px_0_4px_-2px_rgba(0,0,0,0.08)]">
             <span className="text-[10px] font-mono font-bold text-t-ghost">+{hiddenLeft}</span>
           </div>
         )}
         {hiddenRight > 0 && (
-          <div className="absolute right-0 top-0 bottom-0 flex items-center justify-end pointer-events-none bg-[#f9fafb] pl-2 pr-1 shadow-[-4px_0_4px_-2px_rgba(0,0,0,0.08)]">
+          <div className="absolute right-0 top-0 bottom-0 flex items-center justify-end pointer-events-none bg-white pl-2 pr-1 shadow-[-4px_0_4px_-2px_rgba(0,0,0,0.08)]">
             <span className="text-[10px] font-mono font-bold text-t-ghost">+{hiddenRight}</span>
           </div>
         )}
@@ -578,33 +583,31 @@ const TabButton = memo(function TabButton({
         }
       }}
       onContextMenu={(e) => onContextMenu(e, tab.id)}
-      className={`group relative overflow-hidden flex items-center gap-2 h-full text-[13px] whitespace-nowrap font-sans transition-all duration-150 select-none px-3.5 ${
+      className={`group relative overflow-hidden flex h-7 items-center gap-2 rounded-lg pl-3.5 pr-7 text-[12px] whitespace-nowrap font-sans transition-all duration-150 select-none ${
         isActive
           ? "z-10 text-t-primary"
           : "text-t-muted hover:bg-elevated hover:text-t-secondary"
       }`}
       style={isActive ? {
         background: "#f0f1f3",
-        boxShadow: "inset 3px 0 0 #059669, 0 -1px 3px rgba(0,0,0,0.06), inset 0 -1px 0 rgba(0,0,0,0.05)",
+        boxShadow: "0 1px 2px rgba(15,23,42,0.08)",
       } : undefined}
     >
       <RippleLayer items={ripples} onEnd={remove} />
-      {isActive && (
-        <div className="absolute top-0 left-0 right-0 h-[2px] bg-white/60" />
-      )}
       {meta?.icon(tab) ?? <FileIconView path={filePath} size={16} />}
       <span className="max-w-[180px] truncate">{meta?.title(tab) ?? tab.title}</span>
       <span
+        aria-hidden="true"
+        className="pointer-events-none absolute inset-y-0 right-0 z-10 w-10 bg-gradient-to-r from-transparent via-white/80 to-white opacity-0 transition-opacity duration-100 group-hover:opacity-100"
+      />
+      <span
+        data-tab-close
         onPointerDown={(e) => e.stopPropagation()}
         onClick={(e) => {
           e.stopPropagation();
           onClose(tab.id);
         }}
-        className={`ml-1 p-0.5 rounded transition-all cursor-pointer ${
-          isActive
-            ? "text-t-muted hover:text-t-primary hover:bg-black/[0.08] opacity-100"
-            : "opacity-0 group-hover:opacity-100 text-t-muted hover:text-t-primary hover:bg-black/[0.08]"
-        }`}
+        className="absolute right-1 top-1/2 z-20 -translate-y-1/2 rounded p-0.5 text-t-muted opacity-0 transition-opacity duration-100 pointer-events-none group-hover:pointer-events-auto group-hover:opacity-100 cursor-pointer hover:bg-black/[0.08] hover:text-t-primary"
       >
         <X size={12} strokeWidth={1.5} />
       </span>

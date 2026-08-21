@@ -244,7 +244,7 @@ export function ChatHeader({ runContextOpen, onToggleRunContext }: ChatHeaderPro
             aria-label={inspectorVisible ? "隐藏侧面板" : "显示侧面板"}
             aria-pressed={inspectorVisible}
             onClick={() => togglePanelVisible("inspector")}
-            className={`relative flex h-7 w-7 items-center justify-center rounded-md transition-colors duration-150 ${
+            className={`relative flex h-8 w-8 items-center justify-center rounded-md transition-colors duration-150 ${
               inspectorVisible
                 ? "bg-black/[0.06] text-t-primary"
                 : "text-t-muted hover:bg-black/[0.04] hover:text-t-primary"

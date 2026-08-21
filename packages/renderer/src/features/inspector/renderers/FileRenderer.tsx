@@ -252,10 +252,11 @@ export function FileRenderer({ tab, active, wordWrap }: TabRendererProps) {
   }, [filePath, renderable, userChoseMode]);
 
   return (
-    <div className="flex flex-col h-full bg-surface relative p-2 gap-2">
+    <div className="flex flex-col h-full bg-surface relative">
       {/* 文件信息（与 diff 预览共用矮版 header，见 PreviewHeader） */}
       <PreviewHeader
         fileName={filePath}
+        variant="breadcrumb"
         right={
           <>
             {/* 暂存区 Diff（仅 git 已跟踪且有未暂存修改的文件，点击新开 DiffTab） */}
@@ -287,7 +288,7 @@ export function FileRenderer({ tab, active, wordWrap }: TabRendererProps) {
       />
 
       {/* 内容预览：源码 / 渲染 双视图切换 */}
-      <div className="flex-1 min-h-0 bg-surface">
+      <div className="flex-1 min-h-0 bg-surface px-2 pt-2">
         {file ? (
           <>
             {/* 源码视图（rendered 状态下隐藏但保持挂载，切回无需重新高亮） */}

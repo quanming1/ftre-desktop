@@ -186,7 +186,7 @@ export function RunContextButton({ open, onToggle }: RunContextButtonProps) {
         aria-label={`${label}，${open ? "关闭" : "打开"}运行详情`}
         aria-expanded={open}
         onClick={onToggle}
-        className={`relative flex h-7 w-7 items-center justify-center rounded-md transition-colors duration-150 ${
+        className={`relative flex h-8 w-8 items-center justify-center rounded-md transition-colors duration-150 ${
           open ? "bg-black/[0.06] text-t-primary" : "text-t-muted hover:bg-black/[0.04] hover:text-t-primary"
         }`}
       >
