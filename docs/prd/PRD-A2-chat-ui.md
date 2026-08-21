@@ -9,7 +9,7 @@
 | 状态 | 已验收 |
 | 创建日期 | 2026-08-12 |
 | 定稿日期 | 2026-08-12 |
-| 验收日期 | 2026-08-12 |
+| 验收日期 | 2026-08-21 |
 | 关联文档 | docs/TODO.yaml 阶段 A2；AGENTS.md |
 
 ## 1. 背景与目标
@@ -32,6 +32,7 @@
 - [x] FR8：streamingMarkdown 流式 markdown 解析渲染
 - [x] FR9：压缩横幅模型准确展示——处于 `compacting` 状态时，只显示后端 `context_compact_start.model` 提供的实际摘要模型；协议未提供时不显示模型，不能复用上一条 assistant 回复或当前选择的普通对话模型。
 - [x] FR10：流式回复中的历史分页——用户点击“从服务器加载更早的消息”时，即使当前 assistant 回复仍在流式输出，已返回的历史页也必须 prepend 到消息列表；流式消息保持在列表末尾，不能静默丢弃该页。
+- [x] FR11：同一 assistant reply 内相同 `tool_call_id` 的重复 `TOOL_CALL_START` 必须幂等处理，只保留一个工具调用 block；后续 `TOOL_CALL_DELTA`、`TOOL_CALL_END` 和工具结果仍按该 id 更新。
 
 ### 2.2 非功能需求
 
@@ -65,6 +66,7 @@
 - [x] AC4：代码块语法高亮正确，支持复制
 - [x] AC5：压缩横幅展示 `context_compact_start.model`；即使最近 assistant 回复和当前选择的普通模型都是其他值，也不得误显示为压缩模型。
 - [x] AC6：会话存在仍在流式输出的 assistant 消息时，加载一页更早历史后，历史消息、当前消息与流式消息均保留且顺序正确；最早时间游标前移。
+- [x] AC7：重复派发相同 `reply_id` + `tool_call_id` 的 `TOOL_CALL_START` 后，工具 blocks 数量仍为一个；后续 DELTA/END 更新同一 block，不产生 duplicate key。
 
 ## 6. 测试计划
 
@@ -91,4 +93,5 @@
 | 2026-08-14 | 文件链接展示名自带行号（#L88-L102 / main.py:42 形式）时不再追加重复的 :line 后缀；行号跳转不受影响（仍取 href 的 #L） | 用户反馈：实际渲染中行号显示两遍 |
 | 2026-08-17 | 修复 ChatInput 发送按钮状态陈旧：Slate 非受控，打普通文本时唯一 setState（skillSearch）为 null 被 React 跳过 → hasDraft 停留旧值、按钮保持禁用；改为 onChange 显式同步 hasText state，hasDraft 改读 state。新增回归测试（mock Slate 边界捕获 onChange 驱动输入） | 修复：输入文字后发送按钮不可点 |
 | 2026-08-20 | 新增 FR9 / AC5：压缩横幅的模型标签改为只读取 `context_compact_start.model`，旧服务端未提供该字段时留空；增加“最近普通回复为 GLM、压缩为 DeepSeek”回归测试 | 修复：横幅此前复用上一条 assistant 回复的模型，把普通对话模型误标为压缩模型 |
-| 2026-08-20 | 新增 FR10 / AC6：移除流式回复期间对历史页 prepend 的静默拦截；保留流式尾消息并按 id 去重。新增投影层回归测试 | 生产会话 `ws_sess_72611f0d2344` 验证服务端压缩锚点与分页均正常，但当前回复仍流式时，已请求成功的更早消息被客户端直接丢弃，点击按钮无视觉反馈 |
+| 2026-08-21 | 新增 FR11 / AC7：相同 `tool_call_id` 的重复 TOOL_CALL_START 在客户端幂等处理，不产生重复工具 block 或 React key；Electron CSP 相关验收纳入 PRD-A1-electron-scaffold.md | 修复开发客户端中的 duplicate key 与 Insecure Content-Security-Policy 控制台警告 |
+| 2026-08-21 | 已验收（AC1-AC7 重跑）：chat.test.ts 14 例全过（新增重复 START 幂等 + Reply 快照去重回归）；全量 vitest 失败集合与改动前基线完全一致（无回归）；electron/renderer 构建与类型通过；vite preview + 浏览器验证 CSP 不阻断页面且无违规。仅真实 `pnpm dev` 下工具调用流的控制台观察需在用户环境确认 | 对照 AC 验收留痕 |
