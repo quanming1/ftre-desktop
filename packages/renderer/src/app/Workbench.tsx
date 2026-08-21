@@ -428,12 +428,12 @@ export function Workbench() {
         {panelVisible.sessions &&
           isResizeHandleVisible("sessions") && (
             <div
-              className="h-full shrink-0"
+              className="relative z-20 h-full w-0 shrink-0"
               style={{ order: getResizeHandleOrder("sessions") }}
             >
               <ResizeHandle
                 direction="horizontal"
-                className="z-20 w-[6px] -mx-[3px]"
+                className="absolute left-0 top-0 z-20 h-full w-2.5 -translate-x-1/2"
                 onResize={getResizeHandler("sessions")}
                 onResizeStart={() => startLiveDrag("sessions")}
                 onResizeEnd={() => endLiveDrag()}
@@ -501,7 +501,7 @@ export function Workbench() {
             className={`h-full overflow-hidden py-1 ${panelVisible.inspector ? "" : "pr-1.5"}`}
             style={getPanelStyle("chat")}
           >
-            <div className="h-full overflow-hidden rounded-xl bg-surface">
+            <div className="h-full overflow-hidden rounded-l-xl bg-surface">
               <ErrorBoundary>
                 <ChatPanel key={rootPath} />
               </ErrorBoundary>
