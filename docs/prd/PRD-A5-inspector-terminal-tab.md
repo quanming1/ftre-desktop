@@ -44,6 +44,7 @@
 - `features/inspector/renderers/TerminalRenderer.tsx`：以 Inspector 内容区尺寸承载现有 `TerminalManager`；嵌入模式隐藏原浮动终端专用的内部 Tab 栏，保留终端内容区和搜索能力。
 - `TerminalManager.tsx`：增加嵌入模式和 `terminalId` 参数；嵌入 Tab 只挂载对应 PTY，复用容器挂载和 refit 逻辑，不复制 PTY 管理代码。
 - `terminal-manager.ts`：终端标签使用根工作区名称，按当前打开实例生成稳定的重名后缀。
+- `packages/electron/src/ipc/terminal.ts`：Windows PowerShell / CMD 启动时统一设置 UTF-8；PowerShell 同时设置 `Get-Content` 等 cmdlet 的默认编码，避免终端执行 `cat` 读取中文文件时出现乱码。
 - `TitleBar.tsx`：删除 Header 终端按钮及其专用状态读取，保留其他 Header 操作。
 
 ## 4. 接口定义
@@ -93,3 +94,5 @@ interface TerminalManagerProps {
 | 日期 | 变更内容 | 理由 |
 |---|---|---|
 | 2026-08-21 | 初始定稿：将 Header 终端入口迁移至 Inspector `+` 菜单，本期只实现终端项 | 用户需求 |
+| 2026-08-21 | Windows 终端启动时初始化 UTF-8 编码，PowerShell 默认文件读取改为 UTF-8，CMD 切换到 code page 65001 | 用户反馈终端中文疑似乱码 |
+| 2026-08-21 | 终端 Tab 重开/Inspector 重显时按当前 Tab 精确重测量，并补充延迟和双帧 fit，避免 xterm 按隐藏容器尺寸绘制导致内容被裁切 | 用户反馈终端重新打开后内容显示不完整 |

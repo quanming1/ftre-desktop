@@ -4,7 +4,7 @@
  * Agent 和 LLM 分开呈现，避免把模型、推理强度和 Agent 详情塞进同一个大面板；
  * 选择动作仍复用 chat store 的现有更新路径，保证只改变输入区的交互外观。
  */
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useLayoutEffect, useRef, useCallback } from "react";
 import { Check, ChevronDown, ChevronRight } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { createPortal } from "react-dom";
@@ -308,16 +308,40 @@ export function AgentBar() {
     const anchor = effortAnchorRef.current;
     if (!anchor || typeof window === "undefined") return;
     const rect = anchor.getBoundingClientRect();
-    const submenuWidth = 180;
-    const leftCandidate = rect.right + 4;
-    const left = leftCandidate + submenuWidth <= window.innerWidth - 8
-      ? leftCandidate
-      : Math.max(8, rect.left - submenuWidth - 4);
-    setEffortPosition({
-      left,
-      top: Math.max(8, rect.top),
-    });
-  }, []);
+    const submenuWidth = effortPortalRef.current?.offsetWidth || 180;
+    const submenuHeight = effortPortalRef.current?.offsetHeight || Math.min(260, Math.max(80, effortValues.length * 36 + 12));
+    const viewportPadding = 8;
+    const gap = 4;
+    const maxLeft = Math.max(viewportPadding, window.innerWidth - submenuWidth - viewportPadding);
+    const maxTop = Math.max(viewportPadding, window.innerHeight - submenuHeight - viewportPadding);
+    const leftCandidateWithGap = rect.right + gap;
+    const left = leftCandidateWithGap + submenuWidth <= window.innerWidth - viewportPadding
+      ? leftCandidateWithGap
+      : rect.left - submenuWidth - gap >= viewportPadding
+        ? rect.left - submenuWidth - gap
+        : Math.min(Math.max(leftCandidateWithGap, viewportPadding), maxLeft);
+    const belowCandidate = rect.top;
+    const aboveCandidate = rect.bottom - submenuHeight;
+    const top = belowCandidate + submenuHeight <= window.innerHeight - viewportPadding
+      ? belowCandidate
+      : aboveCandidate >= viewportPadding
+        ? aboveCandidate
+        : Math.min(Math.max(belowCandidate, viewportPadding), maxTop);
+    const nextPosition = {
+      left: Math.round(Math.min(Math.max(left, viewportPadding), maxLeft)),
+      top: Math.round(Math.min(Math.max(top, viewportPadding), maxTop)),
+    };
+    setEffortPosition((current) => (
+      current && current.left === nextPosition.left && current.top === nextPosition.top
+        ? current
+        : nextPosition
+    ));
+  }, [effortValues.length]);
+
+  // Portal 首次挂载后用真实高度重算，避免底部空间不足时仍按首帧估算位置而被视口裁掉。
+  useLayoutEffect(() => {
+    if (effortOpen) updateEffortPosition();
+  }, [effortOpen, effortPosition, updateEffortPosition]);
 
   useEffect(() => {
     if (!effortOpen) {
@@ -425,13 +449,13 @@ export function AgentBar() {
               <button
                 type="button"
                 role="menuitem"
-                aria-label={`切换 Agent：${current?.name || agentId}`}
+                aria-label={`Agent：${current?.name || agentId}`}
                 aria-haspopup="menu"
                 aria-expanded={agentOpen}
                 className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-[12.5px] text-t-secondary transition-colors hover:bg-hover hover:text-t-primary"
               >
-                <span className="shrink-0">Agent</span>
-                <span className="min-w-0 flex-1 truncate text-right text-t-muted">{current?.name || agentId}</span>
+                <span className="shrink-0 text-t-muted">Agent</span>
+                <span className="min-w-0 flex-1 truncate text-right text-t-primary">{current?.name || agentId}</span>
                 <ChevronRight size={14} className={`shrink-0 text-t-ghost transition-transform ${agentOpen ? "rotate-90" : ""}`} />
               </button>
             </div>
@@ -458,8 +482,8 @@ export function AgentBar() {
                   onClick={(event) => event.stopPropagation()}
                   className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-[12.5px] text-t-secondary transition-colors hover:bg-hover hover:text-t-primary"
                 >
-                  <span className="shrink-0">模型</span>
-                  <span className="min-w-0 flex-1 truncate text-right text-t-muted">{modelDisplayName}</span>
+                  <span className="shrink-0 text-t-muted">模型</span>
+                  <span className="min-w-0 flex-1 truncate text-right text-t-primary">{modelDisplayName}</span>
                   <ChevronRight size={14} className={`shrink-0 text-t-ghost transition-transform ${open ? "rotate-90" : ""}`} />
                 </button>
               )}
@@ -489,8 +513,18 @@ export function AgentBar() {
                     : "cursor-default text-t-ghost/70"
                 }`}
               >
-                <span className="shrink-0">推理强度</span>
-                <span className="min-w-0 flex-1 truncate text-right text-t-muted">{currentEffortLabel}</span>
+                <span
+                  className={`shrink-0 ${effortValues.length > 0 ? "text-t-muted" : "text-t-ghost/70"}`}
+                >
+                  推理强度
+                </span>
+                <span
+                  className={`min-w-0 flex-1 truncate text-right ${
+                    effortValues.length > 0 ? "text-t-primary" : "text-t-ghost/70"
+                  }`}
+                >
+                  {currentEffortLabel}
+                </span>
                 <ChevronRight size={14} className={`shrink-0 text-t-ghost transition-transform ${effortOpen ? "rotate-90" : ""}`} />
               </button>
 
@@ -503,14 +537,13 @@ export function AgentBar() {
         <div
           ref={agentPortalRef}
           role="menu"
-          aria-label="切换 Agent"
+          aria-label="Agent"
           data-ftre-floating-menu="agent-picker"
           style={{ position: "fixed", left: agentPosition.left, top: agentPosition.top }}
           onMouseEnter={clearAgentHoverClose}
           onMouseLeave={scheduleAgentHoverClose}
           className="fixed z-[9999] w-[260px] rounded-[14px] border border-border-subtle bg-surface p-1.5 shadow-[0_12px_30px_rgba(15,23,42,0.14)]"
         >
-          <div className="px-2.5 pb-1.5 pt-1 text-[11px] text-t-ghost">切换 Agent</div>
           <div className="max-h-[240px] overflow-y-auto">
             {builtinAgents.map(renderAgent)}
             {customAgents.length > 0 && (
@@ -536,7 +569,7 @@ export function AgentBar() {
           style={{ position: "fixed", left: effortPosition.left, top: effortPosition.top }}
           onMouseEnter={clearEffortHoverClose}
           onMouseLeave={scheduleEffortHoverClose}
-          className="fixed z-[9999] w-[180px] rounded-[14px] border border-border-subtle bg-surface p-1.5 shadow-[0_12px_30px_rgba(15,23,42,0.14)]"
+          className="fixed z-[9999] max-h-[calc(100vh-16px)] w-[180px] overflow-y-auto rounded-[14px] border border-border-subtle bg-surface p-1.5 shadow-[0_12px_30px_rgba(15,23,42,0.14)]"
         >
           {effortValues.map((effort) => {
             const isActive = effort === currentEffort;

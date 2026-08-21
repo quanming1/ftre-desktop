@@ -75,6 +75,22 @@ stages:
           - packages/renderer/src/app/TitleBar.tsx
         acceptance: Inspector tabs 右侧 + 菜单可创建终端 Tab，终端内容可交互展示，Header 原终端入口迁移完成
 
+      - id: A6
+        title: Inspector 审计 Tab
+        status: in_progress
+        date: 2026-08-21
+        prd: docs/prd/PRD-A6-inspector-audit-tab.md
+        prd_status: 开发中
+        modules:
+          - packages/renderer/src/features/inspector/AuditRenderer.tsx
+          - packages/renderer/src/features/inspector/InspectorPanel.tsx
+          - packages/renderer/src/features/chat/RunContextPopover.tsx
+          - packages/renderer/src/features/chat/TurnFileChanges.tsx
+          - packages/renderer/src/features/chat/ChatMessageList.tsx
+          - packages/renderer/src/features/session/SessionPanel.tsx
+          - packages/renderer/src/stores/inspector.ts
+        acceptance: 运行详情 Changes 常驻并按工作区复用审阅 Tab；本轮修改/消息审查按工作区与轮次复用或新建轮次 Tab；工作区新建只激活已有审阅；Tab 标题带工作区名；审阅页支持上一轮、未提交/未暂存/已暂存/未跟踪、展开文件 diff、复制和打开源文件
+
   - id: B
     name: 协议与可观测
     steps:

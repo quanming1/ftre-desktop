@@ -71,6 +71,7 @@ import { useSession, type SessionSortMode } from "@/stores/session";
 import { useChat } from "@/stores/chat";
 import { useWorkspace } from "@/stores/workspace";
 import { useLayout } from "@/stores/layout";
+import { useInspector } from "@/stores/inspector";
 import { useNotification } from "@/stores/notification";
 import { updateSession, forkSessionRemote } from "@/services/api";
 import { ContextMenu, type ContextMenuItem } from "@/components/ContextMenu";
@@ -568,6 +569,12 @@ export function SessionPanel() {
     (full: string) => {
       if (activeLeftPanel !== "chat") setActiveLeftPanel("chat");
       newSession(full || undefined);
+      // 新建会话只在该工作区已有审阅表格时跳转，不因普通新建动作创建空审阅页。
+      if (full && useInspector.getState().activateWorkspaceAudit(full)) {
+        if (!useLayout.getState().panelVisible.inspector) {
+          useLayout.getState().togglePanelVisible("inspector");
+        }
+      }
     },
     [activeLeftPanel, setActiveLeftPanel, newSession],
   );
@@ -780,6 +787,11 @@ export function SessionPanel() {
   const handleNewThread = useCallback(() => {
     if (activeLeftPanel !== "chat") setActiveLeftPanel("chat");
     newSession(rootPath || undefined);
+    if (rootPath && useInspector.getState().activateWorkspaceAudit(rootPath)) {
+      if (!useLayout.getState().panelVisible.inspector) {
+        useLayout.getState().togglePanelVisible("inspector");
+      }
+    }
   }, [activeLeftPanel, setActiveLeftPanel, newSession, rootPath]);
 
   /** 切换到设置面板 */

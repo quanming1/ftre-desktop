@@ -5,10 +5,9 @@ import {
   ChevronDown,
   Circle,
   FileDiff,
-  FileEdit,
-  FilePlus2,
   GitBranch,
-  ListFilter,
+  ArrowUpRight,
+  ListChecks,
   ListTodo,
   Loader2,
 } from "lucide-react";
@@ -19,9 +18,7 @@ import { useSession } from "@/stores/session";
 import { useInspector } from "@/stores/inspector";
 import { useLayout } from "@/stores/layout";
 import { createManagedPoller } from "@/services/visibility-manager";
-import { FileIconView } from "@/components/FileIconView";
 import type { TurnFileChange } from "./TurnFileChanges";
-import { basename } from "@/utils/pathUtils";
 import { resolveRunningBannerModel } from "./runningBannerModel";
 
 interface GitFile {
@@ -31,16 +28,9 @@ interface GitFile {
   status: string;
   staged: boolean;
   isDir: boolean;
+  additions?: number;
+  deletions?: number;
 }
-
-const GIT_STATUS_LABELS: Record<string, string> = {
-  modified: "M", untracked: "U", deleted: "D", added: "A", renamed: "R", conflict: "C",
-};
-
-const GIT_STATUS_COLORS: Record<string, string> = {
-  modified: "#b9894b", untracked: "#398565", deleted: "#c75a52",
-  added: "#398565", renamed: "#398565", conflict: "#c75a52",
-};
 
 const RUN_CONTEXT_POPOVER_OPEN_KEY = "ftre:run-context-popover-open";
 
@@ -155,6 +145,11 @@ function collectActiveTurnFileChanges(
   return Array.from(fileMap.values());
 }
 
+function getActiveTurnId(messages: ChatMessage[], sessionId: string | null): string {
+  const userMessage = [...messages].reverse().find((message) => message.role === "user");
+  return `${sessionId ?? "pending"}:${userMessage?.id ?? "active"}`;
+}
+
 interface RunContextButtonProps {
   open: boolean;
   onToggle: () => void;
@@ -190,7 +185,7 @@ export function RunContextButton({ open, onToggle }: RunContextButtonProps) {
           open ? "bg-black/[0.06] text-t-primary" : "text-t-muted hover:bg-black/[0.04] hover:text-t-primary"
         }`}
       >
-        <ListFilter size={15} strokeWidth={1.6} />
+        <ListChecks size={15} strokeWidth={1.6} />
         {isWorking && <span aria-hidden="true" className="absolute right-1 top-1 h-1 w-1 rounded-full bg-[#36a177] motion-safe:animate-pulse" />}
       </button>
     </Tooltip>
@@ -200,6 +195,7 @@ export function RunContextButton({ open, onToggle }: RunContextButtonProps) {
 export function RunContextPanel() {
   const messages = useChat((state) => Array.isArray(state.messages) ? state.messages : []);
   const sessionId = useChat((state) => state.sessionId);
+  const pendingWorkspace = useChat((state) => state.pendingWorkspace);
   const isBusy = useChat((state) => state.isBusy);
   const sessionStatus = useChat((state) => state.sessionStatus);
   const sessionActivity = useChat((state) => state.sessionActivity);
@@ -214,8 +210,6 @@ export function RunContextPanel() {
   const allSessions = useSession((state) => state.allSessions);
   const [now, setNow] = useState(() => Date.now());
   const [planExpanded, setPlanExpanded] = useState(false);
-  const [changesExpanded, setChangesExpanded] = useState(false);
-  const [gitExpanded, setGitExpanded] = useState(false);
   const [workspaceGitInfo, setWorkspaceGitInfo] = useState<{
     branch: string | null;
     isGitRepo: boolean;
@@ -245,8 +239,8 @@ export function RunContextPanel() {
   const completedCount = planSteps.filter((step) => step.status === "completed").length;
   const totalAdditions = fileChanges.reduce((total, change) => total + change.additions, 0);
   const totalDeletions = fileChanges.reduce((total, change) => total + change.deletions, 0);
-  const stagedGitFiles = workspaceGitFiles.filter((file) => file.staged);
-  const unstagedGitFiles = workspaceGitFiles.filter((file) => !file.staged);
+  const totalGitAdditions = workspaceGitFiles.reduce((total, file) => total + (file.additions ?? 0), 0);
+  const totalGitDeletions = workspaceGitFiles.reduce((total, file) => total + (file.deletions ?? 0), 0);
   const sessionWorkspace = useMemo(() => {
     if (!sessionId) return "";
     const findWorkspace = (items: typeof sessions) =>
@@ -283,7 +277,17 @@ export function RunContextPanel() {
         etag = result.etag;
         setWorkspaceGitInfo({ branch: info.branch, isGitRepo: info.isGitRepo });
         if (result.changed) {
-          setWorkspaceGitFiles((result.files ?? []).filter((file) => !file.isDir) as GitFile[]);
+          const stats = result.stats ?? {};
+          setWorkspaceGitFiles((result.files ?? [])
+            .filter((file) => !file.isDir)
+            .map((file) => {
+              const stat = stats[file.absolutePath.replace(/\\/g, "/").toLowerCase()];
+              return {
+                ...file,
+                additions: stat?.additions ?? 0,
+                deletions: stat?.deletions ?? 0,
+              };
+            }) as GitFile[]);
         }
       } catch {
         if (cancelled) return;
@@ -303,59 +307,31 @@ export function RunContextPanel() {
     };
   }, [sessionWorkspace]);
 
-  const openDiff = useCallback((change: TurnFileChange) => {
-    useInspector.getState().openDiffPreview(
-      change.toolCallId,
-      change.filePath,
-      change.before,
-      change.after,
-      change.additions,
-      change.deletions,
-    );
+  const openAudit = useCallback((changes?: TurnFileChange[]) => {
+    const workspace = sessionWorkspace || pendingWorkspace || "";
+    const turnChanges = changes?.map((change) => ({
+      toolCallId: change.toolCallId,
+      filePath: change.filePath,
+      operation: change.operation,
+      additions: change.additions,
+      deletions: change.deletions,
+      before: change.before,
+      after: change.after,
+    }));
+    if (turnChanges?.length) {
+      const turnId = getActiveTurnId(messages, sessionId);
+      useInspector.getState().openAuditTab(workspace, {
+        scope: "turn",
+        turnId,
+        turnChanges,
+      });
+    } else {
+      useInspector.getState().openAuditTab(workspace, { scope: "workspace" });
+    }
     if (!useLayout.getState().panelVisible.inspector) {
       useLayout.getState().togglePanelVisible("inspector");
     }
-  }, []);
-
-  const openGitDiff = useCallback(async (file: GitFile) => {
-    if (file.isDir || !sessionWorkspace) return;
-    const absolutePath = file.absolutePath.replace(/\\/g, "/");
-    const title = basename(absolutePath);
-    const showInspector = () => {
-      if (!useLayout.getState().panelVisible.inspector) {
-        useLayout.getState().togglePanelVisible("inspector");
-      }
-    };
-
-    if (file.status === "untracked") {
-      useInspector.getState().openFilePreview(`gitfile-${absolutePath}`, absolutePath, title);
-      showInspector();
-      return;
-    }
-
-    const result = await window.desktop.git.diffFile(
-      sessionWorkspace,
-      file.path,
-      file.status,
-      file.staged,
-      file.oldPath,
-    );
-    if (result.error) {
-      useInspector.getState().openFilePreview(`gitfile-${absolutePath}`, absolutePath, title);
-      showInspector();
-      return;
-    }
-    useInspector.getState().openDiffPreview(
-      `gitfile-${absolutePath}`,
-      absolutePath,
-      result.original,
-      result.modified,
-      0,
-      0,
-      title,
-    );
-    showInspector();
-  }, [sessionWorkspace]);
+  }, [messages, pendingWorkspace, sessionId, sessionWorkspace]);
 
   return (
     <section
@@ -393,22 +369,14 @@ export function RunContextPanel() {
 
           {fileChanges.length > 0 && (
             <div className="px-2.5 pt-1">
-              <button type="button" aria-expanded={changesExpanded} onClick={() => setChangesExpanded((value) => !value)} className="flex h-8 w-full items-center gap-2 rounded-md px-1.5 text-left transition-colors hover:bg-black/[0.035] hover:text-t-primary">
+              <button type="button" aria-label="打开本轮修改审阅" title="打开审阅" onClick={() => openAudit(fileChanges)} className="flex h-8 w-full items-center gap-2 rounded-md px-1.5 text-left transition-colors hover:bg-black/[0.035] hover:text-t-primary">
                 <FileDiff size={14} strokeWidth={1.6} className="shrink-0 text-t-muted" />
                 <span className="shrink-0 text-[13px] text-t-secondary">本轮修改</span>
                 <span className="rounded-full bg-black/[0.05] px-1.5 py-px font-mono text-[11px] text-t-faint">{fileChanges.length}</span>
                 <span className="min-w-0 flex-1" />
                 <span className="shrink-0 font-mono text-[11px]"><span className="text-[#21835f]">+{totalAdditions}</span><span className="ml-1 text-[#d05959]">-{totalDeletions}</span></span>
-                <ChevronDown size={13} strokeWidth={1.7} className={`shrink-0 text-t-faint transition-transform duration-150 ${changesExpanded ? "rotate-180" : ""}`} />
+                <ArrowUpRight size={13} strokeWidth={1.7} className="shrink-0 text-t-faint" />
               </button>
-              {changesExpanded && <div className="animate-in fade-in slide-in-from-top-1 duration-150 ml-5 max-h-[156px] overflow-y-auto pb-1 pt-0.5">
-                {fileChanges.map((change) => <button key={change.toolCallId} type="button" onClick={() => openDiff(change)} className="flex min-h-7 w-full items-center gap-2 rounded-md px-1.5 py-1 text-left transition-colors hover:bg-black/[0.035]">
-                  <FileIconView path={change.filePath} size={14} />
-                  <span className="min-w-0 flex-1 truncate text-[12px] text-t-secondary">{basename(change.filePath)}</span>
-                  <span className="shrink-0 text-[10px] text-t-faint">{change.operation === "write" ? <FilePlus2 size={12} strokeWidth={1.6} /> : <FileEdit size={12} strokeWidth={1.6} />}</span>
-                  <span className="shrink-0 font-mono text-[11px]"><span className="text-[#21835f]">+{change.additions}</span><span className="ml-1 text-[#d05959]">-{change.deletions}</span></span>
-                </button>)}
-              </div>}
             </div>
           )}
 
@@ -424,28 +392,19 @@ export function RunContextPanel() {
 
           {currentGitInfo.isGitRepo && (
             <div className="px-2.5 pb-1 pt-1">
-              <button type="button" aria-expanded={gitExpanded} onClick={() => setGitExpanded((value) => !value)} className="flex h-8 w-full items-center gap-2 rounded-md px-1.5 text-left transition-colors hover:bg-black/[0.035] hover:text-t-primary">
+              <button type="button" aria-label="打开 Changes 审阅" title="打开审阅" onClick={() => openAudit()} className="flex h-8 w-full items-center gap-2 rounded-md px-1.5 text-left transition-colors hover:bg-black/[0.035] hover:text-t-primary">
                 <span aria-hidden="true" className="inline-flex h-4 w-4 shrink-0 items-center justify-center">
                   <Icon icon="vscode-icons:file-type-git" width={14} height={14} style={{ color: "#f05032" }} />
                 </span>
                 <span className="shrink-0 text-[13px] text-t-secondary">Changes</span>
                 <span className="rounded-full bg-black/[0.05] px-1.5 py-px font-mono text-[11px] text-t-faint">{workspaceGitFiles.length}</span>
                 <span className="min-w-0 flex-1" />
-                {stagedGitFiles.length > 0 && <span className="shrink-0 text-[11px] text-t-faint">暂存 {stagedGitFiles.length}</span>}
-                {unstagedGitFiles.length > 0 && <span className="shrink-0 text-[11px] text-t-faint">更改 {unstagedGitFiles.length}</span>}
-                <ChevronDown size={13} strokeWidth={1.7} className={`shrink-0 text-t-faint transition-transform duration-150 ${gitExpanded ? "rotate-180" : ""}`} />
+                <span className="shrink-0 font-mono text-[11px]">
+                  <span className="text-[#21835f]">+{totalGitAdditions}</span>
+                  <span className="ml-1 text-[#d05959]">-{totalGitDeletions}</span>
+                </span>
+                <ArrowUpRight size={13} strokeWidth={1.7} className="shrink-0 text-t-faint" />
               </button>
-              {gitExpanded && <div className="animate-in fade-in slide-in-from-top-1 duration-150 ml-5 max-h-[156px] overflow-y-auto pb-1 pt-0.5">
-                {workspaceGitFiles.length === 0 ? (
-                  <span className="block px-1.5 py-1 text-[11px] text-t-faint">没有变更</span>
-                ) : workspaceGitFiles.map((file) => (
-                  <button key={`${file.path}:${file.staged}`} type="button" disabled={file.isDir} onClick={() => void openGitDiff(file)} className="flex min-h-7 w-full min-w-0 items-center gap-2 rounded-md px-1.5 py-1 text-left transition-colors hover:bg-black/[0.035] disabled:cursor-default disabled:hover:bg-transparent">
-                    <span className="w-3 shrink-0 text-center font-mono text-[11px] font-medium" style={{ color: GIT_STATUS_COLORS[file.status] ?? "#89919a" }}>{GIT_STATUS_LABELS[file.status] ?? "?"}</span>
-                    <span className="min-w-0 flex-1 truncate text-[12px] text-t-secondary">{file.path}{file.isDir ? "/" : ""}</span>
-                    {file.staged && <span className="shrink-0 text-[11px] text-t-faint">暂存</span>}
-                  </button>
-                ))}
-              </div>}
             </div>
           )}
     </section>
@@ -463,4 +422,4 @@ export function RunContextPopover() {
   );
 }
 
-export { collectActiveTurnFileChanges, getRunLabel };
+export { collectActiveTurnFileChanges, getActiveTurnId, getRunLabel };

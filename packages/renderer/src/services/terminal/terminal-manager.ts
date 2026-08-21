@@ -467,12 +467,25 @@ export class TerminalSessionManager {
         if (!managed?.container || !isContainerVisible(managed.container)) return;
 
         requestAnimationFrame(() => {
-            managed.fit.fit();
-            if (managed.term.cols > 0 && managed.term.rows > 0) {
-                window.desktop.terminal.resize(managed.info.ptyId, managed.term.cols, managed.term.rows);
-            }
-            managed.term.focus();
-            managed.needsRefit = false;
+            const fitOnce = () => {
+                if (!managed.container || !isContainerVisible(managed.container)) {
+                    managed.needsRefit = true;
+                    return;
+                }
+                managed.fit.fit();
+                if (managed.term.cols > 0 && managed.term.rows > 0) {
+                    window.desktop.terminal.resize(managed.info.ptyId, managed.term.cols, managed.term.rows);
+                }
+                managed.needsRefit = false;
+            };
+
+            // 第一次可能发生在 Inspector 父容器刚恢复尺寸的过渡帧，第二帧
+            // 重新 fit 可避免 xterm 仍按旧的 0/80x24 尺寸绘制而裁掉内容。
+            fitOnce();
+            requestAnimationFrame(() => {
+                fitOnce();
+                managed.term.focus();
+            });
         });
     }
 

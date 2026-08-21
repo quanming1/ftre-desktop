@@ -13,7 +13,7 @@ import {
   type PointerEvent as ReactPointerEvent,
   type ReactNode,
 } from "react";
-import { Activity, X, FileText, Braces, ChevronDown, Folder, FolderOpen, ScrollText, Plus, TerminalSquare, Trash2 } from "lucide-react";
+import { Activity, X, FileText, Braces, ChevronDown, Folder, FolderOpen, ScrollText, Plus, TerminalSquare, Trash2, ClipboardCheck } from "lucide-react";
 import { GitCompareArrows } from "lucide-react";
 import { OverlayScrollbarsComponent, type OverlayScrollbarsComponentRef } from "overlayscrollbars-react";
 import {
@@ -104,10 +104,14 @@ export function InspectorPanel() {
     return order;
   }, [tabs, activeTabId]);
 
-  const keepAliveIds = useMemo(
-    () => new Set(lruOrder.slice(0, MAX_KEEP_ALIVE)),
-    [lruOrder],
-  );
+  const keepAliveIds = useMemo(() => {
+    const ids = new Set(lruOrder.slice(0, MAX_KEEP_ALIVE));
+    // 审计页保留在 DOM 中：它维护展开项和已加载 Diff，切换到其他 Tab 时不应丢失。
+    tabs.forEach((tab) => {
+      if (tab.type === "audit") ids.add(tab.id);
+    });
+    return ids;
+  }, [lruOrder, tabs]);
   const renderableTabs = useMemo(
     () => contentTabs.filter((tab) => keepAliveIds.has(tab.id)),
     [contentTabs, keepAliveIds],
@@ -475,7 +479,7 @@ function InspectorTabBar({
           icon: Trash2,
           action: () => terminalManager.clearTerminal(tab.terminalId),
         });
-      } else {
+      } else if (tab?.type !== "audit") {
         items.push({
           id: "wordwrap",
           label: "开启/关闭自动换行",
@@ -713,7 +717,7 @@ const TabButton = memo(function TabButton({
         }
       }}
       onContextMenu={(e) => onContextMenu(e, tab.id)}
-      className={`group relative overflow-hidden flex h-7 items-center gap-2 rounded-lg pl-3.5 pr-7 text-[12px] whitespace-nowrap font-sans transition-all duration-150 select-none ${
+      className={`group relative overflow-hidden flex h-8 items-center gap-2.5 rounded-lg pl-3.5 pr-7 text-[12.5px] whitespace-nowrap font-sans transition-all duration-150 select-none ${
         isActive
           ? "z-10 text-t-primary"
           : "text-t-muted hover:bg-elevated hover:text-t-secondary"
@@ -781,6 +785,7 @@ import { FileRenderer } from "./renderers/FileRenderer";
 import { DiffRenderer } from "./renderers/DiffRenderer";
 import { ImageRenderer } from "./renderers/ImageRenderer";
 import { TerminalRenderer } from "./renderers/TerminalRenderer";
+import { AuditRenderer } from "./AuditRenderer";
 
 registerTabMeta("file", {
   icon: (tab) => <FileIconView path={"filePath" in tab ? tab.filePath : tab.title} size={16} />,
@@ -804,4 +809,10 @@ registerTabMeta("terminal", {
   icon: () => <TerminalSquare size={15} className="shrink-0 text-t-ghost" />,
   title: (tab) => tab.title,
   renderer: (props) => <TerminalRenderer {...props} />,
+});
+
+registerTabMeta("audit", {
+  icon: () => <ClipboardCheck size={15} className="shrink-0 text-t-ghost" />,
+  title: (tab) => tab.title,
+  renderer: (props) => <AuditRenderer {...props} />,
 });

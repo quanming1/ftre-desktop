@@ -90,26 +90,36 @@ export function TerminalManager({ embedded = false, terminalId, active = true }:
 
     useEffect(() => {
         const id = terminalId ?? activeTerminalId;
-        if (active && id) {
-            if (terminalId) terminalManager.setActiveTerminal(terminalId);
-            terminalManager.refitTerminal(id);
-        }
+        if (!active || !id) return;
+        if (terminalId) terminalManager.setActiveTerminal(terminalId);
+
+        // Inspector 面板重新展开时，父容器的宽高可能还在恢复；按当前 Tab
+        // 精确重测量，不能调用 refitActiveTerminal（它可能指向另一个终端）。
+        const timers = [0, 80, 220].map((delay) =>
+            window.setTimeout(() => terminalManager.refitTerminal(id), delay),
+        );
+        return () => timers.forEach((timer) => window.clearTimeout(timer));
     }, [active, activeTerminalId, terminalId]);
 
     useEffect(() => {
         if (!active) return;
         const timer = setTimeout(() => {
-            terminalManager.refitActiveTerminal();
+            const id = terminalId ?? activeTerminalId;
+            if (id) terminalManager.refitTerminal(id);
             window.dispatchEvent(new CustomEvent("ftre:focus-terminal"));
         }, 80);
         return () => clearTimeout(timer);
-    }, [active]);
+    }, [active, activeTerminalId, terminalId]);
 
     useEffect(() => {
-        const handler = () => terminalManager.refitActiveTerminal();
+        const handler = () => {
+            if (!active) return;
+            const id = terminalId ?? activeTerminalId;
+            if (id) terminalManager.refitTerminal(id);
+        };
         window.addEventListener("ftre:focus-terminal", handler);
         return () => window.removeEventListener("ftre:focus-terminal", handler);
-    }, []);
+    }, [active, activeTerminalId, terminalId]);
 
     // ── 搜索快捷键 Ctrl+Shift+F ─────────────────────────────────────
 

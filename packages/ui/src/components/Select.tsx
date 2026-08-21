@@ -129,7 +129,7 @@ export const SelectItem = forwardRef<
   <SelectPrimitive.Item
     ref={ref}
     className={cn(
-      "relative flex w-full items-center pl-8 pr-3 py-2 text-[13px] cursor-pointer select-none outline-none transition-colors",
+      "relative flex w-full items-center gap-2 px-3 py-2 text-[13px] cursor-pointer select-none outline-none transition-colors",
       "text-[var(--ftre-text-secondary,#cccccc)]",
       "focus:bg-[var(--ftre-accent-dim,rgba(0,255,136,0.12))] focus:text-[var(--ftre-text-primary,#e8e8e8)]",
       "data-[disabled]:opacity-50 data-[disabled]:pointer-events-none",
@@ -137,12 +137,12 @@ export const SelectItem = forwardRef<
     )}
     {...props}
   >
-    <span className="absolute left-2.5 flex h-4 w-4 items-center justify-center">
+    <span className="flex h-4 w-4 shrink-0 items-center justify-center">
       <SelectPrimitive.ItemIndicator>
         <Check size={14} className="text-[var(--ftre-accent,#00ff88)]" />
       </SelectPrimitive.ItemIndicator>
     </span>
-    <SelectPrimitive.ItemText>{children}</SelectPrimitive.ItemText>
+    <SelectPrimitive.ItemText className="min-w-0 flex-1">{children}</SelectPrimitive.ItemText>
   </SelectPrimitive.Item>
 ));
 SelectItem.displayName = "SelectItem";

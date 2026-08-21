@@ -24,9 +24,9 @@
 
 - [x] FR1：会话存在时，Header 右上角常驻“运行详情”按钮，并以状态色或轻量动画表示运行中；空闲时仍可打开详情。
 - [x] FR2：点击按钮在其下方展开或关闭紧凑弹窗，展示状态文案、运行时长、实际模型；弹窗不因失焦、点击外部或 Escape 而关闭。
-- [x] FR3：弹窗展示任务进度和文件变更摘要；任务可展开步骤，文件变更可展开明细并继续打开原有 Diff 预览。
-- [x] FR3.1：工作区为 Git 仓库时，弹窗展示当前 Git 分支以及复用侧面板 `Changes` 数据源的“Git 变更”项；可展开查看暂存/未暂存文件并打开既有 Git Diff。
-- [x] FR3.2：Git 变更项复用侧面板 `Changes` 的图标、工作区状态和 Inspector 预览行为；本轮工具修改与工作区 Changes 分组明确区分。
+- [x] FR3：弹窗展示任务进度和文件变更摘要；任务可展开步骤；本轮修改入口进入按工作区与轮次唯一的审阅 Tab。
+- [x] FR3.1：工作区为 Git 仓库时，弹窗展示当前 Git 分支以及常驻的 `Changes` 项；点击后进入当前工作区唯一的 workspace scope 审阅 Tab。
+- [x] FR3.2：本轮工具修改与工作区 Changes 分组明确区分；本轮入口携带 session + 当前轮 user message ID，重复点击复用该轮审阅，跨轮次或跨工作区不覆盖既有表格。
 - [x] FR3.3：运行详情弹窗的开关作为全局偏好持久化，不按 session 隔离；切换会话后保持同一开关状态。
 - [x] FR4：输入框上方只保留 `QueuedMessagesBanner`；pending message 的数量、展开、编辑与移除行为保持不变。
 - [x] FR5：运行状态与 pending messages 独立：没有 pending messages 的运行不会在输入框上方留下空横幅；存在 pending messages 时不依赖运行详情弹窗是否展开。
@@ -42,7 +42,7 @@
 - 新增 `RunContextPopover.tsx`，直接订阅 `useChat` 并计算状态、模型、时长、当前轮文件变更，避免 `ChatView → ChatHeader` 的 props 链。
 - `ChatHeader.tsx` 在更多操作左侧挂载弹窗触发器；弹窗以 Header 局部定位，呈现紧凑卡片。
 - `ChatView.tsx` 删除运行详情横幅，仅在 `pendingMessages.length > 0` 时渲染保留队列横幅；消息列表底部留白随 pending 横幅状态调整。
-- Git 状态按当前 session workspace 轮询，点击 Changes 项复用 Inspector 的文件预览 / Diff 预览；弹窗开关写入全局 localStorage 偏好。
+- Git 状态按当前 session workspace 轮询，点击 Changes 项复用 Inspector 的 workspace 审阅；弹窗开关写入全局 localStorage 偏好。
 
 ## 4. 接口定义
 
@@ -53,11 +53,11 @@
 
 - [x] AC1：运行中且无 pending messages 时，输入框上方不出现运行横幅，Header 右上角显示运行详情按钮。
 - [x] AC2：点击按钮后，弹窗带入场动画并显示状态、时长、模型、任务和文件变更；仅再次点击该按钮后关闭，点击外部或 Escape 不关闭。
-- [x] AC3：任务步骤可展开；文件变更明细可展开并打开 Inspector Diff。
-- [x] AC3.1：Git 工作区显示当前分支及“Git 变更”项，计数与侧面板一致；展开文件后可打开既有 Git Diff；输入框不再重复展示分支。
+- [x] AC3：任务步骤可展开；本轮修改入口可以打开对应轮次的 Inspector 审阅 Tab。
+- [x] AC3.1：Git 工作区显示当前分支及“Git 变更”项，计数与侧面板一致；点击 Changes 后打开当前工作区的 Inspector 审阅 Tab；输入框不再重复展示分支。
 - [x] AC4：发送多条消息形成 pending queue 后，输入框上方仍可查看、编辑、移除队列消息，运行详情不混入该横幅。
 - [x] AC5：相关单元测试与 Renderer 生产构建通过。
-- [x] AC6：空闲状态仍显示 Header 按钮；弹窗开关跨 session 保持；Changes 条目可打开 Inspector；弹窗无横向分割线且分组间距、字体和图标统一。
+- [x] AC6：空闲状态仍显示 Header 按钮；弹窗开关跨 session 保持；Changes 条目可打开 Inspector 审计 Tab；弹窗无横向分割线且分组间距、字体和图标统一。
 
 ## 6. 测试计划
 
@@ -75,3 +75,5 @@
 | 2026-08-20 | 验收完成 | 单元测试、相关类型检查与 Renderer 生产构建通过 |
 | 2026-08-20 | 后续交互与视觉校准 | 按用户反馈使按钮常驻并持久化全局开关；Git 状态改为按 session workspace 读取，Changes 点击复用 Inspector；本轮修改 / Changes 分组更名并统一图标、间距、字体与颜色，移除弹窗边框和横向分割线；相关测试 7/7 通过 |
 | 2026-08-20 | 标题会话切换入口 | 移除标题右侧箭头与列表统计，点击标题直接展开最近 WebSocket 会话列表；重命名继续保留在更多操作菜单中 |
+| 2026-08-21 | Changes 审阅入口迁移 | Changes 行改为打开 A6 唯一审计 Tab；Git 文件列表和单文件 Diff 审阅集中到 Inspector，运行详情保留常驻状态与计数 |
+| 2026-08-21 | 审阅范围细化 | Changes 改为按工作区复用，当前轮修改改为按工作区 + 轮次进入独立审阅，避免切换工作区或轮次时覆盖既有表格 |

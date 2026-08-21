@@ -515,6 +515,7 @@ export const AssistantMessage = memo(
     message,
     showActions = false,
     turnFileChanges,
+    turnId,
     turnDurationSec,
     turnModel,
   }: {
@@ -522,6 +523,7 @@ export const AssistantMessage = memo(
     showActions?: boolean;
     turnTexts?: string[];
     turnFileChanges?: TurnFileChange[];
+    turnId?: string;
     turnDurationSec?: number;
     turnModel?: string;
   }) {
@@ -636,7 +638,7 @@ export const AssistantMessage = memo(
               )}
 
               {turnFileChanges && turnFileChanges.length > 0 && !isStreaming && (
-                <TurnFileChanges changes={turnFileChanges} />
+                <TurnFileChanges changes={turnFileChanges} turnId={turnId} />
               )}
 
                 {showActions && !isStreaming && !message.isError && (

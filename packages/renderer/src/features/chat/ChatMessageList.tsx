@@ -267,8 +267,9 @@ export const ChatMessageList = memo(function ChatMessageList({
                 }
               }
             }
-            // isBusy 时本轮变更展示在输入框横幅，不在消息列表展示
-            turnFileChanges = (!isBusy && fileMap.size > 0) ? Array.from(fileMap.values()) : undefined;
+            // 当前流式轮次不会进入 isTurnEnd；已经完成的历史轮次即使当前会话正在运行，
+            // 也继续保留变更卡片，不被输入框运行状态隐藏。
+            turnFileChanges = fileMap.size > 0 ? Array.from(fileMap.values()) : undefined;
           }
 
           return (
@@ -278,6 +279,7 @@ export const ChatMessageList = memo(function ChatMessageList({
               showActions={showTurnActions}
               turnTexts={turnTexts}
               turnFileChanges={turnFileChanges}
+              turnId={msg.id}
               turnDurationSec={msg.durationSec}
               turnModel={msg.model}
             />
@@ -313,6 +315,7 @@ const MessageItem = memo(function MessageItem({
   showActions = false,
   turnTexts,
   turnFileChanges,
+  turnId,
   turnDurationSec,
   turnModel,
 }: {
@@ -322,6 +325,8 @@ const MessageItem = memo(function MessageItem({
   turnTexts?: string[];
   /** 本轮所有 edit/write 文件变更列表（isLastOfTurn 时传入） */
   turnFileChanges?: TurnFileChange[];
+  /** 代表本轮结束的 assistant 消息 ID。 */
+  turnId?: string;
   /** 本轮耗时（秒） */
   turnDurationSec?: number;
   /** 本轮使用的模型 ID */
@@ -337,6 +342,7 @@ const MessageItem = memo(function MessageItem({
         showActions={showActions}
         turnTexts={turnTexts}
         turnFileChanges={turnFileChanges}
+        turnId={turnId}
         turnDurationSec={turnDurationSec}
         turnModel={turnModel}
       />
