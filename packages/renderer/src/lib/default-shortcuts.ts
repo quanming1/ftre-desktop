@@ -33,7 +33,7 @@ export function registerDefaultShortcuts(): void {
         },
     });
 
-    // Ctrl+` → Toggle Terminal Dropdown
+    // Ctrl+` → Open Inspector terminal tab
     register({
         id: 'toggleTerminal',
         keys: 'ctrl+`',
@@ -41,7 +41,7 @@ export function registerDefaultShortcuts(): void {
         category: '视图',
         context: 'global',
         execute: () => {
-            useLayout.getState().toggleTerminalDropdown();
+            window.dispatchEvent(new CustomEvent('ftre:open-terminal-tab'));
         },
     });
 

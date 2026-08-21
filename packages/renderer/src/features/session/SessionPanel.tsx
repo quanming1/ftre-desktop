@@ -1895,7 +1895,7 @@ function SessionRow({
       onMouseEnter={onEnter}
       onMouseLeave={onLeave}
       className={`relative overflow-hidden flex items-center gap-2 ${preview ? "h-[52px]" : "h-10"} pr-3 rounded-lg cursor-pointer select-none transition-colors ${alignWithSectionLabel ? "pl-[45px]" : "pl-3"} ${isActive
-        ? "bg-[#e7e7e8] hover:bg-[#e7e7e8]"
+        ? "bg-[#e9e7ed] hover:bg-[#e9e7ed]"
         : "hover:bg-hover"
         }`}
     >

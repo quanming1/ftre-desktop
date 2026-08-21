@@ -1,6 +1,6 @@
 /**
  * 打开全局设置面板的事件名。
- * detail.section 可选: "general" | "models" | "gateway" | "agents" | "mcp" | "performance" | "shortcuts"
+ * detail.section 可选: "general" | "models" | "gateway" | "agents" | "mcp" | "shortcuts"
  *
  * 任意组件触发：
  *   window.dispatchEvent(
@@ -18,5 +18,4 @@ export type SettingsSection =
   | "gateway"
   | "agents"
   | "mcp"
-  | "performance"
   | "shortcuts";

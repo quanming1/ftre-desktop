@@ -368,7 +368,7 @@ export function useSmoothTabReorder<T extends { id: string }>(
       const base: CSSProperties = {
         position: "relative",
         touchAction: "none",
-        cursor: dragState?.id === itemId ? "grabbing" : "grab",
+        cursor: dragState?.id === itemId ? "grabbing" : "pointer",
       };
       if (!dragState) return base;
 
