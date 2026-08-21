@@ -96,6 +96,96 @@ describe("chat store", () => {
     })]);
   });
 
+  it("deduplicates repeated tool call starts by tool_call_id", () => {
+    const projection = new ClientSessionProjection({
+      applyEvent,
+      applyReplySnapshot,
+    });
+
+    const start = (eventId: string, toolCallId: string, name: string) => applyEvent(projection, {
+      type: "TOOL_CALL_START",
+      eventId,
+      data: {
+        reply_id: "reply-tool-dedupe",
+        tool_call_id: toolCallId,
+        tool_call_name: name,
+      },
+    });
+
+    applyEvent(projection, {
+      type: "REPLY_START",
+      eventId: "reply-start",
+      data: { reply_id: "reply-tool-dedupe" },
+    });
+    start("tool-start-1", "tc-duplicate", "read");
+    start("tool-start-2", "tc-duplicate", "read");
+    start("tool-start-3", "tc-second", "write");
+    applyEvent(projection, {
+      type: "TOOL_CALL_DELTA",
+      eventId: "tool-delta",
+      data: {
+        reply_id: "reply-tool-dedupe",
+        tool_call_id: "tc-duplicate",
+        delta: '{"path":"README.md"}',
+      },
+    });
+    applyEvent(projection, {
+      type: "TOOL_CALL_END",
+      eventId: "tool-end",
+      data: {
+        reply_id: "reply-tool-dedupe",
+        tool_call_id: "tc-duplicate",
+      },
+    });
+
+    const reply = projection.messages.find((message) => message.id === "reply-tool-dedupe");
+    const toolCalls = reply?.blocks?.filter((block) => block.type === "toolCall");
+    expect(toolCalls).toHaveLength(2);
+    expect(toolCalls?.map((block) => block.type === "toolCall" && block.id)).toEqual([
+      "tc-duplicate",
+      "tc-second",
+    ]);
+    expect(toolCalls?.[0]).toMatchObject({
+      type: "toolCall",
+      id: "tc-duplicate",
+      name: "read",
+      arguments: { path: "README.md" },
+    });
+  });
+
+  it("deduplicates tool_call blocks inside a reply snapshot by id", () => {
+    const projection = new ClientSessionProjection({
+      applyEvent,
+      applyReplySnapshot,
+    });
+
+    projection.applySnapshot({
+      session_id: "s-snapshot",
+      client_connection_epoch: 1,
+      replies: [{
+        reply_id: "reply-snapshot-dedupe",
+        revision: 2,
+        message: {
+          id: "reply-snapshot-dedupe",
+          role: "assistant",
+          created_at: "2026-08-21T00:00:00Z",
+          finished_at: "2026-08-21T00:00:01Z",
+          content: [
+            { type: "tool_call", id: "tc-snap-dup", name: "read" },
+            { type: "tool_call", id: "tc-snap-dup", name: "bash" },
+            { type: "tool_call", id: "tc-snap-other", name: "write" },
+          ],
+        },
+      }],
+    });
+
+    const reply = projection.messages.find((message) => message.id === "reply-snapshot-dedupe");
+    const toolCalls = reply?.blocks?.filter((block) => block.type === "toolCall");
+    expect(toolCalls).toHaveLength(2);
+    expect(toolCalls?.map((block) => block.id)).toEqual(["tc-snap-dup", "tc-snap-other"]);
+    expect(toolCalls?.[0]).toMatchObject({ type: "toolCall", id: "tc-snap-dup", name: "read" });
+  });
+
   it("newChat resets the active conversation", async () => {
     const { wsClient } = await import("@/services/websocket-client");
     useChat.setState({

@@ -9,7 +9,7 @@
 | 状态 | 已验收 |
 | 创建日期 | 2026-08-12 |
 | 定稿日期 | 2026-08-12 |
-| 验收日期 | 2026-08-12 |
+| 验收日期 | 2026-08-21 |
 | 关联文档 | docs/TODO.yaml 阶段 A2；AGENTS.md |
 
 ## 1. 背景与目标
@@ -32,6 +32,7 @@
 - [x] FR8：streamingMarkdown 流式 markdown 解析渲染
 - [x] FR9：压缩横幅模型准确展示——处于 `compacting` 状态时，只显示后端 `context_compact_start.model` 提供的实际摘要模型；协议未提供时不显示模型，不能复用上一条 assistant 回复或当前选择的普通对话模型。
 - [x] FR10：流式回复中的历史分页——用户点击“从服务器加载更早的消息”时，即使当前 assistant 回复仍在流式输出，已返回的历史页也必须 prepend 到消息列表；流式消息保持在列表末尾，不能静默丢弃该页。
+- [x] FR11：同一 assistant reply 内相同 `tool_call_id` 的重复 `TOOL_CALL_START` 必须幂等处理，只保留一个工具调用 block；后续 `TOOL_CALL_DELTA`、`TOOL_CALL_END` 和工具结果仍按该 id 更新。
 
 ### 2.2 非功能需求
 
@@ -65,6 +66,7 @@
 - [x] AC4：代码块语法高亮正确，支持复制
 - [x] AC5：压缩横幅展示 `context_compact_start.model`；即使最近 assistant 回复和当前选择的普通模型都是其他值，也不得误显示为压缩模型。
 - [x] AC6：会话存在仍在流式输出的 assistant 消息时，加载一页更早历史后，历史消息、当前消息与流式消息均保留且顺序正确；最早时间游标前移。
+- [x] AC7：重复派发相同 `reply_id` + `tool_call_id` 的 `TOOL_CALL_START` 后，工具 blocks 数量仍为一个；后续 DELTA/END 更新同一 block，不产生 duplicate key。
 
 ## 6. 测试计划
 
@@ -140,3 +142,5 @@
 | 2026-08-21 | 移除 Inspector tabs 导航和文件预览面包屑 Header 的重复底部边框，保留原有内容和交互 | 用户反馈文件预览区域边框过多 |
 | 2026-08-21 | Inspector 固定面板下拉菜单改用普通菜单项，移除 `DropdownMenuRadioItem` 默认绿色圆点；当前项仅通过背景和文字颜色区分 active | 用户反馈不使用小绿点作为 active 标志 |
 | 2026-08-21 | 文件预览 breadcrumb 路径改为轻量可点击区域：悬停显示完整绝对路径，点击复制绝对路径；移除原生 title 提示并优化分隔符、hover 背景和复制反馈 | 用户路径 Header 交互与视觉优化需求 |
+| 2026-08-21 | 新增 FR11 / AC7：相同 `tool_call_id` 的重复 TOOL_CALL_START 在客户端幂等处理，不产生重复工具 block 或 React key；Electron CSP 相关验收纳入 PRD-A1-electron-scaffold.md | 修复开发客户端中的 duplicate key 与 Insecure Content-Security-Policy 控制台警告 |
+| 2026-08-21 | 已验收（AC1-AC7 重跑）：chat.test.ts 14 例全过（新增重复 START 幂等 + Reply 快照去重回归）；全量 vitest 失败集合与改动前基线完全一致（无回归）；electron/renderer 构建与类型通过；vite preview + 浏览器验证 CSP 不阻断页面且无违规。仅真实 `pnpm dev` 下工具调用流的控制台观察需在用户环境确认 | 对照 AC 验收留痕 |
