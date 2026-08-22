@@ -18,10 +18,17 @@
     "dist": "npm run build && electron-builder --win",
     "dist:full": "npm run build && electron-builder --win -c electron-builder-full.json",
     "dist:quick": "electron-builder --win -c electron-builder-full.json",
+    "bundle-backend:win": "node scripts/bundle-backend.js --clean --platform win32 --arch x64",
+    "bundle-backend:mac:x64": "node scripts/bundle-backend.js --clean --platform darwin --arch x64",
+    "bundle-backend:mac:arm64": "node scripts/bundle-backend.js --clean --platform darwin --arch arm64",
+    "package:mac:x64": "npm run build && npm run bundle-backend:mac:x64 && electron-builder --mac --x64 -c electron-builder-full.json",
+    "package:mac:arm64": "npm run build && npm run bundle-backend:mac:arm64 && electron-builder --mac --arm64 -c electron-builder-full.json",
+    "package:win": "npm run build && npm run bundle-backend:win && electron-builder --win --x64 -c electron-builder-full.json",
     "rebuild": "electron-rebuild -f -w node-pty",
     "bundle-backend": "node scripts/bundle-backend.js",
     "bundle-backend:clean": "node scripts/bundle-backend.js --clean",
-    "test": "pnpm --filter @ftre/renderer test"
+    "test:platform": "pnpm --filter @ftre/electron build && node --test scripts/tests/backend-runtime.test.cjs",
+    "test": "pnpm --filter @ftre/renderer test && npm run test:platform"
   },
   "devDependencies": {
     "concurrently": "^9.2.1",

@@ -1,5 +1,9 @@
 # FTRE Desktop — Electron 重建实施计划
 
+> 历史实施计划：Phase 1–5 已被现有代码和当前 E1 PRD 接管；其中“用户手动
+> 启动外部 gateway”的描述不再是发布包行为。请以 `docs/TODO.yaml` 和
+> `docs/prd/PRD-E1-mac-client-packaging.md` 为当前事实源。
+
 ## 阶段概览
 
 | 阶段 | 目标 | 预估 |

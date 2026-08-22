@@ -1,44 +1,32 @@
 @echo off
-REM ============================================
-REM  Start ftre gateway (embedded Python runtime)
-REM  Run this before launching ftre desktop app
-REM ============================================
+setlocal
+chcp 65001 >nul
 
-REM Resolve script directory (works in packaged exe and dev)
+REM Windows 手工诊断入口。正式客户端由 Electron 主进程直接 spawn；这里也只
+REM 使用安装包自带的 Python，不回退到 py/python，避免用户环境缺失时行为漂移。
 set "SCRIPT_DIR=%~dp0"
-
-REM Use embedded Python from backend/python/
 set "PYTHON_EXE=%SCRIPT_DIR%backend\python\python.exe"
+set "SERVER_DIR=%SCRIPT_DIR%backend\server"
 
-REM Fallback to system Python if embedded not found
 if not exist "%PYTHON_EXE%" (
-    set "PYTHON_EXE=py"
+    echo [ERROR] 找不到内置 Python: %PYTHON_EXE%
+    exit /b 1
 )
+if not exist "%SERVER_DIR%\ftre" (
+    echo [ERROR] 找不到内置 Gateway 源码: %SERVER_DIR%
+    exit /b 1
+)
+
+set "PYTHONPATH=%SERVER_DIR%;%PYTHONPATH%"
+set "PYTHONUTF8=1"
+set "PYTHONIOENCODING=utf-8"
+set "PYTHONUNBUFFERED=1"
+set "PYTHONNOUSERSITE=1"
 
 echo Starting ftre gateway...
-echo.
-
-REM Read port from config.json (fallback 48650)
-set "GATEWAY_PORT=48650"
-for /f "delims=" %%P in ('"%PYTHON_EXE%" -c "import json,os; c=json.load(open(os.path.join(os.environ.get('USERPROFILE',os.path.expanduser('~')),'.ftre','config.json'))); print(c.get('servers',{}).get('gateway',{}).get('port',48650))" 2^>nul') do set "GATEWAY_PORT=%%P"
-
-echo Gateway address: ws://127.0.0.1:%GATEWAY_PORT%/
-echo Press Ctrl+C to stop.
-echo.
-
-REM Set working directory to backend/server (where ftre source lives)
-set "SERVER_DIR=%SCRIPT_DIR%backend\server"
-if not exist "%SERVER_DIR%\ftre" set "SERVER_DIR=%SCRIPT_DIR%.."
-
-REM Start the gateway
-"%PYTHON_EXE%" -m ftre.main gateway
-
-if errorlevel 1 (
-    echo.
-    echo [ERROR] Failed to start ftre gateway.
-    echo Please make sure:
-    echo   1. ~/.ftre/config.json exists and has a valid api_key
-    echo   2. The backend was bundled correctly (run: node scripts/bundle-backend.js)
-    echo.
-    pause
-)
+pushd "%SERVER_DIR%"
+"%PYTHON_EXE%" -m ftre.main gateway %*
+set "EXIT_CODE=%ERRORLEVEL%"
+popd
+if not "%EXIT_CODE%"=="0" echo [ERROR] ftre gateway exited with code %EXIT_CODE%.
+exit /b %EXIT_CODE%

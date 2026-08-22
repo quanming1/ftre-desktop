@@ -49,6 +49,12 @@ pnpm pack
 
 # 打包纯客户端 exe
 pnpm dist
+
+# 打包带内置 Gateway 的 macOS Intel 安装包
+pnpm package:mac:x64
+
+# 打包带内置 Gateway 的 macOS Apple Silicon 安装包
+pnpm package:mac:arm64
 ```
 
 ## 打包说明
@@ -57,6 +63,8 @@ pnpm dist
 |------|------|------|
 | `pnpm pack` | `release/win-unpacked/` | 解包目录，快速验证 |
 | `pnpm dist` | `release/ftre Setup X.X.X.exe` | NSIS 安装包（纯客户端，~88MB） |
+| `pnpm package:mac:x64` | `release/ftre-X.Y.Z-mac-x64.dmg/.zip` | Intel Mac，包含架构匹配的 Python runtime |
+| `pnpm package:mac:arm64` | `release/ftre-X.Y.Z-mac-arm64.dmg/.zip` | Apple Silicon，包含架构匹配的 Python runtime |
 
 纯客户端打包包含：
 - Electron 主进程
@@ -64,7 +72,16 @@ pnpm dist
 - 共享模块
 - node-pty 终端
 
-**不含后端**（Python 运行时、后端代码等）。如需后端打包，使用 `pnpm dist:full`。
+**不含后端**（Python 运行时、后端代码等）。如需 Windows 自包含安装包，使用
+`pnpm package:win`；该命令会先准备 Python、ftre、ftre-agent-core 和 cordis-py。
+
+Mac 发布命令会先执行 `scripts/bundle-backend.js`，把 ftre、ftre-agent-core、
+依赖和对应架构的 Python runtime 放入安装包。用户安装发布包时不需要预装
+Python、Node.js、Homebrew、conda、Git 或项目源码；只有 macOS 版本、CPU
+架构、磁盘空间和系统安装权限等操作系统条件需要满足。
+
+正式 Release 的签名/notarization 由 GitHub Actions 的 Apple 凭据控制；没有凭据
+时只能生成 unsigned 测试包，Release 说明必须如实标注，不能把它当作已公证包。
 
 ## 窗口标题
 

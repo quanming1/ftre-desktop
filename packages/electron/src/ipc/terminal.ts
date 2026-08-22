@@ -87,3 +87,15 @@ export function registerTerminalIPC(): void {
     }
   });
 }
+
+/** 应用退出时终止所有 PTY；重复调用安全，避免 shell 子进程悬挂。 */
+export function disposeTerminalIPC(): void {
+  for (const [id, term] of terminals) {
+    try {
+      term.kill();
+    } catch {
+      // PTY 可能已经自行退出，清理必须继续处理其余终端。
+    }
+    terminals.delete(id);
+  }
+}

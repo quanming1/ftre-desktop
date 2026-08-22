@@ -169,3 +169,26 @@ stages:
           - packages/renderer/src/features/chat/ChatHeader.tsx
           - packages/renderer/src/features/chat/ChatView.tsx
         acceptance: pending messages 仍显示在输入框上方；运行状态、模型、时长、任务、文件变更、Git 分支与 Git 变更迁移到 Header 右上角弹窗；详情可展开且两类 Diff 都可打开
+
+  - id: E
+    name: 跨平台发布
+    steps:
+      - id: E1
+        title: Mac 客户端打包适配
+        status: in_progress
+        prd: docs/prd/PRD-E1-mac-client-packaging.md
+        prd_status: 开发中
+        modules:
+          - package.json
+          - electron-builder-full.json
+          - packages/electron/src/backend.ts
+          - packages/electron/src/backend-runtime.ts
+          - packages/electron/src/main.ts
+          - packages/electron/src/ipc/
+          - scripts/bundle-backend.js
+          - scripts/start-gateway.sh
+          - .github/workflows/release.yml
+          - packages/renderer/
+          - packages/shared/
+          - scripts/tests/
+        acceptance: Mac Intel 与 Apple Silicon 均可构建并安装 .dmg/.zip；普通用户无需预装 Python、Node.js、Homebrew、conda、Git 或项目源码；每个架构的安装包都携带可离线分发且架构匹配的 Python runtime；内置 Gateway 自动启动；中文文本、UTF-8 编码、路径和文件分隔符全链路正确；Windows 构建不回归；GitHub Release 自动上传 Mac 安装包、校验和与版本说明

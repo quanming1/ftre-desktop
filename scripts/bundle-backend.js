@@ -1,431 +1,514 @@
 /**
- * bundle-backend.js
+ * 将 ftre、ftre-agent-core 以及架构匹配的 Python runtime 打包到 backend/。
  *
- * 将 Python 嵌入式运行时 + ftre 后端代码 + ftre-agent-core 打包到 desktop/backend/ 目录
- * 供 electron-builder 一并打包进最终应用。
+ * 发布模式的核心约束是：安装包不能依赖用户机器上的 Python、Node、Homebrew
+ * 或仓库源码。Windows 使用官方 embedded Python；macOS 使用按 x64/arm64
+ * 分发的 python-build-standalone install_only runtime。
  *
- * 支持增量打包：
- * - Python 运行时和 pip 依赖只在首次或依赖变化时安装
- * - 后端代码每次都会同步（增量复制）
- *
- * 用法:
- *   node scripts/bundle-backend.js          # 增量打包
- *   node scripts/bundle-backend.js --clean  # 全量重新打包
- *
- * 环境变量:
- *   FTRE_ROOT            — ftre 后端仓库根目录（默认 ../../ftre）
- *   FTRE_AGENT_CORE_ROOT — ftre-agent-core 仓库根目录（默认 ../../ftre-agent-core）
+ * 用法：
+ *   node scripts/bundle-backend.js --clean --platform darwin --arch arm64
+ *   node scripts/bundle-backend.js --clean --platform win32 --arch x64
+ *   node scripts/bundle-backend.js --clean --skip-deps --platform darwin --arch x64
  */
 
 const fs = require("fs");
 const path = require("path");
-const { execSync } = require("child_process");
+const { execFileSync } = require("child_process");
 const https = require("https");
 const http = require("http");
 const crypto = require("crypto");
 
 const DESKTOP_DIR = path.resolve(__dirname, "..");
-// 后端项目路径：环境变量优先，其次相对路径 fallback
-const PROJECT_ROOT =
-  process.env.FTRE_ROOT || path.resolve(__dirname, "..", "..", "ftre");
-const AGENT_CORE_ROOT =
-  process.env.FTRE_AGENT_CORE_ROOT ||
-  path.resolve(__dirname, "..", "..", "ftre-agent-core");
+const PROJECT_ROOT = process.env.FTRE_ROOT || path.resolve(__dirname, "..", "..", "..", "ftre");
+const AGENT_CORE_ROOT = process.env.FTRE_AGENT_CORE_ROOT ||
+  path.resolve(__dirname, "..", "..", "..", "ftre-agent-core");
+const CORDIS_ROOT = process.env.CORDIS_ROOT ||
+  path.resolve(__dirname, "..", "..", "..", "cordis-py");
 const BACKEND_DIR = path.join(DESKTOP_DIR, "backend");
-
-const PYTHON_VERSION = "3.12.3";
-const PYTHON_EMBED_URL = `https://www.python.org/ftp/python/${PYTHON_VERSION}/python-${PYTHON_VERSION}-embed-amd64.zip`;
-const GET_PIP_URL = "https://bootstrap.pypa.io/get-pip.py";
-
-// Python 嵌入式包的 .pth 文件名（基于主版本号）
-const PTH_FILE = `python${PYTHON_VERSION.split(".").slice(0, 2).join("")}._pth`;
-
-// 缓存目录
 const CACHE_DIR = path.join(DESKTOP_DIR, ".cache");
-// 状态文件，记录上次打包的 hash
 const STATE_FILE = path.join(CACHE_DIR, "bundle-state.json");
 
-// --- 工具函数 ---
+const WINDOWS_PYTHON_VERSION = "3.12.3";
+const STANDALONE_RELEASE = process.env.PYTHON_STANDALONE_RELEASE || "20260814";
+const STANDALONE_VERSION = process.env.PYTHON_STANDALONE_VERSION || "3.12.14";
+const STANDALONE_BASE_URL = `https://github.com/astral-sh/python-build-standalone/releases/download/${STANDALONE_RELEASE}`;
+const STANDALONE_DIGESTS = {
+  "x64": "1a94c83264731e9603fbea78e57e7ca8f20e7d91eb866627ac2304621b0f6f1f",
+  "arm64": "4572133a5542f306b9bdb155da5800f9e38950cd0a98d469b832ce256fe299ea",
+};
 
-function log(msg) {
-  console.log(`[bundle] ${msg}`);
+function log(message) {
+  console.log(`[bundle] ${message}`);
 }
 
-function rmrf(dir) {
-  if (fs.existsSync(dir)) {
-    fs.rmSync(dir, { recursive: true, force: true });
-  }
+function rmrf(target) {
+  if (fs.existsSync(target)) fs.rmSync(target, { recursive: true, force: true });
 }
 
-function mkdirp(dir) {
-  fs.mkdirSync(dir, { recursive: true });
+function mkdirp(target) {
+  fs.mkdirSync(target, { recursive: true });
 }
 
-/** 计算文件的 MD5 hash */
-function fileHash(filePath) {
-  if (!fs.existsSync(filePath)) return null;
-  const content = fs.readFileSync(filePath);
-  return crypto.createHash("md5").update(content).digest("hex");
-}
-
-/** 计算目录的 hash（基于文件列表和修改时间） */
-function dirHash(dirPath) {
-  if (!fs.existsSync(dirPath)) return null;
-  const hash = crypto.createHash("md5");
-
-  function walkDir(dir) {
-    const items = fs.readdirSync(dir, { withFileTypes: true });
-    for (const item of items) {
-      if (item.name === "__pycache__" || item.name === ".pyc") continue;
-      if (item.name === "node_modules" || item.name === ".git") continue;
-      const fullPath = path.join(dir, item.name);
-      if (item.isDirectory()) {
-        walkDir(fullPath);
-      } else {
-        const stat = fs.statSync(fullPath);
-        hash.update(`${fullPath}:${stat.mtimeMs}:${stat.size}`);
-      }
-    }
-  }
-
-  walkDir(dirPath);
+function sha256File(filePath) {
+  const hash = crypto.createHash("sha256");
+  hash.update(fs.readFileSync(filePath));
   return hash.digest("hex");
 }
 
-/** 读取上次打包状态 */
-function loadState() {
-  if (fs.existsSync(STATE_FILE)) {
-    try {
-      return JSON.parse(fs.readFileSync(STATE_FILE, "utf-8"));
-    } catch {
-      return {};
-    }
-  }
-  return {};
+function fileHash(filePath) {
+  if (!fs.existsSync(filePath)) return null;
+  return sha256File(filePath);
 }
 
-/** 保存打包状态 */
+function loadState() {
+  if (!fs.existsSync(STATE_FILE)) return {};
+  try {
+    return JSON.parse(fs.readFileSync(STATE_FILE, "utf8"));
+  } catch {
+    return {};
+  }
+}
+
 function saveState(state) {
   mkdirp(CACHE_DIR);
-  fs.writeFileSync(STATE_FILE, JSON.stringify(state, null, 2), "utf-8");
+  fs.writeFileSync(STATE_FILE, `${JSON.stringify(state, null, 2)}\n`, "utf8");
 }
 
-/** 增量同步目录：只复制新增或修改的文件，删除多余的文件 */
-function syncDirIncremental(src, dest) {
-  mkdirp(dest);
-
-  const srcItems = new Set();
-  const items = fs.readdirSync(src, { withFileTypes: true });
-
-  for (const item of items) {
-    if (item.name === "__pycache__" || item.name === ".pyc") continue;
-    if (item.name === "node_modules" || item.name === ".git") continue;
-
-    srcItems.add(item.name);
-    const srcPath = path.join(src, item.name);
-    const destPath = path.join(dest, item.name);
-
-    if (item.isDirectory()) {
-      syncDirIncremental(srcPath, destPath);
-    } else {
-      if (fs.existsSync(destPath)) {
-        const srcStat = fs.statSync(srcPath);
-        const destStat = fs.statSync(destPath);
-        if (
-          srcStat.mtimeMs <= destStat.mtimeMs &&
-          srcStat.size === destStat.size
-        ) {
-          continue;
-        }
-      }
-      fs.copyFileSync(srcPath, destPath);
-    }
-  }
-
-  // 删除目标目录中多余的文件
-  if (fs.existsSync(dest)) {
-    const destItems = fs.readdirSync(dest, { withFileTypes: true });
-    for (const item of destItems) {
-      if (!srcItems.has(item.name)) {
-        const destPath = path.join(dest, item.name);
-        rmrf(destPath);
-      }
-    }
-  }
+function parseArg(args, name) {
+  const index = args.indexOf(name);
+  return index >= 0 ? args[index + 1] : undefined;
 }
 
-function downloadFile(url, dest) {
+function normalizeArch(value) {
+  if (value === "amd64") return "x64";
+  if (value === "aarch64") return "arm64";
+  return value;
+}
+
+function targetFromArgs(args) {
+  const platform = parseArg(args, "--platform") || process.env.FTRE_TARGET_PLATFORM || process.platform;
+  const arch = normalizeArch(parseArg(args, "--arch") || process.env.FTRE_TARGET_ARCH || process.arch);
+  if (platform !== "win32" && platform !== "darwin") {
+    throw new Error(`暂不支持为 ${platform} 打包内置 Gateway；目标必须是 win32 或 darwin`);
+  }
+  if (arch !== "x64" && arch !== "arm64") {
+    throw new Error(`不支持的目标架构：${arch}；目标必须是 x64 或 arm64`);
+  }
+  if (platform === "win32" && arch !== "x64") {
+    throw new Error("Windows 当前只发布 x64 包");
+  }
+  return { platform, arch };
+}
+
+function downloadFile(url, destination) {
   return new Promise((resolve, reject) => {
-    log(`下载 ${url} ...`);
-    const file = fs.createWriteStream(dest);
-    const get = url.startsWith("https") ? https.get : http.get;
-
-    const request = (currentUrl) => {
-      get(currentUrl, (res) => {
-        if (
-          res.statusCode >= 300 &&
-          res.statusCode < 400 &&
-          res.headers.location
-        ) {
-          file.close();
-          request(res.headers.location);
+    // GitHub release资产在部分 Windows 代理下会让 Node HTTPS 流在收到部分
+    // 内容后迟迟不触发 finish；系统 curl 在 macOS、Windows runner 都可用，
+    // 优先使用它并保留 Node fallback。
+    try {
+      execFileSync(process.platform === "win32" ? "curl.exe" : "curl", [
+        "--location",
+        "--fail",
+        "--silent",
+        "--show-error",
+        "--retry", "3",
+        "--retry-all-errors",
+        "--connect-timeout", "30",
+        "--max-time", "600",
+        "--output", destination,
+        url,
+      ], { stdio: "inherit" });
+      resolve();
+      return;
+    } catch (curlError) {
+      log(`curl 下载失败，回退 Node HTTPS：${curlError instanceof Error ? curlError.message : String(curlError)}`);
+    }
+    const request = (currentUrl, redirects = 0) => {
+      if (redirects > 5) return reject(new Error(`下载重定向次数过多：${currentUrl}`));
+      const client = currentUrl.startsWith("https:") ? https : http;
+      client.get(currentUrl, (response) => {
+        if (response.statusCode >= 300 && response.statusCode < 400 && response.headers.location) {
+          response.resume();
+          request(new URL(response.headers.location, currentUrl).toString(), redirects + 1);
           return;
         }
-        if (res.statusCode !== 200) {
-          file.close();
-          reject(new Error(`HTTP ${res.statusCode} for ${currentUrl}`));
+        if (response.statusCode !== 200) {
+          response.resume();
+          reject(new Error(`下载失败 HTTP ${response.statusCode}：${currentUrl}`));
           return;
         }
-        res.pipe(file);
-        file.on("finish", () => {
-          file.close();
-          log(`下载完成: ${path.basename(dest)}`);
-          resolve();
+        mkdirp(path.dirname(destination));
+        const file = fs.createWriteStream(destination);
+        response.pipe(file);
+        file.on("finish", () => file.close(() => resolve()));
+        file.on("error", (error) => {
+          file.close(() => {});
+          rmrf(destination);
+          reject(error);
         });
-      }).on("error", (err) => {
-        file.close();
-        fs.unlinkSync(dest);
-        reject(err);
+      }).on("error", (error) => {
+        rmrf(destination);
+        reject(error);
       });
     };
-
     request(url);
   });
 }
 
-// --- 主流程 ---
+function powershellQuote(value) {
+  return `'${String(value).replace(/'/g, "''")}'`;
+}
+
+function extractWindowsZip(archive, destination) {
+  execFileSync("powershell", [
+    "-NoProfile",
+    "-NonInteractive",
+    "-Command",
+    `Expand-Archive -LiteralPath ${powershellQuote(archive)} -DestinationPath ${powershellQuote(destination)} -Force`,
+  ], { stdio: "inherit" });
+}
+
+function extractMacTar(archive, destination) {
+  execFileSync("tar", ["-xzf", archive, "-C", destination], { stdio: "inherit" });
+}
+
+function findFile(root, predicate) {
+  const queue = [root];
+  while (queue.length > 0) {
+    const current = queue.shift();
+    for (const item of fs.readdirSync(current, { withFileTypes: true })) {
+      const fullPath = path.join(current, item.name);
+      if (item.isDirectory()) {
+        queue.push(fullPath);
+      } else if (predicate(fullPath, item.name)) {
+        return fullPath;
+      }
+    }
+  }
+  return null;
+}
+
+function copyExtractedRuntime(extractedRoot, pythonDir, platform) {
+  const executable = platform === "win32"
+    ? findFile(extractedRoot, (_fullPath, name) => name === "python.exe")
+    : findFile(extractedRoot, (fullPath, name) => name === "python3.12" && fullPath.includes(`${path.sep}bin${path.sep}`));
+  if (!executable) throw new Error(`解压后的 Python runtime 中找不到解释器：${extractedRoot}`);
+
+  const runtimeRoot = platform === "win32"
+    ? path.dirname(executable)
+    : path.dirname(path.dirname(executable));
+  fs.cpSync(runtimeRoot, pythonDir, { recursive: true, dereference: false });
+  const relativeExecutable = path.relative(pythonDir, path.join(
+    pythonDir,
+    path.relative(runtimeRoot, executable),
+  ));
+  if (platform !== "win32") fs.chmodSync(path.join(pythonDir, relativeExecutable), 0o755);
+  return { executable: path.join(pythonDir, relativeExecutable), relativeExecutable };
+}
+
+async function installPythonRuntime(target, pythonDir, forceClean) {
+  const runtimeManifestPath = path.join(pythonDir, "runtime.json");
+  let existing = null;
+  if (!forceClean && fs.existsSync(runtimeManifestPath)) {
+    try {
+      existing = JSON.parse(fs.readFileSync(runtimeManifestPath, "utf8"));
+    } catch {
+      existing = null;
+    }
+  }
+  const expectedExecutable = target.platform === "win32"
+    ? path.join(pythonDir, "python.exe")
+    : path.join(pythonDir, "bin", "python3.12");
+  if (
+    existing &&
+    existing.platform === target.platform &&
+    existing.arch === target.arch &&
+    fs.existsSync(expectedExecutable)
+  ) {
+    log(`✓ 已存在 ${target.platform}/${target.arch} Python runtime，跳过下载`);
+    return { executable: expectedExecutable, manifest: existing };
+  }
+
+  rmrf(pythonDir);
+  mkdirp(pythonDir);
+  const cacheKey = target.platform === "win32"
+    ? `python-${WINDOWS_PYTHON_VERSION}-embed-amd64.zip`
+    : `cpython-${STANDALONE_VERSION}-${STANDALONE_RELEASE}-${target.arch}-apple-darwin-install_only.tar.gz`;
+  const archive = path.join(BACKEND_DIR, cacheKey);
+  const cached = path.join(CACHE_DIR, cacheKey);
+  let sourceUrl;
+  let expectedDigest;
+  if (target.platform === "win32") {
+    sourceUrl = `https://www.python.org/ftp/python/${WINDOWS_PYTHON_VERSION}/python-${WINDOWS_PYTHON_VERSION}-embed-amd64.zip`;
+  } else {
+    const triple = target.arch === "arm64" ? "aarch64-apple-darwin" : "x86_64-apple-darwin";
+    const name = `cpython-${STANDALONE_VERSION}+${STANDALONE_RELEASE}-${triple}-install_only.tar.gz`;
+    sourceUrl = `${STANDALONE_BASE_URL}/${encodeURIComponent(name).replace(/%2B/g, "%2B")}`;
+    expectedDigest = process.env.PYTHON_STANDALONE_SHA256 || STANDALONE_DIGESTS[target.arch];
+  }
+  if (fs.existsSync(cached)) {
+    fs.copyFileSync(cached, archive);
+    log(`使用缓存的 Python runtime：${cacheKey}`);
+  } else {
+    log(`下载 ${sourceUrl}`);
+    await downloadFile(sourceUrl, archive);
+    mkdirp(CACHE_DIR);
+    fs.copyFileSync(archive, cached);
+  }
+  const archiveSha256 = sha256File(archive);
+  if (expectedDigest && archiveSha256 !== expectedDigest) {
+    throw new Error(`Python runtime 校验和不匹配：expected=${expectedDigest}, actual=${archiveSha256}`);
+  }
+
+  const extracted = path.join(BACKEND_DIR, `.python-extract-${target.platform}-${target.arch}`);
+  rmrf(extracted);
+  mkdirp(extracted);
+  if (target.platform === "win32") extractWindowsZip(archive, extracted);
+  else extractMacTar(archive, extracted);
+  const copied = copyExtractedRuntime(extracted, pythonDir, target.platform);
+  rmrf(extracted);
+  rmrf(archive);
+
+  if (target.platform === "win32") {
+    const pthFile = path.join(pythonDir, `python${WINDOWS_PYTHON_VERSION.split(".").slice(0, 2).join("")}._pth`);
+    if (fs.existsSync(pthFile)) {
+      let content = fs.readFileSync(pthFile, "utf8").replace(/^#\s*import site/m, "import site");
+      const serverRelative = path.relative(pythonDir, path.join(BACKEND_DIR, "server"));
+      if (!content.split(/\r?\n/).includes(serverRelative)) content += `\n${serverRelative}\n`;
+      fs.writeFileSync(pthFile, content, "utf8");
+    }
+  }
+
+  const manifest = {
+    formatVersion: 1,
+    platform: target.platform,
+    arch: target.arch,
+    pythonVersion: target.platform === "win32" ? WINDOWS_PYTHON_VERSION : STANDALONE_VERSION,
+    pythonExecutable: copied.relativeExecutable.split(path.sep).join("/"),
+    source: target.platform === "win32" ? "python.org-embedded" : "python-build-standalone",
+    sourceUrl,
+    archiveSha256,
+    runtimeSha256: sha256File(copied.executable),
+  };
+  fs.writeFileSync(runtimeManifestPath, `${JSON.stringify(manifest, null, 2)}\n`, "utf8");
+  log(`Python runtime 已安装：${manifest.platform}/${manifest.arch} ${manifest.pythonVersion}`);
+  return { executable: copied.executable, manifest };
+}
+
+function syncDirIncremental(source, destination) {
+  mkdirp(destination);
+  const sourceItems = new Set();
+  for (const item of fs.readdirSync(source, { withFileTypes: true })) {
+    if (item.name === "__pycache__" || item.name.endsWith(".pyc") || item.name === ".git") continue;
+    sourceItems.add(item.name);
+    const sourcePath = path.join(source, item.name);
+    const destinationPath = path.join(destination, item.name);
+    if (item.isDirectory()) syncDirIncremental(sourcePath, destinationPath);
+    else {
+      const sourceStat = fs.statSync(sourcePath);
+      let unchanged = false;
+      try {
+        const destinationStat = fs.statSync(destinationPath);
+        unchanged = sourceStat.size === destinationStat.size && sourceStat.mtimeMs <= destinationStat.mtimeMs;
+      } catch {
+        unchanged = false;
+      }
+      if (!unchanged) fs.copyFileSync(sourcePath, destinationPath);
+    }
+  }
+  for (const item of fs.readdirSync(destination, { withFileTypes: true })) {
+    if (!sourceItems.has(item.name)) rmrf(path.join(destination, item.name));
+  }
+}
+
+function cleanPycache(root) {
+  if (!fs.existsSync(root)) return;
+  for (const item of fs.readdirSync(root, { withFileTypes: true })) {
+    const fullPath = path.join(root, item.name);
+    if (item.isDirectory() && item.name === "__pycache__") rmrf(fullPath);
+    else if (item.isDirectory()) cleanPycache(fullPath);
+    else if (item.name.endsWith(".pyc")) fs.rmSync(fullPath, { force: true });
+  }
+}
+
+function getDirSize(root) {
+  let total = 0;
+  for (const item of fs.readdirSync(root, { withFileTypes: true })) {
+    const fullPath = path.join(root, item.name);
+    total += item.isDirectory() ? getDirSize(fullPath) : fs.statSync(fullPath).size;
+  }
+  return total;
+}
+
+function projectVersion(pyprojectPath) {
+  try {
+    const text = fs.readFileSync(pyprojectPath, "utf8");
+    return text.match(/^version\s*=\s*["']([^"']+)["']/m)?.[1] || "unknown";
+  } catch {
+    return "unknown";
+  }
+}
+
+function copyLicense(root, label, destination) {
+  const candidates = ["LICENSE", "LICENSE.txt", "LICENSE.md", "NOTICE"];
+  for (const name of candidates) {
+    const source = path.join(root, name);
+    if (!fs.existsSync(source)) continue;
+    const target = path.join(destination, `${label}-${name}`);
+    fs.copyFileSync(source, target);
+    return path.relative(BACKEND_DIR, target).split(path.sep).join("/");
+  }
+  return null;
+}
+
+function writeBundleManifest(target, runtime) {
+  const licensesDir = path.join(BACKEND_DIR, "licenses");
+  mkdirp(licensesDir);
+  const licenseFiles = [
+    copyLicense(PROJECT_ROOT, "ftre", licensesDir),
+    copyLicense(AGENT_CORE_ROOT, "ftre-agent-core", licensesDir),
+    copyLicense(CORDIS_ROOT, "cordis-py", licensesDir),
+  ].filter(Boolean);
+  const manifest = {
+    formatVersion: 1,
+    platform: target.platform,
+    arch: target.arch,
+    commit: process.env.GITHUB_SHA || null,
+    ftre: {
+      version: projectVersion(path.join(PROJECT_ROOT, "pyproject.toml")),
+    },
+    agentCore: {
+      version: projectVersion(path.join(AGENT_CORE_ROOT, "pyproject.toml")),
+    },
+    cordis: {
+      version: projectVersion(path.join(CORDIS_ROOT, "pyproject.toml")),
+    },
+    python: runtime.manifest,
+    licenseFiles,
+    signatureStatus: process.env.CSC_LINK ? "configured" : "unsigned",
+  };
+  fs.writeFileSync(path.join(BACKEND_DIR, "manifest.json"), `${JSON.stringify(manifest, null, 2)}\n`, "utf8");
+}
+
+function installPipIfNeeded(pythonExecutable, pythonDir) {
+  try {
+    execFileSync(pythonExecutable, ["-m", "pip", "--version"], { stdio: "ignore", cwd: pythonDir });
+    return;
+  } catch {
+    // 极少数 standalone 发行物可能不含 pip；只在构建阶段补齐，运行时不联网。
+  }
+  const getPip = path.join(BACKEND_DIR, "get-pip.py");
+  const cached = path.join(CACHE_DIR, "get-pip.py");
+  return downloadFile(GET_PIP_URL, cached).then(() => {
+    fs.copyFileSync(cached, getPip);
+    execFileSync(pythonExecutable, [getPip, "--no-warn-script-location"], { stdio: "inherit", cwd: pythonDir });
+    rmrf(getPip);
+  });
+}
+
+const GET_PIP_URL = "https://bootstrap.pypa.io/get-pip.py";
 
 async function main() {
   const args = process.argv.slice(2);
   const forceClean = args.includes("--clean") || args.includes("-c");
+  const skipDeps = args.includes("--skip-deps");
+  const target = targetFromArgs(args);
+  log(`=== 开始打包后端 ${target.platform}/${target.arch} ===`);
+  log(`后端根目录：${PROJECT_ROOT}`);
+  log(`agent-core 根目录：${AGENT_CORE_ROOT}`);
+  log(`cordis-py 根目录：${CORDIS_ROOT}`);
 
-  log("=== 开始打包后端 ===");
-  log(`后端根目录: ${PROJECT_ROOT}`);
-  log(`agent-core 根目录: ${AGENT_CORE_ROOT}`);
-
-  // 校验路径存在
   if (!fs.existsSync(path.join(PROJECT_ROOT, "pyproject.toml"))) {
-    throw new Error(`未找到 ftre 后端: ${PROJECT_ROOT}/pyproject.toml\n请设置 FTRE_ROOT 环境变量`);
+    throw new Error(`未找到 ftre 后端：${PROJECT_ROOT}/pyproject.toml，请设置 FTRE_ROOT`);
   }
   if (!fs.existsSync(path.join(AGENT_CORE_ROOT, "pyproject.toml"))) {
-    throw new Error(`未找到 ftre-agent-core: ${AGENT_CORE_ROOT}/pyproject.toml\n请设置 FTRE_AGENT_CORE_ROOT 环境变量`);
+    throw new Error(`未找到 ftre-agent-core：${AGENT_CORE_ROOT}/pyproject.toml，请设置 FTRE_AGENT_CORE_ROOT`);
   }
-
-  if (forceClean) {
-    log("强制全量重新打包（--clean）");
+  if (!fs.existsSync(path.join(CORDIS_ROOT, "pyproject.toml"))) {
+    throw new Error(`未找到 cordis-py：${CORDIS_ROOT}/pyproject.toml，请设置 CORDIS_ROOT`);
   }
+  if (forceClean) log("强制全量重新打包");
 
   const state = forceClean ? {} : loadState();
-  const newState = {};
-
+  const targetKey = `${target.platform}-${target.arch}`;
   const pythonDir = path.join(BACKEND_DIR, "python");
   const serverDir = path.join(BACKEND_DIR, "server");
-  const pythonExe = path.join(pythonDir, "python.exe");
-
-  // =========================================================================
-  // 1. Python 运行时（只在首次或强制清理时安装）
-  // =========================================================================
-  const pythonInstalled = fs.existsSync(pythonExe);
-
-  if (!pythonInstalled || forceClean) {
-    log("安装 Python 运行时...");
-
-    // 清理旧目录
-    rmrf(pythonDir);
-    mkdirp(pythonDir);
-
-    const zipPath = path.join(BACKEND_DIR, "python-embed.zip");
-    const cachedZip = path.join(
-      CACHE_DIR,
-      `python-${PYTHON_VERSION}-embed-amd64.zip`,
-    );
-
-    if (fs.existsSync(cachedZip)) {
-      log("使用缓存的 Python 嵌入式包");
-      fs.copyFileSync(cachedZip, zipPath);
-    } else {
-      await downloadFile(PYTHON_EMBED_URL, zipPath);
-      mkdirp(CACHE_DIR);
-      fs.copyFileSync(zipPath, cachedZip);
+  mkdirp(BACKEND_DIR);
+  // 上一次在其他平台被中断时可能留下半个 archive 或解压目录；这些文件
+  // 不能进入最终 extraResources，也不能影响本次目标架构选择。
+  for (const item of fs.readdirSync(BACKEND_DIR)) {
+    if (item.startsWith(".python-extract-") || item.endsWith(".tar.gz") || item.endsWith("-embed.zip")) {
+      rmrf(path.join(BACKEND_DIR, item));
     }
-
-    // 解压 Python
-    log("解压嵌入式 Python...");
-    execSync(
-      `powershell -Command "Expand-Archive -Path '${zipPath}' -DestinationPath '${pythonDir}' -Force"`,
-      { stdio: "inherit" },
-    );
-    fs.unlinkSync(zipPath);
-
-    // 修改 .pth 文件，启用 site 机制并添加 server 目录到 sys.path
-    const pthPath = path.join(pythonDir, PTH_FILE);
-    if (fs.existsSync(pthPath)) {
-      let content = fs.readFileSync(pthPath, "utf-8");
-      content = content.replace(/^#\s*import site/m, "import site");
-      content += "\n..\\server\n";
-      fs.writeFileSync(pthPath, content, "utf-8");
-      log(`已修改 ${PTH_FILE}`);
-    }
-
-    // 安装 pip
-    const getPipPath = path.join(BACKEND_DIR, "get-pip.py");
-    const cachedGetPip = path.join(CACHE_DIR, "get-pip.py");
-    if (fs.existsSync(cachedGetPip)) {
-      log("使用缓存的 get-pip.py");
-      fs.copyFileSync(cachedGetPip, getPipPath);
-    } else {
-      await downloadFile(GET_PIP_URL, getPipPath);
-      mkdirp(CACHE_DIR);
-      fs.copyFileSync(getPipPath, cachedGetPip);
-    }
-
-    log("安装 pip...");
-    execSync(`"${pythonExe}" "${getPipPath}" --no-warn-script-location`, {
-      stdio: "inherit",
-      cwd: pythonDir,
-    });
-    fs.unlinkSync(getPipPath);
-
-    // 安装 setuptools + wheel（嵌入式 Python 不自带，构建需要）
-    log("安装 setuptools + wheel...");
-    execSync(
-      `"${pythonExe}" -m pip install setuptools wheel --no-warn-script-location --no-cache-dir -q`,
-      { stdio: "inherit", cwd: pythonDir },
-    );
-
-    // 首次安装，强制安装依赖
-    state.ftreDepsHash = null;
-    state.agentCoreDepsHash = null;
+  }
+  const runtime = await installPythonRuntime(target, pythonDir, forceClean);
+  if (skipDeps) {
+    log("仅准备 runtime，跳过目标平台 Python 依赖安装（用于非目标主机的结构验证）");
   } else {
-    log("✓ Python 运行时已存在，跳过");
+    await installPipIfNeeded(runtime.executable, pythonDir);
   }
 
-  // =========================================================================
-  // 2. pip 依赖（从 pyproject.toml 解析依赖列表，直接 pip install）
-  // =========================================================================
   const { parseTomlDeps } = require("./parse-deps");
   const agentCoreDeps = parseTomlDeps(path.join(AGENT_CORE_ROOT, "pyproject.toml"));
   const ftreDeps = parseTomlDeps(path.join(PROJECT_ROOT, "pyproject.toml"));
-
-  // 合并去重，过滤自有的包（不在 PyPI 上，源码通过 sync 同步）
-  const ownPkgs = ["ftre-agent-core", "ftre", "litellm"];
+  const ownPkgs = ["ftre-agent-core", "ftre", "cordis-py", "litellm"];
   const allDeps = [...new Set([...agentCoreDeps, ...ftreDeps])]
-    .filter((d) => !ownPkgs.some((p) => d.startsWith(p)));
-  const depsHash = crypto.createHash("md5").update(allDeps.join("\n")).digest("hex");
-  newState.depsHash = depsHash;
-
-  if (depsHash !== state.depsHash) {
-    log("安装 Python 依赖（从 pyproject.toml 解析）...");
-    log(`  依赖列表: ${allDeps.join(", ")}`);
-    for (const dep of allDeps) {
-      log(`  pip install ${dep}`);
-      execSync(
-        `"${pythonExe}" -m pip install "${dep}" --no-warn-script-location --no-cache-dir -q`,
-        { stdio: "inherit", cwd: pythonDir },
-      );
+    .filter((dependency) => !ownPkgs.some((name) => dependency.startsWith(name)));
+  const depsHash = crypto.createHash("sha256").update(`${targetKey}\n${allDeps.join("\n")}`).digest("hex");
+  let preparedDepsHash = null;
+  if (!skipDeps && (depsHash !== state.depsHash || forceClean)) {
+    log(`安装 Python 依赖：${allDeps.join(", ")}`);
+    for (const dependency of allDeps) {
+      execFileSync(runtime.executable, ["-m", "pip", "install", dependency,
+        "--disable-pip-version-check", "--no-warn-script-location", "--no-cache-dir", "-q"], {
+        stdio: "inherit",
+        cwd: pythonDir,
+      });
     }
-  } else {
-    log("✓ Python 依赖无变化，跳过");
+    preparedDepsHash = depsHash;
+  } else if (!skipDeps) {
+    log("✓ Python 依赖无变化，跳过安装");
+    preparedDepsHash = depsHash;
   }
 
-  // =========================================================================
-  // 2.5. 清理构建工具（pip/setuptools/wheel 占 ~27MB，安装完依赖后不再需要）
-  // =========================================================================
-  log("清理构建工具（pip/setuptools/wheel）...");
-  try {
-    execSync(
-      `"${pythonExe}" -m pip uninstall -y pip setuptools wheel 2>&1`,
-      { stdio: "pipe", cwd: pythonDir },
-    );
-  } catch {
-    // 忽略：可能已经卸载
+  if (target.platform === "win32") {
+    try {
+      execFileSync(runtime.executable, ["-m", "pip", "uninstall", "-y", "pip", "setuptools", "wheel"], {
+        stdio: "ignore", cwd: pythonDir,
+      });
+    } catch {
+      // 清理失败不影响已经完成的依赖安装。
+    }
+    rmrf(path.join(pythonDir, "Scripts"));
   }
-  // 清理 __pycache__ 和 .pyc 文件
-  const sitePackages = path.join(pythonDir, "Lib", "site-packages");
-  cleanPycache(sitePackages);
-  // 清理 Scripts 目录（pip 入口脚本）
-  rmrf(path.join(pythonDir, "Scripts"));
+  cleanPycache(pythonDir);
 
-  // =========================================================================
-  // 4. 同步后端源码（增量复制 src/ftre/ → server/ftre/）
-  // =========================================================================
-  log("同步后端源码（增量）...");
   mkdirp(serverDir);
-
-  const ftreSrcDir = path.join(PROJECT_ROOT, "src", "ftre");
-  const ftreDestDir = path.join(serverDir, "ftre");
-  if (fs.existsSync(ftreSrcDir)) {
-    log("  - src/ftre/");
-    syncDirIncremental(ftreSrcDir, ftreDestDir);
-  }
-
-  // 同步 ftre-agent-core 源码
-  const agentCoreSrcDir = path.join(AGENT_CORE_ROOT, "src", "ftre_agent_core");
-  const agentCoreDestDir = path.join(serverDir, "ftre_agent_core");
-  if (fs.existsSync(agentCoreSrcDir)) {
-    log("  - src/ftre_agent_core/");
-    syncDirIncremental(agentCoreSrcDir, agentCoreDestDir);
-  }
-
-  // 同步 pyproject.toml（用于版本信息）
+  const ftreSrc = path.join(PROJECT_ROOT, "src", "ftre");
+  const ftreDest = path.join(serverDir, "ftre");
+  if (fs.existsSync(ftreSrc)) syncDirIncremental(ftreSrc, ftreDest);
+  const coreSrc = path.join(AGENT_CORE_ROOT, "src", "ftre_agent_core");
+  const coreDest = path.join(serverDir, "ftre_agent_core");
+  if (fs.existsSync(coreSrc)) syncDirIncremental(coreSrc, coreDest);
+  const cordisSrc = path.join(CORDIS_ROOT, "src", "cordis");
+  const cordisDest = path.join(serverDir, "cordis");
+  if (fs.existsSync(cordisSrc)) syncDirIncremental(cordisSrc, cordisDest);
   const pyprojectSrc = path.join(PROJECT_ROOT, "pyproject.toml");
-  const pyprojectDest = path.join(serverDir, "pyproject.toml");
-  if (fs.existsSync(pyprojectSrc)) {
-    const srcHash = fileHash(pyprojectSrc);
-    const destHash = fileHash(pyprojectDest);
-    if (srcHash !== destHash) {
-      log("  - pyproject.toml");
-      fs.copyFileSync(pyprojectSrc, pyprojectDest);
-    }
-  }
-
-  // 确保 data 目录存在（SQLite + logs）
+  if (fs.existsSync(pyprojectSrc)) fs.copyFileSync(pyprojectSrc, path.join(serverDir, "pyproject.toml"));
   mkdirp(path.join(serverDir, "data", "logs"));
-
-  // =========================================================================
-  // 5. 保存状态并统计
-  // =========================================================================
-  saveState(newState);
-
-  const totalSize = getDirSize(BACKEND_DIR);
-  log(`=== 后端打包完成 ===`);
-  log(`目录: ${BACKEND_DIR}`);
-  log(`总大小: ${(totalSize / 1024 / 1024).toFixed(1)} MB`);
-}
-
-function getDirSize(dir) {
-  let size = 0;
-  const items = fs.readdirSync(dir, { withFileTypes: true });
-  for (const item of items) {
-    const fullPath = path.join(dir, item.name);
-    if (item.isDirectory()) {
-      size += getDirSize(fullPath);
-    } else {
-      size += fs.statSync(fullPath).size;
-    }
+  if (target.platform === "darwin") {
+    // Git 在 Windows checkout 上可能丢失 executable bit；打包前明确恢复，
+    // 让安装包中的手工 launcher 在 macOS 上可直接执行。
+    fs.chmodSync(path.join(DESKTOP_DIR, "scripts", "start-gateway.sh"), 0o755);
   }
-  return size;
+  writeBundleManifest(target, runtime);
+
+  const nextState = { targetKey, depsHash: preparedDepsHash, pythonRuntime: runtime.manifest };
+  saveState(nextState);
+  log(`=== 后端打包完成：${(getDirSize(BACKEND_DIR) / 1024 / 1024).toFixed(1)} MB ===`);
 }
 
-/** 递归删除 __pycache__ 目录和 .pyc 文件 */
-function cleanPycache(dir) {
-  if (!fs.existsSync(dir)) return;
-  const items = fs.readdirSync(dir, { withFileTypes: true });
-  for (const item of items) {
-    const fullPath = path.join(dir, item.name);
-    if (item.isDirectory()) {
-      if (item.name === "__pycache__") {
-        rmrf(fullPath);
-      } else {
-        cleanPycache(fullPath);
-      }
-    } else if (item.name.endsWith(".pyc")) {
-      fs.unlinkSync(fullPath);
-    }
-  }
-}
-
-main().catch((err) => {
-  console.error("[bundle] 错误:", err);
+main().catch((error) => {
+  console.error("[bundle] 错误：", error);
   process.exit(1);
 });

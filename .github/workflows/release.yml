@@ -9,7 +9,7 @@ jobs:
   build-windows:
     runs-on: windows-latest
     permissions:
-      contents: write
+      contents: read
 
     steps:
       - name: Checkout desktop
@@ -27,6 +27,12 @@ jobs:
           repository: quanming1/ftre-agent-core
           path: ftre-agent-core
 
+      - name: Checkout cordis-py
+        uses: actions/checkout@v4
+        with:
+          repository: quanming1/cordis-py
+          path: cordis-py
+
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
@@ -37,27 +43,145 @@ jobs:
         with:
           version: 9
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
+      - name: Install dependencies
+        run: pnpm install --no-frozen-lockfile
+
+      - name: Bundle backend (Windows x64)
+        env:
+          FTRE_ROOT: ${{ github.workspace }}\ftre
+          FTRE_AGENT_CORE_ROOT: ${{ github.workspace }}\ftre-agent-core
+          CORDIS_ROOT: ${{ github.workspace }}\cordis-py
+          PIP_INDEX_URL: https://pypi.org/simple
+        run: node scripts/bundle-backend.js --clean --platform win32 --arch x64
+
+      - name: Verify bundled Windows runtime
+        shell: pwsh
+        run: |
+          $manifest = Get-Content backend/manifest.json | ConvertFrom-Json
+          if ($manifest.platform -ne 'win32' -or $manifest.arch -ne 'x64') { throw 'Windows runtime manifest mismatch' }
+          $env:PYTHONPATH = "${{ github.workspace }}\backend\server"
+          $env:PYTHONUTF8 = '1'
+          backend/python/python.exe -c "import cordis, ftre, ftre_agent_core; print('bundled runtime ok')"
+
+      - name: Build and package Windows x64
+        run: npm run dist:full -- --publish never
+
+      - name: Upload Windows artifacts
+        uses: actions/upload-artifact@v4
         with:
-          python-version: "3.12"
+          name: ftre-windows-x64
+          if-no-files-found: error
+          path: |
+            release/*Setup*.exe
+            release/*Setup*.exe.blockmap
+
+  build-macos:
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-13
+            arch: x64
+          - runner: macos-14
+            arch: arm64
+    runs-on: ${{ matrix.runner }}
+
+    steps:
+      - name: Checkout desktop
+        uses: actions/checkout@v4
+
+      - name: Checkout ftre
+        uses: actions/checkout@v4
+        with:
+          repository: quanming1/ftre
+          path: ftre
+
+      - name: Checkout ftre-agent-core
+        uses: actions/checkout@v4
+        with:
+          repository: quanming1/ftre-agent-core
+          path: ftre-agent-core
+
+      - name: Checkout cordis-py
+        uses: actions/checkout@v4
+        with:
+          repository: quanming1/cordis-py
+          path: cordis-py
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
 
       - name: Install dependencies
         run: pnpm install --no-frozen-lockfile
 
-      - name: Bundle backend (Python + ftre + agent-core)
+      - name: Bundle backend (macOS ${{ matrix.arch }})
         env:
-          FTRE_ROOT: ${{ github.workspace }}\ftre
-          FTRE_AGENT_CORE_ROOT: ${{ github.workspace }}\ftre-agent-core
-        run: node scripts/bundle-backend.js --clean
+          FTRE_ROOT: ${{ github.workspace }}/ftre
+          FTRE_AGENT_CORE_ROOT: ${{ github.workspace }}/ftre-agent-core
+          CORDIS_ROOT: ${{ github.workspace }}/cordis-py
+          PIP_INDEX_URL: https://pypi.org/simple
+        run: node scripts/bundle-backend.js --clean --platform darwin --arch ${{ matrix.arch }}
 
-      - name: Build and package
-        run: npm run dist:full -- --publish never
+      - name: Verify bundled macOS runtime
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -x backend/python/bin/python3.12
+          test "$(uname -m)" = "${{ matrix.arch == 'x64' && 'x86_64' || 'arm64' }}"
+          python3 -c "import json; m=json.load(open('backend/manifest.json')); assert m['platform']=='darwin' and m['arch']=='${{ matrix.arch }}'"
+          PYTHONPATH="$GITHUB_WORKSPACE/backend/server" \
+            PYTHONUTF8=1 backend/python/bin/python3.12 \
+            -c "import cordis, ftre, ftre_agent_core; print('bundled runtime ok')"
 
-      - name: Upload to GitHub Releases
+      - name: Build and package macOS ${{ matrix.arch }}
+        run: pnpm build && pnpm exec electron-builder --mac --${{ matrix.arch }} -c electron-builder-full.json --publish never
+
+      - name: Upload macOS artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ftre-macos-${{ matrix.arch }}
+          if-no-files-found: error
+          path: |
+            release/*mac-${{ matrix.arch }}.dmg
+            release/*mac-${{ matrix.arch }}.zip
+
+  publish-release:
+    needs: [build-windows, build-macos]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Download platform artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: release
+          merge-multiple: true
+
+      - name: Generate SHA256SUMS
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd release
+          find . -type f ! -name SHA256SUMS -print0 \
+            | sort -z \
+            | xargs -0 sha256sum > SHA256SUMS
+
+      - name: Upload all artifacts to GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          files: |
-            release/*Setup*.exe
-            release/*Setup*.exe.blockmap
+          files: release/*
           generate_release_notes: true
+          body: |
+            macOS 安装包按 CPU 架构分别提供：x64（Intel）与 arm64（Apple Silicon）。
+            安装包内置对应架构的 Python runtime，不要求用户预装开发环境。
+            当前构建的签名/notarization 状态以本次 CI 的实际配置和产物为准。
