@@ -10,8 +10,7 @@
 
 import { useCallback, useState, useRef } from "react";
 import { Plus, X, Trash2, ChevronDown, Search } from "lucide-react";
-import { ContextMenu, type ContextMenuItem } from "@/components/ContextMenu";
-import { Tooltip, TooltipProvider } from "@ftre/ui";
+import { ContextMenu, type ContextMenuItem, Tooltip, TooltipProvider } from "@ftre/ui";
 import { terminalManager } from "@/services/terminal";
 import { useTerminal, type TerminalInstance } from "@/stores/terminal";
 import { useWorkspace } from "@/stores/workspace";

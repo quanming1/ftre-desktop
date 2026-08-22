@@ -1,5 +1,9 @@
 # FTRE Desktop — Electron 桌面端重建架构文档
 
+> 历史方案记录：本文描述早期“外部 ai-base gateway”模式，已被当前客户端的
+> 内置 ftre Gateway 架构取代。跨平台打包、runtime、路径和发布契约以
+> `docs/prd/PRD-E1-mac-client-packaging.md` 及 `packages/electron/src/backend*.ts` 为准。
+
 ## 概述
 
 将当前纯浏览器 WebSocket 客户端改造回 Electron 桌面应用。后端（ai-base gateway）独立运行，Electron 作为外连客户端。保留全部原生能力（文件系统、Git、终端、文件监听、内存监控）。

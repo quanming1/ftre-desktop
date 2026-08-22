@@ -22,8 +22,7 @@ import { useNotification } from "@/stores/notification";
 import { previewRollback, executeRollback } from "@/services/api";
 import { fetchSessionMessages } from "@/services/api";
 import { RollbackConfirmDialog } from "./RollbackConfirmDialog";
-import { ContextMenu, type ContextMenuItem } from "@/components/ContextMenu";
-import { Tooltip, TooltipProvider, ImageViewer } from "@ftre/ui";
+import { ContextMenu, type ContextMenuItem, Tooltip, TooltipProvider, ImageViewer } from "@ftre/ui";
 
 /**
  * 渲染 parts 数组为 inline 内容

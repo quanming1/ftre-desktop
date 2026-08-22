@@ -8,7 +8,7 @@ export function useRenderCount(componentName: string): number {
     const count = useRef(0);
     count.current += 1;
 
-    if (process.env.NODE_ENV === 'development') {
+    if (import.meta.env.DEV) {
         console.debug(`[RenderCount] ${componentName}: ${count.current}`);
     }
 

@@ -22,8 +22,8 @@
 
 ### 2.1 功能需求
 
-- [x] FR1：ExplorerView 文件树视图（目录展开 / 折叠 / 懒加载）
-- [x] FR2：FileTreeItem 树节点（递归渲染 + 文件类型图标 + 选中态）
+- [x] FR1：Inspector FileTreeSidebar 文件树视图（目录展开 / 折叠 / 懒加载）
+- [x] FR2：FileTreeSidebar 树节点（递归渲染 + 文件类型图标 + 选中态）
 - [x] FR3：GitService git 状态服务（git poll 轮询 + 协商缓存，避免重复解析）
 - [x] FR4：Changes 节点展示 git 变更（新增 / 修改 / 删除 / 未跟踪）
 - [x] FR5：文件操作（新建 / 删除 / 重命名文件）
@@ -36,9 +36,9 @@
 ## 3. 技术方案
 
 - 模块设计：
-  - `packages/renderer/src/features/explorer/ExplorerView.tsx`：文件树主视图
-  - `packages/renderer/src/features/explorer/FileTreeItem.tsx`：递归树节点
-  - `packages/renderer/src/features/git/`：git 相关 store 与组件
+  - `packages/renderer/src/features/inspector/InspectorPanel.tsx`：Inspector 容器
+  - `packages/renderer/src/features/inspector/FileTreeSidebar.tsx`：文件树与 Changes 节点
+  - `packages/renderer/src/services/git-service.ts`：git 相关服务
   - `GitService`：git status 解析、poll 轮询、协商缓存
 - 关键数据结构：tree node（path / type / status / children 懒加载标志）
 
@@ -63,3 +63,4 @@
 | 日期 | 变更内容 | 理由 |
 |---|---|---|
 | 2026-08-12 | 初始定稿 | — |
+| 2026-08-21 | 文件树 Owner 从不可达的旧 Sidebar/Explorer 子系统收口到 Inspector FileTreeSidebar；移除旧树、归档和 Sidebar Git/MCP 视图实现 | 当前工作台固定 Agent 布局，右侧 Inspector 已成为唯一文件树与 Changes 入口 |

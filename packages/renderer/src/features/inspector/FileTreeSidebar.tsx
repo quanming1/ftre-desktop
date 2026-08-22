@@ -12,8 +12,9 @@ import { useChat, useSessionId } from "@/stores/chat";
 import { useInspector } from "@/stores/inspector";
 import { fetchAppConfig } from "@/services/api";
 import { createManagedPoller } from "@/services/visibility-manager";
-import { ContextMenu, type ContextMenuItem } from "@/components/ContextMenu";
+import { ContextMenu, type ContextMenuItem } from "@ftre/ui";
 import { FileIconView } from "@/components/FileIconView";
+import type { GitFileStatus } from "@ftre/shared";
 
 const FolderIcon = ({ size = 16 }: { size?: number }) => (
   <span style={{ display: "inline-flex", width: size, height: size, minWidth: size, minHeight: size, alignItems: "center", justifyContent: "center" }} className="shrink-0">
@@ -63,7 +64,7 @@ const GIT_FILENAME_COLOR: Record<GitStatus, string> = {
 };
 
 /** 目录名颜色：目录聚合状态对应的 hex 色 */
-const DIR_STATUS_COLOR: Record<DirGitStatus, string> = {
+const DIR_STATUS_COLOR: Record<Exclude<DirGitStatus, null>, string> = {
   modified: "#d97706",
   untracked: "#6b7280",
   mixed: "#6b7280",
@@ -415,13 +416,11 @@ function RootFolderItem({
   onToggle,
   onContextMenu,
   children,
-}: {
+  }: {
   workspace: string;
   expandedPaths: Set<string>;
-  selectedFilePath: string | null;
   gitStatusMap: Map<string, GitStatus> | null;
   onToggle: (path: string) => void;
-  onFileClick: (path: string) => void;
   onContextMenu: (e: React.MouseEvent, path: string, isDir: boolean) => void;
   children: React.ReactNode;
 }) {
@@ -859,7 +858,7 @@ export function FileTreeSidebar() {
 
   if (!workspace) {
     return (
-      <div className="w-full h-full flex items-center justify-center text-[12px] text-t-ghost p-4 text-center">
+      <div className="w-full h-full flex items-center justify-center bg-white text-[12px] text-t-ghost p-4 text-center">
         未设置工作区
       </div>
     );
@@ -867,7 +866,7 @@ export function FileTreeSidebar() {
 
   return (
     <>
-    <div className="h-full w-full overflow-y-auto filetree-scroll">
+    <div className="h-full w-full overflow-y-auto bg-white filetree-scroll">
       <div className="py-1 min-h-full">
         {loading ? (
           <div className="text-[12px] text-t-ghost px-3 py-2">加载中...</div>
@@ -878,12 +877,9 @@ export function FileTreeSidebar() {
             <RootFolderItem
               workspace={workspace}
               expandedPaths={expandedPaths}
-              selectedFilePath={selectedFilePath}
               gitStatusMap={gitStatusMap}
               onToggle={handleToggle}
-              onFileClick={handleFileClick}
               onContextMenu={handleContextMenu}
-              children={rootEntries}
             >
               {rootEntries.map((node) => (
                 <TreeItem

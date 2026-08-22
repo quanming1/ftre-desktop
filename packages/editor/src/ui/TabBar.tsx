@@ -256,7 +256,7 @@ export function TabBar({
     const el = tabsContainerRef.current;
     if (!el) return;
     const amount = direction === "left" ? -150 : 150;
-    el.scrollBy({ left: amount, behavior: "instant" });
+    el.scrollBy({ left: amount, behavior: "auto" });
   }, []);
 
   // Middle-click close handler

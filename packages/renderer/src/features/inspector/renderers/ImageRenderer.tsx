@@ -18,10 +18,10 @@ export function ImageRenderer({ tab }: TabRendererProps) {
     setSrc(null);
     setError(false);
     window.desktop.fs.readImageBase64(filePath).then((result) => {
-      if (result.error || !result.dataUrl) {
+      if (result.error || !result.data) {
         setError(true);
       } else {
-        setSrc(result.dataUrl);
+        setSrc(result.data);
       }
     });
   }, [filePath]);

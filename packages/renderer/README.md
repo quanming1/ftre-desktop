@@ -40,14 +40,10 @@
 │   │   └── StatusBar.tsx # 状态栏
 │   │
 │   ├── features/         # 功能模块
-│   │   ├── editor/       # 编辑器集成
-│   │   ├── explorer/     # 文件浏览器
+│   │   ├── inspector/    # 文件树、Diff、终端与审计面板
 │   │   ├── terminal/     # 终端
 │   │   ├── chat/         # AI 聊天
-│   │   ├── search/       # 搜索面板
-│   │   ├── git/          # Git 集成
-│   │   ├── activity-bar/ # 活动栏
-│   │   ├── bottom-panel/ # 底部面板
+│   │   ├── global-search/ # 全局搜索
 │   │   └── ...
 │   │
 │   ├── stores/           # Zustand 状态
@@ -58,9 +54,7 @@
 │   │   ├── layout.ts     # 布局状态
 │   │   └── ...
 │   │
-│   ├── components/       # 通用组件
-│   │   ├── ContextMenu.tsx
-│   │   ├── ConfirmDialog.tsx
+│   ├── components/       # 渲染器专属通用组件（基础 UI 来自 @ftre/ui）
 │   │   └── ...
 │   │
 │   ├── services/         # 服务层

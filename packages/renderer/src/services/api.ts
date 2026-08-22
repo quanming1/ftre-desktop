@@ -111,7 +111,7 @@ export interface SessionSummary {
 
 /**
  * Cache mapping session_id -> original key for API calls.
- * Populated by fetchSessions(), used by encodeSessionKey().
+ * Populated while mapping session pages, used by encodeSessionKey().
  * Limited to 500 entries to prevent unbounded growth.
  */
 const sessionKeyCache = new Map<string, string>();
@@ -314,17 +314,6 @@ export async function createSessionRemote(
     return null;
   }
 }
-
-/**
- * @deprecated 用 fetchSessionPage。保留兼容旧调用：返回首页（最多 200 条）的 sessions 数组。
- */
-export async function fetchSessions(
-  _workspace?: string | null,
-): Promise<SessionSummary[]> {
-  const page = await fetchSessionPage({ limit: 200 });
-  return page.sessions;
-}
-
 
 /**
  * Encode a session key for use in REST API URLs.
@@ -837,21 +826,12 @@ export interface LLMProvider {
   api_type?: string;
 }
 
-const AI_BASE_CONFIG_PATH = "~/.ai-base/config.json";
-
-async function readAiBaseConfig(): Promise<Record<string, any>> {
-  // Backed by HTTP API now; AI_BASE_CONFIG_PATH kept as an unused legacy path constant
-  // to ease future migration (will be removed when Electron bundle no longer references it).
-  void AI_BASE_CONFIG_PATH;
-  return fetchAppConfig();
-}
-
 /**
- * Reads providers from ~/.ai-base/config.json and returns them
- * in the LLMProvider format expected by ModelSelector.
+ * Reads providers from the gateway config and returns them in the
+ * LLMProvider format expected by ModelSelector.
  */
 export async function fetchLLMProviders(): Promise<LLMProvider[]> {
-  const config = await readAiBaseConfig();
+  const config = await fetchAppConfig();
   const providers = config.providers || {};
   const currentModel = config.agents?.defaults?.model || "";
   const currentProviderName = config.agents?.defaults?.provider || "auto";
@@ -911,16 +891,6 @@ export interface SkillSummary {
   disabled?: boolean;
   /** 来源范围：global（~/.ftre/skills）或 private（~/.ftre/agents/<id>/skills） */
   scope?: "global" | "private";
-}
-
-/**
- * @deprecated 用 SkillSummary。保留别名兼容 ChatInput 的 @ 技能提及。
- * 字段是 SkillSummary 的子集（id / name / description）。
- */
-export interface SkillDef {
-  id: string;
-  name: string;
-  description: string;
 }
 
 /** 详情：含完整正文 */

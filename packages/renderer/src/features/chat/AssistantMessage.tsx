@@ -137,7 +137,7 @@ const ThoughtBlock = memo(
           onClick={() => setExpanded((p) => !p)}
           className="flex items-center gap-1.5 w-full text-[13px] font-mono text-left group py-1"
         >
-          <span className="shrink-0 text-t-secondary font-medium">{label}</span>
+          <span className="shrink-0 text-t-dim font-medium">{label}</span>
           {!expanded && <span className="flex-1 truncate text-t-dim group-hover:text-t-secondary transition-colors">{previewLine}</span>}
           <ChevronRight
             size={13}
@@ -202,6 +202,7 @@ const BlocksRenderer = memo(function BlocksRenderer({
   mdRef,
   collapseNonText = false,
   showSource = false,
+  hideToolRowControls = false,
 }: {
   blocks: ContentBlock[];
   toolResults: Record<string, ToolResult>;
@@ -210,6 +211,8 @@ const BlocksRenderer = memo(function BlocksRenderer({
   collapseNonText?: boolean;
   /** 源码视图：text 块直接显示原始 markdown，不渲染 */
   showSource?: boolean;
+  /** 连续工具组展开内容时，隐藏单行工具的完成标记和展开箭头。 */
+  hideToolRowControls?: boolean;
 }) {
   // 找到最后一个 text block 的索引（光标 / throttle 锚点）
   let lastTextIdx = -1;
@@ -283,6 +286,7 @@ const BlocksRenderer = memo(function BlocksRenderer({
           block={block}
           result={toolResults[block.id]}
           streaming={streaming}
+          hideRowControls={hideToolRowControls}
         />
       );
       i += 1;
@@ -344,6 +348,7 @@ const BlocksRenderer = memo(function BlocksRenderer({
     prev.streaming !== next.streaming
     || prev.collapseNonText !== next.collapseNonText
     || prev.showSource !== next.showSource
+    || prev.hideToolRowControls !== next.hideToolRowControls
   ) return false;
   return contentBlocksEqual(prev.blocks, next.blocks)
     && toolResultsEqual(prev.toolResults, next.toolResults);
@@ -394,9 +399,10 @@ function NonTextProcessGroup({
           <div className="flex flex-col gap-0 py-0 [&>div]:py-0 [&>div>button]:py-0 [&>div>div>button]:py-0">
             <BlocksRenderer
               blocks={blocks}
-              toolResults={toolResults}
-              streaming={streaming}
-              mdRef={mdRef}
+            toolResults={toolResults}
+            streaming={streaming}
+            mdRef={mdRef}
+              hideToolRowControls
             />
           </div>
         </div>
@@ -509,6 +515,7 @@ export const AssistantMessage = memo(
     message,
     showActions = false,
     turnFileChanges,
+    turnId,
     turnDurationSec,
     turnModel,
   }: {
@@ -516,6 +523,7 @@ export const AssistantMessage = memo(
     showActions?: boolean;
     turnTexts?: string[];
     turnFileChanges?: TurnFileChange[];
+    turnId?: string;
     turnDurationSec?: number;
     turnModel?: string;
   }) {
@@ -630,7 +638,7 @@ export const AssistantMessage = memo(
               )}
 
               {turnFileChanges && turnFileChanges.length > 0 && !isStreaming && (
-                <TurnFileChanges changes={turnFileChanges} />
+                <TurnFileChanges changes={turnFileChanges} turnId={turnId} />
               )}
 
                 {showActions && !isStreaming && !message.isError && (

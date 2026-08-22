@@ -6,7 +6,7 @@
  */
 
 import { useCallback, useState } from "react";
-import { ContextMenu, type ContextMenuItem } from "@/components/ContextMenu";
+import { ContextMenu, type ContextMenuItem } from "@ftre/ui";
 import { terminalManager } from "@/services/terminal";
 import type { TerminalInstance } from "@/stores/terminal";
 
@@ -112,7 +112,7 @@ export function TerminalPane({ instance, isActive, containerRef }: TerminalPaneP
         <>
             <div
                 ref={(el) => containerRef(instance.id, el)}
-                className="absolute inset-0 p-4"
+                className="absolute inset-0 bg-surface p-4"
                 style={{ display: isActive ? "block" : "none" }}
                 onContextMenu={handleContextMenu}
                 onDragOver={handleDragOver}

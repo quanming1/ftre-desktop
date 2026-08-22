@@ -2,7 +2,7 @@ import { useEffect, useCallback, useRef } from "react";
 import { TerminalSquare } from "lucide-react";
 import { useLayout } from "@/stores/layout";
 import { useWorkspace } from "@/stores/workspace";
-import { FloatingWindow } from "@/components/FloatingWindow";
+import { FloatingWindow } from "@ftre/ui";
 import { TerminalManager } from "./TerminalManager";
 import { terminalManager } from "@/services/terminal";
 

@@ -23,10 +23,8 @@ import {
 } from "@/services/websocket-client";
 import { createSessionRemote, API_BASE, fetchChatAgents, updateAgent } from "@/services/api";
 import type { ChatAgent, MessageToken, ContextTokenUsage } from "@/services/api";
-import {
-  ClientSessionProjection,
-  type SessionProjectionState,
-} from "./clientSessionProjection";
+import { ClientSessionProjection, type SessionProjectionState } from "./clientSessionProjection";
+export type { SessionProjectionState } from "./clientSessionProjection";
 
 // ─── Types ───────────────────────────────────────────────────────────
 

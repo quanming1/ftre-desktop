@@ -2,10 +2,21 @@
 
 ## [未发布]
 
+### 新增
+
+- A6：运行详情的 Changes 入口打开唯一 Inspector 审阅 Tab，支持未提交/未暂存/已暂存对比、文件级按需 Diff、复制 Diff 和打开源文件。
+- E1：客户端新增 macOS x64/arm64 打包链路，安装包内置架构匹配的 Python runtime、ftre Gateway 与 cordis-py；增加 UTF-8、路径、进程组清理和 GitHub Release 资产校验。
+
 ### 修复
 
 - A2：重复的 TOOL_CALL_START 事件按 tool_call_id 幂等处理，消除聊天工具卡片 duplicate key 警告；Reply 快照转换同样按 id 去重。
 - A1：renderer 声明 Content-Security-Policy（index.html meta + 开发模式响应头注入），消除 Electron 开发模式 Insecure Content-Security-Policy 警告。
+
+## [0.1.9] - 2026-08-20
+
+### 变更
+
+- D3：标题点击直接展开最近 WebSocket 会话列表，移除箭头、绿点和 WS 数量统计；重命名保留在更多操作菜单中。
 
 ## [0.1.8] - 2026-08-20
 

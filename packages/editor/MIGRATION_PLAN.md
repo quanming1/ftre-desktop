@@ -334,16 +334,8 @@ editorRef.current?.setOrientation(SplitDirection.VERTICAL);
 
 **完成的工作**:
 
-- [x] `workbench/viewStateCompat.ts` - ViewState 兼容层
-  - ViewStateCompat 类，基于 EditorMemento 实现
-  - 自动从旧 localStorage 格式迁移数据
-  - 统一的 ViewState 访问接口
-  - 便捷函数：saveViewState, loadViewState, clearViewState
-
-- [x] 更新导出
-  - ViewStateCompat, getViewStateCompat, disposeViewStateCompat
-  - saveAllViewStates, saveViewStateCompat, loadViewStateCompat
-  - 所有新架构组件和类型
+- [x] 统一由 `workbench/editorMemento.ts` 提供 ViewState 持久化
+- [x] 更新导出，移除未被运行时使用的 ViewState 兼容层
 
 ### Phase 6: 旧版兼容去除 ✅ (已完成)
 
@@ -354,7 +346,7 @@ editorRef.current?.setOrientation(SplitDirection.VERTICAL);
 **完成的工作**:
 
 - [x] 删除 `core/view-state-manager.ts`
-  - 被 EditorMemento + ViewStateCompat 完全替代
+  - 被 EditorMemento 完全替代
   - 移除 getViewStateManager, disposeViewStateManager 导出
 
 - [x] 删除 `ui/SimpleEditor.tsx`
@@ -366,11 +358,10 @@ editorRef.current?.setOrientation(SplitDirection.VERTICAL);
   - 接口完全兼容，无需修改 props
 
 - [x] 更新 `renderer/stores/workspace.ts`
-  - 将 getViewStateManager 替换为 saveAllViewStates
+  - 将旧状态保存路径统一为 `saveAllEditorMementos`
   - 简化 ViewState 管理逻辑
 
 - [x] 更新导出文件
-  - `core/index.ts` - 移除 view-state-manager 导出
   - `ui/index.ts` - 移除 SimpleEditor 导出
   - `index.ts` - 移除所有旧版 API 导出
 
@@ -394,7 +385,7 @@ editorRef.current?.setOrientation(SplitDirection.VERTICAL);
 
 | 风险 | 影响 | 缓解措施 | 状态 |
 |------|------|----------|------|
-| 状态迁移 | 数据丢失 | ViewStateCompat 自动迁移 | ✅ 已解决 |
+| 状态迁移 | 数据丢失 | EditorMemento 版本化存储 | ✅ 已解决 |
 | API 变更 | 外部使用方需修改 | 接口兼容，直接替换 | ✅ 已解决 |
 
 ### 低风险
@@ -424,8 +415,8 @@ editorRef.current?.setOrientation(SplitDirection.VERTICAL);
 
 ### 兼容性验收
 
-- [x] 现有 API 保持兼容（SimpleEditor 保留）
-- [x] 旧版 ViewState 数据可迁移（ViewStateCompat）
+- [x] 现有编辑器 API 保持一致（SimpleEditor 已移除）
+- [x] ViewState 由 EditorMemento 统一保存和恢复
 - [x] 主题和配置正常工作
 
 ---
@@ -475,8 +466,6 @@ packages/editor/src/
 #### 删除文件
 ```
 packages/editor/src/
-├── core/
-│   └── view-state-manager.ts   ✅ 已删除 (被 EditorMemento 替代)
 └── ui/
     └── SimpleEditor.tsx        ✅ 已删除 (被 CodeEditorWidget 替代)
 ```

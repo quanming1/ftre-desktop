@@ -20,6 +20,10 @@
     {
       "from": "scripts/start-gateway.bat",
       "to": "start-gateway.bat"
+    },
+    {
+      "from": "scripts/start-gateway.sh",
+      "to": "start-gateway.sh"
     }
   ],
   "win": {
@@ -29,6 +33,22 @@
         "arch": ["x64"]
       }
     ]
+  },
+  "mac": {
+    "target": [
+      {
+        "target": "dmg",
+        "arch": ["x64", "arm64"]
+      },
+      {
+        "target": "zip",
+        "arch": ["x64", "arm64"]
+      }
+    ],
+    "category": "public.app-category.developer-tools",
+    "artifactName": "ftre-${version}-mac-${arch}.${ext}",
+    "hardenedRuntime": true,
+    "gatekeeperAssess": false
   },
   "nsis": {
     "oneClick": false,

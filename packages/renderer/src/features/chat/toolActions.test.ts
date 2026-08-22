@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { ToolCallMessage } from '@/types/chat';
-import { useEditor, buildDiffId } from '@/stores/editor';
+import { buildDiffId } from '@ftre/editor/store';
+import { useEditor } from '@/stores/editor';
 import { useNotification } from '@/stores/notification';
 
 // ── Mocks ────────────────────────────────────────────────────────────

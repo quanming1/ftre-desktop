@@ -1,12 +1,11 @@
 import { useState, useCallback, useRef, useEffect, useMemo } from "react";
-import { MoreHorizontal, Pencil, Archive, PanelRight, Loader2 } from "lucide-react";
+import { MoreHorizontal, Pencil, PanelRight, Loader2 } from "lucide-react";
 import { useChat } from "@/stores/chat";
 import { useSession } from "@/stores/session";
 import { useLayout } from "@/stores/layout";
 import { useNotification } from "@/stores/notification";
-import { updateSession, triggerCompaction } from "@/services/api";
-import { ContextMenu, type ContextMenuItem } from "@/components/ContextMenu";
-import { Tooltip } from "@ftre/ui";
+import { updateSession } from "@/services/api";
+import { ContextMenu, type ContextMenuItem, Tooltip } from "@ftre/ui";
 import { RunContextButton } from "./RunContextPopover";
 
 interface ChatHeaderProps {
@@ -53,22 +52,6 @@ export function ChatHeader({ runContextOpen, onToggleRunContext }: ChatHeaderPro
       .sort((a, b) => (b.updated_at ?? 0) - (a.updated_at ?? 0));
     return sessions.slice(0, 8);
   }, [allSessions]);
-
-  const handleCompaction = useCallback(async () => {
-    if (!sessionId) return;
-    const result = await triggerCompaction(sessionId);
-    if (result) {
-      useNotification.getState().addNotification({
-        level: "info",
-        message: "归档任务已触发",
-      });
-    } else {
-      useNotification.getState().addNotification({
-        level: "error",
-        message: "归档任务触发失败",
-      });
-    }
-  }, [sessionId]);
 
   const handleRename = useCallback(async () => {
     if (!sessionId || !renameValue.trim()) {
@@ -120,12 +103,6 @@ export function ChatHeader({ runContextOpen, onToggleRunContext }: ChatHeaderPro
             icon: Pencil,
             action: handleStartRename,
           },
-          {
-            id: "compact",
-            label: "归档会话",
-            icon: Archive,
-            action: handleCompaction,
-          },
           { id: "sep", label: "", separator: true, action: () => {} },
           {
             id: "delete",
@@ -135,7 +112,7 @@ export function ChatHeader({ runContextOpen, onToggleRunContext }: ChatHeaderPro
         ],
       });
     },
-    [sessionId, handleStartRename, handleCompaction, handleDelete],
+    [sessionId, handleStartRename, handleDelete],
   );
 
   useEffect(() => {
@@ -244,7 +221,7 @@ export function ChatHeader({ runContextOpen, onToggleRunContext }: ChatHeaderPro
             aria-label={inspectorVisible ? "隐藏侧面板" : "显示侧面板"}
             aria-pressed={inspectorVisible}
             onClick={() => togglePanelVisible("inspector")}
-            className={`relative flex h-7 w-7 items-center justify-center rounded-md transition-colors duration-150 ${
+            className={`relative flex h-8 w-8 items-center justify-center rounded-md transition-colors duration-150 ${
               inspectorVisible
                 ? "bg-black/[0.06] text-t-primary"
                 : "text-t-muted hover:bg-black/[0.04] hover:text-t-primary"

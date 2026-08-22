@@ -12,20 +12,7 @@ import {
   registerEditorStoreHost,
   type EditorStore,
   type EditorStoreHost,
-  type OpenFile,
-  type DiffEntry,
-  type EditorGroup,
-  type EditorSnapshot,
-  type EditorInputType,
-  buildDiffId,
-  buildDiffTabPath,
-  SETTINGS_PATH,
-  _resetGroupCounter,
 } from "@ftre/editor/store";
-
-// Re-export types and utils for backward compatibility
-export type { OpenFile, DiffEntry, EditorGroup, EditorSnapshot, EditorInputType };
-export { buildDiffId, buildDiffTabPath, SETTINGS_PATH, _resetGroupCounter };
 
 // ── Host Implementation ──────────────────────────────────────────────
 

@@ -4,10 +4,10 @@ import { createWindow } from "./window";
 import { startPythonBackend, stopPythonBackend, restartPythonBackend } from "./backend";
 import { registerFsIPC } from "./ipc/fs";
 import { registerGitIPC } from "./ipc/git";
-import { registerTerminalIPC } from "./ipc/terminal";
+import { registerTerminalIPC, disposeTerminalIPC } from "./ipc/terminal";
 import { registerStoreIPC } from "./ipc/store";
 import { registerSearchIPC } from "./ipc/search";
-import { registerWatcherIPC } from "./ipc/watcher";
+import { registerWatcherIPC, disposeWatcherIPC } from "./ipc/watcher";
 import { registerMemoryIPC } from "./ipc/memory";
 import { WorkerManager } from "./ipc/worker-manager";
 import { registerWsLogIPC } from "./ipc/ws-log";
@@ -90,6 +90,8 @@ app.on("window-all-closed", () => {
 });
 
 app.on("before-quit", () => {
+  disposeWatcherIPC();
+  disposeTerminalIPC();
   workerManager.dispose();
   stopPythonBackend();
 });

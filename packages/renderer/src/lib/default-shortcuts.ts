@@ -1,5 +1,4 @@
 import { useShortcut } from '../stores/shortcut';
-import { useLayout } from '../stores/layout';
 import { useGlobalSearch } from '../stores/global-search';
 
 /**
@@ -33,7 +32,7 @@ export function registerDefaultShortcuts(): void {
         },
     });
 
-    // Ctrl+` → Toggle Terminal Dropdown
+    // Ctrl+` → Open Inspector terminal tab
     register({
         id: 'toggleTerminal',
         keys: 'ctrl+`',
@@ -41,19 +40,7 @@ export function registerDefaultShortcuts(): void {
         category: '视图',
         context: 'global',
         execute: () => {
-            useLayout.getState().toggleTerminalDropdown();
-        },
-    });
-
-    // Ctrl+B → Toggle Sidebar
-    register({
-        id: 'toggleSidebar',
-        keys: 'ctrl+b',
-        label: '切换侧边栏',
-        category: '视图',
-        context: 'global',
-        execute: () => {
-            useLayout.getState().toggleSidebar();
+            window.dispatchEvent(new CustomEvent('ftre:open-terminal-tab'));
         },
     });
 

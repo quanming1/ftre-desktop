@@ -25,6 +25,7 @@ class ExclusiveChannel {
   private timeout: number;
   private activeWorker: Worker | null = null;
   private activeTimer: NodeJS.Timeout | null = null;
+  private activeResolve: ((value: any) => void) | null = null;
 
   constructor(workerPath: string, timeout: number) {
     this.workerPath = workerPath;
@@ -38,9 +39,11 @@ class ExclusiveChannel {
       const taskId = nextTaskId++;
       const worker = new Worker(this.workerPath);
       this.activeWorker = worker;
+      this.activeResolve = resolve;
 
       this.activeTimer = setTimeout(() => {
-        this.cancel();
+        this.clear(worker);
+        try { worker.terminate(); } catch { }
         resolve({ error: 'Worker timed out' });
       }, this.timeout);
 
@@ -81,6 +84,10 @@ class ExclusiveChannel {
       try { this.activeWorker.terminate(); } catch { }
       this.activeWorker = null;
     }
+    if (this.activeResolve) {
+      this.activeResolve({ error: 'Worker cancelled' });
+      this.activeResolve = null;
+    }
   }
 
   private clear(worker: Worker): void {
@@ -90,6 +97,7 @@ class ExclusiveChannel {
         this.activeTimer = null;
       }
       this.activeWorker = null;
+      this.activeResolve = null;
     }
   }
 
@@ -264,6 +272,7 @@ class SpawnChannel {
       this.workers.add(worker);
 
       const timer = setTimeout(() => {
+        resolved = true;
         this.workers.delete(worker);
         try { worker.terminate(); } catch { }
         resolve({ error: 'Worker timed out' });
@@ -296,8 +305,8 @@ class SpawnChannel {
       worker.on('exit', (code: number) => {
         if (resolved) return;
         resolved = true;
-        clearTimeout(timer);
         this.workers.delete(worker);
+        clearTimeout(timer);
         resolve({ error: `Worker exited with code ${code}` });
       });
 

@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { applyEvent, applyMailboxSnapshot, applyReplySnapshot, useChat } from "./chat";
+import type { ContentBlock } from "./chat";
 import { ClientSessionProjection } from "./clientSessionProjection";
 import { UserMessageEventType } from "@/services/websocket-client";
 
@@ -139,7 +140,9 @@ describe("chat store", () => {
     });
 
     const reply = projection.messages.find((message) => message.id === "reply-tool-dedupe");
-    const toolCalls = reply?.blocks?.filter((block) => block.type === "toolCall");
+    const toolCalls = reply?.blocks?.filter(
+      (block): block is Extract<ContentBlock, { type: "toolCall" }> => block.type === "toolCall",
+    );
     expect(toolCalls).toHaveLength(2);
     expect(toolCalls?.map((block) => block.type === "toolCall" && block.id)).toEqual([
       "tc-duplicate",
@@ -180,7 +183,9 @@ describe("chat store", () => {
     });
 
     const reply = projection.messages.find((message) => message.id === "reply-snapshot-dedupe");
-    const toolCalls = reply?.blocks?.filter((block) => block.type === "toolCall");
+    const toolCalls = reply?.blocks?.filter(
+      (block): block is Extract<ContentBlock, { type: "toolCall" }> => block.type === "toolCall",
+    );
     expect(toolCalls).toHaveLength(2);
     expect(toolCalls?.map((block) => block.id)).toEqual(["tc-snap-dup", "tc-snap-other"]);
     expect(toolCalls?.[0]).toMatchObject({ type: "toolCall", id: "tc-snap-dup", name: "read" });
@@ -254,6 +259,10 @@ describe("chat store", () => {
     const requestId = "request-pending";
     const projection = {
       messages: [],
+      seenEventIds: new Set<string>(),
+      earliestTs: null,
+      hasMoreHistory: true,
+      lastUserInputTs: null,
       sessionRevision: 3,
       hasCoordinatorState: false,
       sessionActivity: "idle" as const,
@@ -268,6 +277,8 @@ describe("chat store", () => {
       retryState: null,
       commandName: null,
       turnStartTs: null,
+      error: null,
+      plan: null,
     };
 
     applyMailboxSnapshot(projection, {
@@ -295,6 +306,10 @@ describe("chat store", () => {
   it("keeps an unacknowledged local queue item when an unrelated snapshot arrives", () => {
     const projection = {
       messages: [],
+      seenEventIds: new Set<string>(),
+      earliestTs: null,
+      hasMoreHistory: true,
+      lastUserInputTs: null,
       sessionRevision: 3,
       hasCoordinatorState: false,
       sessionActivity: "idle" as const,
@@ -314,6 +329,8 @@ describe("chat store", () => {
       retryState: null,
       commandName: null,
       turnStartTs: null,
+      error: null,
+      plan: null,
     };
 
     applyMailboxSnapshot(projection, {
@@ -338,6 +355,10 @@ describe("chat store", () => {
     const requestId = "request-handoff";
     const projection = {
       messages: [],
+      seenEventIds: new Set<string>(),
+      earliestTs: null,
+      hasMoreHistory: true,
+      lastUserInputTs: null,
       sessionRevision: 4,
       hasCoordinatorState: true,
       sessionActivity: "executing" as const,
@@ -357,6 +378,8 @@ describe("chat store", () => {
       retryState: null,
       commandName: null,
       turnStartTs: null,
+      error: null,
+      plan: null,
     };
 
     applyEvent(projection, {

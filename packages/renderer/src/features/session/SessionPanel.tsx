@@ -71,11 +71,11 @@ import { useSession, type SessionSortMode } from "@/stores/session";
 import { useChat } from "@/stores/chat";
 import { useWorkspace } from "@/stores/workspace";
 import { useLayout } from "@/stores/layout";
+import { useInspector } from "@/stores/inspector";
 import { useNotification } from "@/stores/notification";
 import { updateSession, forkSessionRemote } from "@/services/api";
-import { ContextMenu, type ContextMenuItem } from "@/components/ContextMenu";
-import { Tooltip, TooltipProvider, ConfirmDialog } from "@ftre/ui";
-import { normalizePathForCompare } from "@/utils/pathUtils";
+import { ContextMenu, type ContextMenuItem, Tooltip, TooltipProvider, ConfirmDialog } from "@ftre/ui";
+import { normalizePathForCompare } from "@ftre/editor/utils";
 import type { SessionSummary } from "@/services/api";
 import {
   SessionSearchInput,
@@ -568,6 +568,12 @@ export function SessionPanel() {
     (full: string) => {
       if (activeLeftPanel !== "chat") setActiveLeftPanel("chat");
       newSession(full || undefined);
+      // 新建会话只在该工作区已有审阅表格时跳转，不因普通新建动作创建空审阅页。
+      if (full && useInspector.getState().activateWorkspaceAudit(full)) {
+        if (!useLayout.getState().panelVisible.inspector) {
+          useLayout.getState().togglePanelVisible("inspector");
+        }
+      }
     },
     [activeLeftPanel, setActiveLeftPanel, newSession],
   );
@@ -780,6 +786,11 @@ export function SessionPanel() {
   const handleNewThread = useCallback(() => {
     if (activeLeftPanel !== "chat") setActiveLeftPanel("chat");
     newSession(rootPath || undefined);
+    if (rootPath && useInspector.getState().activateWorkspaceAudit(rootPath)) {
+      if (!useLayout.getState().panelVisible.inspector) {
+        useLayout.getState().togglePanelVisible("inspector");
+      }
+    }
   }, [activeLeftPanel, setActiveLeftPanel, newSession, rootPath]);
 
   /** 切换到设置面板 */
@@ -815,7 +826,7 @@ export function SessionPanel() {
       {sessionsCollapsed ? (
         <div
           ref={collapsedRef}
-          className="h-full flex flex-col items-center bg-[#f6f7f9] py-3 text-[14px] relative"
+          className="h-full flex flex-col items-center bg-transparent py-3 text-[14px] relative"
         >
           <SideIconButton
             title="展开会话列表"
@@ -868,7 +879,7 @@ export function SessionPanel() {
               onMouseLeave={closeHoverList}
             >
               <div
-                className="h-full overflow-hidden rounded-r-xl bg-[#f6f7f9] shadow-2xl border-r border-y border-border/40 flex flex-col"
+                className="h-full overflow-hidden bg-surface/42 shadow-2xl backdrop-blur-xl backdrop-saturate-150 border-r border-y border-white/35 flex flex-col"
                 style={{ width: sessionsWidth }}
               >
                 {/* 顶层：新会话按钮 */}
@@ -1009,31 +1020,33 @@ export function SessionPanel() {
           )}
         </div>
       ) : (
-      <div className="h-full flex flex-col bg-[#f6f7f9] text-[14px]">
+      <div className="h-full flex flex-col bg-transparent text-[14px]">
         {/* ── 顶层动作区（New thread / Cron / Skills）── */}
-        <div className="shrink-0 px-2 pt-3 pb-1">
+        <div className="shrink-0 px-2 pt-2 pb-1">
           <div className="flex items-center gap-1">
             <ExpandedNewThreadButton onClick={handleNewThread} />
             <SideIconButton
               title="收起会话列表"
-              className="shrink-0 w-10 h-10"
+              className="shrink-0 h-8 w-8 rounded-md"
               onClick={toggleSessionsCollapsed}
             >
               <PanelLeftClose size={18} strokeWidth={1.8} />
             </SideIconButton>
           </div>
-          <ActionRow
-            icon={Clock}
-            label="定时任务"
-            active={activeLeftPanel === "cron"}
-            onClick={() => setActiveLeftPanel("cron")}
-          />
-          <ActionRow
-            icon={Zap}
-            label="技能"
-            active={activeLeftPanel === "skills"}
-            onClick={() => setActiveLeftPanel("skills")}
-          />
+          <div className="mt-1 space-y-0.5">
+            <ActionRow
+              icon={Clock}
+              label="定时任务"
+              active={activeLeftPanel === "cron"}
+              onClick={() => setActiveLeftPanel("cron")}
+            />
+            <ActionRow
+              icon={Zap}
+              label="技能"
+              active={activeLeftPanel === "skills"}
+              onClick={() => setActiveLeftPanel("skills")}
+            />
+          </div>
         </div>
 
         {/* ── 段头：搜索输入框 / 排序模式切换 ── */}
@@ -1251,15 +1264,6 @@ export function SessionPanel() {
           />
         </div>
 
-        {/* Context menu */}
-        {contextMenu && (
-          <ContextMenu
-            position={contextMenu.position}
-            items={contextMenu.items}
-            onClose={() => setContextMenu(null)}
-          />
-        )}
-
         {/* 重命名对话框 */}
         {renamingSession && (
           <div
@@ -1312,6 +1316,15 @@ export function SessionPanel() {
           </div>
         )}
       </div>
+      )}
+
+      {/* Context menu：放在折叠/展开分支之外，保证 hover 展开的会话列表也能显示。 */}
+      {contextMenu && (
+        <ContextMenu
+          position={contextMenu.position}
+          items={contextMenu.items}
+          onClose={() => setContextMenu(null)}
+        />
       )}
 
       {/* 颜色选择器 Popover */}
@@ -1763,7 +1776,7 @@ function ActionRow({ icon: Icon, label, active, onClick }: ActionRowProps) {
         trigger(e);
         onClick();
       }}
-      className={`relative overflow-hidden w-full flex items-center gap-2.5 px-3 py-1.5 rounded-full transition-colors text-left
+      className={`relative overflow-hidden w-full flex items-center gap-2.5 rounded-md px-2.5 py-1.5 text-left text-[13px] transition-colors
         ${active
           ? "bg-active text-t-primary font-medium"
           : "text-t-secondary hover:text-t-primary hover:bg-hover"}
@@ -1826,7 +1839,7 @@ function ExpandedNewThreadButton({ onClick }: { onClick: () => void }) {
         trigger(e);
         onClick();
       }}
-      className="relative overflow-hidden flex-1 flex items-center gap-2 h-10 px-3 rounded-full text-t-muted hover:text-t-primary hover:bg-hover transition-colors min-w-0"
+      className="relative overflow-hidden flex-1 flex items-center gap-2 h-8 px-2.5 rounded-md text-[13px] text-t-secondary hover:text-t-primary hover:bg-hover transition-colors min-w-0"
       title="新会话"
     >
       <RippleLayer items={ripples} onEnd={remove} />
@@ -1893,7 +1906,7 @@ function SessionRow({
       onMouseEnter={onEnter}
       onMouseLeave={onLeave}
       className={`relative overflow-hidden flex items-center gap-2 ${preview ? "h-[52px]" : "h-10"} pr-3 rounded-lg cursor-pointer select-none transition-colors ${alignWithSectionLabel ? "pl-[45px]" : "pl-3"} ${isActive
-        ? "bg-[#e7e7e8] hover:bg-[#e7e7e8]"
+        ? "bg-[#e9e7ed] hover:bg-[#e9e7ed]"
         : "hover:bg-hover"
         }`}
     >

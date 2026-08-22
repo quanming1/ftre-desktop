@@ -145,9 +145,9 @@ export function ContextMenu({
       animate={{ opacity: 1, scale: 1, y: 0 }}
       transition={{ duration: 0.15, ease: [0.16, 1, 0.3, 1] }}
       className={cn(
-        "fixed z-[9999] rounded-lg shadow-xl outline-none",
+        "fixed z-[9999] rounded-xl shadow-xl outline-none",
         size === "sm" ? "min-w-[120px] py-1" : "min-w-[160px] py-1.5",
-        "bg-[var(--ftre-elevated,#2d2d2d)] border border-[var(--ftre-border,#3c3c3c)]/50",
+        "bg-[var(--ftre-bg-menu,var(--ftre-elevated,#2d2d2d))] border border-[var(--ftre-border-subtle,var(--ftre-border,#3c3c3c))]/70",
         "backdrop-blur-xl",
         className,
       )}
@@ -159,7 +159,7 @@ export function ContextMenu({
             <div
               key={item.id}
               role="separator"
-              className="my-1.5 mx-3 border-t border-[var(--ftre-border,#3c3c3c)]/60"
+              className="my-1.5 mx-3 border-t border-[var(--ftre-border-subtle,var(--ftre-border,#3c3c3c))]/70"
             />
           );
         }
@@ -208,7 +208,7 @@ export function ContextMenu({
                   if (!item.disabled) setFocusedIndex(index);
                 }}
                 className={cn(
-                  "w-full flex items-center gap-3 text-left rounded-md transition-colors duration-150",
+                  "w-full flex items-center gap-3 text-left rounded-lg transition-colors duration-100",
                   size === "sm" ? "px-2.5 py-1.5 text-[12px]" : "px-3 py-2 text-[13px]",
                   item.disabled
                     ? "text-red-400/40 cursor-not-allowed"
@@ -247,8 +247,8 @@ export function ContextMenu({
                 item.disabled
                   ? "text-[var(--ftre-text-faint,#7a8088)] cursor-not-allowed opacity-40"
                   : isFocused
-                    ? "bg-[var(--ftre-accent,#00ff88)]/10 text-[var(--ftre-text-primary,#e8e8e8)]"
-                    : "text-[var(--ftre-text-secondary,#b0b0b0)] hover:bg-[var(--ftre-accent,#00ff88)]/5 hover:text-[var(--ftre-text-primary,#e8e8e8)]",
+                      ? "bg-[var(--ftre-bg-hover,rgba(255,255,255,0.06))] text-[var(--ftre-text-primary,#e8e8e8)]"
+                      : "text-[var(--ftre-text-secondary,#b0b0b0)] hover:bg-[var(--ftre-bg-hover,rgba(255,255,255,0.06))] hover:text-[var(--ftre-text-primary,#e8e8e8)]",
               )}
             >
               <span className="w-5 h-5 flex items-center justify-center shrink-0 opacity-70">

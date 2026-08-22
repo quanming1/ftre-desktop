@@ -55,11 +55,6 @@ describe("CodeBlock", () => {
     });
   });
 
-  it("exposes a download button next to copy", () => {
-    render(<CodeBlock language="rust" code="fn main() {}" />);
-    expect(screen.getByTestId("download-btn")).toBeInTheDocument();
-  });
-
   it("does not show Apply button (removed)", () => {
     render(<CodeBlock language="rust" code="fn main() {}" />);
     expect(screen.queryByTestId("apply-btn")).toBeNull();

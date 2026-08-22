@@ -1,4 +1,4 @@
-export { workspaceHash } from "./path-utils";
+export { normalizePathForCompare, workspaceHash } from "./path-utils";
 export {
   parseBreadcrumbSegments,
   type BreadcrumbSegment,

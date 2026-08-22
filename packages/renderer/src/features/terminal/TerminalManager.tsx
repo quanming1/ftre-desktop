@@ -8,7 +8,6 @@
 import { useEffect, useRef, useCallback, useState } from "react";
 import { useTerminal } from "@/stores/terminal";
 import { useWorkspace } from "@/stores/workspace";
-import { useLayout } from "@/stores/layout";
 import { useChat } from "@/stores/chat";
 import { useSession } from "@/stores/session";
 import { terminalManager } from "@/services/terminal";
@@ -32,7 +31,16 @@ function getCurrentSessionWorkspace(): string | null {
     return useWorkspace.getState().rootPath;
 }
 
-export function TerminalManager() {
+export interface TerminalManagerProps {
+    /** Inspector 内嵌模式：隐藏终端自己的 Tab 栏，只展示终端内容。 */
+    embedded?: boolean;
+    /** 内嵌模式下只挂载指定的终端实例。 */
+    terminalId?: string;
+    /** Inspector Tab 是否当前可见，用于切入时重新测量 xterm。 */
+    active?: boolean;
+}
+
+export function TerminalManager({ embedded = false, terminalId, active = true }: TerminalManagerProps) {
     const instances = useTerminal((s) => s.instances);
     const activeTerminalId = useTerminal((s) => s.activeTerminalId);
     const [showSearch, setShowSearch] = useState(false);
@@ -45,6 +53,7 @@ export function TerminalManager() {
     const rootPath = useWorkspace((s) => s.rootPath);
 
     useEffect(() => {
+        if (embedded) return;
         if (!rootPath) return;
         if (terminalManager.hasTerminals(rootPath)) return;
         if (!terminalManager.getActiveWorkspace()) {
@@ -52,7 +61,7 @@ export function TerminalManager() {
         }
         const cwd = getCurrentSessionWorkspace() ?? rootPath;
         terminalManager.createTerminal(rootPath, cwd);
-    }, [rootPath]); // eslint-disable-line react-hooks/exhaustive-deps
+    }, [embedded, rootPath]); // eslint-disable-line react-hooks/exhaustive-deps
 
     // ── DOM 容器 ref 回调 ─────────────────────────────────────────────
 
@@ -80,33 +89,37 @@ export function TerminalManager() {
     // ── Refit / Focus ─────────────────────────────────────────────────
 
     useEffect(() => {
-        if (activeTerminalId) {
-            terminalManager.refitTerminal(activeTerminalId);
-        }
-    }, [activeTerminalId]);
+        const id = terminalId ?? activeTerminalId;
+        if (!active || !id) return;
+        if (terminalId) terminalManager.setActiveTerminal(terminalId);
+
+        // Inspector 面板重新展开时，父容器的宽高可能还在恢复；按当前 Tab
+        // 精确重测量，不能调用 refitActiveTerminal（它可能指向另一个终端）。
+        const timers = [0, 80, 220].map((delay) =>
+            window.setTimeout(() => terminalManager.refitTerminal(id), delay),
+        );
+        return () => timers.forEach((timer) => window.clearTimeout(timer));
+    }, [active, activeTerminalId, terminalId]);
 
     useEffect(() => {
-        const handler = () => terminalManager.refitActiveTerminal();
+        if (!active) return;
+        const timer = setTimeout(() => {
+            const id = terminalId ?? activeTerminalId;
+            if (id) terminalManager.refitTerminal(id);
+            window.dispatchEvent(new CustomEvent("ftre:focus-terminal"));
+        }, 80);
+        return () => clearTimeout(timer);
+    }, [active, activeTerminalId, terminalId]);
+
+    useEffect(() => {
+        const handler = () => {
+            if (!active) return;
+            const id = terminalId ?? activeTerminalId;
+            if (id) terminalManager.refitTerminal(id);
+        };
         window.addEventListener("ftre:focus-terminal", handler);
         return () => window.removeEventListener("ftre:focus-terminal", handler);
-    }, []);
-
-    // ── 外部事件：在文件树中 "Open in Terminal" ─────────────────────
-
-    useEffect(() => {
-        const handler = async (e: Event) => {
-            const { dirPath } = (e as CustomEvent).detail;
-            if (!dirPath) return;
-            const layout = useLayout.getState();
-            if (!layout.terminalDropdownOpen) layout.toggleTerminalDropdown();
-            const workspace = useWorkspace.getState().rootPath;
-            if (workspace) {
-                await terminalManager.createTerminal(workspace, dirPath);
-            }
-        };
-        window.addEventListener("ftre:open-terminal-at", handler);
-        return () => window.removeEventListener("ftre:open-terminal-at", handler);
-    }, []);
+    }, [active, activeTerminalId, terminalId]);
 
     // ── 搜索快捷键 Ctrl+Shift+F ─────────────────────────────────────
 
@@ -125,15 +138,20 @@ export function TerminalManager() {
     }, []);
 
     return (
-        <div className="flex flex-col h-full">
-            <TerminalTabBar
-                instances={instances}
-                activeTerminalId={activeTerminalId}
-                onToggleSearch={() => setShowSearch((prev) => !prev)}
-            />
+        <div className="flex h-full flex-col bg-surface">
+            {!embedded && (
+                <TerminalTabBar
+                    instances={instances}
+                    activeTerminalId={activeTerminalId}
+                    onToggleSearch={() => setShowSearch((prev) => !prev)}
+                />
+            )}
 
             {/* 终端内容区 */}
-            <div className="flex-1 relative overflow-hidden bg-base rounded-b-xl" data-terminal-panel>
+            <div
+                className={`relative flex min-h-0 flex-1 overflow-hidden bg-surface ${embedded ? "" : "rounded-b-xl"}`}
+                data-terminal-panel
+            >
                 {/* 搜索栏（浮在右上角） */}
                 {showSearch && (
                     <TerminalSearchBar
@@ -143,14 +161,16 @@ export function TerminalManager() {
                 )}
 
                 {/* 终端面板 */}
-                {instances.map((inst) => (
+                {instances
+                    .filter((inst) => !terminalId || inst.id === terminalId)
+                    .map((inst) => (
                     <TerminalPane
                         key={inst.id}
                         instance={inst}
-                        isActive={inst.id === activeTerminalId}
+                        isActive={inst.id === (terminalId ?? activeTerminalId)}
                         containerRef={setContainerRef}
                     />
-                ))}
+                    ))}
             </div>
         </div>
     );

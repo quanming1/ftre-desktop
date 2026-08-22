@@ -1,5 +1,7 @@
 # 编辑器独立包拆分方案与迁移计划
 
+> 状态：迁移已完成（2026-08-21）。本文保留为历史方案记录；当前实现以 `packages/editor/ARCHITECTURE.md` 和 `packages/editor/README.md` 为准。文中 `editorCore`、`@ftre/editor/core` 等名称属于历史阶段，不再对应现存模块。
+
 ## 文档目标
 
 本文档用于规划将当前桌面客户端中的编辑器子系统从 `packages/renderer` 中拆分出来，形成一个独立的包：
@@ -137,7 +139,7 @@
 │                │                                                    │
 │                ├─ useWorkspace                                      │
 │                ├─ useLayout                                         │
-│                ├─ useSearch                                         │
+│                ├─ useGlobalSearch                                   │
 │                ├─ useChat                                           │
 │                └─ useEditor                                         │
 │                                                                    │
@@ -334,7 +336,7 @@ packages/
 
 - `Workbench`
 - `Explorer`
-- `SearchPanel`
+- `GlobalSearchPalette`
 - `FilePalette`
 - `ChatPanel`
 - `TitleBar`

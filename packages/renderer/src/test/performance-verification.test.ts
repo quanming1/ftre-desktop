@@ -30,18 +30,14 @@ vi.mock("@/services/websocket-client", () => ({
 function resetStore() {
   useChat.setState({
     sessionId: null,
-    activeChatId: null,
     messages: [],
     sessionStatus: "idle",
     isBusy: false,
     error: null,
     connected: false,
     model: null,
-    mode: "chat",
     agentId: "default",
     retryState: null,
-    toolCalls: [],
-    progress: null,
   });
 }
 
@@ -104,17 +100,6 @@ describe("performance — message list operations", () => {
     }
     const elapsed = performance.now() - start;
     expect(elapsed).toBeLessThan(200);
-    expect(useChat.getState().messages[0].content.length).toBe(5000);
-  });
-});
-
-describe("performance — mode switching", () => {
-  it("mode switch is instant", () => {
-    const start = performance.now();
-    for (let i = 0; i < 100; i++) {
-      useChat.getState().setMode(i % 2 === 0 ? "chat" : "plan");
-    }
-    const elapsed = performance.now() - start;
-    expect(elapsed).toBeLessThan(50);
+    expect(useChat.getState().messages[0].content?.length).toBe(5000);
   });
 });
