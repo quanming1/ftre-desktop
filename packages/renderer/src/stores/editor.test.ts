@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach } from "vitest";
-import { useEditor, _resetGroupCounter, buildDiffId } from "./editor";
-import type { OpenFile, DiffEntry } from "./editor";
+import { _resetGroupCounter, buildDiffId, type OpenFile, type DiffEntry } from "@ftre/editor/store";
+import { useEditor } from "./editor";
 
 // ── helpers ──────────────────────────────────────────────────────────
 
@@ -13,6 +13,7 @@ function makeFile(
     name: name ?? path.split("/").pop()!,
     language: "typescript",
     content: `// ${path}`,
+    loaded: true,
   };
 }
 

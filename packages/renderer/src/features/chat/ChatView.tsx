@@ -1,12 +1,11 @@
 /** ChatView — 消息列表、pending 队列横幅与输入框。 */
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Loader2 } from "lucide-react";
 import { useChat } from "@/stores/chat";
 import { useSession } from "@/stores/session";
 import { wsClient } from "@/services/websocket-client";
 import { ChatMessageList } from "./ChatMessageList";
 import { ChatInput } from "./ChatInput";
-import { QueuedMessagesBanner } from "./QueuedMessagesBanner";
 import { WelcomeView } from "./WelcomeView";
 import { RunContextPanel } from "./RunContextPopover";
 import {
@@ -75,8 +74,14 @@ export function ChatView({ runContextOpen = false }: ChatViewProps) {
   }, [sessionId, allSessions]);
   const canSend = currentSessionChannel === "ws";
   const isSessionLoading = loadingSessionId != null;
-  const hasPendingMessages = pendingMessages.length > 0;
   const isWelcome = !sessionId && !isBusy && canSend;
+  const [composerOverlayHeight, setComposerOverlayHeight] = useState(0);
+  const handleComposerOverlayHeightChange = useCallback((height: number) => {
+    setComposerOverlayHeight((current) => current === height ? current : height);
+  }, []);
+  // 变更摘要 / pending 横幅采用定位显示在输入框上方；默认保留 30px，
+  // 再叠加定位内容的实际高度，避免消息被横幅遮挡。
+  const composerPaddingBottom = `calc(${composerOverlayHeight}px + 30px)`;
   const { containerRef, layoutMode } = useRunContextLayoutMode();
   const useRunContextRail = runContextOpen && layoutMode === "rail";
 
@@ -87,7 +92,7 @@ export function ChatView({ runContextOpen = false }: ChatViewProps) {
   return (
     <div
       ref={containerRef}
-      className={`relative grid h-full min-h-0 overflow-hidden motion-reduce:transition-none transition-[grid-template-columns] duration-200 ease-out ${gridColumns}`}
+      className={`relative grid h-full min-h-0 grid-rows-[minmax(0,1fr)_auto] overflow-hidden motion-reduce:transition-none transition-[grid-template-columns] duration-200 ease-out ${gridColumns}`}
     >
       {isWelcome ? (
         <div className="col-start-2 row-start-1 min-h-0 min-w-0 overflow-hidden">
@@ -102,22 +107,17 @@ export function ChatView({ runContextOpen = false }: ChatViewProps) {
           <ChatMessageList
             messages={messages}
             isBusy={isBusy}
+            pendingMessagesCount={pendingMessages.length}
             layoutClassName={gridColumns}
-            className={`col-start-1 col-end-4 row-start-1 min-h-0 ${hasPendingMessages && canSend ? "pb-[240px]" : "pb-[136px]"}`}
+            className="col-start-1 col-end-4 row-start-1 min-h-0"
+            style={{ paddingBottom: composerPaddingBottom }}
           />
           {canSend ? (
-            <div className="z-10 col-start-2 row-start-1 min-w-0 self-end">
-              {hasPendingMessages && (
-                <div className="px-6">
-                  <div className="mx-auto mb-[-34px] w-full max-w-[800px] overflow-hidden rounded-t-xl rounded-b-none border border-b-0 border-black/10 bg-[#f6f7f9]/65 pb-8 shadow-[0_4px_14px_rgba(15,23,42,0.05),inset_0_1px_0_rgba(255,255,255,0.6)] backdrop-blur-md backdrop-saturate-150">
-                    <QueuedMessagesBanner items={pendingMessages} />
-                  </div>
-                </div>
-              )}
-              <ChatInput />
+            <div className="z-10 col-start-2 row-start-2 min-w-0">
+              <ChatInput onComposerOverlayHeightChange={handleComposerOverlayHeightChange} />
             </div>
           ) : (
-            <div className="z-10 col-start-2 row-start-1 min-w-0 self-end">
+            <div className="z-10 col-start-2 row-start-2 min-w-0">
               <div className="px-6 pb-4 pt-3">
                 <div className="mx-auto flex w-full max-w-[960px] items-center justify-center gap-1.5 py-2 text-[12px] text-t-ghost">
                   <span className="inline-flex items-center rounded bg-hover px-1.5 py-0.5 font-mono text-[11px] text-t-muted">

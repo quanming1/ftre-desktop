@@ -6,10 +6,10 @@
 
 import { wsClient } from "./websocket-client";
 import type {
-  MailboxSnapshotPayload,
+  QueueSnapshotPayload,
 } from "./websocket-client";
 import {
-  isMailboxSnapshotPayload,
+  isQueueSnapshotPayload,
 } from "./websocket-client";
 import { useChat } from "@/stores/chat";
 
@@ -60,22 +60,12 @@ export async function cancelQueuedMessage(
   sessionId: string,
   requestId: string,
 ): Promise<CancelQueuedMessageResult> {
-  const response = await fetch(
-    `${API_BASE}/api/sessions/${encodeURIComponent(sessionId)}`
-      + `/queue/${encodeURIComponent(requestId)}`,
-    { method: "DELETE" },
-  );
-  if (!response.ok) {
-    let detail = "Failed to remove queued message";
-    try {
-      const payload = await response.json();
-      if (typeof payload?.detail === "string") detail = payload.detail;
-    } catch {
-      // 非 JSON 错误响应使用通用提示。
-    }
-    throw new Error(detail);
-  }
-  return response.json();
+  const result = await wsClient.updateQueue(sessionId, requestId, { kind: "remove" });
+  return {
+    status: "cancelled",
+    session_id: result.session_id,
+    receipt: { ...result },
+  };
 }
 
 export function retryLastMessage(): void {
@@ -111,7 +101,7 @@ export interface SessionSummary {
 
 /**
  * Cache mapping session_id -> original key for API calls.
- * Populated by fetchSessions(), used by encodeSessionKey().
+ * Populated while mapping session pages, used by encodeSessionKey().
  * Limited to 500 entries to prevent unbounded growth.
  */
 const sessionKeyCache = new Map<string, string>();
@@ -316,17 +306,6 @@ export async function createSessionRemote(
 }
 
 /**
- * @deprecated 用 fetchSessionPage。保留兼容旧调用：返回首页（最多 200 条）的 sessions 数组。
- */
-export async function fetchSessions(
-  _workspace?: string | null,
-): Promise<SessionSummary[]> {
-  const page = await fetchSessionPage({ limit: 200 });
-  return page.sessions;
-}
-
-
-/**
  * Encode a session key for use in REST API URLs.
  * First checks the cache for the original key, then uses the ID directly.
  * New format session_id (e.g. "ws_sess_xxx") is already URL-safe ([A-Za-z0-9_-]).
@@ -513,11 +492,11 @@ export interface SessionMessagesPage {
   hasMore: boolean;
   /** session 当前消息总数（不分页时给的全量） */
   total: number;
-  status: "idle" | "running" | "compacting";
+  status: "idle" | "running" | "compacting" | "blocked";
   /** session 级元数据（含 plan 等） */
   metadata: Record<string, any>;
-  /** 后端 SessionLane 随历史消息一并返回的唯一权威 mailbox 快照。 */
-  mailbox: MailboxSnapshotPayload | null;
+  /** 后端 Inbox 随历史消息一并返回的唯一权威 queue 快照。 */
+  queue: QueueSnapshotPayload | null;
 }
 
 /**
@@ -545,32 +524,30 @@ export async function fetchSessionMessagesPage(
     const res = await fetch(url);
     if (!res.ok) return {
       messages: [], hasMore: false, total: 0, status: "idle", metadata: {},
-      mailbox: null,
+      queue: null,
     };
     const data = await res.json();
-    const mailbox = isMailboxSnapshotPayload(data.mailbox)
-      ? data.mailbox as MailboxSnapshotPayload
+    const queue = isQueueSnapshotPayload(data.queue)
+      ? data.queue as QueueSnapshotPayload
       : null;
-    const status = mailbox?.phase === "compacting"
-      ? "compacting"
-      : mailbox && mailbox.phase !== "idle"
-        ? "running"
-        : data.status === "running" || data.status === "compacting"
-          ? data.status
-          : "idle";
+    const status = data.status === "running"
+      || data.status === "compacting"
+      || data.status === "blocked"
+      ? data.status
+      : "idle";
     return {
       messages: data.messages || [],
       hasMore: !!data.has_more,
       total: typeof data.total === "number" ? data.total : 0,
       status,
       metadata: data.metadata || {},
-      mailbox,
+      queue,
     };
   } catch (e) {
     console.error("[API] fetchSessionMessagesPage error:", e);
     return {
       messages: [], hasMore: false, total: 0, status: "idle", metadata: {},
-      mailbox: null,
+      queue: null,
     };
   }
 }
@@ -837,21 +814,12 @@ export interface LLMProvider {
   api_type?: string;
 }
 
-const AI_BASE_CONFIG_PATH = "~/.ai-base/config.json";
-
-async function readAiBaseConfig(): Promise<Record<string, any>> {
-  // Backed by HTTP API now; AI_BASE_CONFIG_PATH kept as an unused legacy path constant
-  // to ease future migration (will be removed when Electron bundle no longer references it).
-  void AI_BASE_CONFIG_PATH;
-  return fetchAppConfig();
-}
-
 /**
- * Reads providers from ~/.ai-base/config.json and returns them
- * in the LLMProvider format expected by ModelSelector.
+ * Reads providers from the gateway config and returns them in the
+ * LLMProvider format expected by ModelSelector.
  */
 export async function fetchLLMProviders(): Promise<LLMProvider[]> {
-  const config = await readAiBaseConfig();
+  const config = await fetchAppConfig();
   const providers = config.providers || {};
   const currentModel = config.agents?.defaults?.model || "";
   const currentProviderName = config.agents?.defaults?.provider || "auto";
@@ -911,16 +879,6 @@ export interface SkillSummary {
   disabled?: boolean;
   /** 来源范围：global（~/.ftre/skills）或 private（~/.ftre/agents/<id>/skills） */
   scope?: "global" | "private";
-}
-
-/**
- * @deprecated 用 SkillSummary。保留别名兼容 ChatInput 的 @ 技能提及。
- * 字段是 SkillSummary 的子集（id / name / description）。
- */
-export interface SkillDef {
-  id: string;
-  name: string;
-  description: string;
 }
 
 /** 详情：含完整正文 */

@@ -247,14 +247,16 @@ const mainWindow = new BrowserWindow({
 
 ### 后端进程 (`backend.ts`)
 
-可选的后端进程管理，用于运行 AI 推理等重型任务：
+打包模式下由 `backend.ts` 管理安装包自带的 Gateway。主进程先读取
+`backend/python/runtime.json`，校验平台与架构，再启动 manifest 指定的解释器；
+不会猜测系统 Python 路径。开发模式仍由开发者手动运行 `ftre gateway`。
 
-```typescript
-function startBackend() {
-  backend = spawn(backendPath, [], { stdio: "pipe" });
-  backend.stdout.on("data", handleBackendOutput);
-}
-```
+输出通过 UTF-8 `StringDecoder` 组装，POSIX 平台用独立进程组回收 Gateway
+及其子进程，Windows 保留 `taskkill /t` 进程树清理。
+
+因此，新增平台不得复制一套 `startBackend()` 工厂或自行拼接解释器路径；
+必须复用 `resolveBackendRuntime()`、`readRuntimeManifest()` 和主进程的
+`startPythonBackend()` 生命周期入口。
 
 ## 📄 许可
 

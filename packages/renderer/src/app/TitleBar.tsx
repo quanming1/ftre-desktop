@@ -1,8 +1,7 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from "react";
-import { Minus, Square, X, Copy, Terminal, GitBranch, ChevronRight, Plug } from "lucide-react";
+import { Minus, Square, X, Copy, GitBranch, ChevronRight, Plug } from "lucide-react";
 import { PixelLogo } from "@/components/PixelLogo";
-import { ConfirmDialog } from "@/components/ConfirmDialog";
-import { Tooltip, TooltipProvider } from "@ftre/ui";
+import { ConfirmDialog, Tooltip, TooltipProvider } from "@ftre/ui";
 import { useEditor } from "@/stores/editor";
 import { useLayout } from "@/stores/layout";
 import { useGitService } from "@/services/git-service";
@@ -18,8 +17,6 @@ export function TitleBar() {
   const [hoveredMenu, setHoveredMenu] = useState<string | null>(null);
   const [confirmAction, setConfirmAction] = useState<ConfirmAction | null>(null);
 
-  const terminalOpen = useLayout((s) => s.terminalDropdownOpen);
-  const toggleTerminal = useLayout((s) => s.toggleTerminalDropdown);
   const mcpPopoverOpen = useLayout((s) => s.mcpPopoverOpen);
   const toggleMcpPopover = useLayout((s) => s.toggleMcpPopover);
   const setMcpPopoverOpen = useLayout((s) => s.setMcpPopoverOpen);
@@ -72,7 +69,7 @@ export function TitleBar() {
   };
 
   return (
-    <div className="h-[var(--titlebar-height)] bg-[#f6f7f9] flex items-center shrink-0 relative z-50" style={drag}>
+    <div className="h-[var(--titlebar-height)] shrink-0 relative z-50 flex items-center bg-surface/75 backdrop-blur-xl backdrop-saturate-150" style={drag}>
 
       {/* ── 左侧: Logo 菜单 + Git 指示器 ── */}
       <div className="flex items-center shrink-0 h-full pl-1.5" style={noDrag}>
@@ -150,17 +147,6 @@ export function TitleBar() {
       <div className="flex items-center shrink-0 h-full gap-2" style={noDrag}>
         {/* 悬浮窗按钮组 */}
         <TooltipProvider>
-          <Tooltip content="终端 (Ctrl+`)" side="bottom">
-            <button
-              onClick={toggleTerminal}
-              className={`h-full px-3 flex items-center gap-1.5 text-[12px] font-mono transition-colors ${
-                terminalOpen ? "text-t-primary bg-hover" : "text-t-dim hover:bg-hover hover:text-t-muted"
-              }`}
-            >
-              <Terminal size={14} strokeWidth={1.5} />
-            </button>
-          </Tooltip>
-
           {/* MCP 快捷按钮 + 弹出面板 */}
           <div ref={mcpAreaRef} className="relative h-full">
             {mcpPopoverOpen ? (

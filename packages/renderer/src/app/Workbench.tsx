@@ -1,7 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from "react";
-import { ErrorBoundary } from "@ftre/ui";
+import { ErrorBoundary, ResizeHandle } from "@ftre/ui";
 import { TitleBar } from "./TitleBar";
-import { Sidebar } from "@/features/explorer/Sidebar";
 import { pathParent } from "@/utils/pathUtils";
 import { ChatPanel } from "@/features/chat/ChatPanel";
 import { SessionPanel } from "@/features/session/SessionPanel";
@@ -9,12 +8,10 @@ import { SkillsPanel } from "@/features/skills/SkillsPanel";
 import { ScheduledTaskPanel } from "@/features/task/ScheduledTaskPanel";
 import { SettingsPanel } from "@/features/settings/SettingsPanel";
 import { InspectorPanel } from "@/features/inspector/InspectorPanel";
-import { TerminalDropdown } from "@/features/terminal/TerminalDropdown";
 import { FilePalette } from "@/components/FilePalette";
 import { CommandPalette } from "@/components/CommandPalette";
 import { GlobalSearchPalette } from "@/features/global-search/GlobalSearchPalette";
 import { Toaster } from "sonner";
-import { ResizeHandle } from "@/components/ResizeHandle";
 import { useLayout, type PanelId, INSPECTOR_WIDTH_MIN, INSPECTOR_WIDTH_MAX } from "@/stores/layout";
 import { useWorkspace } from "@/stores/workspace";
 import { useEditor } from "@/stores/editor";
@@ -25,21 +22,27 @@ import { registerDefaultShortcuts } from "@/lib/default-shortcuts";
 import { globalEventStream } from "@/services/global-event-stream";
 import { performanceMetrics } from "@/services/performance-metrics";
 
+function GlassGutter({ className }: { className: string }) {
+  return (
+    <div
+      aria-hidden="true"
+      className={`pointer-events-none shrink-0 bg-surface/75 backdrop-blur-xl backdrop-saturate-150 ${className}`}
+    />
+  );
+}
+
 export function Workbench() {
   const [filePaletteOpen, setFilePaletteOpen] = useState(false);
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
   const resolvedMode = useTheme((s) => s.resolvedMode);
 
   // Layout store state
-  const sidebarWidth = useLayout((s) => s.sidebarWidth);
-  const setSidebarWidth = useLayout((s) => s.setSidebarWidth);
   const sessionsWidth = useLayout((s) => s.sessionsWidth);
   const setSessionsWidth = useLayout((s) => s.setSessionsWidth);
   const sessionsCollapsed = useLayout((s) => s.sessionsCollapsed);
   const centerRatio = useLayout((s) => s.centerRatio);
   const inspectorWidth = useLayout((s) => s.inspectorWidth);
   const setCenterRatio = useLayout((s) => s.setCenterRatio);
-  const activeSidebarView = useLayout((s) => s.activeSidebarView);
   const panelOrder = useLayout((s) => s.panelOrder);
   const panelVisible = useLayout((s) => s.panelVisible);
   const activeLeftPanel = useLayout((s) => s.activeLeftPanel);
@@ -124,8 +127,10 @@ export function Workbench() {
 
   useEffect(() => {
     if (!rootPath) return;
+    const fs = window.desktop?.fs;
+    if (!fs?.watch || !fs.onFileChanged || !fs.unwatch) return;
 
-    window.desktop.fs.watch(rootPath);
+    fs.watch(rootPath);
 
     let flushTimer: ReturnType<typeof setTimeout> | null = null;
     const pendingRefreshes = new Map<string, string | undefined>();
@@ -142,7 +147,7 @@ export function Workbench() {
       pendingRefreshes.clear();
     };
 
-    const unsubscribe = window.desktop.fs.onFileChanged(
+    const unsubscribe = fs.onFileChanged(
       (changedPath: string) => {
         performanceMetrics.count("fs.fileChanged.events");
 
@@ -167,7 +172,7 @@ export function Workbench() {
     return () => {
       if (flushTimer) clearTimeout(flushTimer);
       pendingRefreshes.clear();
-      window.desktop.fs.unwatch(rootPath);
+      fs.unwatch(rootPath);
       unsubscribe();
     };
   }, [rootPath]);
@@ -220,7 +225,7 @@ export function Workbench() {
   };
 
   // Compute flex style for each panel
-  // sessions and sidebar use fixed width, editor and chat share remaining space
+  // sessions uses fixed width; chat and inspector share the remaining space
   // transition 恒为 "width 160ms ease"（折叠/展开动画）；拖动时由 startLiveDrag 直接操作 DOM 覆盖为 none
   // contain: layout 隔离面板间 reflow 传播（chat 内消息列表 DOM 最多，隔离收益最大）
   const getPanelStyle = (id: PanelId): React.CSSProperties => {
@@ -233,9 +238,6 @@ export function Workbench() {
         contain: "layout",
       };
     }
-    if (id === "sidebar") {
-      return { width: sidebarWidth, flexShrink: 0, order: getOrder(id), contain: "layout" };
-    }
     if (id === "inspector") {
       return {
         width: inspectorWidth,
@@ -246,9 +248,7 @@ export function Workbench() {
       };
     }
     // For editor and chat, use flex-grow with ratio
-    const flexPanels = visiblePanels.filter(
-      (p) => p !== "sidebar" && p !== "sessions",
-    );
+    const flexPanels = visiblePanels.filter((p) => p !== "sessions");
     const flexIndex = flexPanels.indexOf(id);
     if (flexPanels.length === 1) {
       return { flex: 1, order: getOrder(id), contain: "layout" };
@@ -265,12 +265,12 @@ export function Workbench() {
     return index >= 0 && index < visiblePanels.length - 1;
   };
 
-  // Create resize handler for fixed-width panels (sessions, sidebar)
+  // Create resize handler for fixed-width panels (sessions, inspector)
   // The resize handle is placed AFTER afterPanelId, so:
   // - If the target panel === afterPanelId, it's on the LEFT of the handle -> delta positive = grow
   // - If the target panel === nextPanelId, it's on the RIGHT of the handle -> delta positive = shrink
   const createFixedPanelResizeHandler = useCallback(
-    (targetPanel: "sessions" | "sidebar" | "inspector", afterPanelId: PanelId) => {
+    (targetPanel: "sessions" | "inspector", afterPanelId: PanelId) => {
       return (delta: number): number => {
         const state = useLayout.getState();
         const drag = dragStateRef.current;
@@ -279,13 +279,9 @@ export function Workbench() {
         // Live drag 时从 dragState 取实时宽度（store 未更新），否则从 store 取
         const currentWidth = isLiveDrag
           ? drag.currentWidth
-          : targetPanel === "sessions" ? state.sessionsWidth
-          : targetPanel === "sidebar" ? state.sidebarWidth
-          : state.inspectorWidth;
+          : targetPanel === "sessions" ? state.sessionsWidth : state.inspectorWidth;
         const setWidth =
-          targetPanel === "sessions" ? state.setSessionsWidth
-          : targetPanel === "sidebar" ? state.setSidebarWidth
-          : state.setInspectorWidth;
+          targetPanel === "sessions" ? state.setSessionsWidth : state.setInspectorWidth;
 
         const currentOrder = state.panelOrder;
         const index = currentOrder.indexOf(afterPanelId);
@@ -293,7 +289,7 @@ export function Workbench() {
         const reverse = nextPanelId === targetPanel;
         const adjustedDelta = reverse ? -delta : delta;
         const clampedWidth = Math.max(
-          targetPanel === "inspector" ? INSPECTOR_WIDTH_MIN : 140,
+            targetPanel === "inspector" ? INSPECTOR_WIDTH_MIN : 140,
           Math.min(
             targetPanel === "inspector" ? INSPECTOR_WIDTH_MAX : 400,
             currentWidth + adjustedDelta,
@@ -310,7 +306,7 @@ export function Workbench() {
             ref.current.style.width = `${clampedWidth}px`;
           }
         } else {
-          // 非拖动场景（如 sidebar）走 store 更新
+          // 非拖动场景走 store 更新
           setWidth(clampedWidth);
         }
         return reverse ? -appliedAdjusted : appliedAdjusted;
@@ -331,24 +327,20 @@ export function Workbench() {
         const {
           panelVisible: pv,
           sessionsWidth: sw,
-          sidebarWidth: sbw,
           centerRatio: cr,
           panelOrder: po,
         } = state;
 
         // Available width = container width minus fixed panels
         const sessionsW = pv.sessions ? sw : 0;
-        const sidebarW = pv.sidebar ? sbw : 0;
-        const availableWidth = container.offsetWidth - sessionsW - sidebarW;
+        const availableWidth = container.offsetWidth - sessionsW;
         if (availableWidth <= 0) return 0;
         // Convert pixel delta to ratio delta
         const ratioDelta = (delta / availableWidth) * 100;
 
         // centerRatio is assigned to the FIRST flex panel
         const visiblePs = po.filter((id) => pv[id]);
-        const flexPanels = visiblePs.filter(
-          (p) => p !== "sidebar" && p !== "sessions",
-        );
+        const flexPanels = visiblePs.filter((p) => p !== "sessions");
         const firstPanel = flexPanels[0];
 
         // If afterPanelId === firstPanel, dragging right increases firstPanel
@@ -372,9 +364,6 @@ export function Workbench() {
     if (afterPanelId === "sessions" || nextPanelId === "sessions") {
       return createFixedPanelResizeHandler("sessions", afterPanelId);
     }
-    if (afterPanelId === "sidebar" || nextPanelId === "sidebar") {
-      return createFixedPanelResizeHandler("sidebar", afterPanelId);
-    }
     if (afterPanelId === "inspector" || nextPanelId === "inspector") {
       return createFixedPanelResizeHandler("inspector", afterPanelId);
     }
@@ -382,22 +371,40 @@ export function Workbench() {
   };
 
   return (
-    <div className="h-screen w-screen flex flex-col bg-[#f6f7f9] overflow-hidden">
+    <div
+      className="h-screen w-screen flex flex-col overflow-hidden"
+      style={{
+        background: [
+          "radial-gradient(circle at 4% 0%, color-mix(in srgb, var(--ftre-status-info) 18%, transparent), transparent 42%)",
+          "radial-gradient(circle at 72% 8%, color-mix(in srgb, var(--ftre-accent-default) 7%, transparent), transparent 38%)",
+          "radial-gradient(circle at 96% 100%, color-mix(in srgb, var(--ftre-status-error) 8%, transparent), transparent 48%)",
+          "var(--ftre-bg-workbench)",
+        ].join(", "),
+      }}
+    >
       <TitleBar />
 
       {/* Main area - use CSS order to control panel arrangement without remounting */}
       <div className="flex-1 flex overflow-hidden" ref={containerRef}>
         {/* Content area with rounded top-left corner */}
-        <div className="flex-1 flex overflow-hidden bg-[#f6f7f9]">
+        <div className="flex-1 flex overflow-hidden bg-transparent">
 
         {activeLeftPanel === "settings" ? (
           /* Settings 模式：SettingsPanel 完全接管左侧 SessionPanel + 右侧区域 */
-          <div className="flex-1 h-full overflow-hidden py-1 px-1.5">
-            <div className="h-full overflow-hidden rounded-xl bg-surface">
-              <ErrorBoundary>
-                <SettingsPanel />
-              </ErrorBoundary>
+          <div className="flex h-full flex-1 flex-col overflow-hidden">
+            <GlassGutter className="h-1" />
+            <div className="flex min-h-0 flex-1 overflow-hidden">
+              <GlassGutter className="w-1.5" />
+              <div className="relative min-w-0 flex-1 overflow-hidden bg-surface/75 backdrop-blur-xl backdrop-saturate-150">
+                <div className="relative z-10 h-full overflow-hidden rounded-xl bg-surface">
+                  <ErrorBoundary>
+                    <SettingsPanel />
+                  </ErrorBoundary>
+                </div>
+              </div>
+              <GlassGutter className="w-1.5" />
             </div>
+            <GlassGutter className="h-1" />
           </div>
         ) : (
         <>
@@ -405,24 +412,30 @@ export function Workbench() {
         {panelVisible.sessions && (
           <div
             ref={sessionsRef}
-            className="h-full overflow-hidden py-1 pl-1.5"
+            className="flex h-full flex-col overflow-hidden"
             style={getPanelStyle("sessions")}
           >
-            <div className="h-full overflow-hidden rounded-xl bg-[#f6f7f9]">
-              <ErrorBoundary>
-                <SessionPanel />
-              </ErrorBoundary>
+            <GlassGutter className="h-1" />
+            <div className="flex min-h-0 flex-1 overflow-hidden">
+              <GlassGutter className="w-1.5" />
+              <div className="min-w-0 flex-1 overflow-hidden bg-surface/75 backdrop-blur-xl backdrop-saturate-150">
+                <ErrorBoundary>
+                  <SessionPanel />
+                </ErrorBoundary>
+              </div>
             </div>
+            <GlassGutter className="h-1" />
           </div>
         )}
         {panelVisible.sessions &&
           isResizeHandleVisible("sessions") && (
             <div
-              className="h-full shrink-0"
+              className="relative z-20 h-full w-0 shrink-0"
               style={{ order: getResizeHandleOrder("sessions") }}
             >
               <ResizeHandle
                 direction="horizontal"
+                className="absolute left-0 top-0 z-20 h-full w-2.5 -translate-x-1/2"
                 onResize={getResizeHandler("sessions")}
                 onResizeStart={() => startLiveDrag("sessions")}
                 onResizeEnd={() => endLiveDrag()}
@@ -433,79 +446,75 @@ export function Workbench() {
         {/* Skills 模式：占满 SessionPanel 右侧的所有空间 */}
         {activeLeftPanel === "skills" && (
           <div
-            className="flex-1 h-full overflow-hidden py-1 pr-1.5"
+            className="flex h-full flex-1 flex-col overflow-hidden"
             style={{ order: 999 }}
           >
-            <div className="h-full overflow-hidden rounded-xl bg-surface">
-              <ErrorBoundary>
-                <SkillsPanel />
-              </ErrorBoundary>
+            <GlassGutter className="h-1" />
+            <div className="flex min-h-0 flex-1 overflow-hidden">
+              <div className="min-w-0 flex-1 overflow-hidden rounded-xl bg-surface">
+                <ErrorBoundary>
+                  <SkillsPanel />
+                </ErrorBoundary>
+              </div>
+              <GlassGutter className="w-1.5" />
             </div>
+            <GlassGutter className="h-1" />
           </div>
         )}
 
         {/* Cron 模式：占满 SessionPanel 右侧的所有空间 */}
         {activeLeftPanel === "cron" && (
           <div
-            className="flex-1 h-full overflow-hidden py-1 pr-1.5"
+            className="flex h-full flex-1 flex-col overflow-hidden"
             style={{ order: 999 }}
           >
-            <div className="h-full overflow-hidden rounded-xl bg-surface">
-              <ErrorBoundary>
-                <ScheduledTaskPanel />
-              </ErrorBoundary>
+            <GlassGutter className="h-1" />
+            <div className="flex min-h-0 flex-1 overflow-hidden">
+              <div className="min-w-0 flex-1 overflow-hidden rounded-xl bg-surface">
+                <ErrorBoundary>
+                  <ScheduledTaskPanel />
+                </ErrorBoundary>
+              </div>
+              <GlassGutter className="w-1.5" />
             </div>
+            <GlassGutter className="h-1" />
           </div>
         )}
 
-        {/* Sidebar Panel - 只在 chat 模式显示 */}
-        {activeLeftPanel === "chat" && panelVisible.sidebar && (
-          <div
-            className="h-full overflow-hidden"
-            style={getPanelStyle("sidebar")}
-          >
-            <ErrorBoundary>
-              <Sidebar />
-            </ErrorBoundary>
-          </div>
-        )}
-        {activeLeftPanel === "chat" &&
-          panelVisible.sidebar &&
-          isResizeHandleVisible("sidebar") && (
-            <div
-              className="h-full shrink-0"
-              style={{ order: getResizeHandleOrder("sidebar") }}
-            >
-              <ResizeHandle
-                direction="horizontal"
-                onResize={getResizeHandler("sidebar")}
-              />
-            </div>
-          )}
-
-        {/* Editor Panel - 只在 chat 模式显示 */}
         {/* Chat Panel */}
         {panelVisible.chat && activeLeftPanel === "chat" && (
           <div
-            className={`h-full overflow-hidden py-1 ${panelVisible.inspector ? "" : "pr-1.5"}`}
+            className="flex h-full flex-col overflow-hidden"
             style={getPanelStyle("chat")}
           >
-            <div className="h-full overflow-hidden rounded-xl bg-surface">
-              <ErrorBoundary>
-                <ChatPanel key={rootPath} />
-              </ErrorBoundary>
+            <GlassGutter className="h-1" />
+            <div className="flex min-h-0 flex-1 overflow-hidden">
+              <div className="relative min-w-0 flex-1 overflow-hidden bg-surface/75 backdrop-blur-xl backdrop-saturate-150">
+                <div className="relative z-10 h-full overflow-hidden rounded-l-xl bg-surface">
+                  <ErrorBoundary>
+                    <ChatPanel key={rootPath} />
+                  </ErrorBoundary>
+                </div>
+              </div>
+              {!panelVisible.inspector && <GlassGutter className="w-1.5" />}
             </div>
+            <GlassGutter className="h-1" />
           </div>
         )}
         {panelVisible.chat &&
           activeLeftPanel === "chat" &&
           isResizeHandleVisible("chat") && (
             <div
-              className="h-full shrink-0"
+              className="relative z-20 h-full w-0 shrink-0"
               style={{ order: getResizeHandleOrder("chat") }}
             >
+              <div
+                aria-hidden="true"
+                className="pointer-events-none absolute left-0 top-0 z-10 h-full w-px bg-border-subtle/70"
+              />
               <ResizeHandle
                 direction="horizontal"
+                className="absolute left-0 top-0 z-20 h-full w-2.5 -translate-x-1/2"
                 onResize={getResizeHandler("chat")}
                 onResizeStart={() => startLiveDrag("inspector")}
                 onResizeEnd={() => endLiveDrag()}
@@ -516,18 +525,31 @@ export function Workbench() {
         {/* Inspector Panel — 右侧扩展面板（CSS 隐藏，不销毁组件，保持文件树状态） */}
         <div
           ref={inspectorRef}
-          className="h-full overflow-hidden"
+          className="flex h-full flex-col overflow-hidden"
           style={
             (panelVisible.inspector && activeLeftPanel === "chat")
-              ? { ...getPanelStyle("inspector"), padding: "4px 6px 4px 0" }
-              : { width: 0, minWidth: 0, maxWidth: 0, padding: 0, opacity: 0, overflow: "hidden" }
+              ? getPanelStyle("inspector")
+              : {
+                  width: 0,
+                  minWidth: 0,
+                  flexShrink: 0,
+                  order: getOrder("inspector"),
+                  overflow: "hidden",
+                  contain: "layout",
+                  transition: "width 160ms ease",
+                }
           }
         >
-          <div className="h-full overflow-hidden rounded-xl bg-surface">
-            <ErrorBoundary>
-              <InspectorPanel />
-            </ErrorBoundary>
+          <GlassGutter className="h-1" />
+          <div className="flex min-h-0 flex-1 overflow-hidden">
+            <div className="min-w-0 flex-1 overflow-hidden rounded-none bg-surface">
+              <ErrorBoundary>
+                <InspectorPanel />
+              </ErrorBoundary>
+            </div>
+            <GlassGutter className="w-1.5" />
           </div>
+          <GlassGutter className="h-1" />
         </div>
         {panelVisible.inspector &&
           activeLeftPanel === "chat" &&
@@ -548,9 +570,6 @@ export function Workbench() {
         )}
         </div>
       </div>
-
-      {/* 终端下拉弹窗 — 始终挂载，CSS 控制显隐 */}
-      <TerminalDropdown />
 
       <FilePalette
         open={filePaletteOpen}

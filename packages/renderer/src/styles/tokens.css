@@ -12,6 +12,7 @@
 html[data-theme="dark"] {
   /* 背景 */
   --ftre-bg-base: #131416;
+  --ftre-bg-workbench: #131416;
   --ftre-bg-titlebar: #131416;
   --ftre-bg-surface: #1f2022;
   --ftre-bg-elevated: #252526;
@@ -66,6 +67,8 @@ html[data-theme="dark"] {
 html[data-theme="light"] {
   /* 背景 — 参考 Manus 风格，偏白但不刺眼 */
   --ftre-bg-base: #f0f0f1;
+  /* Workbench 的透明壳层（Header / sessionList / 面板间 gutter）共用此底色。 */
+  --ftre-bg-workbench: #d4dcf0;
   --ftre-bg-titlebar: #f0f0f1;
   --ftre-bg-surface: #ffffff;
   --ftre-bg-elevated: #f5f5f5;

@@ -31,6 +31,7 @@ import { useInspector } from "@/stores/inspector";
 import { useLayout } from "@/stores/layout";
 import { useChat } from "@/stores/chat";
 import { FileIconView } from "@/components/FileIconView";
+import { IMAGE_EXTENSIONS, fileExtension } from "@/utils/filePreviewKinds";
 import { Terminal } from "lucide-react";
 
 const API_BASE = import.meta.env.VITE_API_BASE || "http://127.0.0.1:48650";
@@ -203,7 +204,7 @@ function SummaryLine({ summary, className = "" }: { summary: string; className?:
   const rest = summary.slice(verb.length);
   return (
     <span className={`text-[14px] font-mono truncate ${className}`}>
-      <span className="text-t-secondary font-medium">{verb}</span>
+      <span className="text-t-dim font-medium">{verb}</span>
       <span className="text-t-dim group-hover:text-t-secondary transition-colors">{rest}</span>
     </span>
   );
@@ -432,10 +433,13 @@ export const InlineToolCallCard = memo(
     block,
     result,
     streaming,
+    hideRowControls = false,
   }: {
     block: Extract<ContentBlock, { type: "toolCall" }>;
     result?: ToolResult;
     streaming?: boolean;
+    /** 连续工具组展开后，隐藏每一行的完成标记和展开箭头。 */
+    hideRowControls?: boolean;
   }) {
     const name = block.name;
     const isLoadSkill = name === "loadSkill";
@@ -588,8 +592,8 @@ export const InlineToolCallCard = memo(
           >
             <div className="inline-flex items-center gap-2 py-1 cursor-default">
               <Box size={14} className="text-[#1a7f37] shrink-0" strokeWidth={1.5} />
-              <span className="text-[14px] font-mono text-t-dim truncate">
-                <span className="text-t-secondary font-medium">Loaded Skill</span>
+                <span className="text-[14px] font-mono text-t-dim truncate">
+                  <span className="text-t-dim font-medium">Loaded Skill</span>
                 {args.skill ? ` ?${args.skill}?` : ""}
               </span>
               {status === "completed" && <Check size={12} className="text-green-600 shrink-0" />}
@@ -632,7 +636,7 @@ export const InlineToolCallCard = memo(
             <div className="inline-flex items-center gap-2 py-1 cursor-default">
               <Folder size={14} className="text-[#0969da] shrink-0" strokeWidth={1.5} />
               <span className="text-[14px] font-mono text-t-dim truncate max-w-[400px]">
-                <span className="text-t-secondary font-medium">set_workspace</span>
+                <span className="text-t-dim font-medium">set_workspace</span>
                 {displayPath ? ` ${displayPath}` : ""}
               </span>
               {status === "completed" && <Check size={12} className="text-green-600 shrink-0" />}
@@ -689,7 +693,7 @@ export const InlineToolCallCard = memo(
           <SummaryLine summary={summary} className="flex-1" />
           {isPending && <Loader2 size={12} className="text-t-ghost animate-spin shrink-0" />}
           {isRunning && <Loader2 size={12} className="text-neon animate-spin shrink-0" />}
-          {status === "completed" && <Check size={12} className="text-green-600 shrink-0" />}
+          {!hideRowControls && status === "completed" && <Check size={12} className="text-green-600 shrink-0" />}
           {isError && <X size={12} className="text-red-500 shrink-0" />}
           {isDenied && (
             <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-amber-500/10 px-2 py-0.5 text-[11px] font-medium text-amber-600 dark:text-amber-400">
@@ -698,7 +702,12 @@ export const InlineToolCallCard = memo(
             </span>
           )}
           {(hasResult || isError || hasArgs) && (
-            <ChevronRight size={13} className={`text-t-ghost shrink-0 transition-transform duration-200 ${expanded ? "rotate-90" : ""}`} />
+            <ChevronRight
+              size={13}
+              className={`text-t-ghost shrink-0 transition-[opacity,transform] duration-150 ${
+                hideRowControls ? "opacity-0 group-hover:opacity-100" : ""
+              } ${expanded ? "rotate-90 opacity-100" : ""}`}
+            />
           )}
         </button>
         )}
@@ -781,7 +790,8 @@ export const InlineToolCallCard = memo(
     prev.result?.error === next.result?.error &&
     prev.result?.metadata === next.result?.metadata &&
     prev.result?.confirm === next.result?.confirm &&
-    prev.streaming === next.streaming,
+    prev.streaming === next.streaming &&
+    prev.hideRowControls === next.hideRowControls,
 );
 
 // ������ չ�����飺���������ͷַ� ����������������������������������������������������������������������������
@@ -820,17 +830,8 @@ function ExpandedDetail({ name, args, result, isError }: DetailProps) {
 
 // ������ read / read_file ��������������������������������������������������������������������������������������������
 
-const IMAGE_EXTS = new Set([
-  "png", "jpg", "jpeg", "gif", "webp", "bmp", "svg", "avif",
-]);
-
-function getExt(path: string): string {
-  const m = path.toLowerCase().match(/\.([a-z0-9]+)$/);
-  return m?.[1] ?? "";
-}
-
 function isImagePath(path: string): boolean {
-  return IMAGE_EXTS.has(getExt(path));
+  return IMAGE_EXTENSIONS.has(fileExtension(path));
 }
 
 /** read ���ߣ��ɲ��� path �ж�ͼƬ��result ֻ�ǿ�ѡ�Ļ���ͼƬ���� */
@@ -868,7 +869,7 @@ interface ReadImageRef {
 function ImagePreview({ image, result }: { image: ReadImageRef; result: string }) {
   const [previewSrc, setPreviewSrc] = useState<string | null>(null);
   const [failed, setFailed] = useState(false);
-  const ext = getExt(image.fileName || image.sourcePath);
+  const ext = fileExtension(image.fileName || image.sourcePath);
 
   if (failed) return <RawPre result={result} isError={false} />;
 
@@ -951,7 +952,7 @@ function imageRefFromPath(path: string): ReadImageRef {
 }
 
 function mimeFromImagePath(path: string): string | undefined {
-  switch (getExt(path)) {
+  switch (fileExtension(path)) {
     case "png": return "image/png";
     case "jpg":
     case "jpeg": return "image/jpeg";

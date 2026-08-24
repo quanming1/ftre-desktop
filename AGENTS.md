@@ -65,18 +65,17 @@ master（仅发布，永不直接提交）← develop（默认基底，只接受
 前端功能模块（packages/renderer/src/features/）：
 - chat：聊天界面（ChatPanel/ChatMessageList/ChatInput/AssistantMessage/CodeBlock/InlineToolCallCard/QueuedMessagesBanner）
 - inspector：扩展面板（DiffRenderer/FileRenderer/ImageRenderer/WsLogInspectorPanel/tabRegistry/FileTreeSidebar）
-- explorer：文件树（ExplorerView/FileTreeItem）
-- git：Git 集成（GitService，git:poll 协商缓存）
+- git：Git 集成（GitService，git:poll 协商缓存；文件树由 Inspector 持有）
 - session：会话列表（SessionPanel/工作区分组/置顶）
 - editor：编辑器区域
-- settings：设置面板 / extensions：扩展视图 / terminal：xterm 终端 / traces：追踪 / skills：技能面板 / global-search：全局搜索 / mcp：MCP 管理 / bottom-panel：底部面板
+- settings：设置面板 / terminal：xterm 终端 / traces：追踪 / skills：技能面板 / global-search：全局搜索 / mcp：MCP 管理
 </features>
 
 <ws_protocol>
 与后端走 WebSocket（services/websocket-client.ts）+ HTTP（services/api.ts）双通道：
-- mailbox 快照：session_event:mailbox_snapshot → phase/activity/pending/queueDepth/canCancel
-- durable admission：user_message 等待 message_ack（outbox 断线保留 + 重连重发）
-- 取消：sendCancel(expected_request_id) 精确取消排队消息；HTTP DELETE /sessions/{id}/queue/{requestId}
+- 队列快照：session/queue → `{session_id, items}`；active 状态独立走 session/status
+- durable admission：session.prompt 使用 request_id，等待 RPC `{ok, value}` ACK（outbox 断线保留 + 重连重发）
+- 取消：session.cancel 携带 expected_request_id 精确取消 active Turn；HTTP DELETE /sessions/{id}/queue/{requestId}
 - WS Log 审计：ws-log-collector 采集 in/out/system 帧，Inspector WS Logs tab 查询
 </ws_protocol>
 

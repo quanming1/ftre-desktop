@@ -6,11 +6,42 @@ import { getMainWindow } from '../app-state';
 const terminals = new Map<number, pty.IPty>();
 let termIdCounter = 0;
 
+function shellName(shell: string): string {
+  return shell.replace(/\\/g, '/').split('/').pop()?.toLowerCase() ?? '';
+}
+
+/**
+ * Windows PowerShell 5.1 默认仍使用系统代码页读取无 BOM 的 UTF-8 文件。
+ * 终端里执行 Get-Content/cat 时会先在 shell 内把中文读坏，PTY 本身再转发
+ * 也无法恢复，所以在交互 shell 启动前统一切到 UTF-8。
+ */
+function getShellArgs(shell: string): string[] {
+  if (process.platform !== 'win32') return [];
+
+  const name = shellName(shell);
+  if (name === 'powershell' || name === 'powershell.exe' || name === 'pwsh' || name === 'pwsh.exe') {
+    const utf8Bootstrap = [
+      '$utf8 = [System.Text.UTF8Encoding]::new($false)',
+      '[Console]::InputEncoding = $utf8',
+      '[Console]::OutputEncoding = $utf8',
+      '$OutputEncoding = $utf8',
+      "$PSDefaultParameterValues['*:Encoding'] = 'utf8'",
+    ].join('; ');
+    return ['-NoLogo', '-NoProfile', '-NoExit', '-Command', utf8Bootstrap];
+  }
+
+  if (name === 'cmd' || name === 'cmd.exe') {
+    return ['/K', 'chcp 65001>nul'];
+  }
+
+  return [];
+}
+
 export function registerTerminalIPC(): void {
   ipcMain.handle('pty:create', (_event, { cols, rows, cwd, shell: requestedShell }: { cols?: number; rows?: number; cwd?: string; shell?: string }) => {
     const id = ++termIdCounter;
     const shell = requestedShell || (process.platform === 'win32' ? 'powershell.exe' : process.env.SHELL || '/bin/bash');
-    const term = pty.spawn(shell, [], {
+    const term = pty.spawn(shell, getShellArgs(shell), {
       name: 'xterm-256color',
       cols: cols || 80,
       rows: rows || 24,
@@ -55,4 +86,16 @@ export function registerTerminalIPC(): void {
       terminals.delete(id);
     }
   });
+}
+
+/** 应用退出时终止所有 PTY；重复调用安全，避免 shell 子进程悬挂。 */
+export function disposeTerminalIPC(): void {
+  for (const [id, term] of terminals) {
+    try {
+      term.kill();
+    } catch {
+      // PTY 可能已经自行退出，清理必须继续处理其余终端。
+    }
+    terminals.delete(id);
+  }
 }

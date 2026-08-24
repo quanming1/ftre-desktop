@@ -1,12 +1,10 @@
-interface FileEntry {
-  name: string;
-  path: string;
-  isDir: boolean;
-  ext: string | null;
-}
+import type { FileEntry as SharedFileEntry, ListDirectoryResult } from "@ftre/shared";
+
+type FileEntry = SharedFileEntry;
 
 interface DesktopFS {
   readDir(dirPath: string): Promise<{ entries: FileEntry[]; error?: string }>;
+  listDirectory(dirPath: string): Promise<ListDirectoryResult>;
   readFile(
     filePath: string,
   ): Promise<{ content: string; language: string; error?: string }>;

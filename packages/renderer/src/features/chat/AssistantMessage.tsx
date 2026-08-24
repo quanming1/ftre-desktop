@@ -5,7 +5,8 @@ import { CodeBlock, StreamingContext } from "./CodeBlock";
 import { useThrottledValue } from "@/hooks/useThrottledValue";
 import { splitBlocks } from "./streamingMarkdown";
 import { InlineToolCallCard } from "./InlineToolCallCard";
-import { TurnFileChanges, type TurnFileChange } from "./TurnFileChanges";
+import { TurnFileChanges } from "./TurnFileChanges";
+import type { TurnFileChange } from "./turnFileChangeUtils";
 import { ChevronRight, Copy, Check, BookOpen, Code2 } from "lucide-react";
 import { Tooltip, TooltipProvider } from "@ftre/ui";
 import { useNotification } from "@/stores/notification";
@@ -137,7 +138,7 @@ const ThoughtBlock = memo(
           onClick={() => setExpanded((p) => !p)}
           className="flex items-center gap-1.5 w-full text-[13px] font-mono text-left group py-1"
         >
-          <span className="shrink-0 text-t-secondary font-medium">{label}</span>
+          <span className="shrink-0 text-t-dim font-medium">{label}</span>
           {!expanded && <span className="flex-1 truncate text-t-dim group-hover:text-t-secondary transition-colors">{previewLine}</span>}
           <ChevronRight
             size={13}
@@ -202,6 +203,7 @@ const BlocksRenderer = memo(function BlocksRenderer({
   mdRef,
   collapseNonText = false,
   showSource = false,
+  hideToolRowControls = false,
 }: {
   blocks: ContentBlock[];
   toolResults: Record<string, ToolResult>;
@@ -210,6 +212,8 @@ const BlocksRenderer = memo(function BlocksRenderer({
   collapseNonText?: boolean;
   /** 源码视图：text 块直接显示原始 markdown，不渲染 */
   showSource?: boolean;
+  /** 连续工具组展开内容时，隐藏单行工具的完成标记和展开箭头。 */
+  hideToolRowControls?: boolean;
 }) {
   // 找到最后一个 text block 的索引（光标 / throttle 锚点）
   let lastTextIdx = -1;
@@ -283,6 +287,7 @@ const BlocksRenderer = memo(function BlocksRenderer({
           block={block}
           result={toolResults[block.id]}
           streaming={streaming}
+          hideRowControls={hideToolRowControls}
         />
       );
       i += 1;
@@ -344,6 +349,7 @@ const BlocksRenderer = memo(function BlocksRenderer({
     prev.streaming !== next.streaming
     || prev.collapseNonText !== next.collapseNonText
     || prev.showSource !== next.showSource
+    || prev.hideToolRowControls !== next.hideToolRowControls
   ) return false;
   return contentBlocksEqual(prev.blocks, next.blocks)
     && toolResultsEqual(prev.toolResults, next.toolResults);
@@ -368,18 +374,24 @@ function NonTextProcessGroup({
   const [expanded, setExpanded] = useState(false);
   // 流式中也显示摘要：工具名在 toolCall 产生时就已知，thinking 增长不影响去重后的摘要，
   // 让用户在不展开组的情况下也能跟进过程内容。"处理中"状态由外层按钮表达，这里不再重复。
-  const label = summarizeNonTextBlocks(blocks, toolResults);
+  const label = summarizeNonTextBlocks(blocks, toolResults, streaming);
 
   return (
-    <div className="py-0.5">
+    <div className="w-full min-w-0 max-w-full py-0.5">
       <button
         type="button"
         aria-expanded={expanded}
         onClick={() => setExpanded((value) => !value)}
         aria-controls={groupId}
-        className="group flex w-full items-center gap-1.5 py-1 text-left text-[14px] text-t-dim transition-colors hover:text-t-secondary"
+        className="group flex w-full min-w-0 max-w-full items-center gap-1.5 overflow-hidden py-1 text-left text-[14px] text-t-dim transition-colors hover:text-t-secondary"
       >
-        <span className={breathing ? "animate-process-breath" : ""}>{label}</span>
+        <span
+          title={label}
+          className={`min-w-0 flex-1 truncate ${breathing ? "animate-process-breath" : ""}`}
+          style={{ whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}
+        >
+          {label}
+        </span>
         <ChevronRight
           size={12}
           className={`shrink-0 transition-opacity duration-200 ${expanded ? "rotate-90 opacity-100" : "opacity-0 group-hover:opacity-100"} ${breathing ? "animate-process-breath" : ""}`}
@@ -394,9 +406,10 @@ function NonTextProcessGroup({
           <div className="flex flex-col gap-0 py-0 [&>div]:py-0 [&>div>button]:py-0 [&>div>div>button]:py-0">
             <BlocksRenderer
               blocks={blocks}
-              toolResults={toolResults}
-              streaming={streaming}
-              mdRef={mdRef}
+            toolResults={toolResults}
+            streaming={streaming}
+            mdRef={mdRef}
+              hideToolRowControls
             />
           </div>
         </div>
@@ -509,6 +522,7 @@ export const AssistantMessage = memo(
     message,
     showActions = false,
     turnFileChanges,
+    turnId,
     turnDurationSec,
     turnModel,
   }: {
@@ -516,6 +530,7 @@ export const AssistantMessage = memo(
     showActions?: boolean;
     turnTexts?: string[];
     turnFileChanges?: TurnFileChange[];
+    turnId?: string;
     turnDurationSec?: number;
     turnModel?: string;
   }) {
@@ -572,7 +587,7 @@ export const AssistantMessage = memo(
                   <span className="flex items-center gap-1.5">
                     <span className="shrink-0">
                       {isStreaming
-                        ? "处理中..."
+                        ? "处理中"
                         : `已处理${typeof turnDurationSec === "number" ? ` ${formatDuration(turnDurationSec)}` : ""}`}
                     </span>
                     <ChevronRight
@@ -630,7 +645,7 @@ export const AssistantMessage = memo(
               )}
 
               {turnFileChanges && turnFileChanges.length > 0 && !isStreaming && (
-                <TurnFileChanges changes={turnFileChanges} />
+                <TurnFileChanges changes={turnFileChanges} turnId={turnId} />
               )}
 
                 {showActions && !isStreaming && !message.isError && (

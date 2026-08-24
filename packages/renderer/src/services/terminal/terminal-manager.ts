@@ -101,15 +101,18 @@ export class TerminalSessionManager {
             const ws = this.getOrCreateWorkspace(workspace);
             const id = generateId();
 
-            // 生成唯一标签
-            let label = effectiveCwd ? extractDirName(effectiveCwd) : `Terminal ${ws.nextIndex}`;
+            // Tab 标题表示所属工作区，而不是当前 cwd；同名工作区按打开中的实例递增。
+            const workspaceLabel = extractDirName(workspace) || `Terminal ${ws.nextIndex}`;
+            let label = workspaceLabel;
             const existingLabels = new Set(
-                Array.from(ws.terminals.values()).map((t) => t.info.label),
+                Array.from(this.workspaces.values()).flatMap((group) =>
+                    Array.from(group.terminals.values()).map((t) => t.info.label),
+                ),
             );
             if (existingLabels.has(label)) {
-                let suffix = 2;
-                while (existingLabels.has(`${label} (${suffix})`)) suffix++;
-                label = `${label} (${suffix})`;
+                let suffix = 1;
+                while (existingLabels.has(`${workspaceLabel} (${suffix})`)) suffix++;
+                label = `${workspaceLabel} (${suffix})`;
             }
 
             // 创建 xterm.js 实例
@@ -464,12 +467,25 @@ export class TerminalSessionManager {
         if (!managed?.container || !isContainerVisible(managed.container)) return;
 
         requestAnimationFrame(() => {
-            managed.fit.fit();
-            if (managed.term.cols > 0 && managed.term.rows > 0) {
-                window.desktop.terminal.resize(managed.info.ptyId, managed.term.cols, managed.term.rows);
-            }
-            managed.term.focus();
-            managed.needsRefit = false;
+            const fitOnce = () => {
+                if (!managed.container || !isContainerVisible(managed.container)) {
+                    managed.needsRefit = true;
+                    return;
+                }
+                managed.fit.fit();
+                if (managed.term.cols > 0 && managed.term.rows > 0) {
+                    window.desktop.terminal.resize(managed.info.ptyId, managed.term.cols, managed.term.rows);
+                }
+                managed.needsRefit = false;
+            };
+
+            // 第一次可能发生在 Inspector 父容器刚恢复尺寸的过渡帧，第二帧
+            // 重新 fit 可避免 xterm 仍按旧的 0/80x24 尺寸绘制而裁掉内容。
+            fitOnce();
+            requestAnimationFrame(() => {
+                fitOnce();
+                managed.term.focus();
+            });
         });
     }
 

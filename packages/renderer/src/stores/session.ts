@@ -14,7 +14,7 @@ import {
   deleteSessionRemote,
 } from "@/services/api";
 import { useWorkspace } from "./workspace";
-import { workspaceHash } from "@/utils/pathUtils";
+import { workspaceHash } from "@ftre/editor/utils";
 import { wsClient } from "@/services/websocket-client";
 
 export type { SessionSummary };
@@ -621,7 +621,7 @@ export const useSession = create<SessionState>((set, get) => ({
           turnStartTs,
           plan,
           commandName,
-          page.mailbox,
+          page.queue,
         );
         useChat.getState().setSessionStatus(sessionId, page.status);
         // HTTP 完成后再 WS attach：之后的流式 Event 只负责实时更新。
@@ -660,7 +660,7 @@ export const useSession = create<SessionState>((set, get) => ({
         turnStartTs,
         plan,
         commandName,
-        page.mailbox,
+        page.queue,
       );
     } catch (err) {
       console.error("[Session] reconnectSession fetch error:", err);

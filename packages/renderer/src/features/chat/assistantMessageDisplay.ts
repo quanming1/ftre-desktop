@@ -87,11 +87,63 @@ function joinProcessActions(actions: string[]): string {
   return `${actions.slice(0, -1).join("、")}并${actions[actions.length - 1]}`;
 }
 
+function basename(path: string): string {
+  const parts = path.replace(/\\/g, "/").split("/").filter(Boolean);
+  return parts[parts.length - 1] ?? path;
+}
+
+function activeToolSummary(
+  block: Extract<ContentBlock, { type: "toolCall" }>,
+  result: ToolResult | undefined,
+): string | null {
+  const name = block.name.trim().toLowerCase();
+  const args = block.arguments ?? {};
+  const status = result?.status;
+  const isRunning = status === "running" || status === undefined;
+  if (!isRunning) return null;
+
+  if (name === "edit" || name === "edit_file" || name === "write" || name === "write_file") {
+    const path = typeof args.path === "string"
+      ? args.path
+      : typeof args.file_path === "string"
+        ? args.file_path
+        : result?.metadata?.file ?? "";
+    return path ? `Edit ${basename(path)}` : null;
+  }
+
+  if (name === "bash" || name === "exec" || name === "shell") {
+    const rawCommand = typeof args.command === "string" ? args.command : "";
+    const command = rawCommand.replace(/\s+/g, " ").trim();
+    return command ? `Ran ${command.slice(0, 500)}${command.length > 500 ? "…" : ""}` : null;
+  }
+
+  return null;
+}
+
+function findActiveToolSummary(
+  blocks: ContentBlock[] | undefined,
+  toolResults: Record<string, ToolResult> | undefined,
+  streaming: boolean,
+): string | null {
+  if (!streaming) return null;
+  for (let index = (blocks?.length ?? 0) - 1; index >= 0; index--) {
+    const block = blocks?.[index];
+    if (block?.type !== "toolCall") continue;
+    const summary = activeToolSummary(block, toolResults?.[block.id]);
+    if (summary) return summary;
+  }
+  return null;
+}
+
 /** 根据折叠段中的 block，生成简短且可读的过程摘要。 */
 export function summarizeNonTextBlocks(
   blocks: ContentBlock[] | undefined,
   toolResults?: Record<string, ToolResult>,
+  streaming = false,
 ): string {
+  const activeSummary = findActiveToolSummary(blocks, toolResults, streaming);
+  if (activeSummary) return activeSummary;
+
   const actions: string[] = [];
   const addAction = (action: string): void => {
     if (!actions.includes(action)) actions.push(action);

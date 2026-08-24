@@ -17,8 +17,13 @@ const command = [
     `"pnpm --filter @ftre/ui dev"`,
     `"pnpm --filter @ftre/editor dev"`,
     `"pnpm --filter @ftre/electron dev"`,
-    `"pnpm --filter @ftre/renderer dev"`,
-    `"wait-on ${url} && electron packages/electron/dist/main.js"`,
+    // Windows 上旧 renderer 进程/杀毒软件可能锁住 node_modules/.vite 的临时
+    // 依赖文件；强制重优化会先清理失效快照，避免 Vite 启动后立即退出。
+    `"pnpm --filter @ftre/renderer exec vite --force"`,
+    // Vite 先就绪不代表 Electron 的 tsc --watch 已经生成 preload.js；如果
+    // 此时启动窗口，contextBridge 不会注入 window.desktop，Renderer 会在
+    // 文件树等原生能力处崩溃。等待 main + preload 都存在后再启动 Electron。
+    `"wait-on ${url} file:packages/electron/dist/main.js file:packages/electron/dist/preload.js && electron packages/electron/dist/main.js"`,
 ].join(" ");
 
 const child = spawn(command, {

@@ -8,6 +8,8 @@ const api: DesktopAPI = {
 
   fs: {
     readDir: (dirPath: string) => ipcRenderer.invoke("fs:readDir", { dirPath }),
+    listDirectory: (dirPath: string) =>
+      ipcRenderer.invoke("fs:listDirectory", { dirPath }),
     readFile: (filePath: string) =>
       ipcRenderer.invoke("fs:readFile", { filePath }),
     readImageBase64: (filePath: string) =>

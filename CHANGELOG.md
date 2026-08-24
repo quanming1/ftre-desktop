@@ -1,5 +1,34 @@
 # Changelog
 
+## [0.1.10] - 2026-08-24
+
+### B1 WebSocket F12 协议修复
+
+- 客户端聊天、工具确认迁移到 `session.prompt`，取消迁移到 `session.cancel`，统一使用
+  `payload` 和 `request_id`；attach/detach 同步迁移到 `payload.session_id`。
+- 下行事件、`reply_snapshot`、`session/queue`、`session/status` 改为解析 `payload`；
+  durable admission 改为消费无 `type` 的 RPC ACK/error envelope。
+- 修复旧 `user_message/data/frame_id` 帧被 ftre 后端静默忽略导致消息消失的问题，并补齐
+  outbox 重连、取消 ACK、队列和状态回归测试。
+- 修复 Electron 开发启动竞态：等待 `main.js` 与 `preload.js` 都生成后再创建窗口，避免
+  preload 未注入导致 Inspector 文件树读取 `window.desktop.fs` 崩溃；增加 bridge 缺失降级和
+  preload 错误日志。
+- 修复 Windows Vite 依赖缓存锁导致 renderer 进程退出：开发启动使用 `--force` 重优化，
+  避免 Electron 保留旧页面后出现整页 `ERR_CONNECTION_REFUSED`。
+
+## [未发布]
+
+### 新增
+
+- A3：文件、图片和 Diff 预览的路径段支持逐级打开目录文件列表；目录按需懒加载，点击文件可复用或打开对应 Inspector Tab；新增规范化 `fs:listDirectory` IPC 与错误码。
+- A6：运行详情的 Changes 入口打开唯一 Inspector 审阅 Tab，支持未提交/未暂存/已暂存对比、文件级按需 Diff、复制 Diff 和打开源文件。
+- E1：客户端新增 macOS x64/arm64 打包链路，安装包内置架构匹配的 Python runtime、ftre Gateway 与 cordis-py；增加 UTF-8、路径、进程组清理和 GitHub Release 资产校验。
+
+### 修复
+
+- A2：重复的 TOOL_CALL_START 事件按 tool_call_id 幂等处理，消除聊天工具卡片 duplicate key 警告；Reply 快照转换同样按 id 去重。
+- A1：renderer 声明 Content-Security-Policy（index.html meta + 开发模式响应头注入），消除 Electron 开发模式 Insecure Content-Security-Policy 警告。
+
 ## [0.1.9] - 2026-08-20
 
 ### 变更

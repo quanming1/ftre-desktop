@@ -12,8 +12,10 @@ import type { ToolbarRenderProps } from "@jiang_quan_ming/react-code-diff";
 import { useInspector } from "@/stores/inspector";
 import { PreviewHeader, PreviewToolbarButton } from "./PreviewHeader";
 import { codeDiffLightConfig } from "./codeDiffConfig";
+import { isBinaryFile, isImageFile } from "@/utils/filePreviewKinds";
 import type { TabRendererProps } from "../tabRegistry";
 import type { DiffTab } from "@/stores/inspector";
+import type { FileEntry } from "@ftre/shared";
 
 function detectLanguage(filePath: string): string {
   const ext = filePath.match(/\.([a-z0-9]+)$/i)?.[1]?.toLowerCase() ?? "";
@@ -38,11 +40,25 @@ export function DiffRenderer({ tab, wordWrap }: TabRendererProps) {
   const toggleWordWrap = useInspector((s) => s.toggleWordWrap);
 
   const openFilePreview = useInspector((s) => s.openFilePreview);
+  const openImagePreview = useInspector((s) => s.openImagePreview);
+
+  const openPathEntry = useCallback((entry: FileEntry) => {
+    const normalizedPath = entry.path.replace(/\\/g, "/");
+    const title = entry.name || normalizedPath.split("/").pop() || normalizedPath;
+    if (entry.isDir || isBinaryFile(normalizedPath)) return;
+    if (isImageFile(normalizedPath)) {
+      openImagePreview(`path-picker-image-${normalizedPath}`, normalizedPath, title);
+      return;
+    }
+    openFilePreview(`path-picker-file-${normalizedPath}`, normalizedPath, title);
+  }, [openFilePreview, openImagePreview]);
 
   const renderToolbar = useCallback((props: ToolbarRenderProps) => {
     return (
       <PreviewHeader
         fileName={filePath}
+        variant="breadcrumb"
+        pathPicker={{ onOpenFile: openPathEntry }}
         left={
           <>
             <GitCompareArrows size={12} className="text-t-ghost shrink-0" />
@@ -114,7 +130,7 @@ export function DiffRenderer({ tab, wordWrap }: TabRendererProps) {
         }
       />
     );
-  }, [filePath, displayPath, additions, deletions, wordWrap, renderSideBySide, showDiffOnly, openFilePreview, toggleSideBySide, toggleDiffOnly, toggleWordWrap]);
+  }, [filePath, displayPath, additions, deletions, wordWrap, renderSideBySide, showDiffOnly, openFilePreview, openPathEntry, toggleSideBySide, toggleDiffOnly, toggleWordWrap]);
 
   return (
     <div className="flex flex-col h-full min-h-0 bg-surface p-2 gap-2">

@@ -135,17 +135,3 @@ export {
   type IEditorLayoutState,
   type IAddGroupOptions,
 } from "./editorPart";
-
-// ══════════════════════════════════════════════════
-//  ViewStateCompat — ViewState 迁移兼容层
-// ══════════════════════════════════════════════════
-
-export {
-  ViewStateCompat,
-  getViewStateCompat,
-  disposeViewStateCompat,
-  saveAllViewStates,
-  saveViewState,
-  loadViewState,
-  clearViewState,
-} from "./viewStateCompat";

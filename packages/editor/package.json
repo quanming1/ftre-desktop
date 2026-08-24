@@ -6,7 +6,6 @@
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
-    "./core": "./src/core/index.ts",
     "./runtime": "./src/runtime/index.ts",
     "./ui": "./src/ui/index.ts",
     "./store": "./src/store/index.ts",

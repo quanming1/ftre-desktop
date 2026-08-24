@@ -82,7 +82,7 @@ export function getTerminalTheme(resolved: 'light' | 'dark'): ITheme {
     const v = (name: string) => style.getPropertyValue(name).trim();
 
     return {
-        background: v('--ftre-bg-base'),
+        background: v('--ftre-bg-surface'),
         foreground: v('--ftre-text-primary'),
         cursor: v('--ftre-accent-default'),
         selectionBackground: v('--ftre-selection-bg'),

@@ -465,12 +465,9 @@ export function createEditorActions(
         (d) => d.filePath === diff.filePath,
       );
 
-      // 确保每次内容更新时 id 都变化，强制 DiffViewer 重新挂载
-      // @monaco-editor/react 的 DiffEditor 对 original/modified props 变化响应不完善
-      const newDiff = {
-        ...diff,
-        id: `${diff.id}:${Date.now()}`,
-      };
+      // id 是 tool-call + 文件路径的稳定身份；内容更新应替换同一条记录，
+      // 不能把时间戳混进 id，否则调用方无法再次定位并复用已有 diff。
+      const newDiff = diff;
 
       if (existingIdx !== -1) {
         const updated = [...pendingDiffs];

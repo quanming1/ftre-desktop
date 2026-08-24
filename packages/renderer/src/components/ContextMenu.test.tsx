@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { render, screen, fireEvent } from "@testing-library/react";
-import { ContextMenu, type ContextMenuItem } from "./ContextMenu";
+import { ContextMenu, type ContextMenuItem } from "@ftre/ui";
 import { Copy, Trash2, Edit } from "lucide-react";
 
 // ── helpers ──────────────────────────────────────────────────────────
@@ -29,10 +29,10 @@ function renderMenu(items?: ContextMenuItem[], onClose?: () => void) {
   return { ...render(<ContextMenu items={menuItems} position={defaultPosition} onClose={close} />), onClose: close, items: menuItems };
 }
 
-// Helper to check if an element has focus styling (uses CSS variable-based classes)
+// Helper to check the current neutral focus treatment used by the shared menu.
 function hasFocusStyle(element: HTMLElement | null): boolean {
   if (!element) return false;
-  return element.className.includes("bg-[var(--ftre-accent");
+  return element.className.includes("bg-[var(--ftre-bg-hover");
 }
 
 // ── tests ────────────────────────────────────────────────────────────

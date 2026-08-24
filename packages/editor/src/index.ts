@@ -198,14 +198,6 @@ export {
   type IEditorLayoutState,
   type IAddGroupOptions,
 
-  // ViewStateCompat
-  ViewStateCompat,
-  getViewStateCompat,
-  disposeViewStateCompat,
-  saveAllViewStates,
-  saveViewState as saveViewStateCompat,
-  loadViewState as loadViewStateCompat,
-  clearViewState as clearViewStateCompat,
 } from "./workbench";
 
 // ══════════════════════════════════════════════════
@@ -308,4 +300,4 @@ export {
 //  Utils
 // ══════════════════════════════════════════════════
 
-export { workspaceHash } from "./utils";
+export { normalizePathForCompare, workspaceHash } from "./utils";

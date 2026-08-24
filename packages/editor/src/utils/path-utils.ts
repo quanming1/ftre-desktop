@@ -6,7 +6,7 @@
  * 将路径规范化用于比较（统一斜杠方向、去掉尾部斜杠、Windows盘符小写）。
  * 确保 E:\path 和 e:\path 被视为相同路径。
  */
-function normalizePathForCompare(p: string): string {
+export function normalizePathForCompare(p: string): string {
   let normalized = p.replace(/\\/g, "/").replace(/\/+$/, "");
   // Windows 盘符小写化
   if (/^[A-Za-z]:\//.test(normalized)) {

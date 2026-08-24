@@ -3,7 +3,7 @@ import {
     getFileIcon,
     EXTENSION_MAP,
     SPECIAL_FILE_MAP,
-} from "./file-icons";
+} from "@ftre/editor/file-icons";
 import {
     File,
     FileCode,

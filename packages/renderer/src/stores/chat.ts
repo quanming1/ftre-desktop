@@ -13,9 +13,11 @@ import {
   getSessionStatusPayload,
   getSessionCommandPayload,
   getSessionContextWarningPayload,
+  getRpcErrorPayload,
   isReplySnapshotMessage,
-  type MailboxItemPayload,
-  type MailboxSnapshotPayload,
+  type AgentStreamEvent,
+  type QueueItemView,
+  type QueueSnapshotPayload,
   type ReplySnapshotPayload,
   type SessionActivity,
   type WsConnectionStatus,
@@ -23,15 +25,13 @@ import {
 } from "@/services/websocket-client";
 import { createSessionRemote, API_BASE, fetchChatAgents, updateAgent } from "@/services/api";
 import type { ChatAgent, MessageToken, ContextTokenUsage } from "@/services/api";
-import {
-  ClientSessionProjection,
-  type SessionProjectionState,
-} from "./clientSessionProjection";
+import { ClientSessionProjection, type SessionProjectionState } from "./clientSessionProjection";
+export type { SessionProjectionState } from "./clientSessionProjection";
 
 // ─── Types ───────────────────────────────────────────────────────────
 
 export type Role = "assistant" | "user" | "system";
-export type SessionStatus = "idle" | "running" | "compacting";
+export type SessionStatus = "idle" | "running" | "compacting" | "blocked";
 export type SendMessageResult =
   | { ok: true; requestId: string }
   | { ok: false; reason: "empty" | "compacting" | "blocked" | "outbox_full" | "transport_failed" };
@@ -222,46 +222,57 @@ function toMessageAttachments(raw: unknown): MessageAttachment[] {
   });
 }
 
-/** 将权威 mailbox 快照投影为会话状态和队列横幅数据。 */
-export function applyMailboxSnapshot(
+/** 将 ftre-inbox 的权威 session/queue 投影为队列横幅数据。 */
+export function applyQueueSnapshot(
   b: SessionProjectionState,
-  payload: MailboxSnapshotPayload,
+  payload: QueueSnapshotPayload,
 ): void {
-  const revision = Number(payload.revision);
-  if (!Number.isFinite(revision) || revision <= (b.sessionRevision ?? -1)) return;
-
-  const activity: SessionActivity = payload.phase === "running"
-    ? "executing" : payload.phase;
+  const revision = (b.sessionRevision ?? -1) + 1;
+  const previousByRequestId = new Map(
+    (b.pendingMessages ?? []).map((item) => [canonicalRequestId(item.request_id), item]),
+  );
+  const pending = payload.items.map((item, index): QueueItemView => ({
+    request_id: item.id,
+    sequence: index + 1,
+    content: item.message.content.map((part) => part.text).join(""),
+    attachments: item.message.attachments,
+    source: item.placement === "context" ? "plugin" : "user",
+    // 如果这条服务端队列项是本地刚发出的消息，保留“等待持久回显”标记。
+    // 它下一张快照可能已经不在 pending（已被 worker claim），但 USER_MESSAGE
+    // 事件尚未到达前仍必须留在横幅，避免“消失→突然出现”的视觉空窗。
+    ...(previousByRequestId.get(canonicalRequestId(item.id))?.optimistic
+      || previousByRequestId.get(canonicalRequestId(item.id))?.awaitingEcho
+      ? { awaitingEcho: true }
+      : {}),
+  }));
   // 网络上可能先到达旧快照，而刚点发送的本地请求尚未收到 durable ACK。
   // 只保留尚未确认的本地 request_id，已确认项目完全以后端 pending 为准。
   const serverRequestIds = new Set(
-    payload.pending
+    pending
        .map((item) => canonicalRequestId(item.request_id))
       .filter((id): id is string => typeof id === "string" && id.length > 0),
   );
   const awaitingAdmission = (b.pendingMessages ?? []).filter((item) => (
-    item.optimistic
+    (item.optimistic || item.awaitingEcho)
     && !serverRequestIds.has(canonicalRequestId(item.request_id))
   ));
-  const pendingMessages = [...payload.pending, ...awaitingAdmission];
+  const pendingMessages = [...pending, ...awaitingAdmission];
   const queueDepth = pendingMessages.length;
   b.hasCoordinatorState = true;
   b.sessionRevision = revision;
-  b.sessionActivity = activity;
   b.queueDepth = queueDepth;
-  b.queueCapacity = payload.capacity;
-  // 已接纳项目完全以后端 mailbox.pending 为准；尚未 ACK 的本地预览仅暂存于
+  // Inbox snapshot 不包含容量和 active 状态；这些字段由本地配置和 session/status
+  // 分别维护，队列事件只能替换 pending 事实。
+  b.queueCapacity = b.queueCapacity ?? null;
+  // 已接纳项目完全以后端 Inbox items 为准；尚未 ACK 的本地预览仅暂存于
   // 横幅，直到被同 request_id 的服务端项替换。它们绝不进入聊天 messages。
   b.pendingMessages = pendingMessages;
-  b.clientCanSend = payload.accepting_messages;
-  b.canCancel = payload.can_cancel_active;
-  b.blockedReason = payload.blocked_reason ?? null;
-  b.isBusy = activity !== "idle" || queueDepth > 0;
-  b.sessionStatus = activity === "compacting"
-    ? "compacting"
-    : b.isBusy ? "running" : "idle";
-  b.retryState = null;
-  if (activity === "idle") {
+  b.clientCanSend = b.clientCanSend ?? true;
+  b.canCancel = b.canCancel ?? false;
+  b.blockedReason = b.blockedReason ?? null;
+  b.isBusy = b.isBusy || queueDepth > 0;
+  if (b.sessionStatus === "idle" && queueDepth === 0) {
+    b.isBusy = false;
     b.commandName = null;
     b.turnStartTs = null;
   }
@@ -287,12 +298,22 @@ function replySnapshotToChatMessage(raw: any): ChatMessage | null {
       });
     } else if (block?.type === "tool_call") {
       const id = String(block.id ?? "");
-      blocks.push({
-        type: "toolCall",
-        id,
-        name: String(block.name ?? ""),
-        arguments: block.arguments && typeof block.arguments === "object" ? block.arguments : {},
-      });
+      const existingIndex = id
+        ? blocks.findIndex((item) => item.type === "toolCall" && item.id === id)
+        : -1;
+      if (existingIndex >= 0) {
+        const existing = blocks[existingIndex];
+        if (existing.type === "toolCall" && !existing.name && block.name) {
+          blocks[existingIndex] = { ...existing, name: String(block.name) };
+        }
+      } else {
+        blocks.push({
+          type: "toolCall",
+          id,
+          name: String(block.name ?? ""),
+          arguments: block.arguments && typeof block.arguments === "object" ? block.arguments : {},
+        });
+      }
       // 待确认工具调用（state==="asking"）在快照里没有配对 tool_result，
       // 合成一个 asking ToolResult，让确认卡片在刷新/重连后仍可渲染。
       // reason 未持久化，卡片用通用文案。
@@ -421,9 +442,6 @@ export function applyReplySnapshot(b: SessionProjectionState, payload: ReplySnap
     applyEvent(b, snapshotEvent);
   }
 
-  if (payload.mailbox) {
-    applyMailboxSnapshot(b, payload.mailbox);
-  }
 }
 
 
@@ -473,7 +491,7 @@ interface PendingNewSessionSend {
 }
 
 /** 将前端已发出、尚未收到服务器快照的消息投影为队列横幅项。 */
-function pendingPreview(item: PendingNewSessionSend): MailboxItemPayload {
+function pendingPreview(item: PendingNewSessionSend): QueueItemView {
   return {
     request_id: `local:${item.frameId}`,
     sequence: 0,
@@ -511,7 +529,7 @@ export interface BusEvent {
   eventId?: string;
   /** ws 实时下行帧的帧 ID（BusMessage.id），用于回放去重 */
   frameId?: string;
-  /** ws 瀹炴椂涓嬭甯х殑 metadata锛堝惈 frame_id 绛夌敤浜庡崰浣嶅幓閲嶇殑瀛楁锛?*/
+  /** ws 实时下行帧的 metadata；request_id 用于请求相关性和去重。 */
   metadata?: Record<string, any>;
 }
 
@@ -749,8 +767,9 @@ export function applyEvent(b: SessionProjectionState, ev: BusEvent): void {
       // 用户消息已经由后端持久化并开始实时回显；此刻才是从横幅移入聊天记录的
       // 唯一交接点。先移除同一 request_id 的队列项，避免重复展示。
       if (requestId) {
+        const canonical = canonicalRequestId(requestId);
         b.pendingMessages = (b.pendingMessages ?? []).filter(
-          (item) => item.request_id !== requestId,
+          (item) => canonicalRequestId(item.request_id) !== canonical,
         );
         b.queueDepth = b.pendingMessages.length;
       }
@@ -885,19 +904,31 @@ export function applyEvent(b: SessionProjectionState, ev: BusEvent): void {
 
     case "TOOL_CALL_START":
       ensure();
-      replaceReply((message) => ({
-        ...message,
-        blocks: [
-          ...(message.blocks || []),
-          {
-            type: "toolCall",
-            id: d.tool_call_id,
-            name: d.tool_call_name || "",
-            arguments: {},
-            argumentsText: "",
-          },
-        ],
-      }));
+      replaceReply((message) => {
+        const blocks = [...(message.blocks || [])];
+        const existing = blocks.find(
+          (block) => block.type === "toolCall" && block.id === d.tool_call_id,
+        );
+        if (existing?.type === "toolCall") {
+          // TOOL_CALL_START 可能在重试/回放时重复到达；tool_call_id 是调用身份，
+          // 同一 reply 内必须保持一个 block，后续 DELTA/END 继续更新它。
+          if (existing.name || !d.tool_call_name) return message;
+          return {
+            ...message,
+            blocks: blocks.map((block) => block === existing
+              ? { ...block, name: d.tool_call_name }
+              : block),
+          };
+        }
+        blocks.push({
+          type: "toolCall",
+          id: d.tool_call_id,
+          name: d.tool_call_name || "",
+          arguments: {},
+          argumentsText: "",
+        });
+        return { ...message, blocks };
+      });
       return;
 
     case "TOOL_CALL_DELTA":
@@ -1326,9 +1357,17 @@ if (!(globalThis as any)[__wsBoundFlag]) {
       const sid = admissionAck.session_id || msg.metadata?.session_id;
       if (typeof sid === "string" && sid) {
         const b = bucket(sid);
+        // Admission ACK 与 session.cancel 共用 RPC envelope；只有仍存在对应的
+        // optimistic chat item 时才是本地聊天的 ACK。控制 ACK 不应把 Session
+        // 错误地重新标记为 running。
+        const hasPendingChat = (b.pendingMessages ?? []).some((item) => (
+          item.optimistic
+          && canonicalRequestId(item.request_id) === admissionAck.request_id
+        ));
+        if (!hasPendingChat) return;
         // sendMessage 已经把横幅项本地预显示；收到 durable ACK 后只补齐
-        // 服务端 request_id，仍由下一张 mailbox_snapshot 覆盖为最终事实。
-        const transportRequestId = typeof msg.frame_id === "string" ? msg.frame_id : "";
+        // 服务端 request_id，仍由下一张 session/queue 覆盖为最终事实。
+        const transportRequestId = msg.request_id || "";
         b.pendingMessages = (b.pendingMessages ?? []).map((item) => (
           item.optimistic && (
             canonicalRequestId(item.request_id) === admissionAck.request_id
@@ -1337,8 +1376,9 @@ if (!(globalThis as any)[__wsBoundFlag]) {
             ? {
               ...item,
               request_id: admissionAck.request_id,
-              sequence: admissionAck.queue_position,
+              sequence: admissionAck.queue_position ?? item.sequence ?? 0,
               optimistic: false,
+              awaitingEcho: true,
             }
             : item
         ));
@@ -1351,16 +1391,14 @@ if (!(globalThis as any)[__wsBoundFlag]) {
       }
       return;
     }
-    if (msg.type === "error") {
-      const reason =
-        (msg.data as any)?.message ||
-        (msg.data as any)?.code ||
-        "Request rejected";
+    const rpcError = getRpcErrorPayload(msg);
+    if (rpcError) {
+      const reason = rpcError.message || rpcError.code || "Request rejected";
       // 鍏虫帀瀵瑰簲 session 鐨?busy 鐘舵€?
-      const sid = (msg.data as any)?.session_id || msg.metadata?.session_id;
+      const sid = rpcError.session_id || msg.metadata?.session_id;
       if (typeof sid === "string" && sid) {
         const b = bucket(sid);
-        const requestId = (msg.data as any)?.request_id || msg.metadata?.request_id;
+        const requestId = rpcError.request_id || msg.request_id || msg.metadata?.request_id;
         // 被服务端拒绝的本地队列项不能一直留在横幅；没有 request_id 的
         // 通用错误则不猜测删除哪一项。
         if (typeof requestId === "string" && requestId) {
@@ -1425,17 +1463,18 @@ if (!(globalThis as any)[__wsBoundFlag]) {
       const sid = sessionEvent.session_id || msg.metadata?.session_id;
       if (typeof sid !== "string" || !sid) return;
       const b = bucket(sid);
-      applyMailboxSnapshot(b, sessionEvent);
+      applyQueueSnapshot(b, sessionEvent);
       mirror(sid);
       return;
     }
 
     // attach/reconnect 同步进行中的完整 Msg；不是 AgentStreamEvent。
     if (isReplySnapshotMessage(msg)) {
-      const sid = msg.data.session_id || msg.metadata?.session_id;
+      const payload = msg.payload as ReplySnapshotPayload;
+      const sid = payload.session_id || msg.metadata?.session_id;
       if (typeof sid !== "string" || !sid) return;
       const b = bucket(sid);
-      b.applySnapshot(msg.data);
+      b.applySnapshot(payload);
       mirror(sid);
       return;
     }
@@ -1468,7 +1507,7 @@ if (!(globalThis as any)[__wsBoundFlag]) {
     }
 
     if (msg.type !== "agent_event") return;
-    const ev = msg.data;
+    const ev = msg.payload as AgentStreamEvent;
     if (!ev?.type) return;
 
 
@@ -1489,7 +1528,7 @@ if (!(globalThis as any)[__wsBoundFlag]) {
         : typeof ev.timestamp === "number"
           ? ev.timestamp * 1000
           : undefined,
-      frameId: msg.frame_id,
+      frameId: msg.request_id,
       metadata: msg.metadata,
     };
     if (hasSeenEvent(b, busEvent)) return;
@@ -1581,8 +1620,8 @@ interface ChatState {
   hasCoordinatorState: boolean;
   queueDepth: number;
   queueCapacity: number | null;
-  /** 后端 state.json 中 mailbox.pending 的只读投影，供队列横幅渲染。 */
-  pendingMessages: MailboxItemPayload[];
+  /** 后端 Inbox items 的只读投影，供队列横幅渲染。 */
+  pendingMessages: QueueItemView[];
   clientCanSend: boolean;
   canCancel: boolean;
   blockedReason: string | null;
@@ -1638,7 +1677,7 @@ interface ChatState {
     turnStartTs?: number | null,
     plan?: PlanData | null,
     commandName?: string | null,
-    mailbox?: MailboxSnapshotPayload | null,
+    queue?: QueueSnapshotPayload | null,
   ) => void;
   /**
    * Prepend earlier ChatMessage[] to the session, deduping by message id.
@@ -1831,7 +1870,7 @@ export const useChat = create<ChatState>((set, get) => ({
     b.sessionStatus = "running";
     b.canCancel = false;
     mirror(sid);
-    // 鍙?/cancel 鐨?user_message 甯э紝鍚庣绯荤粺绾ф寚浠ゅ湪 session lock 澶栧鐞?
+    // /cancel 使用独立的 session.cancel 控制帧，在 Session lock 外处理。
     wsClient.sendCancel(sid);
   },
 
@@ -1935,7 +1974,7 @@ export const useChat = create<ChatState>((set, get) => ({
     mirror(sessionId);
   },
 
-  loadSessionMessages: (sessionId, messages, hasMoreHistory, status, turnStartTs, plan, commandName, mailbox) => {
+  loadSessionMessages: (sessionId, messages, hasMoreHistory, status, turnStartTs, plan, commandName, queue) => {
     const b = bucket(sessionId);
     b.hydrate({
       messages,
@@ -1945,10 +1984,9 @@ export const useChat = create<ChatState>((set, get) => ({
       plan,
       commandName,
     });
-    if (mailbox) {
-      // HTTP 返回的 mailbox 是刷新后的权威快照，直接交给同一个 reducer，
-      // mailbox 快照是刷新后的权威状态，直接复用同一个投影 reducer。
-      applyMailboxSnapshot(b, mailbox);
+    if (queue) {
+      // HTTP 返回的 queue 是刷新后的权威快照，直接复用实时事件的投影 reducer。
+      applyQueueSnapshot(b, queue);
     }
     mirror(sessionId);
   },

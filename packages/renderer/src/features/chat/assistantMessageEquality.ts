@@ -1,5 +1,5 @@
 import type { ChatMessage, ContentBlock, ToolResult } from "@/stores/chat";
-import type { TurnFileChange } from "./TurnFileChanges";
+import type { TurnFileChange } from "./turnFileChangeUtils";
 
 export interface AssistantMessageComparableProps {
   message: ChatMessage;

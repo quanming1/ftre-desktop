@@ -1,7 +1,7 @@
 /**
  * SettingsPanel — 设置面板（右侧面板模式）
  *
- * 从 SettingsDialog 改造而来，去掉了 Modal 包裹，
+ * 从旧设置弹窗改造而来，去掉了 Modal 包裹，
  * 直接作为右侧面板渲染（与 Skills/Cron/Traces 同级切换）。
  */
 import { useState, useEffect } from "react";
@@ -11,7 +11,6 @@ import { GatewaySettings } from "@/features/settings/GatewaySettings";
 import { AgentDefSettings } from "@/features/settings/AgentDefSettings";
 import { McpSettings } from "@/features/settings/McpSettings";
 import { PromptSettings } from "@/features/settings/PromptSettings";
-import { PerformanceSettings } from "@/features/settings/PerformanceSettings";
 import { ShortcutsSettings } from "@/features/settings/ShortcutsSettings";
 import { useTheme, type ThemeMode } from "@/stores/theme";
 import { useLayout } from "@/stores/layout";
@@ -26,7 +25,6 @@ const navSections = [
       { id: "gateway", label: "网关连接" },
       { id: "agents", label: "智能体" },
       { id: "mcp", label: "MCP 服务器" },
-      { id: "performance", label: "性能监控" },
     ] satisfies { id: SettingsSection; label: string }[],
   },
   {
@@ -85,7 +83,6 @@ export function SettingsPanel() {
           {activeSection === "agents" && <AgentDefSettings />}
           {activeSection === "general" && <GeneralSettings />}
           {activeSection === "mcp" && <McpSettings />}
-          {activeSection === "performance" && <PerformanceSettings />}
           {activeSection === "shortcuts" && <ShortcutsSettings />}
           </div>
         </div>

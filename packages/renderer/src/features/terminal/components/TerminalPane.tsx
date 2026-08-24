@@ -6,7 +6,7 @@
  */
 
 import { useCallback, useState } from "react";
-import { ContextMenu, type ContextMenuItem } from "@/components/ContextMenu";
+import { ContextMenu, type ContextMenuItem } from "@ftre/ui";
 import { terminalManager } from "@/services/terminal";
 import type { TerminalInstance } from "@/stores/terminal";
 
@@ -111,13 +111,18 @@ export function TerminalPane({ instance, isActive, containerRef }: TerminalPaneP
     return (
         <>
             <div
-                ref={(el) => containerRef(instance.id, el)}
-                className="absolute inset-0 p-4"
+                className="absolute inset-0 overflow-hidden bg-surface"
                 style={{ display: isActive ? "block" : "none" }}
                 onContextMenu={handleContextMenu}
                 onDragOver={handleDragOver}
                 onDrop={handleDrop}
-            />
+            >
+                {/* FitAddon 不会扣除父容器 padding；用独立内层测量区域保留安全边距，避免末行被裁切。 */}
+                <div
+                    ref={(el) => containerRef(instance.id, el)}
+                    className="absolute inset-4"
+                />
+            </div>
 
             {contextMenu && (
                 <ContextMenu

@@ -13,12 +13,20 @@ import { Range } from "slate";
 import { ArrowUp, Box, ChevronRight, Paperclip, Plus, Terminal, X } from "lucide-react";
 import { useChat, type MessageAttachment } from "@/stores/chat";
 import { useLayout } from "@/stores/layout";
+import { useInspector } from "@/stores/inspector";
+import { useSession } from "@/stores/session";
 import { useNotification } from "@/stores/notification";
 import { fetchCommands, type CommandDef } from "@/services/api";
 import { saveSessionDraft, getSessionDraft, deleteSessionDraft as removeDraft } from "./sessionDrafts";
 import { AgentBar } from "./AgentBar";
 import { TokenRing } from "./TokenRing";
 import { WorkspaceBadge } from "./WorkspaceBadge";
+import { TurnFileChangesSummary } from "./TurnFileChangesSummary";
+import { QueuedMessagesBanner } from "./QueuedMessagesBanner";
+import {
+  collectLatestTurnFileChanges,
+  shouldShowTurnFileChangesSummary,
+} from "./turnFileChangeUtils";
 import {
   ChatInputEditor,
   renderElement,
@@ -274,8 +282,32 @@ function MenuItem({
 
 // ─── 主组件 ────────────────────────────────────────────────────────
 
-export function ChatInput() {
+interface ChatInputProps {
+  onComposerOverlayHeightChange?: (height: number) => void;
+}
+
+export function ChatInput({ onComposerOverlayHeightChange }: ChatInputProps = {}) {
   const inputEditor = useMemo(() => new ChatInputEditor(), []);
+  const composerOverlayRef = useRef<HTMLDivElement>(null);
+
+  useLayoutEffect(() => {
+    const overlay = composerOverlayRef.current;
+    if (!overlay || !onComposerOverlayHeightChange) return;
+
+    const reportHeight = () => {
+      onComposerOverlayHeightChange(Math.ceil(overlay.getBoundingClientRect().height));
+    };
+    reportHeight();
+
+    if (typeof ResizeObserver === "undefined") {
+      window.addEventListener("resize", reportHeight);
+      return () => window.removeEventListener("resize", reportHeight);
+    }
+
+    const observer = new ResizeObserver(reportHeight);
+    observer.observe(overlay);
+    return () => observer.disconnect();
+  }, [onComposerOverlayHeightChange]);
 
   // 模型切换后自动聚焦输入框（如果未聚焦）
   // ── 发送按钮水波纹 ──
@@ -306,6 +338,11 @@ export function ChatInput() {
   const canCancel = useChat((s) => s.canCancel);
   const hasCoordinatorState = useChat((s) => s.hasCoordinatorState);
   const sessionId = useChat((s) => s.sessionId);
+  const messages = useChat((s) => s.messages);
+  const pendingMessages = useChat((s) => s.pendingMessages);
+  const lastUserInputTs = useChat((s) => s.lastUserInputTs);
+  const sessions = useSession((s) => s.sessions);
+  const allSessions = useSession((s) => s.allSessions);
   const autoFollow = useLayout((s) => s.autoFollowFiles);
   const toggleAutoFollow = useLayout((s) => s.toggleAutoFollowFiles);
   /** 输入框是否有文字（Slate 非受控，需在 onChange 中显式同步，见 handleSlateChange） */
@@ -742,6 +779,39 @@ export function ChatInput() {
   }, []);
 
   const hasDraft = hasText || attachments.length > 0;
+  const turnFileChanges = useMemo(
+    // pending 只有在新 user 尚未回显时才代表“新一轮”；USER_MESSAGE 到达后，
+    // 即使队列快照短暂滞后，也必须继续展示当前轮已经完成的文件修改。
+    // 流式结束后由 isBusy 关闭这个摘要浮窗，完整审查入口仍保留在消息卡片中。
+    () => shouldShowTurnFileChangesSummary(
+      messages,
+      isBusy,
+      pendingMessages.length,
+      lastUserInputTs,
+    ) ? collectLatestTurnFileChanges(messages) : [],
+    [isBusy, messages, pendingMessages.length, lastUserInputTs],
+  );
+  const turnWorkspace = useMemo(() => {
+    if (!sessionId) return "";
+    return sessions.find((session) => session.session_id === sessionId)?.workspace
+      || allSessions.find((session) => session.session_id === sessionId)?.workspace
+      || "";
+  }, [allSessions, sessionId, sessions]);
+  const turnId = useMemo(() => {
+    const userMessage = [...messages].reverse().find((message) => message.role === "user");
+    return `${sessionId ?? "pending"}:${userMessage?.id ?? "active"}`;
+  }, [messages, sessionId]);
+  const handleReviewTurnChanges = useCallback(() => {
+    if (turnFileChanges.length === 0) return;
+    useInspector.getState().openAuditTab(turnWorkspace, {
+      scope: "turn",
+      turnId,
+      turnChanges: turnFileChanges,
+    });
+    if (!useLayout.getState().panelVisible.inspector) {
+      useLayout.getState().togglePanelVisible("inspector");
+    }
+  }, [turnFileChanges, turnId, turnWorkspace]);
   const canSend =
     sessionStatus !== "compacting"
     && (!hasCoordinatorState || clientCanSend)
@@ -752,17 +822,28 @@ export function ChatInput() {
   const showStopButton = showCancel && !hasDraft;
 
   return (
-    <div className="px-6 pb-4 pt-3">
+    <div className="px-6 pb-4">
       <div className="mx-auto w-full max-w-[800px]">
+        <div className="relative">
+          <div ref={composerOverlayRef} data-chat-composer-stack="" className="absolute bottom-full left-0 right-0 z-10 flex flex-col">
+          <TurnFileChangesSummary changes={turnFileChanges} onReview={handleReviewTurnChanges} />
 
-        <div
-          onDragOver={handleDragOver}
-          onDragLeave={handleDragLeave}
-          onDrop={handleDrop}
-          className={`relative bg-[#f6f7f9]/65 border border-black/10 focus-within:border-neon/30 transition-colors rounded-3xl backdrop-blur-md backdrop-saturate-150 shadow-[inset_0_1px_0_rgba(255,255,255,0.6)] ${
-            isDragging ? "border-neon/50 ring-1 ring-neon/30" : ""
-          }`}
-        >
+          {pendingMessages.length > 0 && (
+            <div className="mx-4 overflow-hidden rounded-t-xl rounded-b-none border border-b-0 border-black/10 bg-[#f6f7f9]/65 shadow-[0_4px_14px_rgba(15,23,42,0.05),inset_0_1px_0_rgba(255,255,255,0.6)] backdrop-blur-md backdrop-saturate-150">
+              <QueuedMessagesBanner items={pendingMessages} />
+            </div>
+          )}
+          </div>
+
+          <div
+            data-testid="chat-input-surface"
+            onDragOver={handleDragOver}
+            onDragLeave={handleDragLeave}
+            onDrop={handleDrop}
+            className={`relative bg-[#f6f7f9]/65 border border-black/10 focus-within:border-neon/30 transition-colors rounded-3xl backdrop-blur-md backdrop-saturate-150 shadow-[inset_0_1px_0_rgba(255,255,255,0.6)] ${
+              isDragging ? "border-neon/50 ring-1 ring-neon/30" : ""
+            }`}
+          >
           {/* / 面板：指令 + 技能 */}
           {skillSearch && slashTotal > 0 && (
             <SlashDropdown
@@ -849,10 +930,10 @@ export function ChatInput() {
 
             {/* Agent/模型 + 上下文用量 + 发送 */}
             <div className="flex min-w-0 flex-[0_1_340px] items-center justify-end gap-1.5">
-              <div className="min-w-0 flex-1">
+              <div className="flex min-w-0 items-center gap-1.5">
+                <TokenRing />
                 <AgentBar />
               </div>
-              <TokenRing />
               {showStopButton ? (
                 <button
                   onClick={handleCancel}
@@ -892,6 +973,7 @@ export function ChatInput() {
                 </button>
               )}
             </div>
+          </div>
           </div>
         </div>
       </div>
