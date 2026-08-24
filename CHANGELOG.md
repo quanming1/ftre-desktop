@@ -1,5 +1,9 @@
 # Changelog
 
+## [0.1.14] - 2026-08-24
+
+- 修复 macOS 14 arm64 runner 交叉构建 Intel runtime 时架构校验误用宿主 `uname` 的问题。
+
 ## [0.1.13] - 2026-08-24
 
 - 修复 macOS Intel 交叉打包时原生依赖错误回退源码编译的问题。
