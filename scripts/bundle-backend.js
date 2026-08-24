@@ -332,10 +332,22 @@ function cleanPycache(root) {
 }
 
 function getDirSize(root) {
+  if (!fs.existsSync(root)) return 0;
   let total = 0;
   for (const item of fs.readdirSync(root, { withFileTypes: true })) {
     const fullPath = path.join(root, item.name);
-    total += item.isDirectory() ? getDirSize(fullPath) : fs.statSync(fullPath).size;
+    // Python embeddable/runtime layouts differ by platform (for example macOS
+    // arm64 may omit the legacy ``2to3`` launcher). A file can also disappear
+    // during cleanup; missing entries must not make an otherwise valid bundle fail.
+    if (item.isDirectory()) {
+      total += getDirSize(fullPath);
+      continue;
+    }
+    try {
+      total += fs.statSync(fullPath).size;
+    } catch (error) {
+      if (error?.code !== "ENOENT") throw error;
+    }
   }
   return total;
 }
