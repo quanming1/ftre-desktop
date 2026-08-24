@@ -34,6 +34,7 @@
 - [x] FR10：流式回复中的历史分页——用户点击“从服务器加载更早的消息”时，即使当前 assistant 回复仍在流式输出，已返回的历史页也必须 prepend 到消息列表；流式消息保持在列表末尾，不能静默丢弃该页。
 - [x] FR11：同一 assistant reply 内相同 `tool_call_id` 的重复 `TOOL_CALL_START` 必须幂等处理，只保留一个工具调用 block；后续 `TOOL_CALL_DELTA`、`TOOL_CALL_END` 和工具结果仍按该 id 更新。
 - [x] FR12：消息列表保留所有已完成轮次的文件变更卡片；即使当前会话正在运行，之前轮次的变更仍可查看，当前流式轮次只在结束后展示完整变更卡片。
+- [x] FR13：连续思考与工具调用折叠组在流式执行时优先展示当前 edit/write 文件或 bash/exec/shell 命令摘要（`Edit <filename>` / `Ran <command>`）；缺少可展示参数时沿用通用动作摘要。
 
 ### 2.2 非功能需求
 
@@ -69,6 +70,7 @@
 - [x] AC6：会话存在仍在流式输出的 assistant 消息时，加载一页更早历史后，历史消息、当前消息与流式消息均保留且顺序正确；最早时间游标前移。
 - [x] AC7：重复派发相同 `reply_id` + `tool_call_id` 的 `TOOL_CALL_START` 后，工具 blocks 数量仍为一个；后续 DELTA/END 更新同一 block，不产生 duplicate key。
 - [x] AC8：存在历史轮次变更且当前会话正在运行时，历史轮次的变更卡片仍展示；当前未结束轮次不提前展示不完整卡片。
+- [x] AC9：流式 edit/write 与 bash/exec/shell 工具调用分别展示文件名和命令摘要；工具完成后的历史折叠摘要、展开交互和思考内容不回归（AssistantMessage 测试通过）。
 
 ## 6. 测试计划
 
@@ -147,4 +149,5 @@
 | 2026-08-21 | 新增 FR11 / AC7：相同 `tool_call_id` 的重复 TOOL_CALL_START 在客户端幂等处理，不产生重复工具 block 或 React key；Electron CSP 相关验收纳入 PRD-A1-electron-scaffold.md | 修复开发客户端中的 duplicate key 与 Insecure Content-Security-Policy 控制台警告 |
 | 2026-08-21 | 已验收（AC1-AC7 重跑）：chat.test.ts 14 例全过（新增重复 START 幂等 + Reply 快照去重回归）；全量 vitest 失败集合与改动前基线完全一致（无回归）；electron/renderer 构建与类型通过；vite preview + 浏览器验证 CSP 不阻断页面且无违规。仅真实 `pnpm dev` 下工具调用流的控制台观察需在用户环境确认 | 对照 AC 验收留痕 |
 | 2026-08-21 | 新增 FR12 / AC8：运行中的会话不再隐藏已完成历史轮次的文件变更卡片；当前流式轮次仍等待结束后再展示完整变更 | 用户希望运行中继续查看之前轮次的变更 |
+| 2026-08-24 | 新增 FR13 / AC9：流式折叠组根据最后一个仍在执行的工具显示 `Edit <filename>` 或 `Ran <command>`；无路径/命令参数时保持通用中文摘要，新增 AssistantMessage 回归测试 | 用户希望执行过程中直接看到当前正在编辑的文件或运行的命令 |
 | 2026-08-21 | 移除 ChatHeader 中已失效的“归档会话”菜单项及其触发逻辑，保留重命名和删除会话 | 用户反馈归档会话功能已不存在 |

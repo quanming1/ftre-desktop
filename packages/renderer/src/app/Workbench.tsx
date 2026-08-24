@@ -529,7 +529,15 @@ export function Workbench() {
           style={
             (panelVisible.inspector && activeLeftPanel === "chat")
               ? getPanelStyle("inspector")
-              : { width: 0, minWidth: 0, maxWidth: 0, opacity: 0, overflow: "hidden" }
+              : {
+                  width: 0,
+                  minWidth: 0,
+                  flexShrink: 0,
+                  order: getOrder("inspector"),
+                  overflow: "hidden",
+                  contain: "layout",
+                  transition: "width 160ms ease",
+                }
           }
         >
           <GlassGutter className="h-1" />

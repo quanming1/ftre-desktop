@@ -2,7 +2,9 @@ import { ipcMain, dialog, shell } from "electron";
 import * as path from "path";
 import * as fs from "fs";
 import * as os from "os";
+import type { ListDirectoryResult } from "@ftre/shared";
 import { getMainWindow } from "../app-state";
+import { listDirectoryEntries } from "./fs-directory";
 
 /** Expand ~ to the user's home directory */
 function expandHome(filePath: string): string {
@@ -12,7 +14,10 @@ function expandHome(filePath: string): string {
   return filePath;
 }
 
-const TREE_SKIP_DIRS = new Set([".git"]);
+function extractDirPath(payload: unknown): unknown {
+  if (typeof payload !== "object" || payload === null) return undefined;
+  return (payload as { dirPath?: unknown }).dirPath;
+}
 
 function extToLanguage(ext: string): string {
   const map: Record<string, string> = {
@@ -52,34 +57,19 @@ function extToLanguage(ext: string): string {
 
 export function registerFsIPC(): void {
   ipcMain.handle(
+    "fs:listDirectory",
+    async (_event, payload: unknown): Promise<ListDirectoryResult> =>
+      listDirectoryEntries(extractDirPath(payload)),
+  );
+
+  ipcMain.handle(
     "fs:readDir",
-    async (_event, { dirPath }: { dirPath: string }) => {
-      try {
-        const items = await fs.promises.readdir(dirPath, {
-          withFileTypes: true,
-        });
-        const entries = [];
-
-        for (const item of items) {
-          if (item.isDirectory() && TREE_SKIP_DIRS.has(item.name)) continue;
-
-          entries.push({
-            name: item.name,
-            path: path.join(dirPath, item.name).replace(/\\/g, "/"),
-            isDir: item.isDirectory(),
-            ext: item.isDirectory() ? null : path.extname(item.name).slice(1),
-          });
-        }
-
-        entries.sort((a: any, b: any) => {
-          if (a.isDir !== b.isDir) return a.isDir ? -1 : 1;
-          return a.name.toLowerCase().localeCompare(b.name.toLowerCase());
-        });
-
-        return { entries };
-      } catch (err: any) {
-        return { entries: [], error: err.message };
-      }
+    async (_event, payload: unknown) => {
+      const result = await listDirectoryEntries(extractDirPath(payload));
+      return {
+        entries: result.entries,
+        ...(result.error ? { error: result.error.message } : {}),
+      };
     },
   );
 

@@ -5,9 +5,10 @@
  * header 高度/间距不一致。文件名居中结构：left 槽（可选图标/统计）+
  * 文件名 + ml-auto 右槽（按钮组）。按钮统一用 PreviewToolbarButton。
  */
-import { useCallback, type MouseEventHandler, type ReactNode } from "react";
-import { ChevronRight } from "lucide-react";
-import { Tooltip, TooltipProvider } from "@ftre/ui";
+import { useCallback, useState, type MouseEventHandler, type ReactNode } from "react";
+import { ChevronRight, Copy } from "lucide-react";
+import type { FileEntry } from "@ftre/shared";
+import { FilePathPopover, parentPath } from "./FilePathPopover";
 
 interface PreviewToolbarButtonProps {
   title: string;
@@ -35,7 +36,7 @@ export function PreviewToolbarButton({
 }
 
 interface PreviewHeaderProps {
-  /** 完整路径（breadcrumb 悬停提示及复制内容） */
+  /** 完整路径（用于 breadcrumb 分段和复制内容） */
   fileName: string;
   /** 文件名左侧内容（如图标、增删统计） */
   left?: ReactNode;
@@ -43,14 +44,19 @@ interface PreviewHeaderProps {
   right?: ReactNode;
   /** 文件预览使用面包屑式 Header；默认保持 Diff 预览的紧凑卡片样式。 */
   variant?: "compact" | "breadcrumb";
+  /** 开启文件路径浮层；Diff 等只读路径 Header 不传此项。 */
+  pathPicker?: {
+    onOpenFile: (entry: FileEntry) => void;
+  };
 }
 
 interface CopyableBreadcrumbProps {
   absolutePath: string;
-  parts: string[];
+  parts: Array<{ label: string; path: string; isFile: boolean }>;
+  onSegmentClick?: (path: string, anchor: HTMLElement) => void;
 }
 
-function CopyableBreadcrumb({ absolutePath, parts }: CopyableBreadcrumbProps) {
+function CopyableBreadcrumb({ absolutePath, parts, onSegmentClick }: CopyableBreadcrumbProps) {
   const copyPath = useCallback(async () => {
     try {
       await navigator.clipboard.writeText(absolutePath);
@@ -60,56 +66,97 @@ function CopyableBreadcrumb({ absolutePath, parts }: CopyableBreadcrumbProps) {
   }, [absolutePath]);
 
   return (
-    <TooltipProvider>
-      <Tooltip
-        side="bottom"
-        sideOffset={5}
-        delayDuration={0}
-        content={
-          <div className="max-w-[min(70vw,640px)] break-all font-mono text-[11px] leading-4">
-            {absolutePath}
-          </div>
-        }
-      >
-        <button
-          type="button"
-          aria-label={`复制绝对路径：${absolutePath}`}
-          onClick={() => void copyPath()}
-          className="group flex min-w-0 max-w-full items-center gap-1 rounded-md px-1.5 py-1 text-left text-[11px] transition-colors hover:bg-hover active:bg-hover"
-        >
+    <div className="group flex min-w-0 max-w-full items-center gap-0.5 rounded-md px-1 py-1 text-left text-[11px]">
           {parts.map((part, index) => (
             <span key={`${part}-${index}`} className="flex min-w-0 items-center gap-1">
               {index > 0 && <ChevronRight size={12} className="shrink-0 text-t-ghost/70" />}
-              <span
-                className={`truncate ${index === parts.length - 1 ? "font-medium text-t-primary group-hover:text-t-primary" : "text-t-muted group-hover:text-t-secondary"}`}
-              >
-                {part}
-              </span>
+              {onSegmentClick ? (
+                <button
+                  type="button"
+                  aria-label={part.isFile ? `浏览文件所在目录：${part.label}` : `浏览目录：${part.label}`}
+                  onClick={(event) => onSegmentClick(part.isFile ? parentPath(part.path) : part.path, event.currentTarget)}
+                  className={`max-w-[180px] truncate rounded px-1 py-0.5 transition-colors hover:bg-hover ${index === parts.length - 1 ? "font-medium text-t-primary" : "text-t-muted hover:text-t-secondary"}`}
+                >
+                  {part.label}
+                </button>
+              ) : (
+                <span className={`max-w-[180px] truncate ${index === parts.length - 1 ? "font-medium text-t-primary" : "text-t-muted"}`}>
+                  {part.label}
+                </span>
+              )}
             </span>
           ))}
-        </button>
-      </Tooltip>
-    </TooltipProvider>
+          <button
+            type="button"
+            aria-label={`复制绝对路径：${absolutePath}`}
+            onClick={() => void copyPath()}
+            className="ml-0.5 shrink-0 rounded p-1 text-t-ghost transition-colors hover:bg-hover hover:text-t-primary"
+          >
+            <Copy size={12} />
+          </button>
+    </div>
   );
 }
 
-export function PreviewHeader({ fileName, left, right, variant = "compact" }: PreviewHeaderProps) {
+function breadcrumbParts(fileName: string): Array<{ label: string; path: string; isFile: boolean }> {
+  const normalized = fileName.replace(/\\/g, "/");
+  const isWindowsAbsolute = /^[A-Za-z]:\//.test(normalized);
+  const isPosixAbsolute = normalized.startsWith("/");
+  const labels = normalized.split("/").filter(Boolean);
+  let prefix = "";
+  if (isWindowsAbsolute) {
+    prefix = `${labels.shift() ?? ""}/`;
+  } else if (isPosixAbsolute) {
+    prefix = "/";
+  }
+
+  let current = prefix;
+  return labels.map((label, index) => {
+    if (current === "/" || /^[A-Za-z]:\/$/.test(current)) current = `${current}${label}`;
+    else current = current ? `${current}/${label}` : label;
+    return {
+      label,
+      path: current,
+      isFile: index === labels.length - 1,
+    };
+  });
+}
+
+export function PreviewHeader({ fileName, left, right, variant = "compact", pathPicker }: PreviewHeaderProps) {
   const displayName = fileName.replace(/\\/g, "/").split("/").pop() ?? fileName;
-  const breadcrumbParts = fileName
-    .replace(/\\/g, "/")
-    .split("/")
-    .filter(Boolean)
-    .slice(-3);
+  const parts = breadcrumbParts(fileName);
+  const [picker, setPicker] = useState<{ rootPath: string; anchorEl: HTMLElement } | null>(null);
+
+  const openPicker = useCallback((rootPath: string, anchorEl: HTMLElement) => {
+    setPicker((current) => current?.rootPath === rootPath ? null : { rootPath, anchorEl });
+  }, []);
+  const closePicker = useCallback(() => setPicker(null), []);
+  const handleOpenFile = useCallback((entry: FileEntry) => {
+    pathPicker?.onOpenFile(entry);
+    setPicker(null);
+  }, [pathPicker]);
 
   if (variant === "breadcrumb") {
     return (
-      <div
-        className="flex h-8 shrink-0 items-center gap-1 overflow-hidden bg-surface px-2"
-      >
+      <>
+        <div className="flex h-8 shrink-0 items-center gap-1 overflow-hidden bg-surface px-2">
         {left && <div className="flex shrink-0 items-center gap-1">{left}</div>}
-        <CopyableBreadcrumb absolutePath={fileName} parts={breadcrumbParts} />
+        <div className="min-w-0 flex-1 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+          <CopyableBreadcrumb absolutePath={fileName} parts={parts} onSegmentClick={pathPicker ? openPicker : undefined} />
+        </div>
         <div className="ml-auto flex shrink-0 items-center gap-0.5">{right}</div>
-      </div>
+        </div>
+        {pathPicker && picker && (
+          <FilePathPopover
+            open
+            anchorEl={picker.anchorEl}
+            rootPath={picker.rootPath}
+            currentFilePath={fileName}
+            onClose={closePicker}
+            onOpenFile={handleOpenFile}
+          />
+        )}
+      </>
     );
   }
 

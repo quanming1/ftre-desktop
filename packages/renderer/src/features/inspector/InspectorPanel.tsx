@@ -46,6 +46,7 @@ import { useSmoothTabReorder, compareByMountOrder } from "./useSmoothTabReorder"
 import { SessionStateRenderer } from "./SessionStateRenderer";
 import { TracePanel } from "@/features/traces/TracePanel";
 import { WsLogInspectorPanel } from "./WsLogInspectorPanel";
+import { InspectorVisibilityButton } from "@/components/InspectorVisibilityButton";
 
 /** 获取当前会话工作目录；终端标题仍显示根工作区名称。 */
 function getCurrentSessionWorkspace(): string | null {
@@ -535,7 +536,7 @@ function InspectorTabBar({
   );
 
   return (
-    <div className="h-10 flex items-center gap-1 shrink-0 px-2" style={{ background: "#ffffff" }}>
+    <div className="relative h-10 flex items-center gap-1 shrink-0 px-2" style={{ background: "#ffffff" }}>
       <button
         onClick={onToggleFileTree}
         title="文件树"
@@ -579,7 +580,7 @@ function InspectorTabBar({
           ))}
         </DropdownMenuContent>
       </DropdownMenu>
-      <div className="relative flex-1 min-w-0 h-full">
+      <div className="relative flex-1 min-w-0 h-full pr-[72px]">
         <OverlayScrollbarsComponent
           ref={overlayRef}
           defer
@@ -630,32 +631,35 @@ function InspectorTabBar({
           </div>
         )}
       </div>
-      <DropdownMenu>
-        <DropdownMenuTrigger asChild>
-          <button
-            type="button"
-            title="新建面板"
-            aria-label="新建面板"
-            className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-t-ghost transition-colors hover:bg-hover hover:text-t-primary"
+      <div className="absolute right-4 top-2.5 z-10 flex items-center gap-1">
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <button
+              type="button"
+              title="新建面板"
+              aria-label="新建面板"
+              className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-t-ghost transition-colors hover:bg-hover hover:text-t-primary"
+            >
+              <Plus size={15} strokeWidth={1.8} />
+            </button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent
+            align="end"
+            sideOffset={5}
+            className="min-w-[170px] rounded-[14px] border border-black/[0.06] bg-white p-1.5 shadow-[0_10px_30px_rgba(15,23,42,0.14)] data-[state=open]:animate-none data-[state=closed]:animate-none"
           >
-            <Plus size={15} strokeWidth={1.8} />
-          </button>
-        </DropdownMenuTrigger>
-        <DropdownMenuContent
-          align="end"
-          sideOffset={5}
-          className="min-w-[170px] rounded-[14px] border border-black/[0.06] bg-white p-1.5 shadow-[0_10px_30px_rgba(15,23,42,0.14)] data-[state=open]:animate-none data-[state=closed]:animate-none"
-        >
-          <DropdownMenuItem
-            onSelect={onOpenTerminal}
-            className="h-9 gap-2 rounded-lg px-3 text-t-secondary transition-colors hover:bg-[#f3f3f4] hover:text-t-primary focus:bg-[#f3f3f4] focus:text-t-primary data-[highlighted]:bg-[#f3f3f4] data-[highlighted]:text-t-primary"
-          >
-            <TerminalSquare size={14} />
-            <span className="flex-1">终端</span>
-            <span className="text-[11px] text-t-ghost">Ctrl+`</span>
-          </DropdownMenuItem>
-        </DropdownMenuContent>
-      </DropdownMenu>
+            <DropdownMenuItem
+              onSelect={onOpenTerminal}
+              className="h-9 gap-2 rounded-lg px-3 text-t-secondary transition-colors hover:bg-[#f3f3f4] hover:text-t-primary focus:bg-[#f3f3f4] focus:text-t-primary data-[highlighted]:bg-[#f3f3f4] data-[highlighted]:text-t-primary"
+            >
+              <TerminalSquare size={14} />
+              <span className="flex-1">终端</span>
+              <span className="text-[11px] text-t-ghost">Ctrl+`</span>
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+        <InspectorVisibilityButton />
+      </div>
       {contextMenu && (
         <ContextMenu
           items={getContextMenuItems(contextMenu.tabId)}

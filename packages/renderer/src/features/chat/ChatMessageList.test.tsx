@@ -125,4 +125,35 @@ describe("ChatMessageList", () => {
     expect(screen.getByText("tail assistant two")).toBeInTheDocument();
     expect(screen.getByText("tail assistant three")).toBeInTheDocument();
   });
+
+  it("shows a thinking placeholder while the latest user message has no assistant reply", () => {
+    render(
+      <ChatMessageList
+        messages={[message("u1", "user", "请修改文件")]}
+        isBusy
+      />,
+    );
+
+    const placeholder = screen.getByTestId("thinking-placeholder");
+    expect(placeholder).toHaveTextContent("处理中");
+    expect(placeholder.querySelector("span")).toHaveClass("animate-process-breath", "text-[14px]");
+  });
+
+  it("hides the thinking placeholder after the assistant message starts", () => {
+    render(
+      <ChatMessageList
+        messages={[
+          message("u1", "user", "请修改文件"),
+          {
+            ...message("a1", "assistant", "正在处理"),
+            streaming: true,
+            blocks: [{ type: "thinking", thinking: "正在处理", blockId: "thinking-1" }],
+          },
+        ]}
+        isBusy
+      />,
+    );
+
+    expect(screen.queryByTestId("thinking-placeholder")).not.toBeInTheDocument();
+  });
 });

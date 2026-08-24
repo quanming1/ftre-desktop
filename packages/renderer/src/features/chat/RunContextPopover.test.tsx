@@ -2,7 +2,8 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { ChatMessage } from "@/stores/chat";
-import { RunContextPopover, collectActiveTurnFileChanges, getRunLabel } from "./RunContextPopover";
+import { RunContextPopover, getRunLabel } from "./RunContextPopover";
+import { collectActiveTurnFileChanges } from "./turnFileChangeUtils";
 
 const {
   chatState,
@@ -75,6 +76,7 @@ function resetChatState(overrides: Record<string, unknown> = {}) {
     model: "tencent/glm-5.3",
     retryState: null,
     commandName: null,
+    pendingWorkspace: null,
     ...overrides,
   });
 }
@@ -108,7 +110,7 @@ beforeEach(() => {
 });
 
 describe("RunContextPopover", () => {
-  it("空闲时仍常驻 Header 按钮，并可打开详情", () => {
+  it("空闲时仍保留 Header 按钮并展示运行状态", () => {
     render(<RunContextPopover />);
     fireEvent.click(screen.getByRole("button", { name: "空闲，打开运行详情" }));
     const popover = screen.getByRole("region", { name: "运行详情" });
@@ -126,7 +128,30 @@ describe("RunContextPopover", () => {
 
     unmount();
     render(<RunContextPopover />);
+    expect(screen.getByRole("button", { name: "空闲，关闭运行详情" })).toBeInTheDocument();
     expect(screen.getByRole("region", { name: "运行详情" })).toBeInTheDocument();
+  });
+
+  it("空闲时仍展示当前 Git 分支和 Changes", async () => {
+    resetChatState({ pendingWorkspace: "E:/workspace" });
+    Object.assign(gitInfo, { branch: "develop", changedFiles: 1, isGitRepo: true });
+    gitFiles.push({
+      path: "README.md",
+      absolutePath: "E:/workspace/README.md",
+      status: "modified",
+      staged: false,
+      isDir: false,
+    });
+
+    render(<RunContextPopover />);
+    fireEvent.click(screen.getByRole("button", { name: "空闲，打开运行详情" }));
+
+    await waitFor(() => {
+      expect(screen.getByText("Git 分支")).toBeInTheDocument();
+      expect(screen.getByText("develop")).toBeInTheDocument();
+      expect(screen.getByText("Changes")).toBeInTheDocument();
+      expect(screen.getByText("1")).toBeInTheDocument();
+    });
   });
 
   it("将运行状态、任务、文件变更和 Git Changes 收进 Header 弹窗", async () => {

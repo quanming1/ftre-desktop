@@ -1,6 +1,6 @@
 # Changelog
 
-## [Unreleased] - 2026-08-23
+## [0.1.10] - 2026-08-24
 
 ### B1 WebSocket F12 协议修复
 
@@ -20,6 +20,7 @@
 
 ### 新增
 
+- A3：文件、图片和 Diff 预览的路径段支持逐级打开目录文件列表；目录按需懒加载，点击文件可复用或打开对应 Inspector Tab；新增规范化 `fs:listDirectory` IPC 与错误码。
 - A6：运行详情的 Changes 入口打开唯一 Inspector 审阅 Tab，支持未提交/未暂存/已暂存对比、文件级按需 Diff、复制 Diff 和打开源文件。
 - E1：客户端新增 macOS x64/arm64 打包链路，安装包内置架构匹配的 Python runtime、ftre Gateway 与 cordis-py；增加 UTF-8、路径、进程组清理和 GitHub Release 资产校验。
 

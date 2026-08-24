@@ -18,7 +18,10 @@ import { useSession } from "@/stores/session";
 import { useInspector } from "@/stores/inspector";
 import { useLayout } from "@/stores/layout";
 import { createManagedPoller } from "@/services/visibility-manager";
-import type { TurnFileChange } from "./TurnFileChanges";
+import {
+  collectActiveTurnFileChanges,
+  type TurnFileChange,
+} from "./turnFileChangeUtils";
 import { resolveRunningBannerModel } from "./runningBannerModel";
 
 interface GitFile {
@@ -98,51 +101,6 @@ function getRunLabel({
   if (retryState) return `Retrying ${retryState.attempt}/${retryState.maxAttempts}`;
   if (commandName) return `执行 ${commandName}`;
   return turnStartTs ? "Running" : "空闲";
-}
-
-function collectActiveTurnFileChanges(
-  messages: ChatMessage[],
-  isBusy: boolean,
-): TurnFileChange[] {
-  if (!isBusy) return [];
-  let turnStart = 0;
-  for (let index = messages.length - 1; index >= 0; index--) {
-    if (messages[index].role === "user") {
-      turnStart = index + 1;
-      break;
-    }
-  }
-
-  const fileMap = new Map<string, TurnFileChange>();
-  for (let index = turnStart; index < messages.length; index++) {
-    const message = messages[index];
-    if (message.role !== "assistant") continue;
-    for (const block of message.blocks ?? []) {
-      if (block.type !== "toolCall" || (block.name !== "edit" && block.name !== "write")) continue;
-      const result = message.toolResults?.[block.id];
-      const metadata = result?.metadata;
-      if (result?.status !== "completed" || !metadata?.file || metadata.before === undefined || metadata.after === undefined) continue;
-
-      const key = metadata.file.replace(/\\/g, "/").toLowerCase();
-      const existing = fileMap.get(key);
-      if (existing) {
-        existing.after = metadata.after ?? "";
-        existing.additions += metadata.additions ?? 0;
-        existing.deletions += metadata.deletions ?? 0;
-      } else {
-        fileMap.set(key, {
-          toolCallId: block.id,
-          filePath: metadata.file,
-          operation: block.name as "edit" | "write",
-          additions: metadata.additions ?? 0,
-          deletions: metadata.deletions ?? 0,
-          before: metadata.before ?? "",
-          after: metadata.after ?? "",
-        });
-      }
-    }
-  }
-  return Array.from(fileMap.values());
 }
 
 function getActiveTurnId(messages: ChatMessage[], sessionId: string | null): string {
@@ -242,11 +200,13 @@ export function RunContextPanel() {
   const totalGitAdditions = workspaceGitFiles.reduce((total, file) => total + (file.additions ?? 0), 0);
   const totalGitDeletions = workspaceGitFiles.reduce((total, file) => total + (file.deletions ?? 0), 0);
   const sessionWorkspace = useMemo(() => {
-    if (!sessionId) return "";
+    // 新会话尚未获得 session_id 时，沿用 WorkspaceBadge 的 pending workspace，
+    // 这样空闲状态也能立即读取当前工作区的分支和 Changes。
+    if (!sessionId) return pendingWorkspace || "";
     const findWorkspace = (items: typeof sessions) =>
       items.find((item) => item.session_id === sessionId)?.workspace || "";
     return findWorkspace(sessions) || findWorkspace(allSessions);
-  }, [sessionId, sessions, allSessions]);
+  }, [sessionId, pendingWorkspace, sessions, allSessions]);
   const currentGitInfo = workspaceGitInfo;
 
   useEffect(() => {
@@ -422,4 +382,4 @@ export function RunContextPopover() {
   );
 }
 
-export { collectActiveTurnFileChanges, getActiveTurnId, getRunLabel };
+export { getActiveTurnId, getRunLabel };

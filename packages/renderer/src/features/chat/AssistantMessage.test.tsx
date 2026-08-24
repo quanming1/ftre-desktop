@@ -297,6 +297,62 @@ describe("AssistantMessage collapsed display", () => {
     ])).toBe("操作了设计稿");
   });
 
+  it("流式执行时优先展示当前 edit 文件或命令", () => {
+    expect(summarizeNonTextBlocks([
+      { type: "thinking", thinking: "准备修改", blockId: "thinking-1" },
+      { type: "toolCall", id: "edit-1", name: "edit", arguments: { path: "src/features/chat/AssistantMessage.tsx" } },
+    ], {
+      "edit-1": {
+        id: "edit-1",
+        name: "edit",
+        result: null,
+        error: null,
+        status: "running",
+      },
+    }, true)).toBe("Edit AssistantMessage.tsx");
+
+    expect(summarizeNonTextBlocks([
+      { type: "toolCall", id: "bash-1", name: "bash", arguments: { command: "pnpm --filter @ftre/renderer exec vitest run" } },
+    ], {
+      "bash-1": {
+        id: "bash-1",
+        name: "bash",
+        result: null,
+        error: null,
+        status: "running",
+      },
+    }, true)).toBe("Ran pnpm --filter @ftre/renderer exec vitest run");
+  });
+
+  it("长命令折叠标题保持单行并以省略号截断", () => {
+    const command = "pnpm --filter @ftre/renderer exec vitest run src/features/chat/AssistantMessage.test.tsx --coverage";
+    render(<AssistantMessage message={{
+      id: "reply-long-command",
+      role: "assistant",
+      content: null,
+      timestamp: 1,
+      streaming: true,
+      blocks: [{ type: "toolCall", id: "bash-long", name: "bash", arguments: { command } }],
+      toolResults: {
+        "bash-long": {
+          id: "bash-long",
+          name: "bash",
+          result: null,
+          error: null,
+          status: "running",
+        },
+      },
+    }} />);
+
+    const label = screen.getByTitle(`Ran ${command}`);
+    expect(label).toHaveClass("min-w-0", "flex-1", "truncate");
+    expect(label).toHaveStyle({
+      whiteSpace: "nowrap",
+      overflow: "hidden",
+      textOverflow: "ellipsis",
+    });
+  });
+
   it("keeps the outer collapse and adds an inner non-text collapse", async () => {
     const running: ChatMessage = {
       id: "reply-running",

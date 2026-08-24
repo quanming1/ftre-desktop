@@ -182,6 +182,40 @@ describe("websocket-client F12 protocol handling", () => {
     expect(ws.sent).toHaveLength(2);
   });
 
+  it("updates the Inbox queue through session.updateQueue and waits for its ACK", async () => {
+    const { wsClient } = await loadClient();
+    wsClient.connect();
+    const ws = FakeWebSocket.instances[0];
+    ws.onopen?.();
+
+    const pending = wsClient.updateQueue("ws_a", "queued-1", { kind: "remove" });
+    const frame = JSON.parse(ws.sent[0]);
+    expect(frame).toMatchObject({
+      type: "session.updateQueue",
+      payload: {
+        session_id: "ws_a",
+        item_id: "queued-1",
+        action: { kind: "remove" },
+      },
+    });
+
+    ws.onmessage?.({
+      data: JSON.stringify({
+        request_id: frame.request_id,
+        ok: true,
+        value: { accepted: true, session_id: "ws_a", item_id: "queued-1" },
+      }),
+    });
+
+    await expect(pending).resolves.toEqual({
+      accepted: true,
+      session_id: "ws_a",
+      item_id: "queued-1",
+    });
+    ws.onopen?.();
+    expect(ws.sent).toHaveLength(1);
+  });
+
   it("stamps reply snapshots with the current client connection epoch", async () => {
     const { wsClient } = await loadClient();
     const epochs: number[] = [];

@@ -14,7 +14,8 @@ import { fetchAppConfig } from "@/services/api";
 import { createManagedPoller } from "@/services/visibility-manager";
 import { ContextMenu, type ContextMenuItem } from "@ftre/ui";
 import { FileIconView } from "@/components/FileIconView";
-import type { GitFileStatus } from "@ftre/shared";
+import type { FileEntry, GitFileStatus } from "@ftre/shared";
+import { isBinaryFile, isImageFile } from "@/utils/filePreviewKinds";
 
 const FolderIcon = ({ size = 16 }: { size?: number }) => (
   <span style={{ display: "inline-flex", width: size, height: size, minWidth: size, minHeight: size, alignItems: "center", justifyContent: "center" }} className="shrink-0">
@@ -132,39 +133,12 @@ function FileGitBadge({ status }: { status: GitStatus | null }) {
   );
 }
 
-const IMAGE_EXTS = new Set([
-  "png", "jpg", "jpeg", "gif", "webp", "bmp", "svg", "avif", "ico",
-]);
-
-const BINARY_EXTS = new Set([
-  "exe", "dll", "so", "dylib", "bin", "obj", "o", "a", "lib",
-  "zip", "gz", "tar", "rar", "7z", "bz2",
-  "pdf", "doc", "docx", "xls", "xlsx", "ppt", "pptx",
-  "mp3", "mp4", "avi", "mov", "wav", "flac", "ogg",
-  "ttf", "otf", "woff", "woff2", "eot",
-  "pyc", "class", "jar", "wasm",
-  "sqlite", "db", "mdb",
-]);
-
-function getExt(path: string): string {
-  const m = path.toLowerCase().match(/\.([a-z0-9]+)$/);
-  return m?.[1] ?? "";
-}
-
-function isImageFile(path: string): boolean {
-  return IMAGE_EXTS.has(getExt(path));
-}
-
-function isBinaryFile(path: string): boolean {
-  return BINARY_EXTS.has(getExt(path));
-}
-
 const IGNORED_DIRS = new Set([
   "node_modules", ".git", ".turbo", "dist", "build", ".next",
   "__pycache__", ".cache", ".vite", "target", ".idea", ".vscode",
 ]);
 
-interface TreeNode {
+export interface TreeNode {
   name: string;
   path: string;
   isDir: boolean;
@@ -173,21 +147,15 @@ interface TreeNode {
   loaded?: boolean;
 }
 
-function sortEntries(entries: TreeNode[]): TreeNode[] {
+export function sortEntries(entries: TreeNode[]): TreeNode[] {
   return entries.sort((a, b) => {
     if (a.isDir !== b.isDir) return a.isDir ? -1 : 1;
     return a.name.localeCompare(b.name);
   });
 }
 
-async function readDirSorted(dir: string): Promise<TreeNode[]> {
-  // Vite 直接在浏览器中打开时没有 Electron preload；文件树应显示为空，
-  // 不能因为可选的原生能力缺失而让整个 Inspector 崩溃。
-  const fs = window.desktop?.fs;
-  if (!fs?.readDir) return [];
-  const result = await fs.readDir(dir);
-  if (result.error || !result.entries) return [];
-  const filtered = result.entries
+export function filterTreeEntries(entries: FileEntry[]): TreeNode[] {
+  const filtered = entries
     .filter((e) => !IGNORED_DIRS.has(e.name) && !e.name.startsWith("."))
     .map((e) => ({
       name: e.name,
@@ -198,13 +166,23 @@ async function readDirSorted(dir: string): Promise<TreeNode[]> {
   return sortEntries(filtered);
 }
 
+async function readDirSorted(dir: string): Promise<TreeNode[]> {
+  // Vite 直接在浏览器中打开时没有 Electron preload；文件树应显示为空，
+  // 不能因为可选的原生能力缺失而让整个 Inspector 崩溃。
+  const fs = window.desktop?.fs;
+  if (!fs?.readDir) return [];
+  const result = await fs.readDir(dir);
+  if (result.error || !result.entries) return [];
+  return filterTreeEntries(result.entries);
+}
+
 /** 路径归一化：反斜杠→正斜杠、去尾斜杠、小写（Windows 大小写不敏感，做 map key 用） */
 function normKey(p: string): string {
   return p.replace(/\\/g, "/").replace(/\/+$/, "").toLowerCase();
 }
 
 /** 单个树节点 */
-const TreeItem = memo(function TreeItem({
+export const TreeItem = memo(function TreeItem({
   node,
   depth,
   expandedPaths,
@@ -215,6 +193,7 @@ const TreeItem = memo(function TreeItem({
   onToggle,
   onFileClick,
   onContextMenu,
+  readDirectory,
 }: {
   node: TreeNode;
   depth: number;
@@ -226,12 +205,15 @@ const TreeItem = memo(function TreeItem({
   /** 目录路径 → 版本号（子节点 render 求值用） */
   getDirVersion: (path: string) => number;
   onToggle: (path: string) => void;
-  onFileClick: (path: string) => void;
+  onFileClick: (path: string, node: TreeNode) => void;
   onContextMenu: (e: React.MouseEvent, path: string, isDir: boolean) => void;
+  readDirectory?: (path: string) => Promise<TreeNode[]>;
 }) {
-  const isExpanded = expandedPaths.has(node.path);
+  // 旧文件树用原始路径作为 key，路径浮层用规范化 key；两种入口共用同一 TreeItem。
+  const isExpanded = expandedPaths.has(node.path) || expandedPaths.has(normKey(node.path));
   const [children, setChildren] = useState<TreeNode[]>([]);
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(false);
 
   // 展开时懒加载；dirVersion 变化（目录内容有文件变更事件）时重读。
   // 收起期间 version 变化不读，再次展开时 isExpanded 翻转同样触发本 effect 拿到最新。
@@ -239,13 +221,22 @@ const TreeItem = memo(function TreeItem({
     if (!isExpanded || !node.isDir) return;
     let cancelled = false;
     setLoading(true);
-    readDirSorted(node.path).then((entries) => {
-      if (cancelled) return;
-      setChildren(entries);
-      setLoading(false);
-    });
+    setError(false);
+    const read = readDirectory ?? readDirSorted;
+    read(node.path)
+      .then((entries) => {
+        if (cancelled) return;
+        setChildren(entries);
+        setLoading(false);
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setChildren([]);
+        setError(true);
+        setLoading(false);
+      });
     return () => { cancelled = true; };
-  }, [isExpanded, node.isDir, node.path, dirVersion]);
+  }, [dirVersion, isExpanded, node.isDir, node.path, readDirectory]);
 
   const padding = 8 + depth * 16;
 
@@ -254,6 +245,8 @@ const TreeItem = memo(function TreeItem({
     return (
       <>
         <button
+          role="treeitem"
+          aria-expanded={isExpanded}
           onClick={() => onToggle(node.path)}
           onContextMenu={(e) => onContextMenu(e, node.path, true)}
           className="flex items-center gap-1 w-full text-left text-[12.5px] hover:bg-hover/60 transition-colors py-[3px] pr-2 group"
@@ -269,6 +262,7 @@ const TreeItem = memo(function TreeItem({
             <FolderIcon size={16} />
           )}
           <span className="truncate" style={{ color: dirStatus ? DIR_STATUS_COLOR[dirStatus] : "#374151" }}>{node.name}</span>
+          {error && <span className="ml-auto shrink-0 text-[10px] text-red-500">读取失败</span>}
           <DirGitBadge status={dirStatus} />
         </button>
         {isExpanded && !loading && children.map((child) => (
@@ -284,6 +278,7 @@ const TreeItem = memo(function TreeItem({
             onToggle={onToggle}
             onFileClick={onFileClick}
             onContextMenu={onContextMenu}
+            readDirectory={readDirectory}
           />
         ))}
       </>
@@ -295,7 +290,9 @@ const TreeItem = memo(function TreeItem({
 
   return (
     <button
-      onClick={() => onFileClick(node.path)}
+      role="treeitem"
+      aria-selected={isActive}
+      onClick={() => onFileClick(node.path, node)}
       onContextMenu={(e) => onContextMenu(e, node.path, false)}
       className={`flex items-center gap-1 w-full text-left text-[12.5px] transition-colors py-[3px] pr-2 group ${
         isActive

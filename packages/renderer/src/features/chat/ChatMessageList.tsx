@@ -8,7 +8,7 @@
  * - Embedded panels (preview, debug)
  */
 import { memo, useRef, useEffect, useState, useCallback } from "react";
-import type { ReactNode } from "react";
+import type { CSSProperties, ReactNode } from "react";
 import { Loader2, Archive, AlertCircle, ChevronRight, Copy } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import type { ChatMessage } from "@/stores/chat";
@@ -18,7 +18,11 @@ import { useSession } from "@/stores/session";
 import { UserMessage } from "./UserMessage";
 import { AssistantMessage } from "./AssistantMessage";
 import { ChatOutline } from "./ChatOutline";
-import type { TurnFileChange } from "./TurnFileChanges";
+import {
+  collectTurnFileChanges,
+  shouldShowThinkingPlaceholder,
+  type TurnFileChange,
+} from "./turnFileChangeUtils";
 import { ContextMenu, type ContextMenuItem } from "@ftre/ui";
 import { remarkPlugins, rehypePlugins } from "@/lib/markdown-plugins";
 import { shouldShowTurnActions } from "./turnActions";
@@ -29,6 +33,8 @@ export interface ChatMessageListProps {
   messages: ChatMessage[];
   /** Whether the agent is currently processing (shows typing indicator) */
   isBusy?: boolean;
+  /** Number of locally queued messages before the first user echo arrives. */
+  pendingMessagesCount?: number;
   /** Auto-scroll to bottom on new messages */
   autoScroll?: boolean;
   /** Max height CSS value (default: none, fills parent) */
@@ -39,6 +45,8 @@ export interface ChatMessageListProps {
   layoutClassName?: string;
   /** Optional content rendered in the right layout rail. */
   rightRail?: ReactNode;
+  /** Inline styles for scroll-area safety insets owned by the parent layout. */
+  style?: CSSProperties;
 }
 
 // ─── Component ──────────────────────────────────────────────────────
@@ -46,11 +54,13 @@ export interface ChatMessageListProps {
 export const ChatMessageList = memo(function ChatMessageList({
   messages,
   isBusy = false,
+  pendingMessagesCount = 0,
   autoScroll = true,
   maxHeight,
   className = "",
   layoutClassName = "grid-cols-[minmax(0,1fr)_minmax(0,848px)_minmax(0,1fr)]",
   rightRail,
+  style,
 }: ChatMessageListProps) {
   const safeMessages = Array.isArray(messages) ? messages : [];
   const containerRef = useRef<HTMLDivElement>(null);
@@ -175,6 +185,7 @@ export const ChatMessageList = memo(function ChatMessageList({
       className={`overflow-y-auto overflow-x-hidden ${className}`}
       style={{
         maxHeight,
+        ...style,
       }}
     >
       <div className={`grid min-h-full ${layoutClassName}`}>
@@ -220,7 +231,6 @@ export const ChatMessageList = memo(function ChatMessageList({
           let turnTexts: string[] | undefined;
           let turnFileChanges: TurnFileChange[] | undefined;
           if (isTurnEnd) {
-            // 找本轮起始：上一个 user 消息
             let turnStart = 0;
             for (let j = i - 1; j >= 0; j--) {
               if (safeMessages[j].role === "user") {
@@ -229,47 +239,14 @@ export const ChatMessageList = memo(function ChatMessageList({
               }
             }
             turnTexts = [];
-            // 按文件路径合并：同一文件多次修改只保留第一次的 before 和最后一次的 after
-            const fileMap = new Map<string, TurnFileChange>();
             for (let j = turnStart; j <= i; j++) {
               const m = safeMessages[j];
               if (m.role !== "assistant") continue;
               const text = m.content ?? "";
               if (text) turnTexts.push(text);
-              // 收集 edit/write 工具调用
-              if (m.blocks) {
-                for (const block of m.blocks) {
-                  if (block.type !== "toolCall") continue;
-                  if (block.name !== "edit" && block.name !== "write") continue;
-                  const result = m.toolResults?.[block.id];
-                  if (!result || result.status !== "completed") continue;
-                  const meta = result.metadata;
-                  if (!meta?.file || meta.before === undefined || meta.after === undefined) continue;
-                  const key = meta.file.replace(/\\/g, "/").toLowerCase();
-                  const existing = fileMap.get(key);
-                  if (existing) {
-                    // 后续修改：更新 after 为最新版本，累加增删行数
-                    existing.after = meta.after ?? "";
-                    existing.additions += meta.additions ?? 0;
-                    existing.deletions += meta.deletions ?? 0;
-                  } else {
-                    // 首次修改：保留原始 before，记录 toolCallId
-                    fileMap.set(key, {
-                      toolCallId: block.id,
-                      filePath: meta.file,
-                      operation: block.name as "edit" | "write",
-                      additions: meta.additions ?? 0,
-                      deletions: meta.deletions ?? 0,
-                      before: meta.before ?? "",
-                      after: meta.after ?? "",
-                    });
-                  }
-                }
-              }
             }
-            // 当前流式轮次不会进入 isTurnEnd；已经完成的历史轮次即使当前会话正在运行，
-            // 也继续保留变更卡片，不被输入框运行状态隐藏。
-            turnFileChanges = fileMap.size > 0 ? Array.from(fileMap.values()) : undefined;
+            const changes = collectTurnFileChanges(safeMessages, i);
+            turnFileChanges = changes.length > 0 ? changes : undefined;
           }
 
           return (
@@ -285,6 +262,15 @@ export const ChatMessageList = memo(function ChatMessageList({
             />
           );
         })}
+
+        {shouldShowThinkingPlaceholder(safeMessages, isBusy, pendingMessagesCount) && (
+          <div
+            data-testid="thinking-placeholder"
+            className="py-3"
+          >
+            <span className="animate-process-breath text-[14px] text-t-dim">处理中</span>
+          </div>
+        )}
 
           </div>
         </div>
