@@ -418,3 +418,4 @@ Release 至少包含：
 | 2026-08-22 | 增加“零前置环境安装”发布承诺；要求 x64/arm64 安装包自带可离线 Python runtime，并新增 AC16 干净环境验收 | 普通用户不应因为缺少 Python、Node.js、Homebrew、conda、Git 或仓库源码而无法安装和首次启动 |
 | 2026-08-22 | 进入 E1 开发：完成 runtime manifest、跨平台 Gateway 生命周期、Python runtime 打包器、electron-builder Mac 目标、macOS CI 矩阵和平台契约测试 | 将零前置环境要求落到可执行的构建链路；Mac runner/真实设备验收保留到 CI 收口 |
 | 2026-08-22 | 下载器优先使用 curl 并增加目标 runtime 预检，CI 在打包前验证 manifest、机器架构和内置包导入 | 处理部分 Windows 代理对 Node HTTPS 流的长连接问题，并让 Mac 架构错配在打包前失败 |
+| 2026-08-24 | macOS Intel 改由 macOS 14 runner 交叉构建时，依赖安装强制使用目标架构 wheel | 避免 arm64 runner 为 `cryptography` 回退 Rust/OpenSSL 源码编译，确保 x64 发布流水线可重复执行 |
