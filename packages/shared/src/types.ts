@@ -5,8 +5,26 @@ export interface FileEntry {
   ext: string | null;
 }
 
+export type DirectoryErrorCode =
+  | "INVALID_PATH"
+  | "NOT_FOUND"
+  | "NOT_DIRECTORY"
+  | "PERMISSION_DENIED"
+  | "READ_FAILED";
+
+export interface DirectoryError {
+  code: DirectoryErrorCode;
+  message: string;
+}
+
+export interface ListDirectoryResult {
+  entries: FileEntry[];
+  error?: DirectoryError;
+}
+
 export interface DesktopFS {
   readDir(dirPath: string): Promise<{ entries: FileEntry[]; error?: string }>;
+  listDirectory(dirPath: string): Promise<ListDirectoryResult>;
   readFile(
     filePath: string,
   ): Promise<{ content: string; language: string; error?: string }>;
@@ -35,7 +53,7 @@ export interface DesktopFS {
   ): Promise<{ success: boolean; error?: string }>;
   revealInExplorer(targetPath: string): Promise<void>;
   stat(filePath: string): Promise<{ mtime: number | null }>;
-  readImageBase64(filePath: string): Promise<{ data: string; error?: string }>;
+  readImageBase64(filePath: string): Promise<{ dataUrl: string; error?: string }>;
   watch(filePath: string): Promise<void>;
   unwatch(filePath: string): Promise<void>;
   onFileChanged(callback: (filePath: string) => void): () => void;

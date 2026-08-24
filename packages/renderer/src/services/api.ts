@@ -60,22 +60,12 @@ export async function cancelQueuedMessage(
   sessionId: string,
   requestId: string,
 ): Promise<CancelQueuedMessageResult> {
-  const response = await fetch(
-    `${API_BASE}/api/sessions/${encodeURIComponent(sessionId)}`
-      + `/queue/${encodeURIComponent(requestId)}`,
-    { method: "DELETE" },
-  );
-  if (!response.ok) {
-    let detail = "Failed to remove queued message";
-    try {
-      const payload = await response.json();
-      if (typeof payload?.detail === "string") detail = payload.detail;
-    } catch {
-      // 非 JSON 错误响应使用通用提示。
-    }
-    throw new Error(detail);
-  }
-  return response.json();
+  const result = await wsClient.updateQueue(sessionId, requestId, { kind: "remove" });
+  return {
+    status: "cancelled",
+    session_id: result.session_id,
+    receipt: { ...result },
+  };
 }
 
 export function retryLastMessage(): void {

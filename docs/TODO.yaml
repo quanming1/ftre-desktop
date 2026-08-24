@@ -42,14 +42,15 @@ stages:
       - id: A3
         title: Inspector 面板
         status: done
-        date: 2026-08-12
+        date: 2026-08-24
         prd: docs/prd/PRD-A3-inspector.md
         prd_status: 已验收
         modules:
           - InspectorPanel
           - DiffRenderer / FileRenderer / ImageRenderer
           - tabRegistry / FileTreeSidebar
-        acceptance: read 工具打开 file tab，edit/write 打开 diff tab，图片可预览，tab 可拖拽排序
+          - FilePathPopover / fs:listDirectory IPC / shared directory types
+        acceptance: read 工具打开 file tab，edit/write 打开 diff tab，图片可预览，tab 可拖拽排序；文件/图片/Diff 预览路径段可逐级打开对应目录文件列表，目录懒加载，点击文件可跳转预览
 
       - id: A4
         title: 文件树 + Git 集成
@@ -180,6 +181,8 @@ stages:
           - packages/renderer/src/features/chat/RunContextPopover.tsx
           - packages/renderer/src/features/chat/ChatHeader.tsx
           - packages/renderer/src/features/chat/ChatView.tsx
+          - packages/renderer/src/features/chat/ChatInput.tsx
+          - packages/renderer/src/features/chat/turnFileChangeUtils.ts
         acceptance: pending messages 仍显示在输入框上方；运行状态、模型、时长、任务、文件变更、Git 分支与 Git 变更迁移到 Header 右上角弹窗；详情可展开且两类 Diff 都可打开
 
   - id: E

@@ -31,6 +31,7 @@ import { useInspector } from "@/stores/inspector";
 import { useLayout } from "@/stores/layout";
 import { useChat } from "@/stores/chat";
 import { FileIconView } from "@/components/FileIconView";
+import { IMAGE_EXTENSIONS, fileExtension } from "@/utils/filePreviewKinds";
 import { Terminal } from "lucide-react";
 
 const API_BASE = import.meta.env.VITE_API_BASE || "http://127.0.0.1:48650";
@@ -829,17 +830,8 @@ function ExpandedDetail({ name, args, result, isError }: DetailProps) {
 
 // ������ read / read_file ��������������������������������������������������������������������������������������������
 
-const IMAGE_EXTS = new Set([
-  "png", "jpg", "jpeg", "gif", "webp", "bmp", "svg", "avif",
-]);
-
-function getExt(path: string): string {
-  const m = path.toLowerCase().match(/\.([a-z0-9]+)$/);
-  return m?.[1] ?? "";
-}
-
 function isImagePath(path: string): boolean {
-  return IMAGE_EXTS.has(getExt(path));
+  return IMAGE_EXTENSIONS.has(fileExtension(path));
 }
 
 /** read ���ߣ��ɲ��� path �ж�ͼƬ��result ֻ�ǿ�ѡ�Ļ���ͼƬ���� */
@@ -877,7 +869,7 @@ interface ReadImageRef {
 function ImagePreview({ image, result }: { image: ReadImageRef; result: string }) {
   const [previewSrc, setPreviewSrc] = useState<string | null>(null);
   const [failed, setFailed] = useState(false);
-  const ext = getExt(image.fileName || image.sourcePath);
+  const ext = fileExtension(image.fileName || image.sourcePath);
 
   if (failed) return <RawPre result={result} isError={false} />;
 
@@ -960,7 +952,7 @@ function imageRefFromPath(path: string): ReadImageRef {
 }
 
 function mimeFromImagePath(path: string): string | undefined {
-  switch (getExt(path)) {
+  switch (fileExtension(path)) {
     case "png": return "image/png";
     case "jpg":
     case "jpeg": return "image/jpeg";

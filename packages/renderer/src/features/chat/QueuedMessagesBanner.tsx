@@ -60,7 +60,7 @@ export const QueuedMessagesBanner = memo(function QueuedMessagesBanner({
   const next = items[0];
   return (
     <section
-      className="mx-3 mb-1 mt-0.5"
+      className="mx-3 mt-0.5"
       aria-label="消息队列"
       data-queued-messages=""
       data-activity-section="queue"
@@ -70,12 +70,12 @@ export const QueuedMessagesBanner = memo(function QueuedMessagesBanner({
         type="button"
         aria-expanded={expanded}
         onClick={() => setExpanded((value) => !value)}
-        className="flex w-full min-w-0 items-center gap-1.5 px-0 py-1 text-left transition-colors hover:text-t-primary"
+        className="flex min-h-10 w-full min-w-0 items-center gap-2 px-0 py-2 text-left transition-colors hover:text-t-primary"
       >
-        <ListOrdered size={13} className="shrink-0 text-t-muted" />
-        <span className="shrink-0 text-[11px] font-medium text-t-muted">消息队列</span>
-        <span className="rounded-full bg-black/[0.05] px-1.5 py-px font-mono text-[10px] tabular-nums text-t-faint">{items.length}</span>
-        <span className="min-w-0 flex-1 truncate text-[11px] text-t-faint" title={itemLabel(next)}>
+        <ListOrdered size={15} className="shrink-0 text-t-muted" />
+        <span className="shrink-0 text-[12px] font-medium text-t-muted">消息队列</span>
+        <span className="rounded-full bg-black/[0.05] px-1.5 py-0.5 font-mono text-[11px] leading-none tabular-nums text-t-faint">{items.length}</span>
+        <span className="min-w-0 flex-1 truncate text-[12px] text-t-faint" title={itemLabel(next)}>
           {next.awaitingEcho ? "正在消费" : "下一条"} · {itemLabel(next)}
         </span>
       </button>

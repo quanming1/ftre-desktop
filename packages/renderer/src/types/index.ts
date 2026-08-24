@@ -1,5 +1,7 @@
 /** Search result contracts remain part of the desktop filesystem API even though
  * the renderer no longer owns a dedicated search store or panel. */
+import type { FileEntry as SharedFileEntry, ListDirectoryResult } from "@ftre/shared";
+
 export interface SearchMatch {
     lineNumber: number;
     lineContent: string;
@@ -21,16 +23,13 @@ export interface SearchOptions {
     excludePattern: string;
 }
 
-export interface FileEntry {
-    name: string;
-    path: string;
-    isDir: boolean;
-    ext: string | null;
-}
+export type FileEntry = SharedFileEntry;
 
 export interface DesktopFS {
     readDir(dirPath: string): Promise<{ entries: FileEntry[]; error?: string }>;
+    listDirectory(dirPath: string): Promise<ListDirectoryResult>;
     readFile(filePath: string): Promise<{ content: string; language: string; error?: string }>;
+    readImageBase64(filePath: string): Promise<{ dataUrl: string; error?: string }>;
     writeFile(filePath: string, content: string): Promise<{ success: boolean; error?: string }>;
     selectFolder(): Promise<{ path: string | null }>;
     search(rootPath: string, query: string, options: SearchOptions): Promise<{ results: SearchFileResult[]; error?: string }>;

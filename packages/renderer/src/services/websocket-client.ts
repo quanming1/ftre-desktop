@@ -81,6 +81,17 @@ export interface QueueSnapshotPayload {
   items: QueueSnapshotItem[];
 }
 
+export type QueueUpdateAction =
+  | { kind: "remove" }
+  | { kind: "edit"; content: string; attachments?: Array<Record<string, unknown>> }
+  | { kind: "steer" };
+
+export interface QueueUpdateResult {
+  accepted: true;
+  session_id: string;
+  item_id: string;
+}
+
 /** session.prompt 被 Inbox 耐久接纳后的即时确认。 */
 export interface MessageAckPayload {
   session_id: string;
@@ -299,6 +310,12 @@ interface PendingSend {
   frame: Record<string, unknown>;
 }
 
+interface PendingControlWaiter {
+  resolve: (value: QueueUpdateResult) => void;
+  reject: (reason: Error) => void;
+  timer: ReturnType<typeof setTimeout>;
+}
+
 export type TransportSendResult =
   | { ok: true; queued: boolean }
   | { ok: false; reason: "outbox_full" | "send_failed" };
@@ -334,6 +351,8 @@ class WebSocketClient {
   private unackedChats = new Map<string, Record<string, unknown>>();
   /** 取消帧使用相同幂等键重试，直到服务端确认取消动作已经应用。 */
   private unackedControls = new Map<string, Record<string, unknown>>();
+  /** 需要等待 RPC ACK 的队列控制操作（remove/edit/steer）。 */
+  private controlWaiters = new Map<string, PendingControlWaiter>();
   /** stableTimer: delay-reset reconnectAttempt to avoid fast reconnect loop */
   private stableTimer: ReturnType<typeof setTimeout> | null = null;
   private static readonly STABLE_THRESHOLD = 5000;
@@ -612,6 +631,51 @@ class WebSocketClient {
     }
   }
 
+  /** 通过 F12 WebSocket 控制面更新 Inbox 队列，避免调用不存在的 HTTP DELETE 路由。 */
+  updateQueue(
+    sessionId: string,
+    itemId: string,
+    action: QueueUpdateAction,
+  ): Promise<QueueUpdateResult> {
+    if (!sessionId || !itemId) {
+      return Promise.reject(new Error("队列操作缺少 session_id 或 item_id"));
+    }
+    if (this.unackedControls.size >= MAX_PENDING_SENDS) {
+      return Promise.reject(new Error("队列操作暂存已满，请稍后重试"));
+    }
+
+    const requestId = crypto.randomUUID().slice(0, 16);
+    const frame = {
+      request_id: requestId,
+      type: "session.updateQueue",
+      payload: {
+        session_id: sessionId,
+        item_id: itemId,
+        action,
+      },
+    };
+
+    return new Promise<QueueUpdateResult>((resolve, reject) => {
+      const timer = setTimeout(() => {
+        this.controlWaiters.delete(requestId);
+        this.unackedControls.delete(requestId);
+        reject(new Error("队列操作超时，请重试"));
+      }, 15_000);
+      this.controlWaiters.set(requestId, { resolve, reject, timer });
+      this.unackedControls.set(requestId, frame);
+
+      if (!this.ws || this.ws.readyState === WebSocket.CLOSED) {
+        this.connect();
+        return;
+      }
+      try {
+        this.sendWire(frame, "initial");
+      } catch {
+        // 保留在 unackedControls，待连接建立或重连后统一重发。
+      }
+    });
+  }
+
   /** Attach：告诉后端这条 ws 关注指定 session，后续该 session 的 outbound 会推送过来。 */
   attach(sessionId: string): void {
     if (!sessionId) return;
@@ -718,7 +782,7 @@ class WebSocketClient {
       try {
         this.sendWire(frame, "reconnect_replay");
       } catch (error) {
-        console.error("[WS] Failed to resend cancellation; retained", error);
+        console.error("[WS] Failed to resend control frame; retained", error);
         return;
       }
     }
@@ -741,6 +805,7 @@ class WebSocketClient {
   }
 
   private consumeDurableAdmissionAck(message: ServerMessage): void {
+    this.settleControlWaiter(message);
     const acknowledge = (value: unknown) => {
       if (typeof value === "string" && value) this.unackedChats.delete(value);
     };
@@ -760,6 +825,33 @@ class WebSocketClient {
       acknowledge(error.request_id);
       this.unackedControls.delete(error.request_id);
     }
+  }
+
+  private settleControlWaiter(message: ServerMessage): void {
+    if (typeof message.request_id !== "string") return;
+    const waiter = this.controlWaiters.get(message.request_id);
+    if (!waiter) return;
+
+    clearTimeout(waiter.timer);
+    this.controlWaiters.delete(message.request_id);
+    const error = getRpcErrorPayload(message);
+    if (error) {
+      waiter.reject(new Error(error.message));
+      return;
+    }
+    const value = asRecord(message.value);
+    if (message.ok === true
+      && value?.accepted === true
+      && typeof value.session_id === "string"
+      && typeof value.item_id === "string") {
+      waiter.resolve({
+        accepted: true,
+        session_id: value.session_id,
+        item_id: value.item_id,
+      });
+      return;
+    }
+    waiter.reject(new Error("队列操作返回了无效确认"));
   }
 
 }

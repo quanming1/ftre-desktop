@@ -9,7 +9,7 @@
  * 故 mock slate-react 的渲染边界、保留真实 editor，用捕获的 onChange
  * 模拟"用户输入"——这正是回归所在的接线层。
  */
-import { render, screen, act } from "@testing-library/react";
+import { render, screen, act, fireEvent } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Descendant } from "slate";
 
@@ -56,6 +56,7 @@ vi.mock("@/services/api", () => ({
 
 import { ChatInput } from "./ChatInput";
 import { useChat } from "@/stores/chat";
+import { useInspector } from "@/stores/inspector";
 
 const HELLO_DOC: Descendant[] = [
   { type: "paragraph", children: [{ text: "hello" }] } as Descendant,
@@ -66,6 +67,9 @@ describe("ChatInput 发送按钮", () => {
     capturedOnChange = null;
     useChat.setState({
       sessionId: null,
+      messages: [],
+      pendingMessages: [],
+      lastUserInputTs: null,
       isBusy: false,
       sessionStatus: "idle",
       clientCanSend: true,
@@ -95,5 +99,223 @@ describe("ChatInput 发送按钮", () => {
 
     act(() => capturedOnChange!([{ type: "paragraph", children: [{ text: "" }] } as Descendant]));
     expect(screen.getByTitle("Send message")).toBeDisabled();
+  });
+
+  it("在输入框上方展示本轮文件变更摘要", () => {
+    useChat.setState({
+      messages: [
+        { id: "u1", role: "user", content: "修改文件", timestamp: 1 },
+        {
+          id: "a1",
+          role: "assistant",
+          content: null,
+          timestamp: 2,
+          blocks: [
+            { type: "toolCall", id: "edit-1", name: "edit", arguments: {} },
+            { type: "toolCall", id: "edit-2", name: "edit", arguments: {} },
+          ],
+          toolResults: {
+            "edit-1": {
+              id: "edit-1",
+              name: "edit",
+              result: null,
+              error: null,
+              status: "completed",
+              metadata: {
+                file: "src/a.ts",
+                before: "a",
+                after: "b",
+                additions: 4,
+                deletions: 1,
+              },
+            },
+            "edit-2": {
+              id: "edit-2",
+              name: "edit",
+              result: null,
+              error: null,
+              status: "completed",
+              metadata: {
+                file: "src/a.ts",
+                before: "b",
+                after: "c",
+                additions: 2,
+                deletions: 3,
+              },
+            },
+          },
+        },
+      ],
+      isBusy: true,
+      lastUserInputTs: 2,
+    });
+
+    render(<ChatInput />);
+
+    expect(screen.getByTestId("turn-file-changes-summary")).toHaveTextContent("1 个文件已更改");
+    expect(screen.getByTestId("turn-file-changes-summary")).toHaveTextContent("+6");
+    expect(screen.getByTestId("turn-file-changes-summary")).toHaveTextContent("-4");
+    expect(screen.getByTestId("turn-file-changes-summary")).not.toHaveClass("border");
+    expect(screen.getByTestId("turn-file-changes-summary")).toHaveClass("backdrop-blur-md");
+    expect(screen.getByTestId("turn-file-changes-summary").parentElement).toHaveClass("justify-center");
+
+    const openAuditTab = vi.spyOn(useInspector.getState(), "openAuditTab");
+    fireEvent.click(screen.getByRole("button", { name: "审查本轮变更" }));
+    expect(openAuditTab).toHaveBeenCalledWith("", expect.objectContaining({
+      scope: "turn",
+      turnId: "pending:u1",
+    }));
+    openAuditTab.mockRestore();
+  });
+
+  it("新消息进入队列后立即隐藏上一轮摘要", () => {
+    useChat.setState({
+      messages: [
+        { id: "u1", role: "user", content: "修改文件", timestamp: 1 },
+        {
+          id: "a1",
+          role: "assistant",
+          content: null,
+          timestamp: 2,
+          blocks: [{ type: "toolCall", id: "edit-1", name: "edit", arguments: {} }],
+          toolResults: {
+            "edit-1": {
+              id: "edit-1",
+              name: "edit",
+              result: null,
+              error: null,
+              status: "completed",
+              metadata: { file: "src/a.ts", before: "a", after: "b", additions: 1, deletions: 0 },
+            },
+          },
+        },
+      ],
+      isBusy: true,
+      pendingMessages: [{ request_id: "request-2", sequence: 1, content: "继续修改" }],
+    });
+
+    render(<ChatInput />);
+
+    expect(screen.queryByTestId("turn-file-changes-summary")).not.toBeInTheDocument();
+  });
+
+  it("用户消息已回显时不受滞后队列快照影响", () => {
+    useChat.setState({
+      messages: [
+        { id: "u1", role: "user", content: "修改文件", timestamp: 1 },
+        {
+          id: "a1",
+          role: "assistant",
+          content: null,
+          timestamp: 2,
+          blocks: [{ type: "toolCall", id: "edit-1", name: "edit", arguments: {} }],
+          toolResults: {
+            "edit-1": {
+              id: "edit-1",
+              name: "edit",
+              result: null,
+              error: null,
+              status: "completed",
+              metadata: { file: "src/a.ts", before: "a", after: "b", additions: 1, deletions: 0 },
+            },
+          },
+        },
+      ],
+      isBusy: true,
+      pendingMessages: [{ request_id: "stale-queue", sequence: 1, content: "已回显的消息" }],
+      lastUserInputTs: 2,
+    });
+
+    render(<ChatInput />);
+
+    expect(screen.getByTestId("turn-file-changes-summary")).toHaveTextContent("1 个文件已更改");
+  });
+
+  it("流式结束后关闭输入框上方摘要", () => {
+    useChat.setState({
+      messages: [
+        { id: "u1", role: "user", content: "修改文件", timestamp: 1 },
+        {
+          id: "a1",
+          role: "assistant",
+          content: null,
+          timestamp: 2,
+          blocks: [{ type: "toolCall", id: "edit-1", name: "edit", arguments: {} }],
+          toolResults: {
+            "edit-1": {
+              id: "edit-1",
+              name: "edit",
+              result: null,
+              error: null,
+              status: "completed",
+              metadata: { file: "src/a.ts", before: "a", after: "b", additions: 1, deletions: 0 },
+            },
+          },
+        },
+      ],
+      isBusy: false,
+      lastUserInputTs: 2,
+    });
+
+    render(<ChatInput />);
+
+    expect(screen.queryByTestId("turn-file-changes-summary")).not.toBeInTheDocument();
+  });
+
+  it("消息队列横幅定位在输入框上方且无底部间距", () => {
+    useChat.setState({
+      pendingMessages: [{ request_id: "queued-1", sequence: 1, content: "下一条消息" }],
+      isBusy: true,
+    });
+
+    render(<ChatInput />);
+
+    const queue = screen.getByRole("region", { name: "消息队列" });
+    const queueSurface = queue.parentElement;
+    const composer = screen.getByTestId("chat-input-surface").parentElement;
+    const overlay = composer?.firstElementChild;
+    expect(overlay).toHaveAttribute("data-chat-composer-stack", "");
+    expect(overlay).toHaveClass("absolute", "bottom-full");
+    expect(queueSurface?.parentElement).toBe(overlay);
+    expect(queueSurface).toHaveClass("mx-4");
+    expect(queueSurface).not.toHaveClass("mb-2");
+    expect(queue).not.toHaveClass("mb-1");
+  });
+
+  it("文件摘要位于队列横幅上方，队列横幅直接贴住输入框", () => {
+    useChat.setState({
+      messages: [
+        { id: "u1", role: "user", content: "修改文件", timestamp: 1 },
+        {
+          id: "a1",
+          role: "assistant",
+          content: null,
+          timestamp: 2,
+          blocks: [{ type: "toolCall", id: "edit-1", name: "edit", arguments: {} }],
+          toolResults: {
+            "edit-1": {
+              id: "edit-1",
+              name: "edit",
+              result: null,
+              error: null,
+              status: "completed",
+              metadata: { file: "src/a.ts", before: "a", after: "b", additions: 2, deletions: 1 },
+            },
+          },
+        },
+      ],
+      pendingMessages: [{ request_id: "queued-2", sequence: 1, content: "下一条消息" }],
+      lastUserInputTs: 2,
+      isBusy: true,
+    });
+
+    render(<ChatInput />);
+
+    const composer = screen.getByTestId("chat-input-surface").parentElement;
+    const overlay = composer?.firstElementChild;
+    expect(overlay?.querySelector("[data-testid='turn-file-changes-summary']"))
+      .toBe(screen.getByTestId("turn-file-changes-summary"));
+    const queue = screen.getByRole("region", { name: "消息队列" });
+    expect(queue.parentElement?.parentElement).toBe(overlay);
   });
 });

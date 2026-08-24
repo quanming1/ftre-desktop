@@ -28,6 +28,7 @@
 - [ ] FR4：移除 Header 上原有的终端按钮，避免同一功能出现两个入口；现有 Header 其他按钮和窗口控制保持不变。
 - [ ] FR5：终端 Tab 纳入现有 Tab 的激活、关闭、右键菜单、拖拽排序和 keep-alive 生命周期；每个 Tab 只渲染并管理自己绑定的 PTY 实例，关闭 Tab 同步关闭该 PTY。
 - [ ] FR6：终端 Tab 的右键菜单不展示文件预览专属的自动换行操作，提供清除终端内容，并保留终端 Tab 的关闭类操作；菜单使用中性 hover 高亮。
+- [x] FR7：嵌入 Inspector 的终端使用独立的无 padding 测量容器承载 xterm，外层保留安全边距与交互事件，FitAddon 计算的行数不得因父容器 padding 多出一行并裁切底部输出。
 
 ### 2.2 非功能需求
 
@@ -81,6 +82,7 @@ interface TerminalManagerProps {
 - [ ] AC4：Header 不再显示原终端按钮；其他 Header 操作、文件预览 Tab、固定面板 Tab 不回归。
 - [ ] AC5：终端 Tab 可按现有规则关闭、拖拽排序和通过右键菜单管理；右键菜单不出现自动换行，文件/差异/图片 Tab 行为不受影响。
 - [ ] AC6：`pnpm --filter @ftre/renderer exec vitest run` 通过；`pnpm --filter @ftre/renderer build` 通过；`git diff --check` 无输出。
+- [x] AC7：终端底部最后一行 shell 输出完整可见；TerminalPane 回归测试确认 FitAddon 测量节点使用 `inset-4` 内层容器，`pnpm test`、Renderer 类型检查和构建通过。
 
 ## 6. 测试计划
 
@@ -96,3 +98,4 @@ interface TerminalManagerProps {
 | 2026-08-21 | 初始定稿：将 Header 终端入口迁移至 Inspector `+` 菜单，本期只实现终端项 | 用户需求 |
 | 2026-08-21 | Windows 终端启动时初始化 UTF-8 编码，PowerShell 默认文件读取改为 UTF-8，CMD 切换到 code page 65001 | 用户反馈终端中文疑似乱码 |
 | 2026-08-21 | 终端 Tab 重开/Inspector 重显时按当前 Tab 精确重测量，并补充延迟和双帧 fit，避免 xterm 按隐藏容器尺寸绘制导致内容被裁切 | 用户反馈终端重新打开后内容显示不完整 |
+| 2026-08-24 | 新增 FR7 / AC7：TerminalPane 将 xterm 挂载到无 padding 的 `inset-4` 内层测量容器，外层保留边距和拖拽/右键事件，修复 FitAddon 多计算一行导致终端底部输出被裁切 | 用户反馈：执行 `ls` 后最下面一行文字被遮挡 |

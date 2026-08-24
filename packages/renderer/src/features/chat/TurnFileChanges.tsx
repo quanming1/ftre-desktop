@@ -13,16 +13,7 @@ import { useChat } from "@/stores/chat";
 import { useSession } from "@/stores/session";
 import { FileIconView } from "@/components/FileIconView";
 import { basename } from "@/utils/pathUtils";
-
-export interface TurnFileChange {
-  toolCallId: string;
-  filePath: string;
-  operation: "edit" | "write";
-  additions: number;
-  deletions: number;
-  before: string;
-  after: string;
-}
+import type { TurnFileChange } from "./turnFileChangeUtils";
 
 export const TurnFileChanges = memo(function TurnFileChanges({
   changes,

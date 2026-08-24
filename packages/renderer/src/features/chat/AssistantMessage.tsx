@@ -5,7 +5,8 @@ import { CodeBlock, StreamingContext } from "./CodeBlock";
 import { useThrottledValue } from "@/hooks/useThrottledValue";
 import { splitBlocks } from "./streamingMarkdown";
 import { InlineToolCallCard } from "./InlineToolCallCard";
-import { TurnFileChanges, type TurnFileChange } from "./TurnFileChanges";
+import { TurnFileChanges } from "./TurnFileChanges";
+import type { TurnFileChange } from "./turnFileChangeUtils";
 import { ChevronRight, Copy, Check, BookOpen, Code2 } from "lucide-react";
 import { Tooltip, TooltipProvider } from "@ftre/ui";
 import { useNotification } from "@/stores/notification";
@@ -373,18 +374,24 @@ function NonTextProcessGroup({
   const [expanded, setExpanded] = useState(false);
   // 流式中也显示摘要：工具名在 toolCall 产生时就已知，thinking 增长不影响去重后的摘要，
   // 让用户在不展开组的情况下也能跟进过程内容。"处理中"状态由外层按钮表达，这里不再重复。
-  const label = summarizeNonTextBlocks(blocks, toolResults);
+  const label = summarizeNonTextBlocks(blocks, toolResults, streaming);
 
   return (
-    <div className="py-0.5">
+    <div className="w-full min-w-0 max-w-full py-0.5">
       <button
         type="button"
         aria-expanded={expanded}
         onClick={() => setExpanded((value) => !value)}
         aria-controls={groupId}
-        className="group flex w-full items-center gap-1.5 py-1 text-left text-[14px] text-t-dim transition-colors hover:text-t-secondary"
+        className="group flex w-full min-w-0 max-w-full items-center gap-1.5 overflow-hidden py-1 text-left text-[14px] text-t-dim transition-colors hover:text-t-secondary"
       >
-        <span className={breathing ? "animate-process-breath" : ""}>{label}</span>
+        <span
+          title={label}
+          className={`min-w-0 flex-1 truncate ${breathing ? "animate-process-breath" : ""}`}
+          style={{ whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}
+        >
+          {label}
+        </span>
         <ChevronRight
           size={12}
           className={`shrink-0 transition-opacity duration-200 ${expanded ? "rotate-90 opacity-100" : "opacity-0 group-hover:opacity-100"} ${breathing ? "animate-process-breath" : ""}`}
@@ -580,7 +587,7 @@ export const AssistantMessage = memo(
                   <span className="flex items-center gap-1.5">
                     <span className="shrink-0">
                       {isStreaming
-                        ? "处理中..."
+                        ? "处理中"
                         : `已处理${typeof turnDurationSec === "number" ? ` ${formatDuration(turnDurationSec)}` : ""}`}
                     </span>
                     <ChevronRight

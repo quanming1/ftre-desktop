@@ -19,8 +19,10 @@ import { MarkdownPreview } from "./MarkdownPreview";
 import { HtmlPreview } from "./HtmlPreview";
 import { PreviewHeader, PreviewToolbarButton } from "./PreviewHeader";
 import { codeDiffLightConfig } from "./codeDiffConfig";
+import { isBinaryFile, isImageFile } from "@/utils/filePreviewKinds";
 import type { TabRendererProps } from "../tabRegistry";
 import type { FileTab } from "@/stores/inspector";
+import type { FileEntry } from "@ftre/shared";
 
 function detectLanguage(filePath: string): string {
   const ext = filePath.match(/\.([a-z0-9]+)$/i)?.[1]?.toLowerCase() ?? "";
@@ -45,6 +47,17 @@ interface LoadedFile {
 export function FileRenderer({ tab, active, wordWrap }: TabRendererProps) {
   const { filePath, content, revealNonce } = tab as FileTab;
   const displayPath = filePath.replace(/\\/g, "/");
+
+  const openPathEntry = useCallback((entry: FileEntry) => {
+    const normalizedPath = entry.path.replace(/\\/g, "/");
+    const title = entry.name || normalizedPath.split("/").pop() || normalizedPath;
+    if (entry.isDir || isBinaryFile(normalizedPath)) return;
+    if (isImageFile(normalizedPath)) {
+      useInspector.getState().openImagePreview(`path-picker-image-${normalizedPath}`, normalizedPath, title);
+      return;
+    }
+    useInspector.getState().openFilePreview(`path-picker-file-${normalizedPath}`, normalizedPath, title);
+  }, []);
 
   // 有 content 快照时直接使用，不走磁盘读取和缓存
   const snapshotFile = useMemo<LoadedFile | null>(() => {
@@ -257,6 +270,7 @@ export function FileRenderer({ tab, active, wordWrap }: TabRendererProps) {
       <PreviewHeader
         fileName={filePath}
         variant="breadcrumb"
+        pathPicker={{ onOpenFile: openPathEntry }}
         right={
           <>
             {/* 暂存区 Diff（仅 git 已跟踪且有未暂存修改的文件，点击新开 DiffTab） */}

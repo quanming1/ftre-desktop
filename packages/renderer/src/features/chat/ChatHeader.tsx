@@ -1,12 +1,12 @@
 import { useState, useCallback, useRef, useEffect, useMemo } from "react";
-import { MoreHorizontal, Pencil, PanelRight, Loader2 } from "lucide-react";
+import { MoreHorizontal, Pencil, Loader2 } from "lucide-react";
 import { useChat } from "@/stores/chat";
 import { useSession } from "@/stores/session";
-import { useLayout } from "@/stores/layout";
 import { useNotification } from "@/stores/notification";
 import { updateSession } from "@/services/api";
 import { ContextMenu, type ContextMenuItem, Tooltip } from "@ftre/ui";
 import { RunContextButton } from "./RunContextPopover";
+import { InspectorVisibilityButton } from "@/components/InspectorVisibilityButton";
 
 interface ChatHeaderProps {
   runContextOpen: boolean;
@@ -28,9 +28,6 @@ export function ChatHeader({ runContextOpen, onToggleRunContext }: ChatHeaderPro
   const allSessions = useSession((s) => s.allSessions);
   const loadAllSessions = useSession((s) => s.loadAllSessions);
   const deleteSession = useSession((s) => s.deleteSession);
-  const inspectorVisible = useLayout((s) => s.panelVisible.inspector);
-  const togglePanelVisible = useLayout((s) => s.togglePanelVisible);
-
   const [isRenaming, setIsRenaming] = useState(false);
   const [renameValue, setRenameValue] = useState("");
   const [contextMenu, setContextMenu] = useState<{
@@ -139,31 +136,46 @@ export function ChatHeader({ runContextOpen, onToggleRunContext }: ChatHeaderPro
 
   return (
     <div className="relative grid shrink-0 grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center bg-surface px-4 py-2.5">
-      <div ref={recentPopoverRef} className="relative col-start-2 min-w-0 max-w-[60vw] justify-self-center">
-        {isRenaming ? (
-          <input
-            ref={inputRef}
-            type="text"
-            value={renameValue}
-            onChange={(e) => setRenameValue(e.target.value)}
-            onBlur={handleRename}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") handleRename();
-              if (e.key === "Escape") setIsRenaming(false);
-            }}
-            className="w-full min-w-0 bg-transparent border-b border-accent text-center text-base font-semibold text-t-primary outline-none"
-          />
-        ) : (
-          <button
-            type="button"
-            aria-label={`切换会话：${title}`}
-            aria-expanded={recentOpen}
-            aria-haspopup="listbox"
-            onClick={() => setRecentOpen((open) => !open)}
-            className="block max-w-full truncate bg-transparent text-center text-base font-semibold text-t-primary outline-none transition-colors hover:text-accent"
-          >
-            {title}
-          </button>
+      <div ref={recentPopoverRef} className="relative col-start-2 flex min-w-0 max-w-[60vw] items-center justify-self-center">
+        <div className="min-w-0">
+          {isRenaming ? (
+            <input
+              ref={inputRef}
+              type="text"
+              value={renameValue}
+              onChange={(e) => setRenameValue(e.target.value)}
+              onBlur={handleRename}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") handleRename();
+                if (e.key === "Escape") setIsRenaming(false);
+              }}
+              className="w-full min-w-0 bg-transparent border-b border-accent text-center text-base font-semibold text-t-primary outline-none"
+            />
+          ) : (
+            <button
+              type="button"
+              aria-label={`切换会话：${title}`}
+              aria-expanded={recentOpen}
+              aria-haspopup="listbox"
+              onClick={() => setRecentOpen((open) => !open)}
+              className="block max-w-full truncate bg-transparent text-center text-base font-semibold text-t-primary outline-none transition-colors hover:text-accent"
+            >
+              {title}
+            </button>
+          )}
+        </div>
+
+        {sessionId && (
+          <Tooltip content="更多操作" side="bottom">
+            <button
+              type="button"
+              aria-label="更多操作"
+              onClick={showContextMenu}
+              className="relative top-px ml-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-t-muted transition-colors hover:bg-hover hover:text-t-primary"
+            >
+              <MoreHorizontal size={16} />
+            </button>
+          </Tooltip>
         )}
 
         {recentOpen && (
@@ -215,31 +227,7 @@ export function ChatHeader({ runContextOpen, onToggleRunContext }: ChatHeaderPro
 
       <div className="col-start-3 flex items-center justify-self-end gap-1">
         <RunContextButton open={runContextOpen} onToggle={onToggleRunContext} />
-        <Tooltip content={inspectorVisible ? "隐藏侧面板" : "显示侧面板"} side="bottom">
-          <button
-            type="button"
-            aria-label={inspectorVisible ? "隐藏侧面板" : "显示侧面板"}
-            aria-pressed={inspectorVisible}
-            onClick={() => togglePanelVisible("inspector")}
-            className={`relative flex h-8 w-8 items-center justify-center rounded-md transition-colors duration-150 ${
-              inspectorVisible
-                ? "bg-black/[0.06] text-t-primary"
-                : "text-t-muted hover:bg-black/[0.04] hover:text-t-primary"
-            }`}
-          >
-            <PanelRight size={15} strokeWidth={1.6} />
-          </button>
-        </Tooltip>
-        {sessionId && (
-          <Tooltip content="更多操作" side="bottom">
-            <button
-              onClick={showContextMenu}
-              className="p-1 rounded hover:bg-hover text-t-secondary hover:text-t-primary"
-            >
-              <MoreHorizontal size={16} />
-            </button>
-          </Tooltip>
-        )}
+        <InspectorVisibilityButton onlyWhenHidden />
       </div>
 
       {contextMenu && (

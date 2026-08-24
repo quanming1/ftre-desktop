@@ -82,6 +82,7 @@ import {
   SessionSearchResults,
   useSessionSearch,
 } from "./SessionSearch";
+import { SessionRenameDialog } from "./SessionRenameDialog";
 
 // ─── 水波纹（从共享组件导入） ──────────────────────────────────────
 import { useRipple, RippleLayer, type RippleItem } from "@/components/Ripple";
@@ -1264,56 +1265,13 @@ export function SessionPanel() {
           />
         </div>
 
-        {/* 重命名对话框 */}
         {renamingSession && (
-          <div
-            className="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
-            onClick={() => setRenamingSession(null)}
-          >
-            <div
-              className="bg-surface rounded-lg border border-border shadow-xl w-[320px]"
-              onClick={(e) => e.stopPropagation()}
-            >
-              <div className="px-4 py-3 border-b border-border">
-                <span className="text-[13px] text-t-primary font-medium">
-                  重命名会话
-                </span>
-              </div>
-              <div className="p-4">
-                <input
-                  type="text"
-                  value={renameValue}
-                  onChange={(e) => setRenameValue(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") {
-                      handleRenameSession(renamingSession.session_id, renameValue);
-                    } else if (e.key === "Escape") {
-                      setRenamingSession(null);
-                    }
-                  }}
-                  className="w-full h-8 px-3 rounded bg-base border border-border focus:border-neon/50 text-[12px] text-t-primary outline-none"
-                  placeholder="输入新标题"
-                  autoFocus
-                />
-              </div>
-              <div className="px-4 py-3 border-t border-border flex justify-end gap-2">
-                <button
-                  onClick={() => setRenamingSession(null)}
-                  className="px-3 py-1.5 rounded text-[12px] text-t-muted hover:bg-hover"
-                >
-                  取消
-                </button>
-                <button
-                  onClick={() =>
-                    handleRenameSession(renamingSession.session_id, renameValue)
-                  }
-                  className="px-3 py-1.5 rounded text-[12px] bg-neon/20 text-neon hover:bg-neon/30"
-                >
-                  保存
-                </button>
-              </div>
-            </div>
-          </div>
+          <SessionRenameDialog
+            value={renameValue}
+            onChange={setRenameValue}
+            onCancel={() => setRenamingSession(null)}
+            onSave={() => handleRenameSession(renamingSession.session_id, renameValue)}
+          />
         )}
       </div>
       )}
