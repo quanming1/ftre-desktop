@@ -82,7 +82,9 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - runner: macos-13
+          # macos-13 runners are no longer reliably schedulable; macos-14 can
+          # cross-build the Intel target while keeping the two-architecture matrix.
+          - runner: macos-14
             arch: x64
           - runner: macos-14
             arch: arm64
