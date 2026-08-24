@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.1.11] - 2026-08-24
+
+### 修复
+
+- 修复 macOS arm64 Python runtime 缺少可选 `2to3` 文件时，后端 bundle 目录统计失败的问题。
+
 ## [0.1.10] - 2026-08-24
 
 ### B1 WebSocket F12 协议修复
