@@ -58,6 +58,12 @@ export function createWindow(): BrowserWindow {
     },
   });
 
+  // preload 加载失败时 Electron 默认只在 DevTools 控制台给出弱提示；记录
+  // 绝对路径和原始错误，避免 Renderer 只看到 window.desktop undefined。
+  mainWindow.webContents.on("preload-error", (_event, preloadPath, error) => {
+    console.error(`[window] preload 加载失败: ${preloadPath}`, error);
+  });
+
   // 去掉默认菜单栏
   mainWindow.setMenuBarVisibility(false);
 

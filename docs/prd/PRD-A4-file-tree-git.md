@@ -64,3 +64,4 @@
 |---|---|---|
 | 2026-08-12 | 初始定稿 | — |
 | 2026-08-21 | 文件树 Owner 从不可达的旧 Sidebar/Explorer 子系统收口到 Inspector FileTreeSidebar；移除旧树、归档和 Sidebar Git/MCP 视图实现 | 当前工作台固定 Agent 布局，右侧 Inspector 已成为唯一文件树与 Changes 入口 |
+| 2026-08-23 | 修复 Electron dev 启动时 preload 尚未生成导致 `window.desktop.fs` 缺失：启动脚本等待 main/preload 产物，文件树与工作台对 bridge 缺失安全降级，并补充 preload-error 日志 | Vite 就绪早于 Electron tsc，窗口可能在 contextBridge 注入前加载 Renderer，Inspector 首次挂载即崩溃 | AC1、AC4；新增 preload 缺失回归测试 |

@@ -70,3 +70,4 @@
 | 2026-08-12 | 初始定稿 | — |
 | 2026-08-21 | 状态回到开发中；补充开发环境/打包 renderer CSP 的安全验收要求，关联 PRD-A2-console-warnings.md 的 FR3-FR4 与 AC4-AC5 | Electron renderer 开发模式出现 Insecure Content-Security-Policy 警告，需要补齐窗口安全基线并重新验收 A1 |
 | 2026-08-21 | 已验收（AC1-AC4 重跑通过）：renderer index.html 声明 CSP meta（无 unsafe-eval）；开发模式主进程为 Vite 主文档响应注入 CSP 头；vite preview + 浏览器验证页面可加载、主题 inline 脚本可执行、无 CSP 违规；electron/renderer 构建通过，全量测试失败集合与改动前基线一致（无回归）。仅真实 `pnpm dev` 的 Electron 控制台观察需在用户环境确认 | 对照 AC 验收留痕 |
+| 2026-08-23 | 修复 Windows Vite 依赖优化缓存被锁导致 renderer 进程退出：开发脚本使用 `--force` 重优化，并在 Electron 启动前等待 renderer/electron 产物就绪 | Vite 退出后 Electron 仍保留旧页面，所有模块请求变为 `ERR_CONNECTION_REFUSED`，LoadingScreen 无法恢复 | AC1、AC4 |

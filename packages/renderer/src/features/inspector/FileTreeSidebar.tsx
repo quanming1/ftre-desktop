@@ -181,7 +181,11 @@ function sortEntries(entries: TreeNode[]): TreeNode[] {
 }
 
 async function readDirSorted(dir: string): Promise<TreeNode[]> {
-  const result = await window.desktop.fs.readDir(dir);
+  // Vite 直接在浏览器中打开时没有 Electron preload；文件树应显示为空，
+  // 不能因为可选的原生能力缺失而让整个 Inspector 崩溃。
+  const fs = window.desktop?.fs;
+  if (!fs?.readDir) return [];
+  const result = await fs.readDir(dir);
   if (result.error || !result.entries) return [];
   const filtered = result.entries
     .filter((e) => !IGNORED_DIRS.has(e.name) && !e.name.startsWith("."))
@@ -580,7 +584,9 @@ export function FileTreeSidebar() {
   // 这里绝不 unwatch，否则会关掉 Workbench 等其他消费者的同名 watcher。
   useEffect(() => {
     if (!workspace) return;
-    window.desktop.fs.watch(workspace);
+    const fs = window.desktop?.fs;
+    if (!fs?.watch || !fs.onFileChanged) return;
+    fs.watch(workspace);
 
     const wsNorm = normKey(workspace);
     let flushTimer: ReturnType<typeof setTimeout> | null = null;
@@ -614,7 +620,7 @@ export function FileTreeSidebar() {
       }
     };
 
-    const unsubscribe = window.desktop.fs.onFileChanged((changedPath: string) => {
+    const unsubscribe = fs.onFileChanged((changedPath: string) => {
       const norm = normKey(changedPath);
       // 只关心本工作区子树内的事件（watcher 可能被多处注册，事件是广播的）
       if (norm !== wsNorm && !norm.startsWith(wsNorm + "/")) return;
@@ -655,9 +661,11 @@ export function FileTreeSidebar() {
     setGitStatusMap(null);
     setChangedFiles([]);
     gitEtagRef.current = "";
+    const git = window.desktop?.git;
+    if (!git?.poll) return;
 
     const poll = async (force = false) => {
-      const result = await window.desktop.git.poll(workspace, gitEtagRef.current, force);
+      const result = await git.poll(workspace, gitEtagRef.current, force);
       if (cancelled) return;
       gitEtagRef.current = result.etag;
       if (!result.changed || !result.files) return;
@@ -724,6 +732,8 @@ export function FileTreeSidebar() {
   const handleFileClick = useCallback((path: string) => openFileInTab("filetree", path), [openFileInTab]);
 
   const handleGitFileClick = useCallback(async (file: GitFileStatus) => {
+    const git = window.desktop?.git;
+    if (!git?.diffFile) return;
     const absPath = file.absolutePath.replace(/\\/g, "/");
     const ws = workspace.replace(/\\/g, "/");
     const name = absPath.split("/").pop() ?? absPath;
@@ -735,7 +745,7 @@ export function FileTreeSidebar() {
     }
 
     const relPath = absPath.slice(ws.length + 1);
-    const result = await window.desktop.git.diffFile(ws, relPath, file.status, file.staged, file.oldPath);
+    const result = await git.diffFile(ws, relPath, file.status, file.staged, file.oldPath);
     if (result.error) {
       useInspector.getState().openFilePreview(`gitfile-${absPath}`, absPath, name);
       return;

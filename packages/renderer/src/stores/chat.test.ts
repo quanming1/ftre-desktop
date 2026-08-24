@@ -1,8 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { applyEvent, applyMailboxSnapshot, applyReplySnapshot, useChat } from "./chat";
+import { applyEvent, applyQueueSnapshot, applyReplySnapshot, useChat } from "./chat";
 import type { ContentBlock } from "./chat";
 import { ClientSessionProjection } from "./clientSessionProjection";
 import { UserMessageEventType } from "@/services/websocket-client";
+
+const wsMessageHandler = vi.hoisted(() => ({
+  current: null as ((message: any) => void) | null,
+}));
 
 vi.mock("@/services/websocket-client", async (importOriginal) => {
   const actual =
@@ -10,7 +14,12 @@ vi.mock("@/services/websocket-client", async (importOriginal) => {
   return {
     ...actual,
     wsClient: {
-      onMessage: vi.fn(),
+      onMessage: vi.fn((handler: (message: any) => void) => {
+        wsMessageHandler.current = handler;
+        return () => {
+          if (wsMessageHandler.current === handler) wsMessageHandler.current = null;
+        };
+      }),
       onDisconnect: vi.fn(),
       onConnect: vi.fn(),
       onStatusChange: vi.fn(),
@@ -59,6 +68,29 @@ describe("chat store", () => {
     expect(state.messages).toEqual([]);
     expect(state.sessionId).toBeNull();
     expect(state.sessionStatus).toBe("idle");
+  });
+
+  it("does not treat a session.cancel ACK as a chat admission ACK", () => {
+    useChat.setState({
+      sessionId: "s1",
+      sessionStatus: "idle",
+      sessionActivity: "idle",
+      isBusy: false,
+      pendingMessages: [],
+      queueDepth: 0,
+    });
+
+    wsMessageHandler.current?.({
+      request_id: "cancel-1",
+      ok: true,
+      value: { accepted: true, session_id: "s1" },
+    });
+
+    expect(useChat.getState()).toMatchObject({
+      sessionStatus: "idle",
+      isBusy: false,
+      pendingMessages: [],
+    });
   });
 
   it("updates model, provider and agent", () => {
@@ -281,18 +313,13 @@ describe("chat store", () => {
       plan: null,
     };
 
-    applyMailboxSnapshot(projection, {
+    applyQueueSnapshot(projection, {
       session_id: "s1",
-      revision: 4,
-      phase: "compacting",
-      pending: [{
-        request_id: "request-pending",
-        sequence: 1,
-        content: "/compress-fast 0",
+      items: [{
+        id: "request-pending",
+        placement: "queued",
+        message: { content: [{ type: "text", text: "/compress-fast 0" }] },
       }],
-      capacity: 100,
-      accepting_messages: true,
-      can_cancel_active: false,
     });
 
     expect(projection.messages).toEqual([]);
@@ -300,7 +327,7 @@ describe("chat store", () => {
       request_id: requestId,
       content: "/compress-fast 0",
     })]);
-    expect(projection.sessionStatus).toBe("compacting");
+    expect(projection.sessionStatus).toBe("idle");
   });
 
   it("keeps an unacknowledged local queue item when an unrelated snapshot arrives", () => {
@@ -333,18 +360,13 @@ describe("chat store", () => {
       plan: null,
     };
 
-    applyMailboxSnapshot(projection, {
+    applyQueueSnapshot(projection, {
       session_id: "s1",
-      revision: 4,
-      phase: "running",
-      pending: [{
-        request_id: "request-A",
-        sequence: 1,
-        content: "A",
+      items: [{
+        id: "request-A",
+        placement: "queued",
+        message: { content: [{ type: "text", text: "A" }] },
       }],
-      capacity: 100,
-      accepting_messages: true,
-      can_cancel_active: true,
     });
 
     expect(projection.pendingMessages.map((item) => item.content)).toEqual(["A", "B"]);
@@ -398,6 +420,78 @@ describe("chat store", () => {
     expect(projection.messages).toEqual([expect.objectContaining({
       id: "message-handoff",
       role: "user",
+      content: "hello",
+    })]);
+  });
+
+  it("keeps an admitted item visible when claim snapshot beats USER_MESSAGE echo", () => {
+    const requestId = "request-claimed";
+    const projection = {
+      messages: [],
+      seenEventIds: new Set<string>(),
+      earliestTs: null,
+      hasMoreHistory: true,
+      lastUserInputTs: null,
+      sessionRevision: 4,
+      hasCoordinatorState: true,
+      sessionActivity: "executing" as const,
+      queueDepth: 1,
+      queueCapacity: 100,
+      pendingMessages: [{
+        request_id: requestId,
+        sequence: 1,
+        content: "hello",
+        optimistic: false,
+        awaitingEcho: true,
+      }],
+      clientCanSend: true,
+      canCancel: true,
+      blockedReason: null,
+      isBusy: true,
+      sessionStatus: "running" as const,
+      retryState: null,
+      commandName: null,
+      turnStartTs: null,
+      error: null,
+      plan: null,
+    };
+
+    // 先收到 ACK 对应的服务端 pending 快照：本地 optimistic 项目被接纳，
+    // 但要继承 awaitingEcho 标记，后续被 claim 也不能立即消失。
+    projection.pendingMessages = [{
+      request_id: requestId,
+      sequence: 0,
+      content: "hello",
+      optimistic: true,
+      awaitingEcho: false,
+    }];
+    applyQueueSnapshot(projection, {
+      session_id: "s1",
+      items: [{
+        id: requestId,
+        placement: "queued",
+        message: { content: [{ type: "text", text: "hello" }] },
+      }],
+    });
+    expect(projection.pendingMessages[0]).toMatchObject({ awaitingEcho: true });
+
+    // worker 已经 claim，权威 pending 为空，但 USER_MESSAGE 还没到。
+    applyQueueSnapshot(projection, { session_id: "s1", items: [] });
+    expect(projection.pendingMessages).toEqual([expect.objectContaining({
+      request_id: requestId,
+      content: "hello",
+      awaitingEcho: true,
+    })]);
+
+    applyEvent(projection, {
+      type: UserMessageEventType,
+      eventId: "event-claimed",
+      metadata: { request_id: requestId },
+      data: { id: "message-claimed", data: { content: "hello" } },
+    });
+    expect(projection.pendingMessages).toEqual([]);
+    expect(projection.messages).toEqual([expect.objectContaining({
+      id: "message-claimed",
       content: "hello",
     })]);
   });

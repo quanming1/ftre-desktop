@@ -4,25 +4,23 @@ import {
   type ServerMessage,
 } from "@/services/websocket-client";
 
-describe("mailbox snapshot protocol", () => {
-  it("accepts a flat pending-only mailbox snapshot", () => {
+describe("Inbox queue protocol", () => {
+  it("accepts a session/queue payload", () => {
     const message: ServerMessage<any> = {
-      frame_id: "frame-1",
-      type: "session_event:mailbox_snapshot",
+      type: "session/queue",
       metadata: { session_id: "ws_sess_1" },
-      data: {
+      payload: {
         session_id: "ws_sess_1",
-        revision: 3,
-        phase: "idle",
-        pending: [{ request_id: "req-1", sequence: 1, content: "queued" }],
-        capacity: 100,
-        accepting_messages: true,
-        can_cancel_active: false,
+        items: [{
+          id: "req-1",
+          placement: "queued",
+          message: { content: [{ type: "text", text: "queued" }] },
+        }],
       },
     };
     expect(getSessionEventPayload(message)).toMatchObject({
       session_id: "ws_sess_1",
-      pending: [{ request_id: "req-1", content: "queued" }],
+      items: [{ id: "req-1", placement: "queued" }],
     });
   });
 });

@@ -1,5 +1,21 @@
 # Changelog
 
+## [Unreleased] - 2026-08-23
+
+### B1 WebSocket F12 协议修复
+
+- 客户端聊天、工具确认迁移到 `session.prompt`，取消迁移到 `session.cancel`，统一使用
+  `payload` 和 `request_id`；attach/detach 同步迁移到 `payload.session_id`。
+- 下行事件、`reply_snapshot`、`session/queue`、`session/status` 改为解析 `payload`；
+  durable admission 改为消费无 `type` 的 RPC ACK/error envelope。
+- 修复旧 `user_message/data/frame_id` 帧被 ftre 后端静默忽略导致消息消失的问题，并补齐
+  outbox 重连、取消 ACK、队列和状态回归测试。
+- 修复 Electron 开发启动竞态：等待 `main.js` 与 `preload.js` 都生成后再创建窗口，避免
+  preload 未注入导致 Inspector 文件树读取 `window.desktop.fs` 崩溃；增加 bridge 缺失降级和
+  preload 错误日志。
+- 修复 Windows Vite 依赖缓存锁导致 renderer 进程退出：开发启动使用 `--force` 重优化，
+  避免 Electron 保留旧页面后出现整页 `ERR_CONNECTION_REFUSED`。
+
 ## [未发布]
 
 ### 新增

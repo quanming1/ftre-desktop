@@ -33,21 +33,25 @@ class WsLogCollector {
       // 原始文本仍然保留，解析失败本身也是需要审计的协议问题。
     }
 
-    const data = parsed?.data && typeof parsed.data === "object" ? parsed.data : {};
+    const payload = parsed?.payload && typeof parsed.payload === "object" ? parsed.payload : {};
     const metadata = parsed?.metadata && typeof parsed.metadata === "object"
       ? parsed.metadata
       : {};
     const compacted = compactRaw(raw);
-    const eventType = typeof data.type === "string" ? data.type : undefined;
+    const eventType = typeof payload.type === "string" ? payload.type : undefined;
     this.enqueue({
       direction,
       attempt: options.attempt,
       connectionId: options.connectionId,
       type: typeof parsed?.type === "string" ? parsed.type : undefined,
       eventType,
-      sessionId: this.stringValue(data.session_id) || this.stringValue(metadata.session_id),
-      requestId: this.stringValue(data.request_id) || this.stringValue(metadata.request_id),
-      frameId: this.stringValue(parsed?.frame_id),
+      sessionId: this.stringValue(payload.session_id)
+        || this.stringValue(metadata.session_id)
+        || this.stringValue((parsed?.value as Record<string, unknown> | undefined)?.session_id),
+      requestId: this.stringValue(parsed?.request_id)
+        || this.stringValue(payload.request_id)
+        || this.stringValue(metadata.request_id),
+      frameId: this.stringValue(parsed?.request_id),
       bytes: compacted.originalBytes,
       raw: compacted.raw,
       ...(compacted.truncated ? { truncated: true, originalBytes: compacted.originalBytes } : {}),

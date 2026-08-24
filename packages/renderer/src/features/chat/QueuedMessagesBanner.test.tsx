@@ -1,6 +1,6 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
-import type { MailboxItemPayload } from "@/services/websocket-client";
+import type { QueueItemView } from "@/services/websocket-client";
 import { QueuedMessagesBanner } from "./QueuedMessagesBanner";
 
 const { cancelQueuedMessage, addNotification } = vi.hoisted(() => ({
@@ -20,14 +20,14 @@ vi.mock("@/stores/notification", () => ({
     selector({ addNotification }),
 }));
 
-const item = (requestId: string, content: string): MailboxItemPayload => ({
+const item = (requestId: string, content: string): QueueItemView => ({
   request_id: requestId,
   sequence: 1,
   content,
 });
 
 describe("QueuedMessagesBanner", () => {
-  it("directly renders pending items from the mailbox snapshot", () => {
+  it("directly renders pending items from the Inbox queue snapshot", () => {
     render(<QueuedMessagesBanner items={[item("one", "first"), item("two", "second")]} />);
     expect(screen.getByRole("region", { name: "消息队列" })).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: /消息队列/ }));

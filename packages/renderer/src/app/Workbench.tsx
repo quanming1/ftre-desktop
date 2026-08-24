@@ -127,8 +127,10 @@ export function Workbench() {
 
   useEffect(() => {
     if (!rootPath) return;
+    const fs = window.desktop?.fs;
+    if (!fs?.watch || !fs.onFileChanged || !fs.unwatch) return;
 
-    window.desktop.fs.watch(rootPath);
+    fs.watch(rootPath);
 
     let flushTimer: ReturnType<typeof setTimeout> | null = null;
     const pendingRefreshes = new Map<string, string | undefined>();
@@ -145,7 +147,7 @@ export function Workbench() {
       pendingRefreshes.clear();
     };
 
-    const unsubscribe = window.desktop.fs.onFileChanged(
+    const unsubscribe = fs.onFileChanged(
       (changedPath: string) => {
         performanceMetrics.count("fs.fileChanged.events");
 
@@ -170,7 +172,7 @@ export function Workbench() {
     return () => {
       if (flushTimer) clearTimeout(flushTimer);
       pendingRefreshes.clear();
-      window.desktop.fs.unwatch(rootPath);
+      fs.unwatch(rootPath);
       unsubscribe();
     };
   }, [rootPath]);

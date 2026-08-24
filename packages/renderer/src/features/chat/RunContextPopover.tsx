@@ -81,7 +81,7 @@ function getRunLabel({
   commandName,
   turnStartTs,
 }: {
-  sessionStatus: "idle" | "running" | "compacting";
+  sessionStatus: "idle" | "running" | "compacting" | "blocked";
   sessionActivity: string;
   queueDepth: number;
   blockedReason: string | null;

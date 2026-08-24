@@ -1,7 +1,7 @@
 import { memo, useCallback, useState } from "react";
 import { CornerDownRight, ImageIcon, ListOrdered, Loader2, PencilLine, Trash2 } from "lucide-react";
 import { cancelQueuedMessage } from "@/services/api";
-import type { MailboxItemPayload } from "@/services/websocket-client";
+import type { QueueItemView } from "@/services/websocket-client";
 import { useChat } from "@/stores/chat";
 import { useNotification } from "@/stores/notification";
 
@@ -9,14 +9,14 @@ import { useNotification } from "@/stores/notification";
  * 输入框上方的待执行消息横幅。
  *
  * 数据来自 pendingMessages 投影：点击发送后先放入本地 optimistic 队列项，
- * durable ACK / mailbox_snapshot 再用同一个 request_id 覆盖为服务端事实。
- * SessionLane 领取、写入 UserMsg 并回显后，才从横幅移除并进入聊天 messages。
+ * durable ACK / session/queue 再用同一个 request_id 覆盖为服务端事实。
+ * Inbox 领取、写入 UserMsg 并回显后，才从横幅移除并进入聊天 messages。
  * 因而“待执行”和“聊天历史”始终是两份职责明确的数据，不会来回搬运同一气泡。
  */
 export const QueuedMessagesBanner = memo(function QueuedMessagesBanner({
   items,
 }: {
-  items: MailboxItemPayload[];
+  items: QueueItemView[];
 }) {
   const sessionId = useChat((state) => state.sessionId);
   const addNotification = useNotification((state) => state.addNotification);
@@ -29,7 +29,7 @@ export const QueuedMessagesBanner = memo(function QueuedMessagesBanner({
     setRemoving((current) => new Set(current).add(requestId));
     try {
       await cancelQueuedMessage(sessionId, requestId);
-      // 不做乐观删除：下一帧 mailbox_snapshot 才是队列的最终事实。
+      // 不做乐观删除：下一帧 session/queue 才是队列的最终事实。
       return true;
     } catch (error) {
       addNotification({
@@ -46,7 +46,7 @@ export const QueuedMessagesBanner = memo(function QueuedMessagesBanner({
     }
   }, [addNotification, removing, sessionId]);
 
-  const editMessage = useCallback(async (item: MailboxItemPayload) => {
+  const editMessage = useCallback(async (item: QueueItemView) => {
     const request = { accepted: false, attachments: item.attachments || [] };
     window.dispatchEvent(new CustomEvent("ftre:queued-edit-request", { detail: request }));
     if (!request.accepted || !await removeFromQueue(item.request_id)) return;
@@ -76,7 +76,7 @@ export const QueuedMessagesBanner = memo(function QueuedMessagesBanner({
         <span className="shrink-0 text-[11px] font-medium text-t-muted">消息队列</span>
         <span className="rounded-full bg-black/[0.05] px-1.5 py-px font-mono text-[10px] tabular-nums text-t-faint">{items.length}</span>
         <span className="min-w-0 flex-1 truncate text-[11px] text-t-faint" title={itemLabel(next)}>
-          下一条 · {itemLabel(next)}
+          {next.awaitingEcho ? "正在消费" : "下一条"} · {itemLabel(next)}
         </span>
       </button>
       {expanded && (
@@ -84,6 +84,8 @@ export const QueuedMessagesBanner = memo(function QueuedMessagesBanner({
           {items.map((item) => {
             const isRemoving = removing.has(item.request_id);
             const isOptimistic = item.optimistic === true;
+            const isAwaitingEcho = item.awaitingEcho === true;
+            const isLocked = isOptimistic || isAwaitingEcho;
             const label = itemLabel(item);
             const imageCount = item.attachments?.length ?? 0;
             return (
@@ -99,8 +101,11 @@ export const QueuedMessagesBanner = memo(function QueuedMessagesBanner({
                     <ImageIcon size={10} />{imageCount}
                   </span>
                 )}
-                {isOptimistic ? (
-                  <span className="shrink-0 text-[10px] text-t-faint">发送中</span>
+                {isLocked ? (
+                  <span className="inline-flex shrink-0 items-center gap-1 text-[10px] text-t-faint">
+                    {isAwaitingEcho && <Loader2 size={10} className="animate-spin" />}
+                    {isOptimistic ? "发送中" : "正在消费"}
+                  </span>
                 ) : (
                   <>
                     <button
@@ -128,7 +133,7 @@ export const QueuedMessagesBanner = memo(function QueuedMessagesBanner({
   );
 });
 
-function itemLabel(item: MailboxItemPayload): string {
+function itemLabel(item: QueueItemView): string {
   const content = item.content?.trim();
   return content || (item.attachments?.length ? `${item.attachments.length} 张图片` : "未命名消息");
 }

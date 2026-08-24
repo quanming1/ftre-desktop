@@ -1,5 +1,5 @@
 import type {
-  MailboxItemPayload,
+  QueueItemView,
   ReplySnapshotPayload,
   SessionActivity,
 } from "@/services/websocket-client";
@@ -16,7 +16,7 @@ export interface ProjectionEvent {
   data?: any;
   ts?: number;
   eventId?: string;
-  /** WebSocket 下行 BusMessage 的 frame id，用作 Event 缺少 id 时的去重键。 */
+  /** WebSocket 下行事件的 request_id，用作 Event 缺少 id 时的去重键。 */
   frameId?: string;
   metadata?: Record<string, any>;
 }
@@ -54,8 +54,8 @@ export interface SessionProjectionState {
   hasCoordinatorState?: boolean;
   queueDepth?: number;
   queueCapacity?: number | null;
-  /** 输入框上方横幅：服务端 mailbox.pending + 尚未 ACK 的本地发送预览，不混入聊天正文。 */
-  pendingMessages?: MailboxItemPayload[];
+  /** 输入框上方横幅：服务端 Inbox items + 尚未 ACK 的本地发送预览，不混入聊天正文。 */
+  pendingMessages?: QueueItemView[];
   clientCanSend?: boolean;
   canCancel?: boolean;
   blockedReason?: string | null;
@@ -87,7 +87,7 @@ export class ClientSessionProjection implements SessionProjectionState {
   hasCoordinatorState = false;
   queueDepth = 0;
   queueCapacity: number | null = null;
-  pendingMessages: MailboxItemPayload[] = [];
+  pendingMessages: QueueItemView[] = [];
   clientCanSend = true;
   canCancel = false;
   blockedReason: string | null = null;
