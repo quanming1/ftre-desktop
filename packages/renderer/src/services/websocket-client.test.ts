@@ -33,12 +33,12 @@ async function loadClient() {
   return import("./websocket-client");
 }
 
-describe("websocket-client protocol handling", () => {
+describe("websocket-client F12 protocol handling", () => {
   beforeEach(() => {
     vi.useRealTimers();
   });
 
-  it("subscribeOnly replaces the current session subscription", async () => {
+  it("subscribeOnly uses payload for attach/detach", async () => {
     const { wsClient } = await loadClient();
     wsClient.connect();
     const ws = FakeWebSocket.instances[0];
@@ -49,223 +49,114 @@ describe("websocket-client protocol handling", () => {
 
     const frames = ws.sent.map((payload) => JSON.parse(payload));
     expect(frames.map((frame) => frame.type)).toEqual(["attach", "detach", "attach"]);
-    expect(frames.map((frame) => frame.data.session_id)).toEqual(["ws_a", "ws_a", "ws_b"]);
+    expect(frames.map((frame) => frame.payload.session_id)).toEqual(["ws_a", "ws_a", "ws_b"]);
+    expect(frames.every((frame) => !("frame_id" in frame))).toBe(true);
   });
 
-  it("工具确认发送不持久化的控制指令", async () => {
-    const { wsClient } = await loadClient();
-    wsClient.connect();
-    const ws = FakeWebSocket.instances[0];
-    ws.onopen?.();
-
-    wsClient.sendToolConfirmation("ws_a", ["call-1", "call-2"], true);
-
-    const frame = JSON.parse(ws.sent[ws.sent.length - 1]);
-    expect(frame.type).toBe("user_message");
-    expect(typeof frame.frame_id).toBe("string");
-    expect(frame.data).toMatchObject({
-      session_id: "ws_a",
-      content: "/allow call-1 call-2",
-    });
-  });
-
-  it("forwards agent events without metadata-level deduplication", async () => {
-    const { wsClient } = await loadClient();
-    const received: unknown[] = [];
-    wsClient.onMessage((msg) => received.push(msg));
-    wsClient.connect();
-    const ws = FakeWebSocket.instances[0];
-
-    const frame = {
-      id: "msg_volatile",
-      type: "agent_event",
-      data: { type: "assistant_message", event_id: "evt_1", data: { content: "hello" } },
-      metadata: {
-        session_id: "ws_a",
-      },
-    };
-
-    // Same session + seq → deduplicated
-    ws.onmessage?.({ data: JSON.stringify(frame) });
-    ws.onmessage?.({ data: JSON.stringify(frame) });
-
-    // Different session, same seq → not deduplicated
-    ws.onmessage?.({
-      data: JSON.stringify({
-        ...frame,
-        metadata: { ...frame.metadata, session_id: "ws_b" },
-      }),
-    });
-
-    expect(received).toHaveLength(3);
-  });
-
-  it("uses the frame id as the stable request id", async () => {
+  it("sends chat and tool confirmation as session.prompt", async () => {
     const { wsClient } = await loadClient();
     wsClient.connect();
     const ws = FakeWebSocket.instances[0];
     ws.onopen?.();
 
     wsClient.sendChat("hello", { session_id: "ws_a" }, undefined, "client-1");
+    wsClient.sendToolConfirmation("ws_a", ["call-1", "call-2"], true);
 
-    const frame = JSON.parse(ws.sent[ws.sent.length - 1]);
-    expect(frame).toMatchObject({
-      frame_id: "client-1",
-      type: "user_message",
-      metadata: {
-        session_id: "ws_a",
-      },
+    const chat = JSON.parse(ws.sent[0]);
+    expect(chat).toMatchObject({
+      request_id: "client-1",
+      type: "session.prompt",
+      payload: { session_id: "ws_a", mode: "queue", content: "hello" },
+    });
+    const confirmation = JSON.parse(ws.sent[1]);
+    expect(confirmation).toMatchObject({
+      type: "session.prompt",
+      payload: { session_id: "ws_a", mode: "queue", content: "/allow call-1 call-2" },
     });
   });
 
-  it("resends chat until the gateway confirms durable admission", async () => {
+  it("keeps the same request_id until the durable RPC ACK", async () => {
     const { wsClient } = await loadClient();
     wsClient.connect();
     const ws = FakeWebSocket.instances[0];
     ws.onopen?.();
 
     wsClient.sendChat("hello", { session_id: "ws_a" }, undefined, "client-ack");
-    expect(ws.sent).toHaveLength(1);
-
-    // A reconnect before ACK resends the same idempotency key.
     ws.onopen?.();
-    expect(ws.sent).toHaveLength(2);
-    expect(JSON.parse(ws.sent[1]).frame_id).toBe("client-ack");
+    expect(JSON.parse(ws.sent[1]).request_id).toBe("client-ack");
 
     ws.onmessage?.({
       data: JSON.stringify({
-        frame_id: "server-ack",
-        type: "message_ack",
-        metadata: {},
-        data: {
-          session_id: "ws_a",
-          request_id: "client-ack",
-          queue_position: 1,
-          created: true,
-        },
+        request_id: "client-ack",
+        ok: true,
+        value: { accepted: true, session_id: "ws_a" },
       }),
     });
     ws.onopen?.();
     expect(ws.sent).toHaveLength(2);
   });
 
-  it("normalizes the backend mailbox snapshot topic", async () => {
+  it("parses the Inbox queue, session status, command and RPC error envelopes", async () => {
     const {
       getSessionEventPayload,
       getSessionStatusPayload,
       getSessionCommandPayload,
+      getRpcErrorPayload,
     } = await loadClient();
 
     expect(getSessionEventPayload({
-      frame_id: "mailbox",
-      type: "session_event:mailbox_snapshot",
+      type: "session/queue",
       metadata: {},
-      data: {
+      payload: {
         session_id: "ws_a",
-        revision: 4,
-        phase: "compacting",
-        pending: [],
-        capacity: 100,
-        accepting_messages: false,
-        can_cancel_active: false,
+        items: [{
+          id: "queued-1",
+          placement: "queued",
+          message: { content: [{ type: "text", text: "queued" }] },
+        }],
       },
     })).toMatchObject({
-      type: "mailbox_snapshot",
       session_id: "ws_a",
-      phase: "compacting",
+      items: [{ id: "queued-1", placement: "queued" }],
     });
-
     expect(getSessionStatusPayload({
-      frame_id: "flat-status",
-      type: "global_event:session_status",
+      type: "session/status",
       metadata: {},
-      data: { session_id: "ws_a", status: "running", revision: 6 },
+      payload: { session_id: "ws_a", status: "running" },
     })).toMatchObject({ session_id: "ws_a", status: "running" });
-
     expect(getSessionCommandPayload({
-      frame_id: "flat-command",
       type: "session_event:command_message",
       metadata: { session_id: "ws_a" },
-      data: { content: "命令执行失败", level: "error" },
+      payload: { content: "命令执行失败", level: "error" },
     })).toMatchObject({ content: "命令执行失败", level: "error" });
+    expect(getRpcErrorPayload({
+      request_id: "r1",
+      ok: false,
+      error: { code: "queue-full", message: "Inbox 已满", session_id: "ws_a" },
+    })).toMatchObject({ request_id: "r1", code: "queue-full", session_id: "ws_a" });
   });
 
-  it("rejects malformed mailbox payloads and cross-session routes", async () => {
+  it("rejects malformed queue payloads and cross-session routes", async () => {
     const { getSessionEventPayload, getSessionStatusPayload } = await loadClient();
 
     expect(getSessionEventPayload({
-      frame_id: "wrong-session",
-      type: "session_event:mailbox_snapshot",
+      type: "session/queue",
       metadata: { session_id: "ws_b" },
-      data: {
-        session_id: "ws_a",
-        revision: 1,
-        phase: "running",
-        pending: [],
-        capacity: 100,
-        accepting_messages: true,
-        can_cancel_active: true,
-      },
+      payload: { session_id: "ws_a", items: [] },
     })).toBeNull();
-
     expect(getSessionEventPayload({
-      frame_id: "bad-status",
-      type: "session_event:mailbox_snapshot",
-      metadata: { session_id: "ws_a" },
-      data: {
-        session_id: "ws_a",
-        revision: 1,
-        phase: "not-a-phase",
-        pending: [],
-        capacity: 100,
-        accepting_messages: true,
-        can_cancel_active: true,
-      },
-    })).toBeNull();
-
-    expect(getSessionEventPayload({
-      frame_id: "bad-activity",
-      type: "session_event:mailbox_snapshot",
+      type: "session/queue",
       metadata: {},
-      data: {
-        session_id: "ws_a",
-        revision: 1,
-        phase: "not-a-phase",
-        pending: [],
-        capacity: 100,
-        accepting_messages: true,
-        can_cancel_active: true,
-      },
+      payload: { session_id: "ws_a", items: [{ id: "bad", placement: "unknown", message: {} }] },
     })).toBeNull();
-
     expect(getSessionStatusPayload({
-      frame_id: "bad-status-topic",
-      type: "global_event:session_status",
+      type: "session/status",
       metadata: {},
-      data: { session_id: "ws_a", status: "unknown" },
+      payload: { session_id: "ws_a", status: "unknown" },
     })).toBeNull();
   });
 
-  it("sends cancellation through the high-priority control frame", async () => {
-    const { wsClient } = await loadClient();
-    wsClient.connect();
-    const ws = FakeWebSocket.instances[0];
-    ws.onopen?.();
-
-    wsClient.sendCancel("ws_a", "delivery-1");
-
-    const frame = JSON.parse(ws.sent[ws.sent.length - 1]);
-    expect(frame).toMatchObject({
-      type: "cancel",
-      data: {
-        session_id: "ws_a",
-        scope: "active",
-        expected_request_id: "delivery-1",
-      },
-    });
-  });
-
-  it("retries cancellation until the server returns control_ack", async () => {
+  it("sends cancellation through session.cancel and retries until its RPC ACK", async () => {
     const { wsClient } = await loadClient();
     wsClient.connect();
     const ws = FakeWebSocket.instances[0];
@@ -273,32 +164,30 @@ describe("websocket-client protocol handling", () => {
 
     wsClient.sendCancel("ws_a", "delivery-1");
     const frame = JSON.parse(ws.sent[0]);
+    expect(frame).toMatchObject({
+      type: "session.cancel",
+      payload: { session_id: "ws_a", expected_request_id: "delivery-1" },
+    });
     ws.onopen?.();
-    expect(ws.sent).toHaveLength(2);
-    expect(JSON.parse(ws.sent[1]).frame_id).toBe(frame.frame_id);
+    expect(JSON.parse(ws.sent[1]).request_id).toBe(frame.request_id);
 
     ws.onmessage?.({
       data: JSON.stringify({
-        frame_id: frame.frame_id,
-        type: "control_ack",
-        metadata: { session_id: "ws_a" },
-        data: {
-          request_id: frame.frame_id,
-          session_id: "ws_a",
-          status: "control",
-        },
+        request_id: frame.request_id,
+        ok: true,
+        value: { accepted: true, session_id: "ws_a" },
       }),
     });
     ws.onopen?.();
     expect(ws.sent).toHaveLength(2);
   });
 
-  it("stamps attach snapshots with the current client connection epoch", async () => {
+  it("stamps reply snapshots with the current client connection epoch", async () => {
     const { wsClient } = await loadClient();
     const epochs: number[] = [];
     wsClient.onMessage((message) => {
       if (message.type === "reply_snapshot") {
-        epochs.push((message.data as any).client_connection_epoch);
+        epochs.push((message.payload as any).client_connection_epoch);
       }
     });
     wsClient.connect();
@@ -306,9 +195,8 @@ describe("websocket-client protocol handling", () => {
     ws.onopen?.();
     ws.onmessage?.({
       data: JSON.stringify({
-        frame_id: "sync-a",
         type: "reply_snapshot",
-        data: { session_id: "ws_a", replies: [] },
+        payload: { session_id: "ws_a", replies: [] },
         metadata: {},
       }),
     });
@@ -319,9 +207,8 @@ describe("websocket-client protocol handling", () => {
     ws.onopen?.();
     ws.onmessage?.({
       data: JSON.stringify({
-        frame_id: "sync-a",
         type: "reply_snapshot",
-        data: { session_id: "ws_a", replies: [] },
+        payload: { session_id: "ws_a", replies: [] },
         metadata: {},
       }),
     });
@@ -348,8 +235,8 @@ describe("websocket-client protocol handling", () => {
     ws.onopen?.();
     const frames = ws.sent.map((payload) => JSON.parse(payload));
     expect(frames).toHaveLength(100);
-    expect(frames[0].frame_id).toBe("client-0");
-    expect(frames[99].frame_id).toBe("client-99");
+    expect(frames[0].request_id).toBe("client-0");
+    expect(frames[99].request_id).toBe("client-99");
     warn.mockRestore();
     error.mockRestore();
   });
@@ -377,11 +264,10 @@ describe("websocket-client protocol handling", () => {
     expect(ws.sent).toEqual([]);
 
     ws.onopen?.();
-    expect(ws.sent.map((payload) => JSON.parse(payload).frame_id)).toEqual([
+    expect(ws.sent.map((payload) => JSON.parse(payload).request_id)).toEqual([
       "client-first",
       "client-second",
     ]);
     error.mockRestore();
   });
-
 });

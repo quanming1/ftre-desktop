@@ -6,10 +6,10 @@
 
 import { wsClient } from "./websocket-client";
 import type {
-  MailboxSnapshotPayload,
+  QueueSnapshotPayload,
 } from "./websocket-client";
 import {
-  isMailboxSnapshotPayload,
+  isQueueSnapshotPayload,
 } from "./websocket-client";
 import { useChat } from "@/stores/chat";
 
@@ -502,11 +502,11 @@ export interface SessionMessagesPage {
   hasMore: boolean;
   /** session 当前消息总数（不分页时给的全量） */
   total: number;
-  status: "idle" | "running" | "compacting";
+  status: "idle" | "running" | "compacting" | "blocked";
   /** session 级元数据（含 plan 等） */
   metadata: Record<string, any>;
-  /** 后端 SessionLane 随历史消息一并返回的唯一权威 mailbox 快照。 */
-  mailbox: MailboxSnapshotPayload | null;
+  /** 后端 Inbox 随历史消息一并返回的唯一权威 queue 快照。 */
+  queue: QueueSnapshotPayload | null;
 }
 
 /**
@@ -534,32 +534,30 @@ export async function fetchSessionMessagesPage(
     const res = await fetch(url);
     if (!res.ok) return {
       messages: [], hasMore: false, total: 0, status: "idle", metadata: {},
-      mailbox: null,
+      queue: null,
     };
     const data = await res.json();
-    const mailbox = isMailboxSnapshotPayload(data.mailbox)
-      ? data.mailbox as MailboxSnapshotPayload
+    const queue = isQueueSnapshotPayload(data.queue)
+      ? data.queue as QueueSnapshotPayload
       : null;
-    const status = mailbox?.phase === "compacting"
-      ? "compacting"
-      : mailbox && mailbox.phase !== "idle"
-        ? "running"
-        : data.status === "running" || data.status === "compacting"
-          ? data.status
-          : "idle";
+    const status = data.status === "running"
+      || data.status === "compacting"
+      || data.status === "blocked"
+      ? data.status
+      : "idle";
     return {
       messages: data.messages || [],
       hasMore: !!data.has_more,
       total: typeof data.total === "number" ? data.total : 0,
       status,
       metadata: data.metadata || {},
-      mailbox,
+      queue,
     };
   } catch (e) {
     console.error("[API] fetchSessionMessagesPage error:", e);
     return {
       messages: [], hasMore: false, total: 0, status: "idle", metadata: {},
-      mailbox: null,
+      queue: null,
     };
   }
 }

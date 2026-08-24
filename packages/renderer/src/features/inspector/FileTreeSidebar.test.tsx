@@ -102,6 +102,25 @@ function fireFileChange(path: string) {
 }
 
 describe("FileTreeSidebar 树结构刷新", () => {
+  it("没有 Electron preload 时不因缺少 desktop.fs 崩溃", async () => {
+    const originalDesktop = window.desktop;
+    Object.defineProperty(window, "desktop", {
+      configurable: true,
+      value: undefined,
+    });
+
+    try {
+      expect(() => render(<FileTreeSidebar />)).not.toThrow();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    } finally {
+      Object.defineProperty(window, "desktop", {
+        configurable: true,
+        writable: true,
+        value: originalDesktop,
+      });
+    }
+  });
+
   it("挂载时对 session workspace 注册 watcher 且不 unwatch", async () => {
     render(<FileTreeSidebar />);
     await waitFor(() => expect(screen.getByText("a.ts")).toBeInTheDocument());

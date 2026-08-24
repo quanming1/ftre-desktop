@@ -73,9 +73,9 @@ master（仅发布，永不直接提交）← develop（默认基底，只接受
 
 <ws_protocol>
 与后端走 WebSocket（services/websocket-client.ts）+ HTTP（services/api.ts）双通道：
-- mailbox 快照：session_event:mailbox_snapshot → phase/activity/pending/queueDepth/canCancel
-- durable admission：user_message 等待 message_ack（outbox 断线保留 + 重连重发）
-- 取消：sendCancel(expected_request_id) 精确取消排队消息；HTTP DELETE /sessions/{id}/queue/{requestId}
+- 队列快照：session/queue → `{session_id, items}`；active 状态独立走 session/status
+- durable admission：session.prompt 使用 request_id，等待 RPC `{ok, value}` ACK（outbox 断线保留 + 重连重发）
+- 取消：session.cancel 携带 expected_request_id 精确取消 active Turn；HTTP DELETE /sessions/{id}/queue/{requestId}
 - WS Log 审计：ws-log-collector 采集 in/out/system 帧，Inspector WS Logs tab 查询
 </ws_protocol>
 

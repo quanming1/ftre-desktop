@@ -95,16 +95,28 @@ stages:
     name: 协议与可观测
     steps:
       - id: B1
-        title: WS 协议 + mailbox 适配
+        title: WS 协议与 Inbox 适配
         status: done
-        date: 2026-08-12
+        date: 2026-08-23
         prd: docs/prd/PRD-B1-ws-mailbox.md
         prd_status: 已验收
         modules:
           - websocket-client / chat store / session store
           - clientSessionProjection / durable admission / outbox
           - QueuedMessagesBanner
-        acceptance: mailbox 快照正确渲染，断线消息不丢失，队列横幅显示 pending，取消排队消息生效
+        acceptance: 适配 ftre F12 session.prompt/session.cancel、payload envelope、session/queue 和 session/status；
+          durable admission 使用 request_id，断线消息不丢失，队列横幅显示 pending，取消排队消息生效；
+          pnpm test、tsc 和真实 Gateway WebSocket smoke 通过
+        tasks:
+          - id: B1.1
+            title: 新版 session.prompt/session.cancel 上行协议
+            status: done
+          - id: B1.2
+            title: payload envelope、RPC ACK 与队列状态解析
+            status: done
+          - id: B1.3
+            title: outbox 重连、取消和消息流回归测试
+            status: done
 
       - id: B2
         title: WS Log 审计日志

@@ -4,7 +4,7 @@
  * 在每一阶段的取值。任何一步卡死即复现。
  */
 import { describe, expect, it, vi, beforeEach } from "vitest";
-import { useChat, applyMailboxSnapshot, type SessionProjectionState } from "./chat";
+import { useChat, applyQueueSnapshot, type SessionProjectionState } from "./chat";
 
 // 复刻 emptyBucket 的默认投影状态（不依赖内部实现细节）
 function freshProjection(): SessionProjectionState {
@@ -35,22 +35,14 @@ function freshProjection(): SessionProjectionState {
   } as unknown as SessionProjectionState;
 }
 
-function snapshot(phase: string, revision: number, pendingCount: number, accepting = true) {
+function snapshot(pendingCount: number) {
   return {
     session_id: "ws_sess_A",
-    revision,
-    phase,
-    pending: Array.from({ length: pendingCount }, (_, i) => ({
-      request_id: `req-${revision}-${i}`,
-      sequence: i + 1,
-      content: "排队消息",
-      attachments: [],
-      source: "user",
+    items: Array.from({ length: pendingCount }, (_, i) => ({
+      id: `req-${i}`,
+      placement: "queued",
+      message: { content: [{ type: "text", text: "排队消息" }], attachments: [] },
     })),
-    capacity: 100,
-    accepting_messages: accepting,
-    can_cancel_active: phase === "running",
-    blocked_reason: null,
   } as any;
 }
 
@@ -82,8 +74,10 @@ describe("发送按钮卡死复现（按 WS 日志事件序列）", () => {
   it("turn 运行中（仅 admit 快照，无 take 快照）打字后 canSend 必须为 true", () => {
     const b = freshProjection();
 
-    // 1) 用户发消息 → 后端 admit → 快照 rev=102 phase=idle pending=1 accepting=true
-    applyMailboxSnapshot(b, snapshot("idle", 102, 1));
+    // 1) Agent 正在运行，Inbox 只推送 pending 快照。
+    b.sessionStatus = "running";
+    b.sessionActivity = "executing";
+    applyQueueSnapshot(b, snapshot(1));
     expect(b.hasCoordinatorState).toBe(true);
     expect(b.clientCanSend).toBe(true);
     expect(b.isBusy).toBe(true); // queueDepth=1
@@ -93,8 +87,11 @@ describe("发送按钮卡死复现（按 WS 日志事件序列）", () => {
     // 3) 用户打字（hasDraft=true）→ 按钮必须可点（排队语义）
     expect(canSendOf(b, true)).toBe(true);
 
-    // 4) turn 完成 → 快照 rev=104 idle pending=0
-    applyMailboxSnapshot(b, snapshot("idle", 104, 0));
+    // 4) status 先回 idle，再收到空队列快照。
+    b.sessionStatus = "idle";
+    b.sessionActivity = "idle";
+    b.isBusy = false;
+    applyQueueSnapshot(b, snapshot(0));
     expect(b.isBusy).toBe(false);
     expect(b.sessionStatus).toBe("idle");
     expect(canSendOf(b, true)).toBe(true);
@@ -102,28 +99,35 @@ describe("发送按钮卡死复现（按 WS 日志事件序列）", () => {
 
   it("compacting 快照禁发，完成快照恢复——一轮压缩不能留下永久禁发", () => {
     const b = freshProjection();
-    applyMailboxSnapshot(b, snapshot("idle", 105, 1, true));
+    b.sessionStatus = "running";
+    b.sessionActivity = "executing";
+    applyQueueSnapshot(b, snapshot(1));
 
-    // 压缩开始（修复后的 after_turn 行为：turn 完成即压缩）
-    applyMailboxSnapshot(b, snapshot("compacting", 106, 1, false));
+    // 压缩状态由 session/status 维护，队列快照不覆盖它。
+    b.sessionStatus = "compacting";
+    b.clientCanSend = false;
+    applyQueueSnapshot(b, snapshot(1));
     expect(b.sessionStatus).toBe("compacting");
     expect(b.clientCanSend).toBe(false);
     expect(canSendOf(b, true)).toBe(false); // 压缩中禁发：预期
 
     // 压缩完成 → idle 恢复（此时 pending=1：压缩期间用户发的排队消息，
     // 状态应为 running 且可继续发送——正是"队列"语义）
-    applyMailboxSnapshot(b, snapshot("idle", 107, 1, true));
+    b.sessionStatus = "running";
+    b.clientCanSend = true;
+    applyQueueSnapshot(b, snapshot(1));
     expect(b.clientCanSend).toBe(true);
     expect(canSendOf(b, true)).toBe(true);
 
     // 排队消息全部执行完 → 真正 idle
-    applyMailboxSnapshot(b, snapshot("idle", 109, 0, true));
+    b.sessionStatus = "idle";
+    applyQueueSnapshot(b, snapshot(0));
     expect(b.sessionStatus).toBe("idle");
   });
 
   it("迟到 ACK 在 idle 后到达：只置 running，不能挡住后续发送", () => {
     const b = freshProjection();
-    applyMailboxSnapshot(b, snapshot("idle", 104, 0)); // turn 完成 idle
+    applyQueueSnapshot(b, snapshot(0)); // turn 完成 idle
 
     // 迟到的 admission ack 路径（复刻 1319-1346 的直接赋值）
     b.isBusy = true;
@@ -134,16 +138,18 @@ describe("发送按钮卡死复现（按 WS 日志事件序列）", () => {
     expect(canSendOf(b, true)).toBe(true);
 
     // 下一条快照（新 turn 完成）恢复正常
-    applyMailboxSnapshot(b, snapshot("idle", 108, 0));
+    b.sessionStatus = "idle";
+    applyQueueSnapshot(b, snapshot(0));
     expect(b.sessionStatus).toBe("idle");
   });
 
-  it("乱序/重复快照：同 revision 或更低的 idle 快照被丢弃且不破坏状态", () => {
+  it("队列快照只替换 pending，不覆盖独立的 session/status", () => {
     const b = freshProjection();
-    applyMailboxSnapshot(b, snapshot("idle", 104, 0));
-    // 网络重放的低 revision compacting 快照必须被守卫拦下
-    applyMailboxSnapshot(b, snapshot("compacting", 90, 0, false));
-    expect(b.sessionStatus).toBe("idle"); // 未被旧快照污染
+    b.sessionStatus = "running";
+    applyQueueSnapshot(b, snapshot(0));
+    applyQueueSnapshot(b, snapshot(1));
+    expect(b.sessionStatus).toBe("running");
+    expect(b.queueDepth).toBe(1);
     expect(canSendOf(b, true)).toBe(true);
   });
 });

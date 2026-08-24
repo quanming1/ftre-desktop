@@ -87,7 +87,7 @@ export function SessionStateRenderer({ active }: { active: boolean }) {
   useEffect(() => {
     if (!active || !inspectorVisible || !sessionId) return;
     return wsClient.onMessage((message: ServerMessage) => {
-      const eventType = (message.data as any)?.type;
+      const eventType = (message.payload as any)?.type;
       if (
         message.type !== "agent_event"
         || message.metadata?.session_id !== sessionId
