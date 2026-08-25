@@ -53,7 +53,9 @@ Assistant/Queue 当前协议缺失必需字段时直接丢弃，不猜测旧字�
 | 文件 | 改动 |
 |---|---|
 | `packages/renderer/src/services/websocket-client.ts` | 定义 Queue Response/Revision 类型；删除独立 Message ACK parser；控制 Promise 返回 QueueSnapshot |
-| `packages/renderer/src/stores/chat.ts` | 统一消费 Queue Response；按服务端 revision 应用快照；删除 ACK 专用状态转换 |
+| `packages/renderer/src/stores/chat.ts` | 只负责 Zustand 状态、session bucket、WS wiring 和用户操作 |
+| `packages/renderer/src/stores/chatProjection.ts` | 纯函数式消费 Queue/Reply/Event 事实；按 revision、message_id 和事件 id 做投影去重 |
+| `packages/renderer/src/stores/chatTypes.ts` | Store 与纯投影共享的数据契约；不依赖 Zustand 或 WebSocket 生命周期 |
 | `packages/renderer/src/stores/clientSessionProjection.ts` | 保存 queue revision，支持重连/乱序 |
 | `packages/renderer/src/features/chat/QueuedMessagesBanner.tsx` | 只根据服务端 pending placement 渲染，不保留已 claim 占位 |
 
@@ -127,3 +129,7 @@ Assistant/Queue 当前协议缺失必需字段时直接丢弃，不猜测旧字�
 | 2026-08-25 | 完成 B5：队列响应直接驱动请求结算、revision 投影和 Steering UI；全量测试/tsc/build 通过 | 删除客户端独立 admission ACK 与本地 Steering 猜测状态 |
 | 2026-08-25 | 收尾审计修正 renderer 测试入口：先构建 workspace shared/ui 再运行 Vitest | 清洁工作树不再依赖残留 dist 产物 |
 | 2026-08-25 | 修复 claim 后队列横幅残留：移除 `awaitingEcho` 中间态，Queue Snapshot 立即清理，USER_MESSAGE 独立进入 MessageList | 用户消息已在后端 DB-first 持久化，客户端不应继续显示已消费队列项 |
+| 2026-08-25 | 将 chat.ts 的纯投影 reducer 拆到 `chatProjection.ts`，chat.ts 仅保留 Store/WS/交互编排；原 AC1–AC7 全部重跑通过 | 降低单文件复杂度，避免协议 reducer 与 Zustand 生命周期互相耦合 |
+| 2026-08-25 | 修复“Agent 已完成但队列仍显示”：Queue Operation Response 的 `request_id` 独立于 revision 结算本地 optimistic 项，覆盖空快照和乱序响应 | Inbox 可能在响应生成前完成 claim；客户端不能因后台快照先到或响应 revision 较旧而保留已消费项 |
+| 2026-08-25 | 修复 queue snapshot 先到时跳过 `session/status: idle` 的状态门禁；完成消息立即进入可操作态并显示 token/复制信息 | Queue pending 与 Agent 活跃状态是两条独立事实流，不能用 `hasCoordinatorState` 阻断 idle 状态 |
+| 2026-08-25 | Queue UI 按确认的预览结构重构：队列项改为输入框上方单行、真实消息内容、调整方向/删除/更多操作；队列项与输入框统一使用 `composer` Surface token，保留输入框上边框并消除透明度叠加色差 | 原队列横幅包含独立背景层和折叠标题，导致队列项与输入面板出现色差、菜单层级和边框关系不清晰 |

@@ -126,6 +126,63 @@ describe("chat store", () => {
     expect(useChat.getState().pendingMessages[0]).not.toHaveProperty("optimistic", true);
   });
 
+  it("clears the local queue preview when an idle session claims before the response", () => {
+    useChat.setState({ sessionId: "s1-immediate-claim" });
+    const result = useChat.getState().sendMessage("立即领取的消息");
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(useChat.getState().pendingMessages).toHaveLength(1);
+
+    // 空快照不是“尚未处理”：顶层 request_id 表示本次 prompt 已结算，
+    // 只是 Inbox 在生成 response 前已经完成了 claim。
+    wsMessageHandler.current?.({
+      type: "session/queue",
+      request_id: result.requestId,
+      ok: true,
+      payload: {
+        session_id: "s1-immediate-claim",
+        revision: 1,
+        items: [],
+      },
+    });
+
+    expect(useChat.getState().pendingMessages).toEqual([]);
+    expect(useChat.getState().queueDepth).toBe(0);
+  });
+
+  it("applies idle status after a queue snapshot so completed actions appear immediately", () => {
+    useChat.setState({
+      sessionId: "s-completed-actions",
+      isBusy: true,
+      sessionStatus: "running",
+      sessionActivity: "executing",
+      pendingMessages: [],
+      queueDepth: 0,
+    });
+
+    // Inbox 快照先到会建立 coordinator 标记；这不应阻止后续 status/idle。
+    wsMessageHandler.current?.({
+      type: "session/queue",
+      payload: {
+        session_id: "s-completed-actions",
+        revision: 1,
+        items: [],
+      },
+    });
+    wsMessageHandler.current?.({
+      type: "session/status",
+      payload: { session_id: "s-completed-actions", status: "idle" },
+    });
+
+    expect(useChat.getState()).toMatchObject({
+      hasCoordinatorState: true,
+      sessionStatus: "idle",
+      sessionActivity: "idle",
+      isBusy: false,
+      canCancel: false,
+    });
+  });
+
   it("updates model, provider and agent", () => {
     const state = useChat.getState();
     state.setModel("gpt-4");
@@ -222,6 +279,50 @@ describe("chat store", () => {
       name: "read",
       arguments: { path: "README.md" },
     });
+  });
+
+  it("uses TOOL_CALL_END arguments as the final live tool-call snapshot", () => {
+    const projection = new ClientSessionProjection({
+      applyEvent,
+      applyReplySnapshot,
+    });
+    const event = (type: string, eventId: string, data: Record<string, unknown>) => {
+      applyEvent(projection, { type, eventId, data });
+    };
+
+    event("REPLY_START", "reply-start-final-args", {
+      reply_id: "reply-final-args",
+      message_id: "reply-final-args",
+    });
+    event("TOOL_CALL_START", "tool-start-final-args", {
+      reply_id: "reply-final-args",
+      message_id: "reply-final-args",
+      tool_call_id: "call-final-args",
+      tool_call_name: "bash",
+    });
+    // 模拟中间 delta 丢失或只收到不完整 JSON；END 必须能独立恢复。
+    event("TOOL_CALL_DELTA", "tool-delta-final-args", {
+      reply_id: "reply-final-args",
+      message_id: "reply-final-args",
+      tool_call_id: "call-final-args",
+      delta: '{"command":"old',
+    });
+    event("TOOL_CALL_END", "tool-end-final-args", {
+      reply_id: "reply-final-args",
+      message_id: "reply-final-args",
+      tool_call_id: "call-final-args",
+      arguments: '{"command":"pnpm test","timeout":30}',
+    });
+
+    const reply = projection.messages.find((message) => message.id === "reply-final-args");
+    const toolCall = reply?.blocks?.find(
+      (block): block is Extract<ContentBlock, { type: "toolCall" }> => block.type === "toolCall",
+    );
+    expect(toolCall).toMatchObject({
+      id: "call-final-args",
+      arguments: { command: "pnpm test", timeout: 30 },
+    });
+    expect(toolCall).not.toHaveProperty("argumentsText");
   });
 
   it("drops old assistant events without message_id", () => {
@@ -509,6 +610,97 @@ describe("chat store", () => {
 
     expect(projection.pendingMessages.map((item) => item.content)).toEqual(["A", "B"]);
     expect(projection.queueDepth).toBe(2);
+  });
+
+  it("removes an optimistic item when its operation response already claims it", () => {
+    const projection = {
+      messages: [],
+      seenEventIds: new Set<string>(),
+      earliestTs: null,
+      hasMoreHistory: true,
+      lastUserInputTs: null,
+      sessionRevision: 0,
+      hasCoordinatorState: false,
+      sessionActivity: "idle" as const,
+      queueDepth: 1,
+      queueCapacity: null,
+      pendingMessages: [{
+        request_id: "local:request-claimed-before-response",
+        sequence: 0,
+        content: "已被立即领取",
+        optimistic: true,
+      }],
+      clientCanSend: true,
+      canCancel: false,
+      blockedReason: null,
+      isBusy: true,
+      sessionStatus: "running" as const,
+      retryState: null,
+      commandName: null,
+      turnStartTs: null,
+      error: null,
+      plan: null,
+    };
+
+    // Inbox 在 session.prompt 响应前已经完成 claim，所以权威快照为空。
+    // 顶层 request_id 证明这是该发送操作的结算响应，不能继续显示本地项。
+    applyQueueSnapshot(
+      projection,
+      { session_id: "s1", revision: 1, items: [] },
+      "request-claimed-before-response",
+    );
+
+    expect(projection.pendingMessages).toEqual([]);
+    expect(projection.queueDepth).toBe(0);
+  });
+
+  it("settles an older operation response after a newer background snapshot", () => {
+    const projection = {
+      messages: [],
+      seenEventIds: new Set<string>(),
+      earliestTs: null,
+      hasMoreHistory: true,
+      lastUserInputTs: null,
+      sessionRevision: 5,
+      hasCoordinatorState: true,
+      sessionActivity: "executing" as const,
+      queueDepth: 1,
+      queueCapacity: null,
+      pendingMessages: [{
+        request_id: "local:request-out-of-order",
+        sequence: 0,
+        content: "乱序消息",
+        optimistic: true,
+      }],
+      clientCanSend: true,
+      canCancel: true,
+      blockedReason: null,
+      isBusy: true,
+      sessionStatus: "running" as const,
+      retryState: null,
+      commandName: null,
+      turnStartTs: null,
+      error: null,
+      plan: null,
+    };
+
+    // 更高 revision 的后台广播先到，旧响应随后到达时仍需结算本地预览。
+    applyQueueSnapshot(projection, {
+      session_id: "s1",
+      revision: 6,
+      items: [],
+    });
+    expect(projection.pendingMessages).toHaveLength(1);
+
+    applyQueueSnapshot(
+      projection,
+      { session_id: "s1", revision: 5, items: [] },
+      "request-out-of-order",
+    );
+
+    expect(projection.pendingMessages).toEqual([]);
+    expect(projection.queueDepth).toBe(0);
+    expect(projection.sessionRevision).toBe(6);
   });
 
   it("removes a pending item when USER_MESSAGE proves it was claimed", () => {

@@ -194,3 +194,4 @@ id=reply-R
 | 2026-08-25 | Steering 控制响应后立即更新本地 placement，并保留该意图防止旧队列快照回退 | 修复点击 Steering 后必须刷新 Session 才显示的问题；该本地意图随后由 B5 删除 |
 | 2026-08-25 | 修正 `awaitingEcho` 生命周期：持久化响应不等同于 claim，只有 queue item 消失且 USER_MESSAGE 尚未到达时才显示“正在消费” | 避免运行中发送普通消息被错误显示为“正在消费” |
 | 2026-08-25 | 标注 B5 对队列成功响应的后续覆盖；B4 `message_id` 投影仍为当前契约 | 防止历史 ACK 描述被新客户端实现重新引入 | B5 FR1、FR2 |
+| 2026-08-25 | Tool Call 卡片在 `TOOL_CALL_END` 到达时使用完整 `arguments` 覆盖增量缓冲，并新增 delta 丢失回归 | 结束事件是服务端工具入参最终事实，客户端不应只依赖可能不完整的实时 delta |

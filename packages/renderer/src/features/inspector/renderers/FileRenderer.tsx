@@ -117,11 +117,11 @@ export function FileRenderer({ tab, active, wordWrap }: TabRendererProps) {
   // indexDiff 不存在或抛错时静默降级为无按钮，不产生 unhandled rejection。
   useEffect(() => {
     if (!active) return;
-    if (typeof window.desktop.git?.indexDiff !== "function") return;
+    if (typeof window.desktop?.git?.indexDiff !== "function") return;
     let cancelled = false;
     (async () => {
       try {
-        const result = await window.desktop.git.indexDiff(filePath);
+       const result = await window.desktop?.git?.indexDiff(filePath);
         if (!cancelled) {
           setDiffAvailable(!result.error && result.available === true);
         }
@@ -135,9 +135,9 @@ export function FileRenderer({ tab, active, wordWrap }: TabRendererProps) {
   // 点击时重新查询一次拿新鲜暂存区内容（与按钮显示的查询解耦），
   // 然后新开 DiffTab：before = 暂存区版本，after = 当前预览内容。
   const openIndexDiff = useCallback(async () => {
-    if (typeof window.desktop.git?.indexDiff !== "function") return;
+    if (typeof window.desktop?.git?.indexDiff !== "function") return;
     try {
-      const result = await window.desktop.git.indexDiff(filePath);
+      const result = await window.desktop?.git?.indexDiff(filePath);
       if (result.error || !result.available) return;
       const name = displayPath.split("/").pop() ?? displayPath;
       useInspector.getState().openDiffPreview(

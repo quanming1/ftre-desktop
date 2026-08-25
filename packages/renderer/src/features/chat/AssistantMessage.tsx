@@ -375,6 +375,7 @@ function NonTextProcessGroup({
   // 流式中也显示摘要：工具名在 toolCall 产生时就已知，thinking 增长不影响去重后的摘要，
   // 让用户在不展开组的情况下也能跟进过程内容。"处理中"状态由外层按钮表达，这里不再重复。
   const label = summarizeNonTextBlocks(blocks, toolResults, streaming);
+  const labelView = renderProcessLabel(label);
 
   return (
     <div className="w-full min-w-0 max-w-full py-0.5">
@@ -390,7 +391,7 @@ function NonTextProcessGroup({
           className={`min-w-0 flex-1 truncate ${breathing ? "animate-process-breath" : ""}`}
           style={{ whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}
         >
-          {label}
+          {labelView}
         </span>
         <ChevronRight
           size={12}
@@ -415,6 +416,22 @@ function NonTextProcessGroup({
         </div>
       </div>
     </div>
+  );
+}
+
+/** 给文件变更统计加颜色：新增行绿色，删除行红色，其余标题保持原色。 */
+function renderProcessLabel(label: string): React.ReactNode {
+  // 文件统计是整组动作的总计，固定放在标题最末尾，避免被后续动作夹在中间。
+  const match = label.match(/^(.*?)(?:（\+(\d+) -(\d+)）)$/);
+  if (!match) return label;
+  return (
+    <>
+      {match[1]}
+      <span className="relative -top-px ml-1 inline-flex items-center gap-1 font-mono text-[12px]">
+        <span className="text-green-600 dark:text-green-400">+{match[2]}</span>
+        <span className="text-red-500 dark:text-red-400">-{match[3]}</span>
+      </span>
+    </>
   );
 }
 

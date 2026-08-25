@@ -87,6 +87,52 @@ function joinProcessActions(actions: string[]): string {
   return `${actions.slice(0, -1).join("、")}并${actions[actions.length - 1]}`;
 }
 
+type FileChangeSummary = {
+  label: string;
+  additions: number;
+  deletions: number;
+  hasStats: boolean;
+};
+
+/** 汇总折叠组内已完成 edit/write 的文件和增删行数。 */
+function summarizeFileChanges(
+  blocks: ContentBlock[],
+  toolResults: Record<string, ToolResult> | undefined,
+): FileChangeSummary | null {
+  const files = new Set<string>();
+  let additions = 0;
+  let deletions = 0;
+  let hasStats = false;
+
+  for (const block of blocks) {
+    if (block.type !== "toolCall") continue;
+    const name = block.name.trim().toLowerCase();
+    if (!["edit", "edit_file", "write", "write_file"].includes(name)) continue;
+    const result = toolResults?.[block.id];
+    if (result?.status !== "completed") continue;
+    const metadata = result.metadata;
+    if (!metadata?.file) continue;
+
+    files.add(metadata.file.replace(/\\/g, "/").toLowerCase());
+    if (typeof metadata.additions === "number") {
+      additions += metadata.additions;
+      hasStats = true;
+    }
+    if (typeof metadata.deletions === "number") {
+      deletions += metadata.deletions;
+      hasStats = true;
+    }
+  }
+
+  if (files.size === 0) return null;
+  return {
+    label: `编辑了 ${files.size} 个文件`,
+    additions,
+    deletions,
+    hasStats,
+  };
+}
+
 function basename(path: string): string {
   const parts = path.replace(/\\/g, "/").split("/").filter(Boolean);
   return parts[parts.length - 1] ?? path;
@@ -164,8 +210,22 @@ export function summarizeNonTextBlocks(
       } else if (toolName.startsWith("mcp__figma__")) {
         addAction("操作了设计稿");
       } else {
-        addAction(processActionForTool(block.name));
+        const isFileChange = [
+          "edit", "edit_file", "write", "write_file",
+        ].includes(toolName);
+        // 先加入占位动作；循环结束后用整组文件统计替换，保持多个动作
+        // 的中文连接顺序（例如“进行了思考并编辑了 2 个文件 +6 -4”）。
+        addAction(isFileChange ? "编辑了文件" : processActionForTool(block.name));
       }
+    }
+  }
+
+  const fileSummary = summarizeFileChanges(blocks ?? [], toolResults);
+  if (fileSummary) {
+    const index = actions.indexOf("编辑了文件");
+    if (index >= 0) actions[index] = fileSummary.label;
+    if (fileSummary.hasStats) {
+      return `${joinProcessActions(actions)}（+${fileSummary.additions} -${fileSummary.deletions}）`;
     }
   }
 

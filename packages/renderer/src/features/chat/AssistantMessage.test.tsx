@@ -280,6 +280,28 @@ describe("AssistantMessage collapsed display", () => {
       { type: "toolCall", id: "edit-1", name: "edit", arguments: {} },
       { type: "toolCall", id: "edit-2", name: "edit", arguments: {} },
     ])).toBe("进行了思考并编辑了文件");
+    expect(summarizeNonTextBlocks([
+      { type: "toolCall", id: "edit-1", name: "edit", arguments: {} },
+      { type: "toolCall", id: "write-1", name: "write", arguments: {} },
+      { type: "toolCall", id: "read-1", name: "read", arguments: {} },
+    ], {
+      "edit-1": {
+        id: "edit-1",
+        name: "edit",
+        result: null,
+        error: null,
+        status: "completed",
+        metadata: { file: "src/a.ts", additions: 4, deletions: 1 },
+      },
+      "write-1": {
+        id: "write-1",
+        name: "write",
+        result: null,
+        error: null,
+        status: "completed",
+        metadata: { file: "src/b.ts", additions: 2, deletions: 3 },
+      },
+    })).toBe("编辑了 2 个文件并读取了文件（+6 -4）");
     // 空 thinking 不产生动作
     expect(summarizeNonTextBlocks([
       { type: "thinking", thinking: "  ", blockId: "thinking-1" },
@@ -322,6 +344,36 @@ describe("AssistantMessage collapsed display", () => {
         status: "running",
       },
     }, true)).toBe("Ran pnpm --filter @ftre/renderer exec vitest run");
+  });
+
+  it("折叠标题用绿色/红色显示文件增删统计", () => {
+    render(<AssistantMessage message={{
+      id: "reply-file-stats",
+      role: "assistant",
+      content: null,
+      timestamp: 1,
+      streaming: false,
+      blocks: [
+        { type: "toolCall", id: "edit-stats", name: "edit", arguments: {} },
+        { type: "toolCall", id: "read-stats", name: "read", arguments: {} },
+      ],
+      toolResults: {
+        "edit-stats": {
+          id: "edit-stats",
+          name: "edit",
+          result: null,
+          error: null,
+          status: "completed",
+          metadata: { file: "src/app.ts", additions: 8, deletions: 3 },
+        },
+      },
+    }} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "已处理" }));
+    const title = screen.getByTitle("编辑了 1 个文件并读取了文件（+8 -3）");
+    expect(title.querySelector(".relative.-top-px")).toBeInTheDocument();
+    expect(title.querySelector(".text-green-600")).toHaveTextContent("+8");
+    expect(title.querySelector(".text-red-500")).toHaveTextContent("-3");
   });
 
   it("长命令折叠标题保持单行并以省略号截断", () => {
