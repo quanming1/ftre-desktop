@@ -826,13 +826,12 @@ export function ChatInput({ onComposerOverlayHeightChange }: ChatInputProps = {}
       <div className="mx-auto w-full max-w-[800px]">
         <div className="relative">
           <div ref={composerOverlayRef} data-chat-composer-stack="" className="absolute bottom-full left-0 right-0 z-10 flex flex-col">
-          <TurnFileChangesSummary changes={turnFileChanges} onReview={handleReviewTurnChanges} />
-
-          {pendingMessages.length > 0 && (
-            <div className="mx-4 overflow-hidden rounded-t-xl rounded-b-none border border-b-0 border-black/10 bg-[#f6f7f9]/65 shadow-[0_4px_14px_rgba(15,23,42,0.05),inset_0_1px_0_rgba(255,255,255,0.6)] backdrop-blur-md backdrop-saturate-150">
-              <QueuedMessagesBanner items={pendingMessages} />
-            </div>
-          )}
+            <TurnFileChangesSummary changes={turnFileChanges} onReview={handleReviewTurnChanges} />
+            {pendingMessages.length > 0 && (
+              <div className="relative z-20 mx-4 overflow-visible bg-transparent">
+                <QueuedMessagesBanner items={pendingMessages} />
+              </div>
+            )}
           </div>
 
           <div
@@ -840,7 +839,7 @@ export function ChatInput({ onComposerOverlayHeightChange }: ChatInputProps = {}
             onDragOver={handleDragOver}
             onDragLeave={handleDragLeave}
             onDrop={handleDrop}
-            className={`relative bg-[#f6f7f9]/65 border border-black/10 focus-within:border-neon/30 transition-colors rounded-3xl backdrop-blur-md backdrop-saturate-150 shadow-[inset_0_1px_0_rgba(255,255,255,0.6)] ${
+            className={`relative rounded-3xl border border-black/10 bg-composer transition-shadow focus-within:shadow-[0_2px_12px_rgba(15,23,42,0.08),inset_0_1px_0_rgba(255,255,255,0.6)] ${
               isDragging ? "border-neon/50 ring-1 ring-neon/30" : ""
             }`}
           >

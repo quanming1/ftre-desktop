@@ -78,6 +78,19 @@ describe("ChatInput 发送按钮", () => {
     });
   });
 
+  it("输入框使用淡黑色边框并保留阴影", () => {
+    render(<ChatInput />);
+
+    const surface = screen.getByTestId("chat-input-surface");
+    expect(surface).toHaveClass("border", "border-black/10");
+    expect(surface).toHaveClass(
+      "focus-within:shadow-[0_2px_12px_rgba(15,23,42,0.08),inset_0_1px_0_rgba(255,255,255,0.6)]",
+    );
+    expect(surface).not.toHaveClass(
+      "shadow-[0_2px_12px_rgba(15,23,42,0.08),inset_0_1px_0_rgba(255,255,255,0.6)]",
+    );
+  });
+
   it("输入普通文本后发送按钮从禁用变为可点击", () => {
     render(<ChatInput />);
 
@@ -272,7 +285,8 @@ describe("ChatInput 发送按钮", () => {
 
     const queue = screen.getByRole("region", { name: "消息队列" });
     const queueSurface = queue.parentElement;
-    const composer = screen.getByTestId("chat-input-surface").parentElement;
+    const inputSurface = screen.getByTestId("chat-input-surface");
+    const composer = inputSurface.parentElement;
     const overlay = composer?.firstElementChild;
     expect(overlay).toHaveAttribute("data-chat-composer-stack", "");
     expect(overlay).toHaveClass("absolute", "bottom-full");
@@ -311,7 +325,8 @@ describe("ChatInput 发送按钮", () => {
 
     render(<ChatInput />);
 
-    const composer = screen.getByTestId("chat-input-surface").parentElement;
+    const inputSurface = screen.getByTestId("chat-input-surface");
+    const composer = inputSurface.parentElement;
     const overlay = composer?.firstElementChild;
     expect(overlay?.querySelector("[data-testid='turn-file-changes-summary']"))
       .toBe(screen.getByTestId("turn-file-changes-summary"));

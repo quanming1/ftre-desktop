@@ -174,3 +174,9 @@ fs.listDirectory(dirPath: string): Promise<ListDirectoryResult>;
 - [x] AC12：点击外部、再次点击路径段和 Escape 均可关闭浮层；键盘 Enter/Space 可展开目录或打开文件，正文滚动和现有工具栏按钮不受影响。
 - [x] AC13：IPC 单元测试覆盖路径规范化、目录/文件排序、`.git`/隐藏目录过滤、符号链接不递归、错误码转换和返回结构；Renderer 测试覆盖 breadcrumb、懒加载、自动展开、文件打开去重、请求竞态和关闭行为。
 - [x] AC14：`pnpm test`、renderer/Electron `tsc --noEmit` 和 `pnpm build` 通过，且现有 A3/A4 文件树与 FileRenderer 回归测试不受影响。
+
+## 变更记录
+
+| 日期 | 变更内容 | 理由 |
+|---|---|---|
+| 2026-08-25 | FileRenderer 的 Git 能力访问统一使用 `window.desktop?.git?.`，并增加 preload bridge 缺失回归测试 | 开发环境 HMR/Preload 短暂不同步时，`window.desktop` 可能为空，不能因读取 `git` 让 Inspector 崩溃 |

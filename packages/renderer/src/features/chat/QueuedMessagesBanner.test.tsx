@@ -37,7 +37,6 @@ describe("QueuedMessagesBanner", () => {
   it("directly renders pending items from the Inbox queue snapshot", () => {
     render(<QueuedMessagesBanner items={[item("one", "first"), item("two", "second")]} />);
     expect(screen.getByRole("region", { name: "消息队列" })).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: /消息队列/ }));
     expect(screen.getAllByRole("listitem")).toHaveLength(2);
     expect(screen.getByText("first")).toBeInTheDocument();
   });
@@ -45,7 +44,6 @@ describe("QueuedMessagesBanner", () => {
   it("cancels by pending request id and waits for the next snapshot to remove it", async () => {
     cancelQueuedMessage.mockResolvedValueOnce({ status: "cancelled" });
     render(<QueuedMessagesBanner items={[item("request-one", "remove me")]} />);
-    fireEvent.click(screen.getByRole("button", { name: /消息队列/ }));
     fireEvent.click(screen.getByRole("button", { name: "从队列移除：remove me" }));
     await waitFor(() => {
       expect(cancelQueuedMessage).toHaveBeenCalledWith("ws_sess_queue", "request-one");
@@ -63,7 +61,6 @@ describe("QueuedMessagesBanner", () => {
       ...item("request-steer", "插入下一轮"),
       placement: "queued",
     }]} />);
-    fireEvent.click(screen.getByRole("button", { name: /消息队列/ }));
     fireEvent.click(screen.getByRole("button", { name: "插入当前运行：插入下一轮" }));
     await waitFor(() => {
       expect(promoteQueueItemToSteer).toHaveBeenCalledWith("ws_sess_queue", "request-steer");
@@ -78,7 +75,6 @@ describe("QueuedMessagesBanner", () => {
       ...item("request-failed", "稍后重试"),
       placement: "queued",
     }]} />);
-    fireEvent.click(screen.getByRole("button", { name: /消息队列/ }));
     fireEvent.click(screen.getByRole("button", { name: "插入当前运行：稍后重试" }));
     await waitFor(() => {
       expect(addNotification).toHaveBeenCalledWith({ level: "error", message: "网络断开" });

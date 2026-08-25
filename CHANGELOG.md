@@ -8,6 +8,16 @@
   ACK 保持不变。
 - 修复 claim 后队列横幅残留：移除 `awaitingEcho` 中间态，Queue Snapshot 清空后立即移除已消费项，
   UserMessage 回显独立进入 MessageList。
+- 修复 Inbox 在 Queue Operation Response 返回前完成 claim 时的队列残留：客户端按响应
+  `request_id` 结算本地 optimistic 项，不受后台快照先到或旧 revision 影响。
+- 重构 Chat Store：纯 Queue/Reply/Event 投影迁移到 `chatProjection.ts`，`chat.ts` 从 2112 行降至 997 行，
+  Zustand 生命周期与协议 reducer 解耦。
+- Tool Call 实时投影以 `TOOL_CALL_END.arguments` 作为最终入参快照；即使中间 delta 丢失，工具卡片
+  也能在当前运行中恢复完整参数。
+- 修复完成消息操作栏延迟显示：`session/queue` 不再阻止后续 `session/status: idle`，回复结束后
+  立即显示复制按钮、token 用量和模型信息，无需刷新会话。
+- Queue UI 按预览重构：队列项改为输入框上方的单行消息条，使用与输入框一致的 composer Surface，保留
+  调整方向、删除、编辑和更多菜单，不再显示重复的队列标题或消息预览。
 
 ## [0.1.10] - 2026-08-24
 
@@ -39,6 +49,7 @@
 
 ### 修复
 
+- A3：FileRenderer 在 preload bridge 暂不可用时安全隐藏 Git Diff 能力，不再访问 `undefined.git` 导致 Inspector 崩溃。
 - A2：重复的 TOOL_CALL_START 事件按 tool_call_id 幂等处理，消除聊天工具卡片 duplicate key 警告；Reply 快照转换同样按 id 去重。
 - A1：renderer 声明 Content-Security-Policy（index.html meta + 开发模式响应头注入），消除 Electron 开发模式 Insecure Content-Security-Policy 警告。
 - B4：Steering 控制 Queue Response 成功后立即将队列项显示为“等待下一次推理”，不再必须刷新 Session；

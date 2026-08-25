@@ -129,6 +129,29 @@ describe("FileRenderer 渲染预览", () => {
     expect(screen.queryByTitle("查看与暂存区的差异")).not.toBeInTheDocument();
   });
 
+  it("preload bridge 暂不可用时安全降级，不访问 undefined.git", () => {
+    const previous = window.desktop;
+    Object.defineProperty(window, "desktop", {
+      configurable: true,
+      value: undefined,
+    });
+    try {
+      expect(() => render(
+        <FileRenderer
+          tab={makeTab({ filePath: "E:/docs/a.ts", title: "a.ts", content: "const a = 1;" })}
+          active
+          wordWrap={false}
+        />,
+      )).not.toThrow();
+    } finally {
+      Object.defineProperty(window, "desktop", {
+        configurable: true,
+        value: previous,
+        writable: true,
+      });
+    }
+  });
+
   it("点击暂存区 Diff 按钮新开 DiffTab（before=暂存区，after=当前内容）", async () => {
     mockIndexDiff.mockResolvedValue({ available: true, staged: "const a = 1;" });
     const openDiffSpy = vi.spyOn(useInspector.getState(), "openDiffPreview");
