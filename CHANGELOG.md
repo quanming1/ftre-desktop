@@ -6,6 +6,8 @@
   和队列投影；删除独立 Message ACK parser 与本地 Steering 猜测状态。
 - 旧协议不做兼容；缺少 revision 或 Assistant `message_id` 的旧帧按当前协议丢弃，取消控制
   ACK 保持不变。
+- 修复 claim 后队列横幅残留：移除 `awaitingEcho` 中间态，Queue Snapshot 清空后立即移除已消费项，
+  UserMessage 回显独立进入 MessageList。
 
 ## [0.1.10] - 2026-08-24
 
@@ -28,8 +30,7 @@
 ### 新增
 
 - B4：Assistant 流事件和 attach 快照按服务端 `message_id` 投影，Steering 同一 `reply_id`
-  下自然显示 `Assistant A → UserMessage → Assistant B`；删除客户端 `reply_segment` 推断，
-  queue claim 与 USER_MESSAGE 乱序时保留无空窗交接。
+  下自然显示 `Assistant A → UserMessage → Assistant B`；删除客户端 `reply_segment` 推断。
 - B3：队列横幅新增“插入当前运行”Steering 按钮；同一 request_id 从 queued 升级为 steering，
   后端 USER_MESSAGE 持久化回显后立即进入 MessageList，队列按权威快照完成清理。
 - A3：文件、图片和 Diff 预览的路径段支持逐级打开目录文件列表；目录按需懒加载，点击文件可复用或打开对应 Inspector Tab；新增规范化 `fs:listDirectory` IPC 与错误码。
@@ -41,8 +42,8 @@
 - A2：重复的 TOOL_CALL_START 事件按 tool_call_id 幂等处理，消除聊天工具卡片 duplicate key 警告；Reply 快照转换同样按 id 去重。
 - A1：renderer 声明 Content-Security-Policy（index.html meta + 开发模式响应头注入），消除 Electron 开发模式 Insecure Content-Security-Policy 警告。
 - B4：Steering 控制 Queue Response 成功后立即将队列项显示为“等待下一次推理”，不再必须刷新 Session；
-  Queue Response 不再误标普通 pending 消息为“正在消费”，只有 claim 后等待 USER_MESSAGE 回显
-  才显示该状态；旧数据不再走兼容分支，按当前 message_id 协议处理。
+  Queue Response 不再误标普通 pending 消息为“正在消费”，claim 后队列项立即清理，旧数据不再
+  走兼容分支，按当前 message_id 协议处理。
 
 ## [0.1.9] - 2026-08-20
 

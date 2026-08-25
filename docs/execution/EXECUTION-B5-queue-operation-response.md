@@ -16,7 +16,8 @@
 - `packages/renderer/src/stores/chat.ts`
   - `applyQueueSnapshot` 按服务端 revision 丢弃旧/重复快照，不再按客户端收帧顺序递增。
   - 删除 ACK 后本地 Steering placement 猜测；queued/steering 完全由服务端 payload 驱动。
-  - 保留 claim 与 USER_MESSAGE 乱序时的 `awaitingEcho` 视觉屏障。
+  - 移除 claim 与 USER_MESSAGE 之间的 `awaitingEcho` 视觉屏障；claim 快照到达即清理队列，
+    UserMessage 回显只负责进入 MessageList。
 - `packages/renderer/src/stores/clientSessionProjection.ts`
   - 删除 `steeringRequests` 本地意图，只保留 session revision 投影。
 - `packages/renderer/src/features/chat/QueuedMessagesBanner.tsx`
@@ -48,3 +49,4 @@ workspace `dist` 的清洁工作树中，根 `pnpm test` 仍可直接运行。
 | 日期 | 结果 |
 |---|---|
 | 2026-08-25 | 完成 B5 客户端统一消费 Queue Operation Response；全量 renderer test、TypeScript 和 Vite build 通过 |
+| 2026-08-25 | 修复 claim 后队列项残留：删除 `awaitingEcho` 客户端中间态并新增乱序/重复回显回归 |
