@@ -124,7 +124,6 @@ describe("chat store", () => {
       placement: "queued",
     });
     expect(useChat.getState().pendingMessages[0]).not.toHaveProperty("optimistic", true);
-    expect(useChat.getState().pendingMessages[0]).not.toHaveProperty("awaitingEcho", true);
   });
 
   it("updates model, provider and agent", () => {
@@ -512,7 +511,7 @@ describe("chat store", () => {
     expect(projection.queueDepth).toBe(2);
   });
 
-  it("keeps a pending item until the claim snapshot, even after USER_MESSAGE", () => {
+  it("removes a pending item when USER_MESSAGE proves it was claimed", () => {
     const requestId = "request-handoff";
     const projection = {
       messages: [],
@@ -555,10 +554,9 @@ describe("chat store", () => {
       },
     });
 
-    // UserMessage 回显只证明已落库，不代表 Inbox 已 claim；队列项先保持可见。
-    expect(projection.pendingMessages).toEqual([expect.objectContaining({
-      request_id: requestId,
-    })]);
+    // USER_MESSAGE 只会在 Inbox 完成 DB-first claim 前持久化，因此它到达时
+    // 队列项已经消费，不能继续留在待执行横幅。
+    expect(projection.pendingMessages).toEqual([]);
     expect(projection.messages).toEqual([expect.objectContaining({
       id: "message-handoff",
       role: "user",
@@ -626,7 +624,7 @@ describe("chat store", () => {
     });
   });
 
-  it("keeps an admitted item visible when claim snapshot beats USER_MESSAGE echo", () => {
+  it("removes a claimed item immediately when queue snapshot beats USER_MESSAGE echo", () => {
     const requestId = "request-claimed";
     const projection = {
       messages: [],
@@ -644,7 +642,6 @@ describe("chat store", () => {
         sequence: 1,
         content: "hello",
         optimistic: false,
-        awaitingEcho: true,
       }],
       clientCanSend: true,
       canCancel: true,
@@ -659,13 +656,12 @@ describe("chat store", () => {
     };
 
     // 先收到 Queue Response 对应的服务端 pending 快照：本地 optimistic 项目被接纳，
-    // 仍在 Inbox 中等待消费，不能误显示为“正在消费”。
+    // 仍在 Inbox 中等待消费，保持服务端 placement。
     projection.pendingMessages = [{
       request_id: requestId,
       sequence: 0,
       content: "hello",
       optimistic: true,
-      awaitingEcho: false,
     }];
     applyQueueSnapshot(projection, {
       session_id: "s1",
@@ -676,15 +672,12 @@ describe("chat store", () => {
         message: { content: [{ type: "text", text: "hello" }] },
       }],
     });
-    expect(projection.pendingMessages[0]).not.toHaveProperty("awaitingEcho", true);
 
-    // worker 已经 claim，权威 pending 为空，但 USER_MESSAGE 还没到。
+    // worker 已经 claim，权威 pending 为空；即使 USER_MESSAGE 尚未到达，
+    // 已消费项也不能继续显示在消息队列中。
     applyQueueSnapshot(projection, { session_id: "s1", revision: 6, items: [] });
-    expect(projection.pendingMessages).toEqual([expect.objectContaining({
-      request_id: requestId,
-      content: "hello",
-      awaitingEcho: true,
-    })]);
+    expect(projection.pendingMessages).toEqual([]);
+    expect(projection.queueDepth).toBe(0);
 
     applyEvent(projection, {
       type: UserMessageEventType,
@@ -697,6 +690,48 @@ describe("chat store", () => {
       id: "message-claimed",
       content: "hello",
     })]);
+  });
+
+  it("does not restore a claimed item when the user echo is duplicated", () => {
+    const projection = {
+      messages: [{
+        id: "message-claimed",
+        role: "user" as const,
+        content: "hello",
+        timestamp: 1,
+        metadata: { request_id: "request-claimed" },
+      }],
+      seenEventIds: new Set<string>(),
+      earliestTs: null,
+      hasMoreHistory: true,
+      lastUserInputTs: null,
+      sessionRevision: 1,
+      hasCoordinatorState: true,
+      sessionActivity: "executing" as const,
+      queueDepth: 0,
+      queueCapacity: 100,
+      pendingMessages: [],
+      clientCanSend: true,
+      canCancel: true,
+      blockedReason: null,
+      isBusy: true,
+      sessionStatus: "running" as const,
+      retryState: null,
+      commandName: null,
+      turnStartTs: null,
+      error: null,
+      plan: null,
+    };
+
+    applyEvent(projection, {
+      type: UserMessageEventType,
+      eventId: "event-duplicate",
+      metadata: { request_id: "request-claimed" },
+      data: { id: "message-claimed", data: { content: "hello" } },
+    });
+    expect(projection.pendingMessages).toEqual([]);
+    expect(projection.queueDepth).toBe(0);
+    expect(projection.messages).toHaveLength(1);
   });
 
   it("does not send empty content", async () => {

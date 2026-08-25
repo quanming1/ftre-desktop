@@ -67,8 +67,6 @@ export interface QueueItemView {
   source?: string;
   /** 仅在客户端尚未收到服务端 queue response 时为 true；快照会替换它。 */
   optimistic?: boolean;
-  /** 已被服务端接纳但尚未收到 USER_MESSAGE 持久化回显，保持队列视觉连续。 */
-  awaitingEcho?: boolean;
 }
 
 /** ftre-inbox 的权威 session/queue payload。 */

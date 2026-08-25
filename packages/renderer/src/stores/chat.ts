@@ -230,9 +230,6 @@ export function applyQueueSnapshot(
   // 操作响应和后台广播可能乱序，旧 revision 必须完全丢弃。
   const revision = payload.revision;
   if (revision <= (b.sessionRevision ?? -1)) return;
-  const previousByRequestId = new Map(
-    (b.pendingMessages ?? []).map((item) => [canonicalRequestId(item.request_id), item]),
-  );
   const pending = payload.items.map((item, index): QueueItemView => ({
     request_id: item.id,
     sequence: index + 1,
@@ -241,8 +238,8 @@ export function applyQueueSnapshot(
     attachments: item.message.attachments,
     source: item.placement === "context" ? "plugin" : "user",
     // 只要 item 仍在服务端 pending，就显示真实 placement；queue response 只表示已落盘，
-    // 不能把尚未 claim 的消息误标成“正在消费”。真正离开 pending 后，下面的
-    // awaitingEcho 分支才会创建等待 USER_MESSAGE 回显的视觉占位。
+    // 不能把尚未 claim 的消息误标成“正在消费”。离开 pending 后立即移除，
+    // USER_MESSAGE 随后只负责进入 MessageList。
   }));
   // 网络上可能先到达旧快照，而刚点发送的本地请求尚未收到 queue response。
   // 只保留尚未确认的本地 request_id，已确认项目完全以后端 pending 为准。
@@ -255,28 +252,9 @@ export function applyQueueSnapshot(
     item.optimistic
     && !serverRequestIds.has(canonicalRequestId(item.request_id))
   ));
-  // Queue snapshot 是 claim 的权威事实，但 USER_MESSAGE 事件和 queue snapshot
-  // 可能乱序到达。若一条正式用户项从 snapshot 消失而历史里还没有对应 U，
-  // 暂时保留它，直到 USER_MESSAGE 到达，避免“队列消失→消息稍后才出现”的空窗。
-  const hasUserMessage = (item: QueueItemView): boolean => (
-    (b.messages ?? []).some((message) => (
-      message.role === "user"
-      && message.metadata?.request_id === canonicalRequestId(item.request_id)
-    ))
-  );
-  const awaitingEcho = previousByRequestId.size > 0
-    ? [...previousByRequestId.values()]
-      .filter((item) => (
-        item.source === "user"
-        && !serverRequestIds.has(canonicalRequestId(item.request_id))
-        && !item.optimistic
-        && !hasUserMessage(item)
-      ))
-      .map((item) => ({ ...item, awaitingEcho: true }))
-    : [];
-  const pendingMessages = [...pending, ...awaitingEcho, ...awaitingAdmission];
-  // awaitingEcho 已经不在 Inbox pending 中，只是为了等待 USER_MESSAGE 回显而
-  // 保留的视觉占位，不应把会话状态误判为仍有可领取队列。
+  // Queue snapshot 是 claim 的权威事实。已消费项不能继续以“正在消费”占位
+  // 留在队列横幅，否则用户会看到队列未清理；USER_MESSAGE 到达后再进入消息列表。
+  const pendingMessages = [...pending, ...awaitingAdmission];
   const queueDepth = pending.length + awaitingAdmission.length;
   b.hasCoordinatorState = true;
   b.sessionRevision = revision;
@@ -850,17 +828,13 @@ export function applyEvent(b: SessionProjectionState, ev: BusEvent): void {
           ? input.request_id
           : undefined;
       // USER_MESSAGE 只负责把已经持久化的 U 加入消息列表。队列项是否已被
-      // Agent claim 由下一张 session/queue 快照决定：若 queue 仍有该项，
-      // 继续显示“等待消费”；若此前 queue 已移除，则只清掉 awaitingEcho。
+      // Agent claim 由 session/queue 快照决定；不能在这里伪造或保留队列状态。
       if (requestId) {
         const canonical = canonicalRequestId(requestId);
         b.pendingMessages = (b.pendingMessages ?? []).filter(
-          (item) => !(
-            item.awaitingEcho
-            && canonicalRequestId(item.request_id) === canonical
-          ),
+          (item) => canonicalRequestId(item.request_id) !== canonical,
         );
-        b.queueDepth = b.pendingMessages.length;
+        b.queueDepth = (b.pendingMessages ?? []).length;
       }
       const nextMessage: ChatMessage = {
         id: messageId,
