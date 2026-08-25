@@ -8,7 +8,6 @@ import { wsClient } from "@/services/websocket-client";
 import {
   CompactEventName,
   UserMessageEventType,
-  getMessageAckPayload,
   getSessionEventPayload,
   getSessionStatusPayload,
   getSessionCommandPayload,
@@ -227,44 +226,65 @@ export function applyQueueSnapshot(
   b: SessionProjectionState,
   payload: QueueSnapshotPayload,
 ): void {
-  const revision = (b.sessionRevision ?? -1) + 1;
+  // revision 属于 Inbox 持久化状态，不再用客户端收到帧的顺序猜测新旧。
+  // 操作响应和后台广播可能乱序，旧 revision 必须完全丢弃。
+  const revision = payload.revision;
+  if (revision <= (b.sessionRevision ?? -1)) return;
   const previousByRequestId = new Map(
     (b.pendingMessages ?? []).map((item) => [canonicalRequestId(item.request_id), item]),
   );
   const pending = payload.items.map((item, index): QueueItemView => ({
     request_id: item.id,
     sequence: index + 1,
+    placement: item.placement,
     content: item.message.content.map((part) => part.text).join(""),
     attachments: item.message.attachments,
     source: item.placement === "context" ? "plugin" : "user",
-    // 如果这条服务端队列项是本地刚发出的消息，保留“等待持久回显”标记。
-    // 它下一张快照可能已经不在 pending（已被 worker claim），但 USER_MESSAGE
-    // 事件尚未到达前仍必须留在横幅，避免“消失→突然出现”的视觉空窗。
-    ...(previousByRequestId.get(canonicalRequestId(item.id))?.optimistic
-      || previousByRequestId.get(canonicalRequestId(item.id))?.awaitingEcho
-      ? { awaitingEcho: true }
-      : {}),
+    // 只要 item 仍在服务端 pending，就显示真实 placement；queue response 只表示已落盘，
+    // 不能把尚未 claim 的消息误标成“正在消费”。真正离开 pending 后，下面的
+    // awaitingEcho 分支才会创建等待 USER_MESSAGE 回显的视觉占位。
   }));
-  // 网络上可能先到达旧快照，而刚点发送的本地请求尚未收到 durable ACK。
+  // 网络上可能先到达旧快照，而刚点发送的本地请求尚未收到 queue response。
   // 只保留尚未确认的本地 request_id，已确认项目完全以后端 pending 为准。
   const serverRequestIds = new Set(
     pending
-       .map((item) => canonicalRequestId(item.request_id))
+      .map((item) => canonicalRequestId(item.request_id))
       .filter((id): id is string => typeof id === "string" && id.length > 0),
   );
   const awaitingAdmission = (b.pendingMessages ?? []).filter((item) => (
-    (item.optimistic || item.awaitingEcho)
+    item.optimistic
     && !serverRequestIds.has(canonicalRequestId(item.request_id))
   ));
-  const pendingMessages = [...pending, ...awaitingAdmission];
-  const queueDepth = pendingMessages.length;
+  // Queue snapshot 是 claim 的权威事实，但 USER_MESSAGE 事件和 queue snapshot
+  // 可能乱序到达。若一条正式用户项从 snapshot 消失而历史里还没有对应 U，
+  // 暂时保留它，直到 USER_MESSAGE 到达，避免“队列消失→消息稍后才出现”的空窗。
+  const hasUserMessage = (item: QueueItemView): boolean => (
+    (b.messages ?? []).some((message) => (
+      message.role === "user"
+      && message.metadata?.request_id === canonicalRequestId(item.request_id)
+    ))
+  );
+  const awaitingEcho = previousByRequestId.size > 0
+    ? [...previousByRequestId.values()]
+      .filter((item) => (
+        item.source === "user"
+        && !serverRequestIds.has(canonicalRequestId(item.request_id))
+        && !item.optimistic
+        && !hasUserMessage(item)
+      ))
+      .map((item) => ({ ...item, awaitingEcho: true }))
+    : [];
+  const pendingMessages = [...pending, ...awaitingEcho, ...awaitingAdmission];
+  // awaitingEcho 已经不在 Inbox pending 中，只是为了等待 USER_MESSAGE 回显而
+  // 保留的视觉占位，不应把会话状态误判为仍有可领取队列。
+  const queueDepth = pending.length + awaitingAdmission.length;
   b.hasCoordinatorState = true;
   b.sessionRevision = revision;
   b.queueDepth = queueDepth;
   // Inbox snapshot 不包含容量和 active 状态；这些字段由本地配置和 session/status
   // 分别维护，队列事件只能替换 pending 事实。
   b.queueCapacity = b.queueCapacity ?? null;
-  // 已接纳项目完全以后端 Inbox items 为准；尚未 ACK 的本地预览仅暂存于
+  // 已接纳项目完全以后端 Inbox items 为准；尚未收到 queue response 的本地预览仅暂存于
   // 横幅，直到被同 request_id 的服务端项替换。它们绝不进入聊天 messages。
   b.pendingMessages = pendingMessages;
   b.clientCanSend = b.clientCanSend ?? true;
@@ -277,6 +297,7 @@ export function applyQueueSnapshot(
     b.turnStartTs = null;
   }
 }
+
 function replySnapshotToChatMessage(raw: any): ChatMessage | null {
   if (!raw || raw.role !== "assistant" || !Array.isArray(raw.content) || !raw.id) {
     return null;
@@ -396,17 +417,19 @@ export function applyReplySnapshot(b: SessionProjectionState, payload: ReplySnap
   const revisions = b.replyRevisions ?? (b.replyRevisions = new Map<string, number>());
   for (const reply of replies) {
     const replyId = reply.reply_id;
+    const messageId = reply.message_id;
     const revision = reply.revision;
     const message = replySnapshotToChatMessage(reply.message);
-    if (!replyId || !message || !Number.isFinite(revision)) continue;
-    // 后端使用 reply_id 作为 assistant Msg id；客户端保持相同约束，后续流式
-    // Event 才能稳定找到并继续更新这条快照消息。
-    message.id = replyId;
-    const previousRevision = revisions.get(replyId);
+    if (!replyId || !messageId || !message || !Number.isFinite(revision)) continue;
+    // reply_id 关联整次运行，message_id 才是 MessageList 的唯一键；不能再按
+    // reply_id 复用同一气泡，也不能在客户端派生 segment id。
+    message.id = messageId;
+    message.metadata = { ...(message.metadata ?? {}), reply_id: replyId };
+    const previousRevision = revisions.get(messageId);
     if (previousRevision != null && revision <= previousRevision) continue;
-    revisions.set(replyId, revision);
+    revisions.set(messageId, revision);
 
-    const index = b.messages.findIndex((item) => item.id === replyId);
+    const index = b.messages.findIndex((item) => item.id === messageId);
     if (index >= 0) {
       const next = b.messages.slice();
       next[index] = message;
@@ -495,6 +518,7 @@ function pendingPreview(item: PendingNewSessionSend): QueueItemView {
   return {
     request_id: `local:${item.frameId}`,
     sequence: 0,
+    placement: "queued",
     content: item.displayText,
     attachments: item.attachments?.map((attachment) => ({ ...attachment })),
     source: "user",
@@ -567,6 +591,22 @@ export function applyEvent(b: SessionProjectionState, ev: BusEvent): void {
   const d = ev.data || {};
   const ts = ev.ts ?? Date.now();
   const replyId = typeof d.reply_id === "string" && d.reply_id ? d.reply_id : null;
+  const messageId = typeof d.message_id === "string" && d.message_id
+    ? d.message_id
+    : null;
+  const messageEvents = new Set([
+    "REPLY_START", "REPLY_END", "MODEL_CALL_START", "MODEL_CALL_END",
+    "TEXT_BLOCK_START", "TEXT_BLOCK_DELTA", "TEXT_BLOCK_END",
+    "THINKING_BLOCK_START", "THINKING_BLOCK_DELTA", "THINKING_BLOCK_END",
+    "DATA_BLOCK_START", "DATA_BLOCK_DELTA", "DATA_BLOCK_END",
+    "TOOL_CALL_START", "TOOL_CALL_DELTA", "TOOL_CALL_END",
+    "TOOL_RESULT_START", "TOOL_RESULT_TEXT_DELTA", "TOOL_RESULT_DATA_DELTA",
+    "TOOL_RESULT_END", "HINT_BLOCK", "REQUIRE_USER_CONFIRM", "RETRY", "retry",
+    "EXCEED_MAX_ITERS",
+  ]);
+  // 新协议的 Assistant 事件必须携带 message_id；旧帧直接丢弃，避免把
+  // 已删除的旧数据重新聚合进当前 MessageList。
+  if (messageEvents.has(ev.type) && !messageId) return;
 
   /** 褰撳墠 streaming 灏鹃儴 assistant锛堣嫢瀛樺湪锛?*/
   const tail = (): ChatMessage | null => {
@@ -583,9 +623,32 @@ export function applyEvent(b: SessionProjectionState, ev: BusEvent): void {
     b.messages = next;
   };
 
-  const replyIndex = (): number => replyId == null
-    ? -1
-    : b.messages.findIndex((message) => message.id === replyId && message.role === "assistant");
+  const replyMatches = (message: ChatMessage): boolean => (
+    messageId != null
+    && message.role === "assistant"
+    && message.id === messageId
+  );
+
+  const activeReplyIndex = (): number => {
+    if (messageId == null) return -1;
+    for (let index = b.messages.length - 1; index >= 0; index--) {
+      const message = b.messages[index];
+      if (replyMatches(message) && message.streaming === true && !message.isError) {
+        return index;
+      }
+    }
+    return -1;
+  };
+
+  const replyIndex = (): number => {
+    const active = activeReplyIndex();
+    if (active >= 0) return active;
+    if (messageId == null) return -1;
+    for (let index = b.messages.length - 1; index >= 0; index--) {
+      if (replyMatches(b.messages[index])) return index;
+    }
+    return -1;
+  };
 
   const replaceReply = (mut: (m: ChatMessage) => ChatMessage): void => {
     const index = replyIndex();
@@ -597,18 +660,34 @@ export function applyEvent(b: SessionProjectionState, ev: BusEvent): void {
 
   /** 确保尾部存在可写的流式 assistant；不存在或已经封口时创建一条。 */
   const ensure = (): void => {
-    const index = replyIndex();
-    if (index >= 0) return;
+    if (activeReplyIndex() >= 0) return;
+    // Core 已经用新的 message_id 宣布了下一条 AssistantMsg。此时只封口同
+    // reply 下仍显示 streaming 的旧消息，不复制内容、不生成客户端 segment。
+    if (replyId != null && messageId != null) {
+      const previousIndex = b.messages.findIndex((message) => (
+        message.role === "assistant"
+        && message.id !== messageId
+        && message.metadata?.reply_id === replyId
+        && message.streaming === true
+      ));
+      if (previousIndex >= 0) {
+        const next = b.messages.slice();
+        next[previousIndex] = { ...next[previousIndex], streaming: false };
+        b.messages = next;
+      }
+    }
+    const id = messageId ?? ev.eventId ?? ev.frameId ?? nextId("ast");
     b.messages = [
       ...b.messages,
       {
-        id: replyId ?? ev.eventId ?? ev.frameId ?? nextId("ast"),
+        id,
         role: "assistant",
         content: null,
         timestamp: ts,
         streaming: true,
         blocks: [],
         toolResults: {},
+        ...(replyId != null ? { metadata: { reply_id: replyId } } : {}),
       },
     ];
   };
@@ -675,7 +754,12 @@ export function applyEvent(b: SessionProjectionState, ev: BusEvent): void {
     toolCallId: string,
     mutate: (current: ToolResult) => ToolResult,
   ): void => {
-    for (let index = b.messages.length - 1; index >= 0; index--) {
+    const indices = messageId
+      ? b.messages.map((message, index) => message.id === messageId ? index : -1)
+        .filter((index) => index >= 0)
+        .reverse()
+      : b.messages.map((_message, index) => index).reverse();
+    for (const index of indices) {
       const message = b.messages[index];
       const toolCall = message.blocks?.find(
         (block) => block.type === "toolCall" && block.id === toolCallId,
@@ -759,17 +843,22 @@ export function applyEvent(b: SessionProjectionState, ev: BusEvent): void {
       const messageId = typeof d.id === "string" && d.id
         ? d.id
         : ev.frameId || nextId("user");
+      if (b.messages.some((message) => message.id === messageId)) return;
       const requestId = typeof ev.metadata?.request_id === "string"
         ? ev.metadata.request_id
         : typeof input.request_id === "string"
           ? input.request_id
           : undefined;
-      // 用户消息已经由后端持久化并开始实时回显；此刻才是从横幅移入聊天记录的
-      // 唯一交接点。先移除同一 request_id 的队列项，避免重复展示。
+      // USER_MESSAGE 只负责把已经持久化的 U 加入消息列表。队列项是否已被
+      // Agent claim 由下一张 session/queue 快照决定：若 queue 仍有该项，
+      // 继续显示“等待消费”；若此前 queue 已移除，则只清掉 awaitingEcho。
       if (requestId) {
         const canonical = canonicalRequestId(requestId);
         b.pendingMessages = (b.pendingMessages ?? []).filter(
-          (item) => canonicalRequestId(item.request_id) !== canonical,
+          (item) => !(
+            item.awaitingEcho
+            && canonicalRequestId(item.request_id) === canonical
+          ),
         );
         b.queueDepth = b.pendingMessages.length;
       }
@@ -779,11 +868,11 @@ export function applyEvent(b: SessionProjectionState, ev: BusEvent): void {
         content,
         timestamp: ts,
         ...(attachments.length > 0 ? { attachments } : {}),
-        metadata: input.metadata && typeof input.metadata === "object"
-          ? input.metadata
-          : undefined,
+        metadata: {
+          ...(input.metadata && typeof input.metadata === "object" ? input.metadata : {}),
+          ...(requestId ? { request_id: requestId } : {}),
+        },
       };
-      if (b.messages.some((message) => message.id === messageId)) return;
       b.messages = [
         ...b.messages,
         nextMessage,
@@ -804,7 +893,7 @@ export function applyEvent(b: SessionProjectionState, ev: BusEvent): void {
     }
 
     case "REPLY_END": {
-      ensure();
+      if (activeReplyIndex() < 0) return;
       const replyError = d.error;
       const replyErrorMessage = replyError
         ? typeof replyError === "string"
@@ -813,7 +902,6 @@ export function applyEvent(b: SessionProjectionState, ev: BusEvent): void {
         : null;
       replaceReply((message) => ({
         ...message,
-        id: d.reply_id || message.id,
         streaming: false,
         isError: d.finished_reason === "error" || !!replyError,
         error: replyErrorMessage
@@ -1350,47 +1438,6 @@ if (!(globalThis as any)[__wsBoundFlag]) {
   }
 
   wsClient.onMessage((msg: ServerMessage) => {
-    // 持久化接纳 ACK：补齐横幅本地占位的服务端 request_id。
-    // ACK 不创建聊天气泡；USER_MESSAGE 回显才是进入聊天记录的唯一入口。
-    const admissionAck = getMessageAckPayload(msg);
-    if (admissionAck) {
-      const sid = admissionAck.session_id || msg.metadata?.session_id;
-      if (typeof sid === "string" && sid) {
-        const b = bucket(sid);
-        // Admission ACK 与 session.cancel 共用 RPC envelope；只有仍存在对应的
-        // optimistic chat item 时才是本地聊天的 ACK。控制 ACK 不应把 Session
-        // 错误地重新标记为 running。
-        const hasPendingChat = (b.pendingMessages ?? []).some((item) => (
-          item.optimistic
-          && canonicalRequestId(item.request_id) === admissionAck.request_id
-        ));
-        if (!hasPendingChat) return;
-        // sendMessage 已经把横幅项本地预显示；收到 durable ACK 后只补齐
-        // 服务端 request_id，仍由下一张 session/queue 覆盖为最终事实。
-        const transportRequestId = msg.request_id || "";
-        b.pendingMessages = (b.pendingMessages ?? []).map((item) => (
-          item.optimistic && (
-            canonicalRequestId(item.request_id) === admissionAck.request_id
-            || canonicalRequestId(item.request_id) === transportRequestId
-          )
-            ? {
-              ...item,
-              request_id: admissionAck.request_id,
-              sequence: admissionAck.queue_position ?? item.sequence ?? 0,
-              optimistic: false,
-              awaitingEcho: true,
-            }
-            : item
-        ));
-        b.queueDepth = b.pendingMessages.length;
-        // ACK 只证明请求已落盘；横幅项目仍以后续完整 pending 快照为准。
-        b.isBusy = true;
-        b.sessionStatus = "running";
-        if (!b.hasCoordinatorState) b.sessionActivity = "dispatching";
-        mirror(sid);
-      }
-      return;
-    }
     const rpcError = getRpcErrorPayload(msg);
     if (rpcError) {
       const reason = rpcError.message || rpcError.code || "Request rejected";

@@ -54,7 +54,7 @@ export interface SessionProjectionState {
   hasCoordinatorState?: boolean;
   queueDepth?: number;
   queueCapacity?: number | null;
-  /** 输入框上方横幅：服务端 Inbox items + 尚未 ACK 的本地发送预览，不混入聊天正文。 */
+  /** 输入框上方横幅：服务端 Inbox items + 尚未收到响应的本地预览，不混入聊天正文。 */
   pendingMessages?: QueueItemView[];
   clientCanSend?: boolean;
   canCancel?: boolean;

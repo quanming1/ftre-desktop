@@ -1,7 +1,7 @@
 import { memo, useCallback, useState } from "react";
-import { CornerDownRight, ImageIcon, ListOrdered, Loader2, PencilLine, Trash2 } from "lucide-react";
+import { CornerDownRight, ImageIcon, ListOrdered, Loader2, PencilLine, Trash2, Zap } from "lucide-react";
 import { cancelQueuedMessage } from "@/services/api";
-import type { QueueItemView } from "@/services/websocket-client";
+import { wsClient, type QueueItemView } from "@/services/websocket-client";
 import { useChat } from "@/stores/chat";
 import { useNotification } from "@/stores/notification";
 
@@ -9,7 +9,7 @@ import { useNotification } from "@/stores/notification";
  * 输入框上方的待执行消息横幅。
  *
  * 数据来自 pendingMessages 投影：点击发送后先放入本地 optimistic 队列项，
- * durable ACK / session/queue 再用同一个 request_id 覆盖为服务端事实。
+ * session/queue 操作响应再用同一个 request_id 覆盖为服务端事实。
  * Inbox 领取、写入 UserMsg 并回显后，才从横幅移除并进入聊天 messages。
  * 因而“待执行”和“聊天历史”始终是两份职责明确的数据，不会来回搬运同一气泡。
  */
@@ -21,6 +21,7 @@ export const QueuedMessagesBanner = memo(function QueuedMessagesBanner({
   const sessionId = useChat((state) => state.sessionId);
   const addNotification = useNotification((state) => state.addNotification);
   const [removing, setRemoving] = useState<Set<string>>(() => new Set());
+  const [steering, setSteering] = useState<Set<string>>(() => new Set());
   // 队列默认折叠为一行；需要查看或编辑具体消息时再展开。
   const [expanded, setExpanded] = useState(false);
 
@@ -45,6 +46,25 @@ export const QueuedMessagesBanner = memo(function QueuedMessagesBanner({
       });
     }
   }, [addNotification, removing, sessionId]);
+
+  const promoteToSteer = useCallback(async (item: QueueItemView): Promise<void> => {
+    if (!sessionId || item.placement !== "queued" || steering.has(item.request_id)) return;
+    setSteering((current) => new Set(current).add(item.request_id));
+    try {
+      await wsClient.promoteQueueItemToSteer(sessionId, item.request_id);
+    } catch (error) {
+      addNotification({
+        level: "error",
+        message: error instanceof Error ? error.message : "无法提升为下一轮消息",
+      });
+    } finally {
+      setSteering((current) => {
+        const next = new Set(current);
+        next.delete(item.request_id);
+        return next;
+      });
+    }
+  }, [addNotification, sessionId, steering]);
 
   const editMessage = useCallback(async (item: QueueItemView) => {
     const request = { accepted: false, attachments: item.attachments || [] };
@@ -76,7 +96,9 @@ export const QueuedMessagesBanner = memo(function QueuedMessagesBanner({
         <span className="shrink-0 text-[12px] font-medium text-t-muted">消息队列</span>
         <span className="rounded-full bg-black/[0.05] px-1.5 py-0.5 font-mono text-[11px] leading-none tabular-nums text-t-faint">{items.length}</span>
         <span className="min-w-0 flex-1 truncate text-[12px] text-t-faint" title={itemLabel(next)}>
-          {next.awaitingEcho ? "正在消费" : "下一条"} · {itemLabel(next)}
+          {next.awaitingEcho
+            ? "正在消费"
+            : next.placement === "steering" ? "等待下一次推理" : "下一条"} · {itemLabel(next)}
         </span>
       </button>
       {expanded && (
@@ -85,7 +107,9 @@ export const QueuedMessagesBanner = memo(function QueuedMessagesBanner({
             const isRemoving = removing.has(item.request_id);
             const isOptimistic = item.optimistic === true;
             const isAwaitingEcho = item.awaitingEcho === true;
-            const isLocked = isOptimistic || isAwaitingEcho;
+            const isSteering = item.placement === "steering";
+            const isPromoting = steering.has(item.request_id);
+            const isLocked = isOptimistic || isAwaitingEcho || isSteering || isPromoting;
             const label = itemLabel(item);
             const imageCount = item.attachments?.length ?? 0;
             return (
@@ -104,10 +128,19 @@ export const QueuedMessagesBanner = memo(function QueuedMessagesBanner({
                 {isLocked ? (
                   <span className="inline-flex shrink-0 items-center gap-1 text-[10px] text-t-faint">
                     {isAwaitingEcho && <Loader2 size={10} className="animate-spin" />}
-                    {isOptimistic ? "发送中" : "正在消费"}
+                    {isOptimistic
+                      ? "发送中"
+                      : isAwaitingEcho ? "正在消费" : isPromoting ? "提升中" : "等待下一次推理"}
                   </span>
                 ) : (
                   <>
+                    <button
+                      type="button"
+                      aria-label={`插入当前运行：${label}`}
+                      disabled={isRemoving || isPromoting}
+                      onClick={() => void promoteToSteer(item)}
+                      className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-t-ghost hover:bg-black/[0.05] hover:text-t-primary disabled:opacity-60"
+                    ><Zap size={13} /></button>
                     <button
                       type="button"
                       aria-label={`编辑队列消息：${label}`}

@@ -4,7 +4,8 @@
  * F12 wire contract：
  *   上行：session.prompt/session.cancel/session.updateQueue，payload 携带业务数据，
  *   request_id 是唯一传输相关性标识；attach/detach 也使用 payload。
- *   下行：业务帧使用 {type, payload, metadata}；准入和错误使用统一 RPC envelope。
+ *   下行：业务帧使用 {type, payload, metadata}；Inbox 操作成功直接返回
+ *   session/queue 快照，错误使用统一 RPC envelope。
  *
  * Agent events follow ftre-agent-core's flat AgentStreamEvent protocol:
  *   REPLY_*, MODEL_CALL_*, TEXT_BLOCK_*, THINKING_BLOCK_*,
@@ -13,7 +14,7 @@
 
 // ─── Types ──────────────────────────────────────────────────────────
 
-/** 后端 F12 下行消息格式；ACK/error 没有 type，只有 RPC envelope 字段。 */
+/** 后端 F12 下行消息格式；队列操作成功帧也保留 type/payload。 */
 import { wsLogCollector } from "./ws-log-collector";
 
 export interface ServerMessage<TPayload = unknown> {
@@ -40,6 +41,8 @@ export type CompactEventName =
 
 export interface ReplySnapshotItem {
   reply_id: string;
+  /** 当前 AssistantMsg 的稳定 id；同一 reply 可有多个。 */
+  message_id: string;
   revision: number;
   /** 后端持久化的原始 Msg，由渲染层转换为 ChatMessage。 */
   message: Record<string, unknown>;
@@ -57,10 +60,12 @@ export interface ReplySnapshotPayload {
 export interface QueueItemView {
   request_id: string;
   sequence: number;
+  /** 服务端队列语义：普通排队、下一轮 steer，或插件上下文注入。 */
+  placement?: QueueSnapshotItem["placement"];
   content?: string;
   attachments?: Array<Record<string, unknown>>;
   source?: string;
-  /** 仅在客户端尚未收到服务端 ACK 时为 true；下一张 queue 快照会替换它。 */
+  /** 仅在客户端尚未收到服务端 queue response 时为 true；快照会替换它。 */
   optimistic?: boolean;
   /** 已被服务端接纳但尚未收到 USER_MESSAGE 持久化回显，保持队列视觉连续。 */
   awaitingEcho?: boolean;
@@ -78,6 +83,8 @@ export interface QueueSnapshotItem {
 
 export interface QueueSnapshotPayload {
   session_id: string;
+  /** Inbox 持久化 revision；客户端据此丢弃乱序的旧快照。 */
+  revision: number;
   items: QueueSnapshotItem[];
 }
 
@@ -85,34 +92,6 @@ export type QueueUpdateAction =
   | { kind: "remove" }
   | { kind: "edit"; content: string; attachments?: Array<Record<string, unknown>> }
   | { kind: "steer" };
-
-export interface QueueUpdateResult {
-  accepted: true;
-  session_id: string;
-  item_id: string;
-}
-
-/** session.prompt 被 Inbox 耐久接纳后的即时确认。 */
-export interface MessageAckPayload {
-  session_id: string;
-  request_id: string;
-  queue_position?: number;
-  created?: boolean;
-}
-
-export function getMessageAckPayload(
-  message: ServerMessage<any>,
-): MessageAckPayload | null {
-  const value = asRecord(message.value);
-  if (message.ok !== true || typeof message.request_id !== "string" || !value) return null;
-  if (typeof value.session_id !== "string" || value.accepted !== true) return null;
-  return {
-    session_id: value.session_id,
-    request_id: message.request_id,
-    queue_position: typeof value.queue_position === "number" ? value.queue_position : undefined,
-    created: typeof value.created === "boolean" ? value.created : true,
-  };
-}
 
 export interface RpcErrorPayload {
   request_id?: string;
@@ -146,7 +125,13 @@ export function isReplySnapshotMessage(
 ): message is ReplySnapshotMessage {
   return message.type === "reply_snapshot"
     && typeof (message.payload as ReplySnapshotPayload)?.session_id === "string"
-    && Array.isArray((message.payload as ReplySnapshotPayload)?.replies);
+    && Array.isArray((message.payload as ReplySnapshotPayload)?.replies)
+    && (message.payload as ReplySnapshotPayload).replies.every((reply) => (
+      typeof reply?.reply_id === "string"
+      && typeof reply?.message_id === "string"
+      && Number.isFinite(reply?.revision)
+      && !!reply?.message
+    ));
 }
 
 export type SessionActivity =
@@ -217,6 +202,7 @@ export function isQueueSnapshotPayload(
   const raw = asRecord(value);
   return !!raw
     && typeof raw.session_id === "string"
+    && Number.isFinite(raw.revision)
     && Array.isArray(raw.items)
     && raw.items.every((item) => {
       const record = asRecord(item);
@@ -291,6 +277,8 @@ export interface AgentStreamEvent {
   id?: string;
   created_at?: string;
   reply_id?: string;
+  /** MessageList 中具体 Assistant 气泡的稳定坐标。 */
+  message_id?: string;
   metadata?: Record<string, unknown>;
   data?: Record<string, unknown>;
   [key: string]: unknown;
@@ -311,7 +299,7 @@ interface PendingSend {
 }
 
 interface PendingControlWaiter {
-  resolve: (value: QueueUpdateResult) => void;
+  resolve: (value: QueueSnapshotPayload) => void;
   reject: (reason: Error) => void;
   timer: ReturnType<typeof setTimeout>;
 }
@@ -351,7 +339,7 @@ class WebSocketClient {
   private unackedChats = new Map<string, Record<string, unknown>>();
   /** 取消帧使用相同幂等键重试，直到服务端确认取消动作已经应用。 */
   private unackedControls = new Map<string, Record<string, unknown>>();
-  /** 需要等待 RPC ACK 的队列控制操作（remove/edit/steer）。 */
+  /** 需要等待 session/queue 响应的队列控制操作（remove/edit/steer）。 */
   private controlWaiters = new Map<string, PendingControlWaiter>();
   /** stableTimer: delay-reset reconnectAttempt to avoid fast reconnect loop */
   private stableTimer: ReturnType<typeof setTimeout> | null = null;
@@ -437,7 +425,7 @@ class WebSocketClient {
             (msg.payload as Record<string, unknown>).client_connection_epoch =
               this.connectionEpoch;
           }
-          this.consumeDurableAdmissionAck(msg);
+          this.consumeQueueOperationResponse(msg);
           this.messageHandlers.forEach((h) => h(msg));
         } catch (e) {
           wsLogCollector.recordSystem("parse_error", raw, { connectionId: this.connectionId });
@@ -575,10 +563,10 @@ class WebSocketClient {
     try {
       this.sendWire(frame, "initial");
       // WebSocket.send 只表示本地写入成功，不等于服务端已经接纳。必须等
-      // RPC ACK 或明确错误确认 Inbox 已处理后才移除 outbox。
+      // session/queue 操作响应或明确错误确认 Inbox 已处理后才移除 outbox。
       return { ok: true, queued: false, requestId: id };
     } catch (error) {
-      console.error("[WS] Chat send failed; retained until durable ACK", error);
+      console.error("[WS] Chat send failed; retained until queue response", error);
       return { ok: true, queued: true, requestId: id };
     }
   }
@@ -627,16 +615,16 @@ class WebSocketClient {
     try {
       this.sendWire(frame, "initial");
     } catch (error) {
-      console.error("[WS] Cancel send failed; retained until control ACK", error);
+      console.error("[WS] Cancel send failed; retained until control response", error);
     }
   }
 
-  /** 通过 F12 WebSocket 控制面更新 Inbox 队列，避免调用不存在的 HTTP DELETE 路由。 */
+  /** 通过 F12 WebSocket 控制面更新 Inbox 队列，并返回最新权威快照。 */
   updateQueue(
     sessionId: string,
     itemId: string,
     action: QueueUpdateAction,
-  ): Promise<QueueUpdateResult> {
+  ): Promise<QueueSnapshotPayload> {
     if (!sessionId || !itemId) {
       return Promise.reject(new Error("队列操作缺少 session_id 或 item_id"));
     }
@@ -655,7 +643,7 @@ class WebSocketClient {
       },
     };
 
-    return new Promise<QueueUpdateResult>((resolve, reject) => {
+    return new Promise<QueueSnapshotPayload>((resolve, reject) => {
       const timer = setTimeout(() => {
         this.controlWaiters.delete(requestId);
         this.unackedControls.delete(requestId);
@@ -674,6 +662,11 @@ class WebSocketClient {
         // 保留在 unackedControls，待连接建立或重连后统一重发。
       }
     });
+  }
+
+  /** 将普通排队消息提升为下一轮注入消息；结果仍以后端 queue 快照为准。 */
+  promoteQueueItemToSteer(sessionId: string, itemId: string): Promise<QueueSnapshotPayload> {
+    return this.updateQueue(sessionId, itemId, { kind: "steer" });
   }
 
   /** Attach：告诉后端这条 ws 关注指定 session，后续该 session 的 outbound 会推送过来。 */
@@ -804,26 +797,27 @@ class WebSocketClient {
     });
   }
 
-  private consumeDurableAdmissionAck(message: ServerMessage): void {
-    this.settleControlWaiter(message);
-    const acknowledge = (value: unknown) => {
-      if (typeof value === "string" && value) this.unackedChats.delete(value);
-    };
-
-    const admissionAck = getMessageAckPayload(message);
-    if (admissionAck) {
-      acknowledge(admissionAck.request_id);
-      this.unackedControls.delete(admissionAck.request_id);
+  private consumeQueueOperationResponse(message: ServerMessage): void {
+    if (message.type === "session/queue" && message.ok === true
+      && typeof message.request_id === "string"
+      && getSessionEventPayload(message)) {
+      // 同一个 queue response 同时结算聊天 outbox、队列控制 waiter 和队列投影；
+      // 不再维护一套独立的 Message ACK 协议。
+      this.unackedChats.delete(message.request_id);
+      this.unackedControls.delete(message.request_id);
+      this.settleControlWaiter(message);
+      return;
     }
-
+    // session.cancel 仍使用控制面 ACK；它不改变 Inbox items，所以不需要
+    // 伪造一个 queue snapshot。
     if (message.ok === true && typeof message.request_id === "string") {
       this.unackedControls.delete(message.request_id);
     }
-
     const error = getRpcErrorPayload(message);
     if (error?.request_id) {
-      acknowledge(error.request_id);
+      this.unackedChats.delete(error.request_id);
       this.unackedControls.delete(error.request_id);
+      this.settleControlWaiter(message);
     }
   }
 
@@ -835,23 +829,19 @@ class WebSocketClient {
     clearTimeout(waiter.timer);
     this.controlWaiters.delete(message.request_id);
     const error = getRpcErrorPayload(message);
+    if (error?.request_id) {
+      this.unackedControls.delete(error.request_id);
+    }
     if (error) {
       waiter.reject(new Error(error.message));
       return;
     }
-    const value = asRecord(message.value);
-    if (message.ok === true
-      && value?.accepted === true
-      && typeof value.session_id === "string"
-      && typeof value.item_id === "string") {
-      waiter.resolve({
-        accepted: true,
-        session_id: value.session_id,
-        item_id: value.item_id,
-      });
+    const payload = getSessionEventPayload(message);
+    if (message.type === "session/queue" && message.ok === true && payload) {
+      waiter.resolve(payload);
       return;
     }
-    waiter.reject(new Error("队列操作返回了无效确认"));
+    waiter.reject(new Error("队列操作返回了无效快照"));
   }
 
 }
