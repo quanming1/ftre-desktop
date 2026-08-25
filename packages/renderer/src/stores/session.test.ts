@@ -52,7 +52,6 @@ function resetStores() {
     sessionId: null,
     messages: [],
     sessionStatus: "idle",
-    isBusy: false,
     error: null,
     connected: false,
     model: null,
@@ -123,6 +122,7 @@ describe("session store — basic operations", () => {
     expect(messages[0].toolResults?.["call-1"].result).toBe("contents");
     expect(messages[0].token?.usage.total_tokens).toBe(12);
     expect(messages[0].durationSec).toBe(63);
+    expect(messages[0].finishedAt).toBe(Date.parse("2026-07-27T10:01:03"));
   });
 
   it("starts with empty sessions", () => {

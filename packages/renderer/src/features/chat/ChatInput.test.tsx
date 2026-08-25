@@ -70,8 +70,8 @@ describe("ChatInput 发送按钮", () => {
       messages: [],
       pendingMessages: [],
       lastUserInputTs: null,
-      isBusy: false,
       sessionStatus: "idle",
+      sessionActivity: "idle",
       clientCanSend: true,
       hasCoordinatorState: false,
       canCancel: false,
@@ -82,7 +82,8 @@ describe("ChatInput 发送按钮", () => {
     render(<ChatInput />);
 
     const surface = screen.getByTestId("chat-input-surface");
-    expect(surface).toHaveClass("border", "border-black/10");
+    expect(surface).toHaveClass("bg-input");
+    expect(surface).toHaveClass("border", "border-input-border");
     expect(surface).toHaveClass(
       "focus-within:shadow-[0_2px_12px_rgba(15,23,42,0.08),inset_0_1px_0_rgba(255,255,255,0.6)]",
     );
@@ -159,7 +160,8 @@ describe("ChatInput 发送按钮", () => {
           },
         },
       ],
-      isBusy: true,
+      sessionStatus: "running",
+      sessionActivity: "executing",
       lastUserInputTs: 2,
     });
 
@@ -179,6 +181,38 @@ describe("ChatInput 发送按钮", () => {
       turnId: "pending:u1",
     }));
     openAuditTab.mockRestore();
+  });
+
+  it("压缩期间隐藏上一轮文件变更摘要", () => {
+    useChat.setState({
+      messages: [
+        { id: "u1", role: "user", content: "修改文件", timestamp: 1 },
+        {
+          id: "a1",
+          role: "assistant",
+          content: null,
+          timestamp: 2,
+          blocks: [{ type: "toolCall", id: "edit-1", name: "edit", arguments: {} }],
+          toolResults: {
+            "edit-1": {
+              id: "edit-1",
+              name: "edit",
+              result: null,
+              error: null,
+              status: "completed",
+              metadata: { file: "src/a.ts", before: "a", after: "b", additions: 1, deletions: 0 },
+            },
+          },
+        },
+      ],
+      sessionStatus: "compacting",
+      sessionActivity: "compacting",
+      lastUserInputTs: 2,
+    });
+
+    render(<ChatInput />);
+
+    expect(screen.queryByTestId("turn-file-changes-summary")).not.toBeInTheDocument();
   });
 
   it("新消息进入队列后立即隐藏上一轮摘要", () => {
@@ -203,7 +237,8 @@ describe("ChatInput 发送按钮", () => {
           },
         },
       ],
-      isBusy: true,
+      sessionStatus: "running",
+      sessionActivity: "executing",
       pendingMessages: [{ request_id: "request-2", sequence: 1, content: "继续修改" }],
     });
 
@@ -234,7 +269,8 @@ describe("ChatInput 发送按钮", () => {
           },
         },
       ],
-      isBusy: true,
+      sessionStatus: "running",
+      sessionActivity: "executing",
       pendingMessages: [{ request_id: "stale-queue", sequence: 1, content: "已回显的消息" }],
       lastUserInputTs: 2,
     });
@@ -266,7 +302,6 @@ describe("ChatInput 发送按钮", () => {
           },
         },
       ],
-      isBusy: false,
       lastUserInputTs: 2,
     });
 
@@ -278,7 +313,8 @@ describe("ChatInput 发送按钮", () => {
   it("消息队列横幅定位在输入框上方且无底部间距", () => {
     useChat.setState({
       pendingMessages: [{ request_id: "queued-1", sequence: 1, content: "下一条消息" }],
-      isBusy: true,
+      sessionStatus: "running",
+      sessionActivity: "dispatching",
     });
 
     render(<ChatInput />);
@@ -320,7 +356,8 @@ describe("ChatInput 发送按钮", () => {
       ],
       pendingMessages: [{ request_id: "queued-2", sequence: 1, content: "下一条消息" }],
       lastUserInputTs: 2,
-      isBusy: true,
+      sessionStatus: "running",
+      sessionActivity: "executing",
     });
 
     render(<ChatInput />);

@@ -1,7 +1,9 @@
 /**
- * Chat Store 鈥?娑堣垂 ftre gateway WebSocket 浜嬩欢娴併€? *
- * 澶?session 妯″瀷锛? *   姣忎釜 session 鏈夌嫭绔?bucket锛坢essages/isBusy/error/retryState锛夈€? *   store 椤跺眰瀛楁鏄?active bucket 鐨勯暅鍍忥紙淇濈暀鏃ф秷璐?API: useChat((s)=>s.messages) 绛夛級銆? *   鍒?session 鏃剁洿鎺?hydrate锛涜繘琛屼腑鐨勬祦涓嶈鎵撴柇銆? *
- * 事件源：ws 实时事件走 applyEvent reducer；history 加载走 historyToMessages 直接转换。 */
+ * Chat Store：消费 ftre gateway WebSocket 事件流。
+ * 每个 session 使用独立 bucket；顶层字段只是当前 bucket 的镜像。
+ * 运行态 UI 直接读取 session、activity、queue 和 streaming 等窄语义字段。
+ * 事件源：ws 实时事件走 applyEvent reducer；history 加载走 historyToMessages 直接转换。
+ */
 import { create } from "zustand";
 import { useShallow } from "zustand/shallow";
 import { wsClient } from "@/services/websocket-client";
@@ -30,6 +32,7 @@ import {
   hasSeenEvent,
   type BusEvent,
 } from "./chatProjection";
+import { hasActiveTurn, hasPendingWork, hasStreamingAssistant } from "./runtimeState";
 export { applyEvent, applyQueueSnapshot, applyReplySnapshot, type BusEvent } from "./chatProjection";
 export type { SessionProjectionState } from "./clientSessionProjection";
 
@@ -91,7 +94,6 @@ function mirror(sid: string): void {
   if (!b) return;
   useChat.setState({
     messages: b.messages,
-    isBusy: b.isBusy,
     sessionStatus: b.sessionStatus,
     sessionActivity: b.sessionActivity ?? "idle",
     sessionRevision: b.sessionRevision ?? -1,
@@ -229,7 +231,6 @@ if (!(globalThis as any)[__wsBoundFlag]) {
           b.queueDepth = b.pendingMessages.length;
         }
         if (!b.hasCoordinatorState) {
-          b.isBusy = false;
           b.sessionStatus = "idle";
           b.sessionActivity = "idle";
           b.canCancel = false;
@@ -315,7 +316,6 @@ if (!(globalThis as any)[__wsBoundFlag]) {
       // Queue snapshot 和 session/status 是两条独立事实流：前者只说明
       // Inbox 中还有哪些 pending，后者才说明 Agent 是否仍在执行。不能因为
       // 先收到 queue snapshot 就跳过 status，否则 idle 永远不会落到投影，
-      // 当前已完成消息的复制/token 操作也会一直被 isBusy 隐藏，刷新后才恢复。
       const status = sessionStatus.status;
       b.hasCoordinatorState = true;
       b.sessionStatus = status;
@@ -324,7 +324,6 @@ if (!(globalThis as any)[__wsBoundFlag]) {
         : status === "compacting" ? "compacting" : "executing";
       // 队列仍有 pending 时保留 busy 横幅；但没有 pending 的 idle 必须立即
       // 结束当前 Turn，不能等待历史刷新来推导完成态。
-      b.isBusy = status !== "idle" || (b.queueDepth ?? 0) > 0;
       b.clientCanSend = status !== "compacting";
       b.canCancel = status === "running";
       b.error = null;
@@ -418,7 +417,6 @@ if (!(globalThis as any)[__wsBoundFlag]) {
     // 鏂嚎锛氬叧鎺夋墍鏈?bucket 鐨?streaming 鐘舵€侊紝淇濈暀娑堟伅
     for (const [sid, b] of sessionProjections) {
       if (!b.hasCoordinatorState) {
-        b.isBusy = false;
         b.sessionStatus = "idle";
         b.sessionActivity = "idle";
         b.canCancel = false;
@@ -455,7 +453,6 @@ interface ChatState {
   clientCanSend: boolean;
   canCancel: boolean;
   blockedReason: string | null;
-  isBusy: boolean;
   error: string | null;
   retryState: RetryState | null;
 
@@ -551,7 +548,6 @@ export const useChat = create<ChatState>((set, get) => ({
   clientCanSend: true,
   canCancel: false,
   blockedReason: null,
-  isBusy: false,
   error: null,
   retryState: null,
   sessionId: null,
@@ -614,7 +610,6 @@ export const useChat = create<ChatState>((set, get) => ({
           b.queueDepth = b.pendingMessages.length;
         }
         b.lastUserInputTs = null;
-        b.isBusy = true;
         b.sessionStatus = "running";
         if (!b.hasCoordinatorState) b.sessionActivity = "dispatching";
         b.error = null;
@@ -637,9 +632,9 @@ export const useChat = create<ChatState>((set, get) => ({
     }
 
     // 棣栨鍙戞秷鎭細fetch 鍒涘缓 session 鏈熼棿浼氭湁 100~500ms 缃戠粶寰€杩旓紝
-    // 杩欐鏃堕棿濡傛灉浠€涔堥兘涓嶅仛锛孋hatView 浼氬洜涓?(!sessionId && !isBusy) 浠嶅仠鐣欏湪 WelcomeView锛?
+    // session 创建期间先显示派发态和 pending 预览，避免 WelcomeView 闪回。
     // 鐢ㄦ埛鐪嬩笉鍒拌嚜宸卞垰鍙戠殑娑堟伅锛屼篃鐪嬩笉鍒?ftre..."鍗犱綅銆?
-    // 杩欓噷鍏堝悓姝ユ妸 isBusy 鍜?userMsg 椤跺埌 store top-level锛岃 UI 绔嬪嵆鍒囧埌瀵硅瘽瑙嗗浘銆?
+    // 这里先把派发态和 pending 预览写入 store top-level，让 UI 立即切换到对话视图。
     // fetch 杩斿洖鍚?send() 鈫?bucket.push(userMsg) 鈫?mirror() 浼氬啀娆″啓鍥炲悓涓€浠?messages锛?
     // 鍐呭涓€鑷达紝涓嶄細闂儊涔熶笉浼氶噸澶嶃€?
     if (pendingNewSessionSends.length >= MAX_PENDING_NEW_SESSION_SENDS) {
@@ -647,7 +642,6 @@ export const useChat = create<ChatState>((set, get) => ({
     }
     pendingNewSessionSends.push(outbound);
     set({
-      isBusy: true,
       sessionStatus: "running",
       sessionActivity: "dispatching",
       // 新 session 还没有 bucket；先在顶层投影显示同一套 pending 横幅。
@@ -675,7 +669,6 @@ export const useChat = create<ChatState>((set, get) => ({
           if (generation !== pendingSessionGeneration) return;
           pendingNewSessionSends = [];
           set({
-            isBusy: false,
             sessionStatus: "idle",
             sessionActivity: "idle",
             queueDepth: 0,
@@ -696,7 +689,6 @@ export const useChat = create<ChatState>((set, get) => ({
     const b = bucket(sid);
     if (b.hasCoordinatorState && !b.canCancel) return;
     b.sessionActivity = "cancelling";
-    b.isBusy = true;
     b.sessionStatus = "running";
     b.canCancel = false;
     mirror(sid);
@@ -711,7 +703,6 @@ export const useChat = create<ChatState>((set, get) => ({
     // 这样发送失败、校验失败时仍能超时解锁并重试。
     const b = bucket(sid);
     if (!b.hasCoordinatorState) {
-      b.isBusy = true;
       b.sessionStatus = "running";
       b.sessionActivity = "executing";
       b.canCancel = true;
@@ -740,7 +731,6 @@ export const useChat = create<ChatState>((set, get) => ({
       clientCanSend: true,
       canCancel: false,
       blockedReason: null,
-      isBusy: false,
       error: null,
       retryState: null,
       tokenUsage: null,
@@ -767,7 +757,6 @@ export const useChat = create<ChatState>((set, get) => ({
       clientCanSend: b.clientCanSend,
       canCancel: b.canCancel,
       blockedReason: b.blockedReason,
-      isBusy: b.isBusy,
       error: b.error,
       retryState: b.retryState,
       tokenUsage: null,
@@ -792,7 +781,6 @@ export const useChat = create<ChatState>((set, get) => ({
       : status === "compacting"
         ? "compacting"
         : "executing";
-    b.isBusy = status !== "idle";
     b.clientCanSend = status !== "compacting";
     b.canCancel = status === "running";
     if (status === "running") {
@@ -910,8 +898,9 @@ export const useChat = create<ChatState>((set, get) => ({
 
 export const useMessageIds = () => useChat(useShallow((s) => s.messages.map((m) => m.id)));
 export const useMessageById = (id: string) => useChat((s) => s.messages.find((m) => m.id === id));
-export const useIsBusy = () => useChat((s) => s.isBusy);
-export const useIsStreaming = () => useChat((s) => s.isBusy);
+export const useIsStreaming = () => useChat((s) => hasStreamingAssistant(s.messages));
+export const useHasPendingWork = () => useChat((s) => hasPendingWork(s.queueDepth, s.pendingMessages));
+export const useHasActiveTurn = () => useChat((s) => hasActiveTurn(s.sessionStatus, s.sessionActivity));
 export const useModel = () => useChat((s) => s.model);
 export const useProvider = () => useChat((s) => s.provider);
 export const useSessionId = () => useChat((s) => s.sessionId);

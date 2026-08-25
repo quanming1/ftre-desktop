@@ -14,6 +14,7 @@ import {
 import { Icon } from "@iconify/react";
 import { Tooltip } from "@ftre/ui";
 import { useChat, type ChatMessage, type RetryState } from "@/stores/chat";
+import { hasActiveTurn, hasPendingWork, hasRuntimeActivity } from "@/stores/runtimeState";
 import { useSession } from "@/stores/session";
 import { useInspector } from "@/stores/inspector";
 import { useLayout } from "@/stores/layout";
@@ -154,10 +155,10 @@ export function RunContextPanel() {
   const messages = useChat((state) => Array.isArray(state.messages) ? state.messages : []);
   const sessionId = useChat((state) => state.sessionId);
   const pendingWorkspace = useChat((state) => state.pendingWorkspace);
-  const isBusy = useChat((state) => state.isBusy);
   const sessionStatus = useChat((state) => state.sessionStatus);
   const sessionActivity = useChat((state) => state.sessionActivity);
   const queueDepth = useChat((state) => state.queueDepth);
+  const pendingMessages = useChat((state) => state.pendingMessages);
   const blockedReason = useChat((state) => state.blockedReason);
   const turnStartTs = useChat((state) => state.turnStartTs);
   const plan = useChat((state) => state.plan);
@@ -174,11 +175,13 @@ export function RunContextPanel() {
   }>({ branch: null, isGitRepo: false });
   const [workspaceGitFiles, setWorkspaceGitFiles] = useState<GitFile[]>([]);
 
-  const hasRunContext = isBusy || sessionStatus !== "idle" || turnStartTs != null;
+  const hasRunContext = hasRuntimeActivity(sessionStatus, sessionActivity, turnStartTs)
+    || hasPendingWork(queueDepth, pendingMessages);
+  const activeTurn = hasActiveTurn(sessionStatus, sessionActivity);
   const runningDuration = turnStartTs ? formatRunningDuration(now - turnStartTs) : null;
   const model = useMemo(
-    () => resolveRunningBannerModel({ isBusy, sessionStatus, messages, storeModel }),
-    [isBusy, sessionStatus, messages, storeModel],
+    () => resolveRunningBannerModel({ sessionStatus, messages, storeModel }),
+    [sessionStatus, messages, storeModel],
   );
   const label = getRunLabel({
     sessionStatus,
@@ -190,8 +193,8 @@ export function RunContextPanel() {
     turnStartTs,
   });
   const fileChanges = useMemo(
-    () => collectActiveTurnFileChanges(messages, isBusy),
-    [messages, isBusy],
+    () => collectActiveTurnFileChanges(messages, activeTurn),
+    [messages, activeTurn],
   );
   const planSteps = plan?.steps ?? [];
   const completedCount = planSteps.filter((step) => step.status === "completed").length;

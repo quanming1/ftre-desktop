@@ -80,7 +80,6 @@ describe("chat store", () => {
       sessionId: "s1",
       sessionStatus: "idle",
       sessionActivity: "idle",
-      isBusy: false,
       pendingMessages: [],
       queueDepth: 0,
     });
@@ -93,7 +92,6 @@ describe("chat store", () => {
 
     expect(useChat.getState()).toMatchObject({
       sessionStatus: "idle",
-      isBusy: false,
       pendingMessages: [],
     });
   });
@@ -153,7 +151,6 @@ describe("chat store", () => {
   it("applies idle status after a queue snapshot so completed actions appear immediately", () => {
     useChat.setState({
       sessionId: "s-completed-actions",
-      isBusy: true,
       sessionStatus: "running",
       sessionActivity: "executing",
       pendingMessages: [],
@@ -178,7 +175,6 @@ describe("chat store", () => {
       hasCoordinatorState: true,
       sessionStatus: "idle",
       sessionActivity: "idle",
-      isBusy: false,
       canCancel: false,
     });
   });
@@ -363,6 +359,7 @@ describe("chat store", () => {
     });
 
     const reply = projection.messages.find((message) => message.id === "reply-snapshot-dedupe");
+    expect(reply?.finishedAt).toBe(Date.parse("2026-08-21T00:00:01Z"));
     const toolCalls = reply?.blocks?.filter(
       (block): block is Extract<ContentBlock, { type: "toolCall" }> => block.type === "toolCall",
     );
@@ -376,7 +373,6 @@ describe("chat store", () => {
     useChat.setState({
       sessionId: "s1",
       messages: [{ id: "u1", role: "user", content: "hello", timestamp: 1 }],
-      isBusy: true,
       sessionStatus: "running",
     });
 
@@ -385,7 +381,6 @@ describe("chat store", () => {
     expect(useChat.getState()).toMatchObject({
       sessionId: null,
       messages: [],
-      isBusy: false,
       sessionStatus: "idle",
     });
     expect(wsClient.subscribeOnly).toHaveBeenCalledWith(null);
@@ -417,7 +412,6 @@ describe("chat store", () => {
     const { wsClient } = await import("@/services/websocket-client");
     useChat.setState({
       sessionId: "s-running",
-      isBusy: true,
       sessionStatus: "running",
       sessionActivity: "executing",
       clientCanSend: true,
@@ -452,7 +446,6 @@ describe("chat store", () => {
       clientCanSend: true,
       canCancel: false,
       blockedReason: null,
-      isBusy: false,
       sessionStatus: "idle" as const,
       retryState: null,
       commandName: null,
@@ -496,7 +489,6 @@ describe("chat store", () => {
       clientCanSend: true,
       canCancel: true,
       blockedReason: null,
-      isBusy: true,
       sessionStatus: "running" as const,
       retryState: null,
       commandName: null,
@@ -537,7 +529,6 @@ describe("chat store", () => {
       clientCanSend: true,
       canCancel: true,
       blockedReason: null,
-      isBusy: true,
       sessionStatus: "running" as const,
       retryState: null,
       commandName: null,
@@ -589,7 +580,6 @@ describe("chat store", () => {
       clientCanSend: true,
       canCancel: false,
       blockedReason: null,
-      isBusy: true,
       sessionStatus: "running" as const,
       retryState: null,
       commandName: null,
@@ -633,7 +623,6 @@ describe("chat store", () => {
       clientCanSend: true,
       canCancel: false,
       blockedReason: null,
-      isBusy: true,
       sessionStatus: "running" as const,
       retryState: null,
       commandName: null,
@@ -675,7 +664,6 @@ describe("chat store", () => {
       clientCanSend: true,
       canCancel: true,
       blockedReason: null,
-      isBusy: true,
       sessionStatus: "running" as const,
       retryState: null,
       commandName: null,
@@ -725,7 +713,6 @@ describe("chat store", () => {
       clientCanSend: true,
       canCancel: true,
       blockedReason: null,
-      isBusy: true,
       sessionStatus: "running" as const,
       retryState: null,
       commandName: null,
@@ -838,7 +825,6 @@ describe("chat store", () => {
       clientCanSend: true,
       canCancel: true,
       blockedReason: null,
-      isBusy: true,
       sessionStatus: "running" as const,
       retryState: null,
       commandName: null,
@@ -906,7 +892,6 @@ describe("chat store", () => {
       clientCanSend: true,
       canCancel: true,
       blockedReason: null,
-      isBusy: true,
       sessionStatus: "running" as const,
       retryState: null,
       commandName: null,

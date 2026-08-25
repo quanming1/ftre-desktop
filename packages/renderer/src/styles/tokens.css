@@ -18,8 +18,11 @@ html[data-theme="dark"] {
   --ftre-bg-elevated: #252526;
   --ftre-bg-panel: #2d2d2d;
   --ftre-bg-menu: #252526;
-  /* Composer 的唯一 Surface；队列与输入框必须共用这一层。 */
+  /* 队列 Surface；输入框使用独立的 input Surface。 */
   --ftre-bg-composer: #252526;
+  --ftre-bg-input: #252526;
+  --ftre-bg-user-message: #2d2d2d;
+  --ftre-border-input: rgba(255, 255, 255, 0.08);
   --ftre-bg-hover: rgba(255, 255, 255, 0.06);
   --ftre-bg-active: rgba(255, 255, 255, 0.08);
 
@@ -76,8 +79,11 @@ html[data-theme="light"] {
   --ftre-bg-elevated: #f5f5f5;
   --ftre-bg-panel: #f0f0f1;
   --ftre-bg-menu: #ffffff;
-  /* Composer 的唯一 Surface；队列与输入框必须共用这一层。 */
+  /* 队列 Surface；输入框使用更柔和的浅色 Surface。 */
   --ftre-bg-composer: #f3f4f6;
+  --ftre-bg-input: #f9f9f7;
+  --ftre-bg-user-message: #f9f9f7;
+  --ftre-border-input: rgba(15, 23, 42, 0.07);
   --ftre-bg-hover: rgba(0, 0, 0, 0.04);
   --ftre-bg-active: rgba(0, 0, 0, 0.06);
 

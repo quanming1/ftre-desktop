@@ -12,6 +12,7 @@ import { Slate, Editable, ReactEditor } from "slate-react";
 import { Range } from "slate";
 import { ArrowUp, Box, ChevronRight, Paperclip, Plus, Terminal, X } from "lucide-react";
 import { useChat, type MessageAttachment } from "@/stores/chat";
+import { hasActiveTurn } from "@/stores/runtimeState";
 import { useLayout } from "@/stores/layout";
 import { useInspector } from "@/stores/inspector";
 import { useSession } from "@/stores/session";
@@ -332,8 +333,8 @@ export function ChatInput({ onComposerOverlayHeightChange }: ChatInputProps = {}
   }, []);
 
   // 细粒度选择器：仅订阅各自需要的字段，避免无关状态变化触发重渲染
-  const isBusy = useChat((s) => s.isBusy);
   const sessionStatus = useChat((s) => s.sessionStatus);
+  const sessionActivity = useChat((s) => s.sessionActivity);
   const clientCanSend = useChat((s) => s.clientCanSend);
   const canCancel = useChat((s) => s.canCancel);
   const hasCoordinatorState = useChat((s) => s.hasCoordinatorState);
@@ -401,15 +402,15 @@ export function ChatInput({ onComposerOverlayHeightChange }: ChatInputProps = {}
     return commandList.filter(
       (c) => {
         if (c.command.startsWith("/skill:")) return false;
-        // /cancel 仅在 session running 时展示
-        if (c.command === "/cancel" && !isBusy) return false;
+        // /cancel 只在确实存在可取消的活动 Turn 时展示。
+        if (c.command === "/cancel" && !canCancel) return false;
         return (
           c.command.toLowerCase().includes(q) ||
           c.description.toLowerCase().includes(q)
         );
       },
     );
-  }, [skillSearch, commandList, isBusy]);
+  }, [skillSearch, commandList, canCancel]);
 
   // 过滤候选 skill（从指令列表中筛选 /skill: 开头的）
   const skillCandidates = useMemo(() => {
@@ -779,17 +780,19 @@ export function ChatInput({ onComposerOverlayHeightChange }: ChatInputProps = {}
   }, []);
 
   const hasDraft = hasText || attachments.length > 0;
+  const activeTurn = hasActiveTurn(sessionStatus, sessionActivity);
   const turnFileChanges = useMemo(
     // pending 只有在新 user 尚未回显时才代表“新一轮”；USER_MESSAGE 到达后，
     // 即使队列快照短暂滞后，也必须继续展示当前轮已经完成的文件修改。
-    // 流式结束后由 isBusy 关闭这个摘要浮窗，完整审查入口仍保留在消息卡片中。
+    // Agent Turn 结束后由 activeTurn 关闭这个摘要浮窗，完整审查入口仍保留在消息卡片中。
     () => shouldShowTurnFileChangesSummary(
       messages,
-      isBusy,
+      activeTurn,
       pendingMessages.length,
       lastUserInputTs,
+      sessionStatus === "compacting",
     ) ? collectLatestTurnFileChanges(messages) : [],
-    [isBusy, messages, pendingMessages.length, lastUserInputTs],
+    [activeTurn, messages, pendingMessages.length, lastUserInputTs, sessionStatus],
   );
   const turnWorkspace = useMemo(() => {
     if (!sessionId) return "";
@@ -816,8 +819,7 @@ export function ChatInput({ onComposerOverlayHeightChange }: ChatInputProps = {}
     sessionStatus !== "compacting"
     && (!hasCoordinatorState || clientCanSend)
     && hasDraft;
-  const showCancel = isBusy
-    && (hasCoordinatorState ? canCancel : sessionStatus === "running");
+  const showCancel = hasCoordinatorState ? canCancel : activeTurn;
   // 运行中没有待发送内容时显示停止；用户开始输入后，原位置切换为发送。
   const showStopButton = showCancel && !hasDraft;
 
@@ -839,7 +841,7 @@ export function ChatInput({ onComposerOverlayHeightChange }: ChatInputProps = {}
             onDragOver={handleDragOver}
             onDragLeave={handleDragLeave}
             onDrop={handleDrop}
-            className={`relative rounded-3xl border border-black/10 bg-composer transition-shadow focus-within:shadow-[0_2px_12px_rgba(15,23,42,0.08),inset_0_1px_0_rgba(255,255,255,0.6)] ${
+            className={`relative rounded-3xl border border-input-border bg-input transition-shadow focus-within:shadow-[0_2px_12px_rgba(15,23,42,0.08),inset_0_1px_0_rgba(255,255,255,0.6)] ${
               isDragging ? "border-neon/50 ring-1 ring-neon/30" : ""
             }`}
           >

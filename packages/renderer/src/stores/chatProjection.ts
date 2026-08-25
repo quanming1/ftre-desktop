@@ -138,9 +138,7 @@ export function applyQueueSnapshot(
   b.clientCanSend = b.clientCanSend ?? true;
   b.canCancel = b.canCancel ?? false;
   b.blockedReason = b.blockedReason ?? null;
-  b.isBusy = b.isBusy || queueDepth > 0;
   if (b.sessionStatus === "idle" && queueDepth === 0) {
-    b.isBusy = false;
     b.commandName = null;
     b.turnStartTs = null;
   }
@@ -227,6 +225,7 @@ function replySnapshotToChatMessage(raw: any): ChatMessage | null {
   }
   const { text } = extractFromBlocks(blocks);
   const parsedTimestamp = typeof raw.created_at === "string" ? Date.parse(raw.created_at) : NaN;
+  const parsedFinishedAt = typeof raw.finished_at === "string" ? Date.parse(raw.finished_at) : NaN;
   const metadata = raw.metadata && typeof raw.metadata === "object" ? raw.metadata : {};
   return {
     id: String(raw.id),
@@ -239,6 +238,7 @@ function replySnapshotToChatMessage(raw: any): ChatMessage | null {
     metadata,
     model: typeof metadata.model === "string" ? metadata.model : undefined,
     token: raw.token ?? undefined,
+    finishedAt: Number.isFinite(parsedFinishedAt) ? parsedFinishedAt : undefined,
     isError: raw.finished_reason === "error" || !!raw.error,
     error: raw.error && typeof raw.error === "object" && typeof raw.error.message === "string"
       ? { code: typeof raw.error.code === "string" ? raw.error.code : undefined, message: raw.error.message }
@@ -284,9 +284,6 @@ export function applyReplySnapshot(b: SessionProjectionState, payload: ReplySnap
       b.messages = next;
     } else {
       b.messages = [...b.messages, message].sort((a, z) => a.timestamp - z.timestamp);
-    }
-    if (!b.hasCoordinatorState) {
-      b.isBusy = message.streaming || b.isBusy;
     }
     if (message.streaming) {
       if (!b.hasCoordinatorState) {
@@ -650,7 +647,6 @@ export function applyEvent(b: SessionProjectionState, ev: BusEvent): void {
     case "REPLY_START": {
       ensure();
       if (!b.hasCoordinatorState) {
-        b.isBusy = true;
         b.sessionStatus = "running";
         b.sessionActivity = "executing";
         b.clientCanSend = true;
@@ -950,9 +946,8 @@ export function applyEvent(b: SessionProjectionState, ev: BusEvent): void {
       const phase = d.name;
       const phaseData = d.value || {};
       if (phase === "PIPELINE_START") {
-        // pipeline 开始：立即标记忙
+        // pipeline 开始：进入派发态
         if (!b.hasCoordinatorState) {
-          b.isBusy = true;
           b.sessionStatus = "running";
           b.sessionActivity = "dispatching";
           b.clientCanSend = true;
@@ -964,7 +959,6 @@ export function applyEvent(b: SessionProjectionState, ev: BusEvent): void {
       if (phase === "PIPELINE_END") {
         // pipeline 结束：恢复空闲，清除 Turn 级临时状态
         if (!b.hasCoordinatorState) {
-          b.isBusy = false;
           b.sessionStatus = "idle";
           b.sessionActivity = "idle";
           b.canCancel = false;
@@ -975,7 +969,6 @@ export function applyEvent(b: SessionProjectionState, ev: BusEvent): void {
       if (phase === "COMMAND_MATCHED") {
         // 指令命中：状态栏更新为"执行指令..."
         if (!b.hasCoordinatorState) {
-          b.isBusy = true;
           b.sessionStatus = "running";
           b.sessionActivity = "dispatching";
           b.canCancel = true;
@@ -985,7 +978,6 @@ export function applyEvent(b: SessionProjectionState, ev: BusEvent): void {
       }
       if (phase === "TURN_START") {
         if (!b.hasCoordinatorState) {
-          b.isBusy = true;
           b.sessionStatus = "running";
           b.sessionActivity = "executing";
           b.clientCanSend = true;
@@ -1000,7 +992,6 @@ export function applyEvent(b: SessionProjectionState, ev: BusEvent): void {
       // ── 上下文压缩事件（CustomEvent，与后端 compact done 投影的 Msg 同 id）──
       if (phase === CompactEventName.START) {
         if (!b.hasCoordinatorState) {
-          b.isBusy = true;
           b.sessionStatus = "compacting";
           b.sessionActivity = "compacting";
           b.clientCanSend = false;
@@ -1026,7 +1017,6 @@ export function applyEvent(b: SessionProjectionState, ev: BusEvent): void {
       }
       if (phase === CompactEventName.DONE) {
         if (!b.hasCoordinatorState) {
-          b.isBusy = false;
           b.sessionStatus = "idle";
           b.sessionActivity = "idle";
           b.clientCanSend = true;
@@ -1072,7 +1062,6 @@ export function applyEvent(b: SessionProjectionState, ev: BusEvent): void {
       }
       if (phase === CompactEventName.FAILED) {
         if (!b.hasCoordinatorState) {
-          b.isBusy = false;
           b.sessionStatus = "idle";
           b.sessionActivity = "idle";
           b.clientCanSend = true;
@@ -1101,7 +1090,6 @@ export function applyEvent(b: SessionProjectionState, ev: BusEvent): void {
 
       replaceTail((m) => m.streaming ? { ...m, streaming: false } : m);
       if (!b.hasCoordinatorState) {
-        b.isBusy = false;
         b.sessionStatus = "idle";
         b.sessionActivity = "idle";
         b.canCancel = false;
@@ -1113,7 +1101,11 @@ export function applyEvent(b: SessionProjectionState, ev: BusEvent): void {
         const durationSec = Math.round((ts - b.turnStartTs) / 1000);
         for (let i = b.messages.length - 1; i >= 0; i--) {
           if (b.messages[i].role === "assistant" && !b.messages[i].streaming) {
-            b.messages[i] = { ...b.messages[i], durationSec };
+            b.messages[i] = {
+              ...b.messages[i],
+              durationSec,
+              finishedAt: ts,
+            };
             break;
           }
         }

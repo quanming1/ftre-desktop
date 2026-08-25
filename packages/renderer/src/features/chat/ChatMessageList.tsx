@@ -31,10 +31,12 @@ import { shouldShowTurnActions } from "./turnActions";
 
 export interface ChatMessageListProps {
   messages: ChatMessage[];
-  /** Whether the agent is currently processing (shows typing indicator) */
-  isBusy?: boolean;
+  /** Agent 正在执行当前 Turn；队列 pending 或压缩不属于普通处理中占位。 */
+  hasActiveTurn?: boolean;
   /** Number of locally queued messages before the first user echo arrives. */
   pendingMessagesCount?: number;
+  /** Compaction has its own status bubble; do not render the generic thinking placeholder. */
+  isCompacting?: boolean;
   /** Auto-scroll to bottom on new messages */
   autoScroll?: boolean;
   /** Max height CSS value (default: none, fills parent) */
@@ -53,8 +55,9 @@ export interface ChatMessageListProps {
 
 export const ChatMessageList = memo(function ChatMessageList({
   messages,
-  isBusy = false,
+  hasActiveTurn = false,
   pendingMessagesCount = 0,
+  isCompacting = false,
   autoScroll = true,
   maxHeight,
   className = "",
@@ -114,11 +117,11 @@ export const ChatMessageList = memo(function ChatMessageList({
   );
 
   // 新一轮流开始 → 强制重新跟随
-  const prevBusy = useRef(false);
+  const prevActiveTurn = useRef(false);
   useEffect(() => {
-    if (isBusy && !prevBusy.current) resetLock();
-    prevBusy.current = isBusy;
-  }, [isBusy, resetLock]);
+    if (hasActiveTurn && !prevActiveTurn.current) resetLock();
+    prevActiveTurn.current = hasActiveTurn;
+  }, [hasActiveTurn, resetLock]);
 
   // ─── 尾部消息指纹 —— 覆盖流式期间所有增量来源 ─────────────────
   // 流式期间 messages.length 不变，但最后一条的 content/parts/toolCalls 在涨。
@@ -213,7 +216,7 @@ export const ChatMessageList = memo(function ChatMessageList({
           </div>
         )}
 
-        {safeMessages.length === 0 && !isBusy && (
+        {safeMessages.length === 0 && !hasActiveTurn && (
           <div className="text-center text-t-dim text-sm py-12">
             No messages
           </div>
@@ -225,7 +228,7 @@ export const ChatMessageList = memo(function ChatMessageList({
             msg.role === "assistant" &&
             !msg.streaming &&
             (!next || next.role !== "assistant");
-          const showTurnActions = shouldShowTurnActions(safeMessages, i, isBusy);
+          const showTurnActions = shouldShowTurnActions(safeMessages, i, hasActiveTurn);
 
           // 本轮所有 assistant 消息的文本列表（从上一个 user 消息之后到本条）
           let turnTexts: string[] | undefined;
@@ -259,11 +262,12 @@ export const ChatMessageList = memo(function ChatMessageList({
               turnId={msg.id}
               turnDurationSec={msg.durationSec}
               turnModel={msg.model}
+              turnFinishedAt={msg.finishedAt}
             />
           );
         })}
 
-        {shouldShowThinkingPlaceholder(safeMessages, isBusy, pendingMessagesCount) && (
+        {!isCompacting && shouldShowThinkingPlaceholder(safeMessages, hasActiveTurn, pendingMessagesCount) && (
           <div
             data-testid="thinking-placeholder"
             className="py-3"
@@ -304,6 +308,7 @@ const MessageItem = memo(function MessageItem({
   turnId,
   turnDurationSec,
   turnModel,
+  turnFinishedAt,
 }: {
   message: ChatMessage;
   showActions?: boolean;
@@ -317,6 +322,7 @@ const MessageItem = memo(function MessageItem({
   turnDurationSec?: number;
   /** 本轮使用的模型 ID */
   turnModel?: string;
+  turnFinishedAt?: number;
 }) {
   if (message.role === "user") {
     return <UserMessage message={message} />;
@@ -331,6 +337,7 @@ const MessageItem = memo(function MessageItem({
         turnId={turnId}
         turnDurationSec={turnDurationSec}
         turnModel={turnModel}
+        turnFinishedAt={turnFinishedAt}
       />
     );
   }

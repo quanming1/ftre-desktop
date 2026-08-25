@@ -17,6 +17,9 @@
     --color-elevated: var(--ftre-bg-elevated);
     --color-panel: var(--ftre-bg-panel);
     --color-composer: var(--ftre-bg-composer);
+    --color-input: var(--ftre-bg-input);
+    --color-user-message: var(--ftre-bg-user-message);
+    --color-input-border: var(--ftre-border-input);
     --color-hover: var(--ftre-bg-hover);
     --color-active: var(--ftre-bg-active);
     --color-tool-card: var(--ftre-bg-tool-card);

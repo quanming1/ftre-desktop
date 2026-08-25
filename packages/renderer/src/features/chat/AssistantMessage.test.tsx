@@ -376,6 +376,62 @@ describe("AssistantMessage collapsed display", () => {
     expect(title.querySelector(".text-red-500")).toHaveTextContent("-3");
   });
 
+  it("在消息底部显示 assistant 完成时间，并统一元数据颜色", () => {
+    render(<AssistantMessage
+      message={{
+        id: "reply-finished-at",
+        role: "assistant",
+        content: "完成",
+        timestamp: 1,
+        streaming: false,
+        finishedAt: Date.UTC(2026, 7, 25, 8, 0, 1),
+        model: "deepseek-v4-flash",
+        token: {
+          usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 },
+          last_call_usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 },
+        },
+        blocks: [{ type: "text", text: "完成", blockId: "text-finished-at" }],
+      }}
+      showActions
+      turnModel="deepseek-v4-flash"
+      turnFinishedAt={Date.UTC(2026, 7, 25, 8, 0, 1)}
+    />);
+
+    const finished = screen.getByText(/^(刚刚|\d+[mhd])$/);
+    expect(finished).toHaveAttribute("title", expect.stringContaining("结束时间："));
+    expect(finished).toHaveClass("text-t-faint");
+    expect(finished).not.toHaveClass("font-mono");
+    expect(screen.getByLabelText("复制")).toHaveClass("text-t-faint");
+    expect(screen.getByTitle("Input tokens: 10; Output tokens: 5")).toHaveClass("text-t-faint");
+    expect(screen.getByLabelText("Input tokens: 10")).toHaveTextContent("10");
+    expect(screen.getByLabelText("Output tokens: 5")).toHaveTextContent("5");
+    expect(screen.getByText("deepseek-v4-flash")).toHaveClass("text-t-faint");
+  });
+
+  it("结束超过一周时显示绝对时间", () => {
+    const finishedAt = Date.UTC(2026, 7, 1, 8, 0, 1);
+    const now = finishedAt + 8 * 24 * 60 * 60 * 1000;
+    const dateNow = vi.spyOn(Date, "now").mockReturnValue(now);
+    try {
+      render(<AssistantMessage
+        message={{
+          id: "reply-old-finished-at",
+          role: "assistant",
+          content: "完成",
+          timestamp: 1,
+          streaming: false,
+          finishedAt,
+          blocks: [{ type: "text", text: "完成", blockId: "text-old-finished-at" }],
+        }}
+        showActions
+        turnFinishedAt={finishedAt}
+      />);
+      expect(screen.getByText(/^\d{4} \d{2} \d{2} \d{2}:\d{2}:\d{2}$/)).toBeInTheDocument();
+    } finally {
+      dateNow.mockRestore();
+    }
+  });
+
   it("长命令折叠标题保持单行并以省略号截断", () => {
     const command = "pnpm --filter @ftre/renderer exec vitest run src/features/chat/AssistantMessage.test.tsx --coverage";
     render(<AssistantMessage message={{

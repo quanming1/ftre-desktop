@@ -222,6 +222,38 @@ stages:
             title: 客户端全量测试、构建与跨仓验收
             status: done
 
+      - id: B6
+        title: 客户端运行状态语义收敛
+        status: done
+        date: 2026-08-25
+        prd: docs/prd/PRD-B6-runtime-state-semantic-cleanup.md
+        prd_status: 已验收
+        completed_date: 2026-08-25
+        depends_on:
+          - B5
+        implementation_boundary: 只修改 renderer 状态投影、聊天 UI、测试和文档；不修改 WebSocket 协议、Inbox、Agent Core 或 Electron 主进程
+        modules:
+          - packages/renderer/src/stores/chat.ts
+          - packages/renderer/src/stores/chatProjection.ts
+          - packages/renderer/src/stores/clientSessionProjection.ts
+          - packages/renderer/src/features/chat/
+        acceptance: UI 不再用 isBusy 判断具体业务语义；执行、压缩、派发、队列、取消和流式状态分别消费精确字段；全量测试、tsc、build 和 diff check 通过
+
+      - id: B7
+        title: 会话列表信息 Tooltip 化
+        status: done
+        date: 2026-08-25
+        prd: docs/prd/PRD-B7-session-list-tooltip.md
+        prd_status: 已验收
+        completed_date: 2026-08-25
+        depends_on:
+          - B6
+        implementation_boundary: 只修改 renderer 会话列表组件、测试和文档；不修改 SessionSummary 协议、后端、WebSocket、排序分页或 Electron 主进程
+        modules:
+          - packages/renderer/src/features/session/SessionPanel.tsx
+          - packages/renderer/src/features/session/SessionPanel.test.tsx
+        acceptance: SessionRow 固定单行；desc 不再常驻；悬停 Tooltip 展示标题、最后消息、工作区和相对时间；点击、菜单、置顶、运行、未读和拖拽行为不回归；renderer test、tsc、build、diff check 全部通过
+
   - id: C
     name: 扩展功能
     steps:
