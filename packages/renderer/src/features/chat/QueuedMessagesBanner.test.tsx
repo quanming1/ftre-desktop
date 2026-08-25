@@ -3,17 +3,24 @@ import { describe, expect, it, vi } from "vitest";
 import type { QueueItemView } from "@/services/websocket-client";
 import { QueuedMessagesBanner } from "./QueuedMessagesBanner";
 
-const { cancelQueuedMessage, addNotification } = vi.hoisted(() => ({
+const { cancelQueuedMessage, promoteQueueItemToSteer, addNotification } = vi.hoisted(() => ({
   cancelQueuedMessage: vi.fn(),
+  promoteQueueItemToSteer: vi.fn(),
   addNotification: vi.fn(),
 }));
 
 vi.mock("@/services/api", () => ({
   cancelQueuedMessage: (...args: unknown[]) => cancelQueuedMessage(...args),
 }));
+vi.mock("@/services/websocket-client", () => ({
+  wsClient: { promoteQueueItemToSteer: (...args: unknown[]) => promoteQueueItemToSteer(...args) },
+}));
 vi.mock("@/stores/chat", () => ({
-  useChat: (selector: (state: { sessionId: string }) => unknown) =>
-    selector({ sessionId: "ws_sess_queue" }),
+  useChat: (selector: (state: {
+    sessionId: string;
+  }) => unknown) => selector({
+    sessionId: "ws_sess_queue",
+  }),
 }));
 vi.mock("@/stores/notification", () => ({
   useNotification: (selector: (state: { addNotification: typeof addNotification }) => unknown) =>
@@ -44,5 +51,38 @@ describe("QueuedMessagesBanner", () => {
       expect(cancelQueuedMessage).toHaveBeenCalledWith("ws_sess_queue", "request-one");
     });
     expect(addNotification).not.toHaveBeenCalled();
+  });
+
+  it("promotes a queued item to steer without removing it optimistically", async () => {
+    promoteQueueItemToSteer.mockResolvedValueOnce({
+      session_id: "ws_sess_queue",
+      revision: 1,
+      items: [],
+    });
+    render(<QueuedMessagesBanner items={[{
+      ...item("request-steer", "插入下一轮"),
+      placement: "queued",
+    }]} />);
+    fireEvent.click(screen.getByRole("button", { name: /消息队列/ }));
+    fireEvent.click(screen.getByRole("button", { name: "插入当前运行：插入下一轮" }));
+    await waitFor(() => {
+      expect(promoteQueueItemToSteer).toHaveBeenCalledWith("ws_sess_queue", "request-steer");
+    });
+    expect(screen.getByText("插入下一轮")).toBeInTheDocument();
+    expect(addNotification).not.toHaveBeenCalled();
+  });
+
+  it("keeps queued state and reports an upgrade failure", async () => {
+    promoteQueueItemToSteer.mockRejectedValueOnce(new Error("网络断开"));
+    render(<QueuedMessagesBanner items={[{
+      ...item("request-failed", "稍后重试"),
+      placement: "queued",
+    }]} />);
+    fireEvent.click(screen.getByRole("button", { name: /消息队列/ }));
+    fireEvent.click(screen.getByRole("button", { name: "插入当前运行：稍后重试" }));
+    await waitFor(() => {
+      expect(addNotification).toHaveBeenCalledWith({ level: "error", message: "网络断开" });
+    });
+    expect(screen.getByText("稍后重试")).toBeInTheDocument();
   });
 });
