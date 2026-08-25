@@ -73,8 +73,10 @@ master（仅发布，永不直接提交）← develop（默认基底，只接受
 
 <ws_protocol>
 与后端走 WebSocket（services/websocket-client.ts）+ HTTP（services/api.ts）双通道：
-- 队列快照：session/queue → `{session_id, items}`；active 状态独立走 session/status
-- durable admission：session.prompt 使用 request_id，等待 RPC `{ok, value}` ACK（outbox 断线保留 + 重连重发）
+- 队列快照：session/queue → `{session_id, revision, items}`；active 状态独立走 session/status
+- durable admission：session.prompt 与 session.updateQueue 成功后直接返回带 `request_id` 的
+  `session/queue` Queue Operation Response（outbox 断线保留 + 重连重发）；不再维护独立
+  admission ACK。session.cancel 不修改 Inbox，仍使用独立控制 ACK。
 - 取消：session.cancel 携带 expected_request_id 精确取消 active Turn；HTTP DELETE /sessions/{id}/queue/{requestId}
 - WS Log 审计：ws-log-collector 采集 in/out/system 帧，Inspector WS Logs tab 查询
 </ws_protocol>

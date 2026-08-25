@@ -130,6 +130,98 @@ stages:
           - WsLogInspectorPanel / Inspector WS Logs tab
         acceptance: WS 帧被正确采集，Inspector WS Logs tab 可查询，日志文件持久化
 
+      - id: B3
+        title: Runtime Steering 队列交互
+        status: done
+        date: 2026-08-24
+        prd: docs/prd/PRD-B3-runtime-steering.md
+        prd_status: 已验收
+        completed_date: 2026-08-24
+        depends_on:
+          - B1
+        implementation_boundary: 只修改 renderer WebSocket/chat 投影、队列横幅和测试；后端协议与 Inbox 由 ftre F22 独立 PR 提供
+        modules:
+          - packages/renderer/src/services/websocket-client.ts
+          - packages/renderer/src/stores/chat.ts
+          - packages/renderer/src/features/chat/QueuedMessagesBanner.tsx
+        acceptance: 普通消息先进入 queued；用户点击按钮后同一 request_id 升级为 steering；Tool 完成后 USER_MESSAGE 先进入 MessageList，队列随后消失；断线/乱序/重复事件不造成视觉空窗；pnpm test、tsc 和跨仓 Gateway smoke 通过
+        tasks:
+          - id: B3.1
+            title: placement 与 queue→steer 投影
+            status: done
+          - id: B3.2
+            title: Steering 按钮、ACK 与失败重试
+            status: done
+          - id: B3.3
+            title: USER_MESSAGE/队列无空窗交接
+            status: done
+          - id: B3.4
+            title: 客户端回归、类型检查与跨仓 E2E
+            status: done
+
+      - id: B4
+        title: Steering 多 AssistantMessage 客户端投影
+        status: done
+        date: 2026-08-24
+        prd: docs/prd/PRD-B4-steering-message-projection.md
+        prd_status: 已验收
+        completed_date: 2026-08-24
+        depends_on:
+          - B3
+        paired_stage: E:\ftre-agent-core C4；E:\ftre F23
+        implementation_boundary: 只修改 renderer WebSocket/chat projection/queue UI 与测试；不实现 Core、Inbox、Session 或 claim
+        modules:
+          - packages/renderer/src/services/websocket-client.ts
+          - packages/renderer/src/stores/chat.ts
+          - packages/renderer/src/stores/clientSessionProjection.ts
+          - packages/renderer/src/features/chat/QueuedMessagesBanner.tsx
+          - packages/renderer/src/features/chat/AssistantMessage.tsx
+        acceptance: Assistant Event 按 message_id 投影；同 reply_id 的 A/U/B 独立显示；删除客户端人工 segment；USER_MESSAGE 与 queue claim 无空窗；重连、Tool、附件、取消和全量质量门禁通过
+        tasks:
+          - id: B4.1
+            title: message_id 协议与 reducer 基线
+            status: done
+          - id: B4.2
+            title: 删除 split helper 并迁移 A/U/B 投影
+            status: done
+          - id: B4.3
+            title: Queue/User 双状态与重连乱序测试
+            status: done
+          - id: B4.4
+            title: 客户端全量构建与跨仓 E2E
+            status: done
+
+      - id: B5
+        title: Queue Operation Response 客户端统一消费
+        status: done
+        date: 2026-08-25
+        prd: docs/prd/PRD-B5-queue-operation-response.md
+        prd_status: 已验收
+        completed_date: 2026-08-25
+        depends_on:
+          - B4
+        paired_stage: E:\ftre F24
+        implementation_boundary: 只修改 renderer WebSocket/chat projection/queue UI、测试和文档；不修改 Agent Core、Inbox 存储或 Electron 主进程
+        modules:
+          - packages/renderer/src/services/websocket-client.ts
+          - packages/renderer/src/stores/chat.ts
+          - packages/renderer/src/stores/clientSessionProjection.ts
+          - packages/renderer/src/features/chat/QueuedMessagesBanner.tsx
+        acceptance: 操作成功响应直接提供 queue snapshot；客户端删除独立 Message ACK 解析和本地双阶段 ACK 状态机；普通 queue/steer 的 placement 由 response payload 立即更新；claim/USER_MESSAGE 乱序仍无空窗；服务端 revision 防止旧快照覆盖新快照；旧数据缺 message_id 不再兼容；全量 renderer test、tsc、build 和跨仓协议测试通过
+        tasks:
+          - id: B5.1
+            title: Queue Operation Response 类型与 reducer 基线
+            status: done
+          - id: B5.2
+            title: 删除独立 ACK 消费并统一 queue response
+            status: done
+          - id: B5.3
+            title: revision、乱序与重连状态投影
+            status: done
+          - id: B5.4
+            title: 客户端全量测试、构建与跨仓验收
+            status: done
+
   - id: C
     name: 扩展功能
     steps:
