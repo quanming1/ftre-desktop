@@ -1,26 +1,29 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { SessionPanel } from "./SessionPanel";
+
+const sessionState = vi.hoisted(() => ({
+  allSessions: [] as any[],
+  sessionsTotal: 0,
+  workspacePaging: {} as Record<string, any>,
+  wsFlatPaging: { total: 0, loaded: 0 },
+  sortMode: "workspace" as const,
+  loadAllSessions: vi.fn(),
+  loadMoreWorkspaceSessions: vi.fn(),
+  loadMoreGlobalSessions: vi.fn(),
+  setSortMode: vi.fn(),
+  loadMoreSessions: vi.fn(),
+  switchSession: vi.fn(),
+  deleteSession: vi.fn(),
+  newSession: vi.fn(),
+  loadingSessionId: null as string | null,
+  unreadSessions: new Set<string>(),
+}));
 
 // Mock stores
 vi.mock("@/stores/session", () => ({
   useSession: (selector: (s: any) => any) =>
-    selector({
-      allSessions: [],
-      sessionsTotal: 0,
-      workspacePaging: {},
-      wsFlatPaging: { total: 0, loaded: 0 },
-      sortMode: "workspace",
-      loadAllSessions: vi.fn(),
-      loadMoreWorkspaceSessions: vi.fn(),
-      loadMoreGlobalSessions: vi.fn(),
-      setSortMode: vi.fn(),
-      loadMoreSessions: vi.fn(),
-      switchSession: vi.fn(),
-      deleteSession: vi.fn(),
-      newSession: vi.fn(),
-      loadingSessionId: null,
-    }),
+    selector(sessionState),
 }));
 
 vi.mock("@/stores/chat", () => ({
@@ -59,6 +62,11 @@ vi.mock("@/services/api", () => ({
 describe("SessionPanel", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    sessionState.allSessions = [];
+    sessionState.workspacePaging = {};
+    sessionState.wsFlatPaging = { total: 0, loaded: 0 };
+    sessionState.loadingSessionId = null;
+    sessionState.unreadSessions.clear();
   });
 
   it("renders the top action zone (New thread / Cron / Skills)", () => {
@@ -77,5 +85,30 @@ describe("SessionPanel", () => {
   it("shows empty placeholder when no sessions exist", () => {
     render(<SessionPanel />);
     expect(screen.getByText("暂无会话")).toBeInTheDocument();
+  });
+
+  it("keeps the row compact and shows session details in the tooltip", async () => {
+    sessionState.allSessions = [
+      {
+        session_id: "ws_s1",
+        title: "分析 cordis-py 项目架构",
+        channel: "ws",
+        workspace: "E:/ftre-agent-core",
+        updated_at: Date.now() / 1000,
+        last_user_text: "这是最后一条用户消息",
+      },
+    ];
+
+    render(<SessionPanel />);
+
+    expect(screen.getByTestId("session-row-ws_s1")).toHaveClass("h-9");
+    expect(screen.queryByText("这是最后一条用户消息")).not.toBeInTheDocument();
+
+    fireEvent.pointerMove(screen.getByTestId("session-row-ws_s1"));
+
+    await waitFor(() => {
+      expect(screen.getAllByText("这是最后一条用户消息").length).toBeGreaterThan(0);
+      expect(screen.getAllByText("ftre-agent-core").length).toBeGreaterThan(0);
+    });
   });
 });

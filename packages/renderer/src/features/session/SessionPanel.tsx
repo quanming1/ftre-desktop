@@ -1840,8 +1840,9 @@ function SessionRow({
 }: SessionRowProps) {
   const time = timeAgo(session.updated_at ?? 0);
   const suffix = channelSuffix(session.channel);
-  // 列表区分会话用：最后一条真实用户消息摘要（后端已截断）
-  const preview = (session.last_user_text || "").trim();
+  const title = session.title || "新会话";
+  const lastMessage = (session.last_user_text || "").trim();
+  const workspace = workspaceLabel(session.workspace);
   // 未读：后端执行完成但未查看（仅 ws channel，active session 不显示）
   const isUnread = useSession(
     (s) => s.unreadSessions.has(session.session_id),
@@ -1857,88 +1858,115 @@ function SessionRow({
     [trigger, onClick],
   );
 
-  return (
-    <div
-      onClick={handleClick}
-      onContextMenu={onMenu}
-      onMouseEnter={onEnter}
-      onMouseLeave={onLeave}
-      className={`relative overflow-hidden flex items-center gap-2 ${preview ? "h-[52px]" : "h-10"} pr-3 rounded-lg cursor-pointer select-none transition-colors ${alignWithSectionLabel ? "pl-[45px]" : "pl-3"} ${isActive
-        ? "bg-[#e9e7ed] hover:bg-[#e9e7ed]"
-        : "hover:bg-hover"
-        }`}
-    >
-      <RippleLayer items={ripples} onEnd={remove} />
-      {/* 置顶色点：绝对定位，不占 flex 空间，保持文字左对齐 */}
-      {isPinned && dotColor && (
-        <button
-          type="button"
-          onClick={(e) => { e.stopPropagation(); onDotClick?.(e); }}
-          className="absolute left-3 top-1/2 -translate-y-1/2 w-3 h-3 rounded-full opacity-90 hover:opacity-100 hover:scale-110 active:scale-95 transition-transform cursor-pointer"
-          style={{ backgroundColor: dotColor, boxShadow: `0 1px 3px rgba(0,0,0,0.18), 0 0 0 1px rgba(0,0,0,0.06)` }}
-          title="点击更换颜色"
-        />
-      )}
-      <div className="flex-1 min-w-0 flex flex-col justify-center gap-[3px]">
-        <div
-          className={`truncate text-[13.5px] leading-snug ${isActive ? "text-black font-normal" : "text-t-secondary"
-            }`}
-        >
-          {session.title || "新会话"}
-          {suffix && (
-            <span className="ml-1.5 text-[11.5px] text-t-ghost font-mono">
-              ({suffix})
-            </span>
-          )}
-        </div>
-        {preview && (
-          <div className="truncate text-[12px] leading-tight text-t-dim">
-            {preview}
-          </div>
-        )}
-      </div>
-
-      {/* 右侧：时间 / 运行中 spinner / 菜单按钮叠加，hover 切透明度 */}
-      <div className="relative shrink-0 w-7 h-5 flex items-center justify-end">
-        {isLoading && (
-          <Loader2
-            size={12}
-            className="absolute right-0 text-t-ghost animate-spin"
-          />
-        )}
-        {!isLoading && session.running && (
-          <Loader2
-            size={12}
-            className="absolute right-0 text-t-ghost animate-spin"
-          />
-        )}
-        {/* 未读圆点：顶替时间显示（互斥），非 hover / 非运行时可见 */}
-        {isUnread && !isHovered && !isLoading && !session.running && (
-          <span
-            className="absolute right-0.5 w-2 h-2 rounded-full bg-neon"
-            title="有新的执行结果未读"
-            aria-label="未读"
-          />
-        )}
-        <span
-          className="absolute right-0 text-[12px] tabular-nums transition-opacity"
-          style={{
-            opacity: (isHovered || isLoading || session.running || isUnread) ? 0 : time.opacity,
-            color: "var(--color-t-dim)",
-            pointerEvents: "none",
-          }}
-        >
+  // 列表保持单行；完整上下文放进 Tooltip，避免摘要把不同会话行撑成不同高度。
+  const tooltipContent = (
+    <div className="w-[270px] space-y-2">
+      <div className="flex items-start gap-3">
+        <span className="min-w-0 flex-1 truncate text-[14px] font-medium text-[#1f2937]">
+          {title}
+        </span>
+        <span className="shrink-0 text-[12px] tabular-nums text-[#9ca3af]">
           {time.text}
         </span>
-        <button
-          onClick={onMenu}
-          aria-label="更多"
-          className={`absolute right-0 p-1 rounded-full text-t-dim hover:text-t-primary hover:bg-hover transition-opacity ${isHovered && !isLoading && !session.running ? "opacity-100" : "opacity-0 pointer-events-none"
-            }`}
-        >
-          <MoreHorizontal size={15} />
-        </button>
+      </div>
+      <div
+        className="flex min-w-0 items-center gap-1.5 text-[12px] text-[#6b7280]"
+        title={workspace.full || undefined}
+      >
+        <Folder size={12} strokeWidth={1.7} className="shrink-0" />
+        <span className="truncate">{workspace.name}</span>
+      </div>
+      <div className="line-clamp-3 whitespace-pre-wrap break-words text-[13px] leading-relaxed text-[#4b5563]">
+        {lastMessage || "暂无消息"}
       </div>
     </div>
+  );
+
+  return (
+    <Tooltip
+      content={tooltipContent}
+      side="right"
+      sideOffset={8}
+      className="!animate-none !rounded-lg !border-0 !bg-white !p-3 !text-[#374151] !shadow-[0_8px_24px_rgba(15,23,42,0.14)]"
+    >
+      <div
+        data-testid={`session-row-${session.session_id}`}
+        onClick={handleClick}
+        onContextMenu={onMenu}
+        onMouseEnter={onEnter}
+        onMouseLeave={onLeave}
+        className={`relative h-9 overflow-hidden flex items-center gap-2 pr-3 rounded-lg cursor-pointer select-none transition-colors ${alignWithSectionLabel ? "pl-[45px]" : "pl-3"} ${isActive
+          ? "bg-[#e9e7ed] hover:bg-[#e9e7ed]"
+          : "hover:bg-hover"
+          }`}
+      >
+        <RippleLayer items={ripples} onEnd={remove} />
+        {/* 置顶色点：绝对定位，不占 flex 空间，保持文字左对齐 */}
+        {isPinned && dotColor && (
+          <button
+            type="button"
+            onClick={(e) => { e.stopPropagation(); onDotClick?.(e); }}
+            className="absolute left-3 top-1/2 -translate-y-1/2 w-3 h-3 rounded-full opacity-90 hover:opacity-100 hover:scale-110 active:scale-95 transition-transform cursor-pointer"
+            style={{ backgroundColor: dotColor, boxShadow: `0 1px 3px rgba(0,0,0,0.18), 0 0 0 1px rgba(0,0,0,0.06)` }}
+            title="点击更换颜色"
+          />
+        )}
+        <div className="flex-1 min-w-0">
+          <div
+            className={`truncate text-[13.5px] leading-snug ${isActive ? "text-black font-normal" : "text-t-secondary"
+              }`}
+          >
+            {title}
+            {suffix && (
+              <span className="ml-1.5 text-[11.5px] text-t-ghost font-mono">
+                ({suffix})
+              </span>
+            )}
+          </div>
+        </div>
+
+        {/* 右侧：时间 / 运行中 spinner / 菜单按钮叠加，hover 切透明度 */}
+        <div className="relative shrink-0 w-7 h-5 flex items-center justify-end">
+          {isLoading && (
+            <Loader2
+              size={12}
+              className="absolute right-0 text-t-ghost animate-spin"
+            />
+          )}
+          {!isLoading && session.running && (
+            <Loader2
+              size={12}
+              className="absolute right-0 text-t-ghost animate-spin"
+            />
+          )}
+          {/* 未读圆点：顶替时间显示（互斥），非 hover / 非运行时可见 */}
+          {isUnread && !isHovered && !isLoading && !session.running && (
+            <span
+              className="absolute right-0.5 w-2 h-2 rounded-full bg-neon"
+              title="有新的执行结果未读"
+              aria-label="未读"
+            />
+          )}
+          <span
+            className="absolute right-0 text-[12px] tabular-nums transition-opacity"
+            style={{
+              opacity: (isHovered || isLoading || session.running || isUnread) ? 0 : time.opacity,
+              color: "var(--color-t-dim)",
+              pointerEvents: "none",
+            }}
+          >
+            {time.text}
+          </span>
+          <button
+            onClick={onMenu}
+            aria-label="更多"
+            className={`absolute right-0 p-1 rounded-full text-t-dim hover:text-t-primary hover:bg-hover transition-opacity ${isHovered && !isLoading && !session.running ? "opacity-100" : "opacity-0 pointer-events-none"
+              }`}
+          >
+            <MoreHorizontal size={15} />
+          </button>
+        </div>
+      </div>
+    </Tooltip>
   );
 }
