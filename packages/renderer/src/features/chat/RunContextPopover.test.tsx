@@ -66,7 +66,6 @@ vi.mock("@/components/FileIconView", () => ({
 function resetChatState(overrides: Record<string, unknown> = {}) {
   Object.assign(chatState, {
     messages: [],
-    isBusy: false,
     sessionStatus: "idle",
     sessionActivity: "idle",
     queueDepth: 0,
@@ -185,7 +184,6 @@ describe("RunContextPopover", () => {
     resetChatState({
       sessionId: "session-1",
       messages,
-      isBusy: true,
       sessionStatus: "running",
       sessionActivity: "executing",
       turnStartTs: Date.now() - 8_000,

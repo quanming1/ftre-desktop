@@ -1,7 +1,6 @@
 import type { ChatMessage, SessionStatus } from "@/stores/chat";
 
 interface RunningBannerModelInput {
-  isBusy: boolean;
   sessionStatus: SessionStatus;
   messages: ChatMessage[];
   storeModel: string | null;
@@ -14,12 +13,11 @@ interface RunningBannerModelInput {
  * 旧 Gateway 未提供该字段时不显示模型，不能回退到历史 assistant 回复的模型。
  */
 export function resolveRunningBannerModel({
-  isBusy,
   sessionStatus,
   messages,
   storeModel,
 }: RunningBannerModelInput): string | null {
-  if (!isBusy) return null;
+  if (sessionStatus === "idle") return null;
 
   if (sessionStatus === "compacting") {
     for (let index = messages.length - 1; index >= 0; index -= 1) {

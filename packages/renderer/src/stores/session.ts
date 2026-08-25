@@ -182,6 +182,7 @@ function persistedMessageToChat(record: SessionMessage): ChatMessage | null {
     metadata: record.metadata,
     model: typeof record.metadata?.model === "string" ? record.metadata.model : undefined,
     token: record.token ?? undefined,
+    finishedAt: parseTimestamp(record.finished_at) ?? undefined,
     isError: record.finished_reason === "error" || !!record.error,
     error: record.error && typeof record.error.message === "string"
       ? {

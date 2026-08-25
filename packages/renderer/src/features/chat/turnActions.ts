@@ -6,7 +6,7 @@ import type { ChatMessage } from "@/stores/chat";
 export function shouldShowTurnActions(
   messages: ChatMessage[],
   index: number,
-  isBusy: boolean,
+  hasActiveTurn: boolean,
 ): boolean {
   const message = messages[index];
   if (message?.role !== "assistant" || message.streaming) return false;
@@ -14,7 +14,7 @@ export function shouldShowTurnActions(
   const next = messages[index + 1];
   const isTurnEnd = !next || next.role !== "assistant";
   if (!isTurnEnd) return false;
-  if (!isBusy) return true;
+  if (!hasActiveTurn) return true;
 
   let activeTurnStart = -1;
   for (let cursor = messages.length - 1; cursor >= 0; cursor--) {

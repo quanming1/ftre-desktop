@@ -58,7 +58,7 @@ describe("ClientSessionProjection", () => {
       content: "new streamed text",
       streaming: true,
     });
-    expect(projection.isBusy).toBe(true);
+    expect(projection.sessionStatus).toBe("running");
   });
 
   it("deduplicates prepended history by Msg id", () => {
@@ -129,7 +129,7 @@ describe("ClientSessionProjection", () => {
 
     expect(projection.seenEventIds.has("event-live-1")).toBe(true);
     expect(projection.sessionStatus).toBe("running");
-    expect(projection.isBusy).toBe(true);
+    expect(projection.sessionStatus).toBe("running");
   });
 
 

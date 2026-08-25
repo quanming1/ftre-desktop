@@ -59,7 +59,6 @@ export interface SessionProjectionState {
   clientCanSend?: boolean;
   canCancel?: boolean;
   blockedReason?: string | null;
-  isBusy: boolean;
   error: string | null;
   retryState: RetryState | null;
   turnStartTs: number | null;
@@ -91,7 +90,6 @@ export class ClientSessionProjection implements SessionProjectionState {
   clientCanSend = true;
   canCancel = false;
   blockedReason: string | null = null;
-  isBusy = false;
   error: string | null = null;
   retryState: RetryState | null = null;
   turnStartTs: number | null = null;
@@ -145,7 +143,6 @@ export class ClientSessionProjection implements SessionProjectionState {
         : history.status === "compacting"
           ? "compacting"
           : "executing";
-      this.isBusy = history.status !== "idle";
       this.clientCanSend = history.status !== "compacting";
       this.canCancel = history.status === "running";
     }

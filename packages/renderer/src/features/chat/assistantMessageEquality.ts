@@ -8,6 +8,7 @@ export interface AssistantMessageComparableProps {
   turnFileChanges?: TurnFileChange[];
   turnDurationSec?: number;
   turnModel?: string;
+  turnFinishedAt?: number;
 }
 
 export function contentBlocksEqual(
@@ -81,6 +82,7 @@ export function assistantMessagePropsEqual(
   if (prev.turnFileChanges !== next.turnFileChanges) return false;
   if (prev.turnDurationSec !== next.turnDurationSec) return false;
   if (prev.turnModel !== next.turnModel) return false;
+  if (prev.turnFinishedAt !== next.turnFinishedAt) return false;
   return (
     contentBlocksEqual(prev.message.blocks, next.message.blocks)
     && toolResultsEqual(prev.message.toolResults, next.message.toolResults)

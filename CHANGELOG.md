@@ -1,5 +1,16 @@
 # Changelog
 
+### B7 会话列表信息 Tooltip 化（已完成，未发布）
+
+- sessionList 会话项统一为紧凑单行，移除常驻 desc；悬停整行显示标题、最后消息、工作区和相对时间。
+- Tooltip 使用白底、无边框、轻阴影并即时出现，不影响会话切换、菜单、置顶、运行和拖拽行为。
+
+### B6 客户端运行状态语义收敛（开发中）
+
+- 聊天 UI 不再使用 `isBusy` 判断执行、压缩、队列和流式状态，改用精确的 session、queue、
+  activity 和 message streaming 字段。
+- `useIsStreaming` 改为依据 Assistant 消息的真实 `streaming` 标记。
+
 ### B5 Queue Operation Response（已完成，未发布）
 
 - 客户端以带 `revision` 的 `session/queue` 操作响应同时结算聊天 outbox、队列控制 Promise
@@ -18,6 +29,9 @@
   立即显示复制按钮、token 用量和模型信息，无需刷新会话。
 - Queue UI 按预览重构：队列项改为输入框上方的单行消息条，使用与输入框一致的 composer Surface，保留
   调整方向、删除、编辑和更多菜单，不再显示重复的队列标题或消息预览。
+- Assistant 消息底部改为用输入/输出图标展示 token、模型和相对结束时间；超过一周显示绝对时间，元数据使用更淡颜色并仅在 hover 时显示。
+- User 消息复制按钮移动到气泡下方，与 Assistant 共用时间表达和 hover 显示规则。
+- 修复压缩命令刚发送时同时显示“压缩上下文中…”和“处理中”的问题。
 
 ## [0.1.10] - 2026-08-24
 

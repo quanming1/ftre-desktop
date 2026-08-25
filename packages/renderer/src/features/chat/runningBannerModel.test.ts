@@ -4,7 +4,6 @@ import { resolveRunningBannerModel } from "./runningBannerModel";
 describe("resolveRunningBannerModel", () => {
   it("uses the compact-start model instead of the previous assistant model", () => {
     expect(resolveRunningBannerModel({
-      isBusy: true,
       sessionStatus: "compacting",
       storeModel: "tencent/glm-5.3",
       messages: [
@@ -28,7 +27,6 @@ describe("resolveRunningBannerModel", () => {
 
   it("does not mislabel compression when an old gateway omits the model", () => {
     expect(resolveRunningBannerModel({
-      isBusy: true,
       sessionStatus: "compacting",
       storeModel: "tencent/glm-5.3",
       messages: [

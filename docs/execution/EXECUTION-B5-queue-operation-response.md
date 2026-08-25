@@ -51,7 +51,12 @@ passed
 - QueueItem 改为输入框正上方的单行结构，只显示真实用户消息和操作入口；移除“消息队列”折叠标题以及重复的消息预览。
 - QueueItem 与输入面板使用同一个 `--ftre-bg-composer`/`bg-composer` Surface；QueueItem 保留淡边框，输入框保留完整上边框，避免透明度叠加导致色差。
 - 更多菜单继续在队列项上方浮出，不受输入框容器裁剪；调整方向、删除和编辑仍复用原 Queue Operation Response 协议。
-- Queue UI 改动后重新执行 renderer 全量测试：`52 files / 526 tests passed`；TypeScript 与 Vite build 通过。
+- Queue UI 改动后重新执行 renderer 全量测试：`52 files / 527 tests passed`；TypeScript 与 Vite build 通过。
+- Assistant footer 读取历史/实时消息的 `finished_at`，显示相对时间（刚刚/m/h/d）；超过一周显示 `YYYY MM dd HH:mm:ss`，title 保留完整结束时间。
+- token footer 改为输入/输出图标加数值，并与复制、模型、时间统一使用 `text-t-faint`；底部元数据通过 `visibility` 在消息 hover 时显示，不改变消息高度，增加历史/实时结束时间和一周边界回归测试。
+- User footer 将复制按钮移到用户气泡下方，与 Assistant 共用时间格式和 hover 显示规则；通过 `visibility` 隐藏而非高度折叠，增加复制与时间位置回归测试。
+- ChatMessageList 在 `sessionStatus=compacting` 时隐藏通用“处理中”占位，压缩期间只保留 CompactBubble；增加压缩状态回归测试。
+- 文件变更胶囊在 `sessionStatus=compacting` 时强制隐藏；新增压缩中误显示回归测试。
 
 收尾审计后，renderer `test` script 会先构建 `@ftre/shared` 和 `@ftre/ui`，因此在没有历史
 workspace `dist` 的清洁工作树中，根 `pnpm test` 仍可直接运行。

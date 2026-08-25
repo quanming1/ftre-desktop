@@ -23,6 +23,7 @@ import { previewRollback, executeRollback } from "@/services/api";
 import { fetchSessionMessages } from "@/services/api";
 import { RollbackConfirmDialog } from "./RollbackConfirmDialog";
 import { ContextMenu, type ContextMenuItem, Tooltip, TooltipProvider, ImageViewer } from "@ftre/ui";
+import { formatAbsoluteMessageTime, formatMessageTime } from "./messageTime";
 
 /**
  * 渲染 parts 数组为 inline 内容
@@ -133,9 +134,10 @@ export const UserMessage = memo(
     const hasContent = hasParts || (message.content && message.content.trim() !== "");
     const hasAttachments = message.attachments && message.attachments.length > 0;
     const sessionId = useChat((s) => s.sessionId);
-    const isBusy = useChat((s) => s.isBusy);
+    const sessionStatus = useChat((s) => s.sessionStatus);
+    const queueDepth = useChat((s) => s.queueDepth);
+    const pendingMessages = useChat((s) => s.pendingMessages);
 
-    const [isHovered, setIsHovered] = useState(false);
     const [isLoadingPreview, setIsLoadingPreview] = useState(false);
     const [showConfirmDialog, setShowConfirmDialog] = useState(false);
     const [isExecuting, setIsExecuting] = useState(false);
@@ -148,7 +150,6 @@ export const UserMessage = memo(
       y: number;
     } | null>(null);
 
-    const messageRef = useRef<HTMLDivElement>(null);
     const bubbleRef = useRef<HTMLDivElement>(null);
 
     // 动态圆角：短消息接近胶囊，长消息收敛到固定值
@@ -177,8 +178,11 @@ export const UserMessage = memo(
       return () => ro.disconnect();
     }, [message.content, message.parts]);
 
-    // 检查是否可以回滚（不在处理中，有 sessionId）
-    const canRollback = !isBusy && !!sessionId;
+    // 回滚要求当前会话空闲且 Inbox 没有未交接输入；队列 pending 不等于 Agent 正在流式输出。
+    const canRollback = sessionStatus === "idle"
+      && queueDepth === 0
+      && pendingMessages.length === 0
+      && !!sessionId;
 
 
     // 复制消息内容
@@ -322,35 +326,13 @@ export const UserMessage = memo(
           {/* 有文字内容时：显示完整气泡 + 操作按钮 */}
           {hasContent && (
             <div
-              className="flex items-start justify-end gap-1.5 group"
-              onMouseEnter={() => setIsHovered(true)}
-              onMouseLeave={() => setIsHovered(false)}
+              className="group flex flex-col items-end"
             >
-              {/* 操作按钮 - 在消息左侧，与消息顶部对齐 */}
-              <div className="flex items-center gap-1 pt-2">
-                {/* 复制按钮 - hover 时显示，在最左边 */}
-                <Tooltip content="复制" side="top">
-                  <button
-                    onClick={handleCopy}
-                    className={`flex items-center justify-center w-9 h-9 text-t-ghost hover:text-t-secondary rounded-full hover:bg-hover transition-all ${
-                      isHovered ? "opacity-100" : "opacity-0 pointer-events-none"
-                    }`}
-                  >
-                    {copied ? (
-                      <Check size={18} className="text-green-500" />
-                    ) : (
-                      <Copy size={18} />
-                    )}
-                  </button>
-                </Tooltip>
-
-              </div>
-
               {/* 消息内容 */}
               <div className="relative max-w-[85%] w-fit">
                 <div
+                  data-testid="user-message-bubble"
                   ref={(node) => {
-                    messageRef.current = node;
                     bubbleRef.current = node;
                   }}
                   onContextMenu={handleContextMenu}
@@ -364,7 +346,7 @@ export const UserMessage = memo(
                           : contentHeight,
                     overflow: isOverflowing ? "hidden" : undefined,
                   }}
-                  className="text-[var(--text-md)] leading-relaxed text-t-primary bg-panel px-4 py-3 whitespace-pre-wrap break-words font-sans cursor-default transition-[max-height] duration-300 ease-out"
+                  className="text-[var(--text-md)] leading-relaxed text-t-primary bg-user-message px-4 py-3 whitespace-pre-wrap break-words font-sans cursor-default transition-[max-height] duration-300 ease-out"
                 >
                   {hasParts ? (
                     <PartsContent parts={message.parts!} />
@@ -376,7 +358,7 @@ export const UserMessage = memo(
                 {/* 折叠时底部渐隐遮罩（展开时渐隐） */}
                 {isOverflowing && (
                   <div
-                    className={`pointer-events-none absolute left-0 right-0 bottom-0 h-12 bg-gradient-to-t from-panel to-transparent transition-opacity duration-300 ease-out ${
+                    className={`pointer-events-none absolute left-0 right-0 bottom-0 h-12 bg-gradient-to-t from-user-message to-transparent transition-opacity duration-300 ease-out ${
                       collapsed ? "opacity-100" : "opacity-0"
                     }`}
                     style={{
@@ -404,6 +386,26 @@ export const UserMessage = memo(
                     </button>
                   </Tooltip>
                 )}
+              </div>
+
+              {/* 用户消息元数据：发送时间和复制操作放在气泡下方。 */}
+              <div className="invisible mt-1 flex items-center justify-end gap-1.5 text-[12px] leading-none text-t-faint opacity-0 transition-opacity duration-150 group-hover:visible group-hover:opacity-100 group-hover:pointer-events-auto pointer-events-none">
+                <span
+                  className="tabular-nums"
+                  title={`发送时间：${formatAbsoluteMessageTime(message.timestamp)}`}
+                >
+                  {formatMessageTime(message.timestamp)}
+                </span>
+                <Tooltip content={copied ? "已复制" : "复制"} side="top">
+                  <button
+                    type="button"
+                    aria-label={copied ? "已复制" : "复制消息"}
+                    onClick={handleCopy}
+                    className="inline-flex h-7 w-7 items-center justify-center rounded-md text-t-faint transition-colors hover:bg-hover hover:text-t-primary"
+                  >
+                    {copied ? <Check size={14} className="text-green-500" /> : <Copy size={14} />}
+                  </button>
+                </Tooltip>
               </div>
             </div>
           )}
