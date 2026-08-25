@@ -69,3 +69,8 @@ workspace `dist` 的清洁工作树中，根 `pnpm test` 仍可直接运行。
 | 2026-08-25 | 完成 `chat.ts` → `chatProjection.ts` 投影/Store 分层重构；997 行 Store + 1136 行纯 reducer，全部门禁通过 |
 | 2026-08-25 | 修复操作响应与后台快照乱序导致的 optimistic 队列残留；新增“空响应”和“旧响应”回归，验证 522 个前端测试、平台 10 个测试、tsc、Vite build 通过 |
 | 2026-08-25 | 按确认的 Queue UI 预览完成队列单行布局、Surface token 和菜单层级收口；renderer 全量 526 tests、tsc、Vite build 通过 |
+
+## 最终合入
+
+- B5 功能提交：`09dcc7c feat(B5): 完成队列投影重构与队列界面收口`。
+- PR #63 已合入 `develop`，合入提交：`4afb9a1`；本地 `develop` 已同步 `origin/develop` 且工作树干净。
