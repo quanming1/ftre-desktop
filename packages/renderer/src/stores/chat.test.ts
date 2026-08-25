@@ -1,5 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { applyEvent, applyQueueSnapshot, applyReplySnapshot, useChat } from "./chat";
+import {
+  applyEvent,
+  applyQueueSnapshot,
+  applyReplySnapshot,
+  useChat,
+} from "./chat";
 import type { ContentBlock } from "./chat";
 import { ClientSessionProjection } from "./clientSessionProjection";
 import { UserMessageEventType } from "@/services/websocket-client";
@@ -70,7 +75,7 @@ describe("chat store", () => {
     expect(state.sessionStatus).toBe("idle");
   });
 
-  it("does not treat a session.cancel ACK as a chat admission ACK", () => {
+  it("does not treat a session.cancel response as a queue operation response", () => {
     useChat.setState({
       sessionId: "s1",
       sessionStatus: "idle",
@@ -91,6 +96,34 @@ describe("chat store", () => {
       isBusy: false,
       pendingMessages: [],
     });
+  });
+
+  it("uses the queue response as the durable admission result", () => {
+    useChat.setState({ sessionId: "s1-admission" });
+    const result = useChat.getState().sendMessage("普通排队消息");
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+
+    wsMessageHandler.current?.({
+      type: "session/queue",
+      request_id: result.requestId,
+      ok: true,
+      payload: {
+        session_id: "s1-admission",
+        revision: 1,
+        items: [{
+          id: result.requestId,
+          placement: "queued",
+          message: { content: [{ type: "text", text: "普通排队消息" }] },
+        }],
+      },
+    });
+
+    expect(useChat.getState().pendingMessages[0]).toMatchObject({
+      request_id: result.requestId,
+      placement: "queued",
+    });
+    expect(useChat.getState().pendingMessages[0]).not.toHaveProperty("optimistic", true);
   });
 
   it("updates model, provider and agent", () => {
@@ -140,6 +173,7 @@ describe("chat store", () => {
       eventId,
       data: {
         reply_id: "reply-tool-dedupe",
+        message_id: "reply-tool-dedupe",
         tool_call_id: toolCallId,
         tool_call_name: name,
       },
@@ -148,7 +182,7 @@ describe("chat store", () => {
     applyEvent(projection, {
       type: "REPLY_START",
       eventId: "reply-start",
-      data: { reply_id: "reply-tool-dedupe" },
+      data: { reply_id: "reply-tool-dedupe", message_id: "reply-tool-dedupe" },
     });
     start("tool-start-1", "tc-duplicate", "read");
     start("tool-start-2", "tc-duplicate", "read");
@@ -158,6 +192,7 @@ describe("chat store", () => {
       eventId: "tool-delta",
       data: {
         reply_id: "reply-tool-dedupe",
+        message_id: "reply-tool-dedupe",
         tool_call_id: "tc-duplicate",
         delta: '{"path":"README.md"}',
       },
@@ -167,6 +202,7 @@ describe("chat store", () => {
       eventId: "tool-end",
       data: {
         reply_id: "reply-tool-dedupe",
+        message_id: "reply-tool-dedupe",
         tool_call_id: "tc-duplicate",
       },
     });
@@ -188,6 +224,16 @@ describe("chat store", () => {
     });
   });
 
+  it("drops old assistant events without message_id", () => {
+    const projection = new ClientSessionProjection({ applyEvent, applyReplySnapshot });
+    applyEvent(projection, {
+      type: "REPLY_START",
+      eventId: "old-reply-start",
+      data: { reply_id: "old-reply" },
+    });
+    expect(projection.messages).toEqual([]);
+  });
+
   it("deduplicates tool_call blocks inside a reply snapshot by id", () => {
     const projection = new ClientSessionProjection({
       applyEvent,
@@ -199,6 +245,7 @@ describe("chat store", () => {
       client_connection_epoch: 1,
       replies: [{
         reply_id: "reply-snapshot-dedupe",
+        message_id: "reply-snapshot-dedupe",
         revision: 2,
         message: {
           id: "reply-snapshot-dedupe",
@@ -315,6 +362,7 @@ describe("chat store", () => {
 
     applyQueueSnapshot(projection, {
       session_id: "s1",
+      revision: 4,
       items: [{
         id: "request-pending",
         placement: "queued",
@@ -326,8 +374,97 @@ describe("chat store", () => {
     expect(projection.pendingMessages).toEqual([expect.objectContaining({
       request_id: requestId,
       content: "/compress-fast 0",
+      placement: "queued",
     })]);
     expect(projection.sessionStatus).toBe("idle");
+  });
+
+  it("keeps the steering placement from the queue snapshot", () => {
+    const projection = {
+      messages: [],
+      seenEventIds: new Set<string>(),
+      earliestTs: null,
+      hasMoreHistory: true,
+      lastUserInputTs: null,
+      sessionRevision: 0,
+      hasCoordinatorState: true,
+      sessionActivity: "executing" as const,
+      queueDepth: 1,
+      queueCapacity: null,
+      pendingMessages: [],
+      clientCanSend: true,
+      canCancel: true,
+      blockedReason: null,
+      isBusy: true,
+      sessionStatus: "running" as const,
+      retryState: null,
+      commandName: null,
+      turnStartTs: null,
+      error: null,
+      plan: null,
+    };
+
+    applyQueueSnapshot(projection, {
+      session_id: "s1",
+      revision: 1,
+      items: [{
+        id: "request-steer",
+        placement: "steering",
+        message: { content: [{ type: "text", text: "插入下一轮" }] },
+      }],
+    });
+
+    expect(projection.pendingMessages[0]).toMatchObject({
+      request_id: "request-steer",
+      placement: "steering",
+    });
+  });
+
+  it("uses server placement and ignores an older queue snapshot", () => {
+    const projection = {
+      messages: [],
+      seenEventIds: new Set<string>(),
+      earliestTs: null,
+      hasMoreHistory: true,
+      lastUserInputTs: null,
+      sessionRevision: -1,
+      hasCoordinatorState: true,
+      sessionActivity: "executing" as const,
+      queueDepth: 1,
+      queueCapacity: null,
+      pendingMessages: [],
+      clientCanSend: true,
+      canCancel: true,
+      blockedReason: null,
+      isBusy: true,
+      sessionStatus: "running" as const,
+      retryState: null,
+      commandName: null,
+      turnStartTs: null,
+      error: null,
+      plan: null,
+    };
+
+    applyQueueSnapshot(projection, {
+      session_id: "s1",
+      revision: 2,
+      items: [{
+        id: "request-steer",
+        placement: "steering",
+        message: { content: [{ type: "text", text: "插入下一轮" }] },
+      }],
+    });
+    applyQueueSnapshot(projection, {
+      session_id: "s1",
+      revision: 1,
+      items: [{
+        id: "request-steer",
+        placement: "queued",
+        message: { content: [{ type: "text", text: "插入下一轮" }] },
+      }],
+    });
+
+    expect(projection.pendingMessages[0]).toMatchObject({ placement: "steering" });
   });
 
   it("keeps an unacknowledged local queue item when an unrelated snapshot arrives", () => {
@@ -362,6 +499,7 @@ describe("chat store", () => {
 
     applyQueueSnapshot(projection, {
       session_id: "s1",
+      revision: 4,
       items: [{
         id: "request-A",
         placement: "queued",
@@ -373,7 +511,7 @@ describe("chat store", () => {
     expect(projection.queueDepth).toBe(2);
   });
 
-  it("moves an item from the queue to history only on the persisted USER_MESSAGE echo", () => {
+  it("removes a pending item when USER_MESSAGE proves it was claimed", () => {
     const requestId = "request-handoff";
     const projection = {
       messages: [],
@@ -416,15 +554,77 @@ describe("chat store", () => {
       },
     });
 
+    // USER_MESSAGE 只会在 Inbox 完成 DB-first claim 前持久化，因此它到达时
+    // 队列项已经消费，不能继续留在待执行横幅。
     expect(projection.pendingMessages).toEqual([]);
     expect(projection.messages).toEqual([expect.objectContaining({
       id: "message-handoff",
       role: "user",
       content: "hello",
     })]);
+
+    applyQueueSnapshot(projection, { session_id: "s1", revision: 5, items: [] });
+    expect(projection.pendingMessages).toEqual([]);
   });
 
-  it("keeps an admitted item visible when claim snapshot beats USER_MESSAGE echo", () => {
+  it("routes the next assistant by server message_id without client-side splitting", () => {
+    const projection = new ClientSessionProjection({ applyEvent, applyReplySnapshot });
+    projection.messages = [{
+      id: "assistant-A",
+      role: "assistant",
+      content: "前半段",
+      timestamp: 1,
+      streaming: true,
+      blocks: [{ type: "text", text: "前半段", blockId: "before" }],
+      toolResults: {},
+      metadata: { reply_id: "reply-live" },
+    }];
+
+    applyEvent(projection, {
+      type: UserMessageEventType,
+      eventId: "user-steer-event",
+      metadata: { request_id: "request-steer" },
+      data: {
+        id: "message-steer",
+        data: { content: "插入下一步", request_id: "request-steer" },
+      },
+    });
+
+    expect(projection.messages.map((message) => message.role)).toEqual(["assistant", "user"]);
+    expect(projection.messages[0]).toMatchObject({
+      id: "assistant-A",
+      streaming: true,
+      content: "前半段",
+    });
+
+    applyEvent(projection, {
+      type: "TEXT_BLOCK_START",
+      eventId: "after-start",
+      data: { reply_id: "reply-live", message_id: "assistant-B", block_id: "after" },
+    });
+    applyEvent(projection, {
+      type: "TEXT_BLOCK_DELTA",
+      eventId: "after-delta",
+      data: {
+        reply_id: "reply-live", message_id: "assistant-B", block_id: "after", delta: "后半段",
+      },
+    });
+
+    expect(projection.messages.map((message) => message.role)).toEqual([
+      "assistant", "user", "assistant",
+    ]);
+    expect(projection.messages[2]).toMatchObject({
+      id: "assistant-B",
+      streaming: true,
+      content: "后半段",
+    });
+    expect(projection.messages[0]).toMatchObject({
+      id: "assistant-A",
+      streaming: false,
+    });
+  });
+
+  it("removes a claimed item immediately when queue snapshot beats USER_MESSAGE echo", () => {
     const requestId = "request-claimed";
     const projection = {
       messages: [],
@@ -442,7 +642,6 @@ describe("chat store", () => {
         sequence: 1,
         content: "hello",
         optimistic: false,
-        awaitingEcho: true,
       }],
       clientCanSend: true,
       canCancel: true,
@@ -456,32 +655,29 @@ describe("chat store", () => {
       plan: null,
     };
 
-    // 先收到 ACK 对应的服务端 pending 快照：本地 optimistic 项目被接纳，
-    // 但要继承 awaitingEcho 标记，后续被 claim 也不能立即消失。
+    // 先收到 Queue Response 对应的服务端 pending 快照：本地 optimistic 项目被接纳，
+    // 仍在 Inbox 中等待消费，保持服务端 placement。
     projection.pendingMessages = [{
       request_id: requestId,
       sequence: 0,
       content: "hello",
       optimistic: true,
-      awaitingEcho: false,
     }];
     applyQueueSnapshot(projection, {
       session_id: "s1",
+      revision: 5,
       items: [{
         id: requestId,
         placement: "queued",
         message: { content: [{ type: "text", text: "hello" }] },
       }],
     });
-    expect(projection.pendingMessages[0]).toMatchObject({ awaitingEcho: true });
 
-    // worker 已经 claim，权威 pending 为空，但 USER_MESSAGE 还没到。
-    applyQueueSnapshot(projection, { session_id: "s1", items: [] });
-    expect(projection.pendingMessages).toEqual([expect.objectContaining({
-      request_id: requestId,
-      content: "hello",
-      awaitingEcho: true,
-    })]);
+    // worker 已经 claim，权威 pending 为空；即使 USER_MESSAGE 尚未到达，
+    // 已消费项也不能继续显示在消息队列中。
+    applyQueueSnapshot(projection, { session_id: "s1", revision: 6, items: [] });
+    expect(projection.pendingMessages).toEqual([]);
+    expect(projection.queueDepth).toBe(0);
 
     applyEvent(projection, {
       type: UserMessageEventType,
@@ -494,6 +690,48 @@ describe("chat store", () => {
       id: "message-claimed",
       content: "hello",
     })]);
+  });
+
+  it("does not restore a claimed item when the user echo is duplicated", () => {
+    const projection = {
+      messages: [{
+        id: "message-claimed",
+        role: "user" as const,
+        content: "hello",
+        timestamp: 1,
+        metadata: { request_id: "request-claimed" },
+      }],
+      seenEventIds: new Set<string>(),
+      earliestTs: null,
+      hasMoreHistory: true,
+      lastUserInputTs: null,
+      sessionRevision: 1,
+      hasCoordinatorState: true,
+      sessionActivity: "executing" as const,
+      queueDepth: 0,
+      queueCapacity: 100,
+      pendingMessages: [],
+      clientCanSend: true,
+      canCancel: true,
+      blockedReason: null,
+      isBusy: true,
+      sessionStatus: "running" as const,
+      retryState: null,
+      commandName: null,
+      turnStartTs: null,
+      error: null,
+      plan: null,
+    };
+
+    applyEvent(projection, {
+      type: UserMessageEventType,
+      eventId: "event-duplicate",
+      metadata: { request_id: "request-claimed" },
+      data: { id: "message-claimed", data: { content: "hello" } },
+    });
+    expect(projection.pendingMessages).toEqual([]);
+    expect(projection.queueDepth).toBe(0);
+    expect(projection.messages).toHaveLength(1);
   });
 
   it("does not send empty content", async () => {
