@@ -74,6 +74,9 @@ async function gitExecForPaths(
 
 const CONFLICT_PAIRS = new Set(["DD", "AU", "UD", "UA", "DU", "AA", "UU"]);
 
+/** porcelain 状态位的合法字符集；不在此列的行不是状态行（防御裸路径误喂） */
+const VALID_STATUS_CHARS = new Set([" ", "M", "A", "D", "R", "C", "T", "?", "U", "!"]);
+
 function charToStatus(c: string): GitFileStatus["status"] {
   switch (c) {
     case "M":
@@ -92,13 +95,21 @@ function charToStatus(c: string): GitFileStatus["status"] {
   }
 }
 
-function parseStatusLine(line: string, rootPath: string): GitFileStatus[] {
+function parseStatusLine(
+  line: string,
+  rootPath: string,
+  zOldPath?: string,
+): GitFileStatus[] {
   if (line.length < 3) return [];
 
   const X = line[0];
   const Y = line[1];
   const XY = X + Y;
   const rawPath = line.slice(3);
+
+  // 状态位不合法说明这不是一条 porcelain 状态行（例如 -z 模式下被误当
+  // 状态行的裸旧路径），直接丢弃，避免产出路径被截断的垃圾条目。
+  if (!VALID_STATUS_CHARS.has(X) || !VALID_STATUS_CHARS.has(Y)) return [];
 
   if (X === "?" && Y === "?") {
     const isDir = rawPath.endsWith("/");
@@ -127,8 +138,10 @@ function parseStatusLine(line: string, rootPath: string): GitFileStatus[] {
   }
 
   let filePath = rawPath;
-  let oldPath: string | undefined = undefined;
-  if (X === "R" || X === "C" || Y === "R" || Y === "C") {
+  // -z 模式的 rename 由调用方配对传入旧路径（zOldPath）；无 -z 的调用
+  // （git:status）仍走 " -> " 分支。
+  let oldPath = zOldPath;
+  if (!oldPath && (X === "R" || X === "C" || Y === "R" || Y === "C")) {
     const arrowIdx = rawPath.indexOf(" -> ");
     if (arrowIdx !== -1) {
       oldPath = rawPath.slice(0, arrowIdx);
@@ -238,9 +251,22 @@ export function registerGitIPC(): void {
         // 解析 status
         const files: GitFileStatus[] = [];
         const entries = statusResult ? statusResult.replace(/\0$/g, "").split("\0").filter(Boolean) : [];
-        for (const line of entries) {
+        // -z 模式下 rename/copy 条目是 "XY newpath\0oldpath\0"：旧路径是紧随其后的
+        // 独立 NUL 字段（无状态前缀、不含 " -> "），必须配对消费；否则裸旧路径会被
+        // 误当状态行解析，产出路径被截断的重复垃圾条目（Changes 列表 key 冲突根源）。
+        for (let i = 0; i < entries.length; i++) {
+          const line = entries[i];
           if (line.length < 3) continue;
-          const parsed = parseStatusLine(line, rootPath);
+          const X = line[0];
+          const Y = line[1];
+          let zOldPath: string | undefined;
+          if (X === "R" || X === "C" || Y === "R" || Y === "C") {
+            if (i + 1 < entries.length) {
+              zOldPath = entries[i + 1];
+              i++;
+            }
+          }
+          const parsed = parseStatusLine(line, rootPath, zOldPath);
           files.push(...parsed);
         }
 
