@@ -1,6 +1,6 @@
 {
   "name": "ftre-desktop",
-  "version": "0.1.10",
+  "version": "0.1.15",
   "description": "AI Agent Desktop Client - Monorepo",
   "main": "packages/electron/dist/main.js",
   "private": true,

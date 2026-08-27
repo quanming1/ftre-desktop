@@ -82,7 +82,9 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - runner: macos-13
+          # macos-13 runners are no longer reliably schedulable; macos-14 can
+          # cross-build the Intel target while keeping the two-architecture matrix.
+          - runner: macos-14
             arch: x64
           - runner: macos-14
             arch: arm64
@@ -136,7 +138,14 @@ jobs:
         run: |
           set -euo pipefail
           test -x backend/python/bin/python3.12
-          test "$(uname -m)" = "${{ matrix.arch == 'x64' && 'x86_64' || 'arm64' }}"
+          # macos-14 runner 是 arm64；Intel 产物在该 runner 上交叉构建，
+          # 因此不能用宿主 uname 判断目标架构，必须检查实际 runtime 二进制。
+          runtime_arch=$(file backend/python/bin/python3.12)
+          if [ "${{ matrix.arch }}" = "x64" ]; then
+            echo "$runtime_arch" | grep -Eq 'x86_64|universal'
+          else
+            echo "$runtime_arch" | grep -Eq 'arm64|universal'
+          fi
           python3 -c "import json; m=json.load(open('backend/manifest.json')); assert m['platform']=='darwin' and m['arch']=='${{ matrix.arch }}'"
           PYTHONPATH="$GITHUB_WORKSPACE/backend/server" \
             PYTHONUTF8=1 backend/python/bin/python3.12 \
