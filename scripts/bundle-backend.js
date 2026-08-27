@@ -332,10 +332,22 @@ function cleanPycache(root) {
 }
 
 function getDirSize(root) {
+  if (!fs.existsSync(root)) return 0;
   let total = 0;
   for (const item of fs.readdirSync(root, { withFileTypes: true })) {
     const fullPath = path.join(root, item.name);
-    total += item.isDirectory() ? getDirSize(fullPath) : fs.statSync(fullPath).size;
+    // Python embeddable/runtime layouts differ by platform (for example macOS
+    // arm64 may omit the legacy ``2to3`` launcher). A file can also disappear
+    // during cleanup; missing entries must not make an otherwise valid bundle fail.
+    if (item.isDirectory()) {
+      total += getDirSize(fullPath);
+      continue;
+    }
+    try {
+      total += fs.statSync(fullPath).size;
+    } catch (error) {
+      if (error?.code !== "ENOENT") throw error;
+    }
   }
   return total;
 }
@@ -468,13 +480,24 @@ async function main() {
   const ownPkgs = ["ftre-agent-core", "ftre", "cordis-py", "litellm", ...monorepoPkgs];
   const allDeps = [...new Set([...agentCoreDeps, ...ftreDeps])]
     .filter((dependency) => !ownPkgs.includes(pkgName(dependency)));
+  // macOS Intel 目前由 arm64 runner 交叉打包。此时如果 pip 找不到目标
+  // 架构的 wheel，会把 cryptography 等 Rust 扩展退回源码编译；编译过程
+  // 需要 Intel OpenSSL sysroot，而 runner 并未提供。只在这个交叉场景强制
+  // 选择已有 wheel，让 pip 选择满足版本约束的最后一个可用二进制版本；
+  // 原生 Windows/macOS 构建仍允许正常使用源码包作为兜底。
+  const targetWheelOnly = target.platform === "darwin"
+    && target.arch === "x64"
+    && process.arch === "arm64"
+    ? ["--only-binary", ":all:"]
+    : [];
   const depsHash = crypto.createHash("sha256").update(`${targetKey}\n${allDeps.join("\n")}`).digest("hex");
   let preparedDepsHash = null;
   if (!skipDeps && (depsHash !== state.depsHash || forceClean)) {
     log(`安装 Python 依赖：${allDeps.join(", ")}`);
     for (const dependency of allDeps) {
       execFileSync(runtime.executable, ["-m", "pip", "install", dependency,
-        "--disable-pip-version-check", "--no-warn-script-location", "--no-cache-dir", "-q"], {
+        "--disable-pip-version-check", "--no-warn-script-location", "--no-cache-dir", "-q",
+        ...targetWheelOnly], {
         stdio: "inherit",
         cwd: pythonDir,
       });
