@@ -81,8 +81,8 @@ html[data-theme="light"] {
   --ftre-bg-menu: #ffffff;
   /* 队列 Surface；输入框使用更柔和的浅色 Surface。 */
   --ftre-bg-composer: #f3f4f6;
-  --ftre-bg-input: #f9f9f7;
-  --ftre-bg-user-message: #f9f9f7;
+  --ftre-bg-input: #f6f7f9;
+  --ftre-bg-user-message: #f6f7f9;
   --ftre-border-input: rgba(15, 23, 42, 0.07);
   --ftre-bg-hover: rgba(0, 0, 0, 0.04);
   --ftre-bg-active: rgba(0, 0, 0, 0.06);
