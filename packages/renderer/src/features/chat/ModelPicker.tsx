@@ -450,7 +450,9 @@ export function ModelPicker({
       style={floatingPanelStyle}
       data-ftre-floating-menu="model-picker"
       onMouseEnter={openOnHover ? clearHoverClose : undefined}
-      onMouseLeave={openOnHover ? scheduleHoverClose : undefined}
+      // portal 面板的合成事件沿组件树冒泡到容器 onMouseLeave，导致「面板移出即关闭」；
+      // 阻断冒泡，面板移出不关闭，仅由触发项移出或点击外部关闭。
+      onMouseLeave={openOnHover ? (event) => event.stopPropagation() : undefined}
       className={`fixed ${panelWidthClass} z-[9999] flex flex-col overflow-hidden rounded-xl border border-border-subtle bg-surface shadow-[0_12px_30px_rgba(15,23,42,0.14)]`}
     >
       {/* 搜索框 */}

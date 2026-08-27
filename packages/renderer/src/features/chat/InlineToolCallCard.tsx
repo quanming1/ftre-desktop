@@ -236,7 +236,7 @@ function ThinkBlock({
   }, [thought]);
 
   return (
-    <div className="flex gap-2 py-1">
+    <div className="flex gap-2 py-1 animate-[ftreToolIn_260ms_cubic-bezier(0.32,0.72,0,1)]">
       <Brain size={14} className="text-t-ghost shrink-0 mt-0.5" strokeWidth={1.5} />
       <div className="flex-1 min-w-0">
         <div
@@ -363,7 +363,7 @@ function ConfirmCard({
   const displayReason = formatConfirmReason(reason);
 
   return (
-    <div className="py-0.5">
+    <div className="py-0.5 animate-[ftreToolIn_260ms_cubic-bezier(0.32,0.72,0,1)]">
       <div className="mb-2 overflow-hidden rounded-lg border border-black/[0.08] bg-black/[0.015] dark:border-white/[0.08] dark:bg-white/[0.02]">
         <div className="p-3">
           <div className="flex items-center gap-2">
@@ -590,7 +590,7 @@ export const InlineToolCallCard = memo(
             sideOffset={4}
             className="max-w-[360px]"
           >
-            <div className="inline-flex items-center gap-2 py-1 cursor-default">
+            <div className="inline-flex items-center gap-2 py-1 cursor-default animate-[ftreToolIn_260ms_cubic-bezier(0.32,0.72,0,1)]">
               <Box size={14} className="text-[#1a7f37] shrink-0" strokeWidth={1.5} />
                 <span className="text-[14px] font-mono text-t-dim truncate">
                   <span className="text-t-dim font-medium">Loaded Skill</span>
@@ -633,7 +633,7 @@ export const InlineToolCallCard = memo(
             side="top"
             sideOffset={4}
           >
-            <div className="inline-flex items-center gap-2 py-1 cursor-default">
+            <div className="inline-flex items-center gap-2 py-1 cursor-default animate-[ftreToolIn_260ms_cubic-bezier(0.32,0.72,0,1)]">
               <Folder size={14} className="text-[#0969da] shrink-0" strokeWidth={1.5} />
               <span className="text-[14px] font-mono text-t-dim truncate max-w-[400px]">
                 <span className="text-t-dim font-medium">set_workspace</span>
@@ -648,7 +648,7 @@ export const InlineToolCallCard = memo(
     }
 
     return (
-      <div className="py-0.5">
+      <div className="py-0.5 animate-[ftreToolIn_260ms_cubic-bezier(0.32,0.72,0,1)]">
         {isEditTool && hasDiffMeta && resultMeta ? (
           <InlineEditDiff
             filePath={resultMeta.file!}
