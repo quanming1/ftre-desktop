@@ -532,10 +532,18 @@ async function main() {
   if (fs.existsSync(cordisSrc)) syncDirIncremental(cordisSrc, cordisDest);
   // monorepo Package（如 ftre-llm）同样以源码复制进 bundle：runtime 的
   // ftre_agent_core.hooks 依赖 ftre_llm.contracts，缺失会直接 ModuleNotFoundError。
+  // 注意 src/ 下是 Python 模块目录（ftre_llm，下划线），与 packages/ 下的项目
+  // 目录名（ftre-llm，连字符）不同，必须按 src/ 实际内容复制。
   for (const pkg of monorepoPkgs) {
-    const pkgSrc = path.join(monorepoRoot, pkg, "src", pkg);
-    const pkgDest = path.join(serverDir, pkg);
-    if (fs.existsSync(pkgSrc)) syncDirIncremental(pkgSrc, pkgDest);
+    const pkgSrcRoot = path.join(monorepoRoot, pkg, "src");
+    if (!fs.existsSync(pkgSrcRoot)) continue;
+    for (const mod of fs.readdirSync(pkgSrcRoot)) {
+      const modSrc = path.join(pkgSrcRoot, mod);
+      if (mod.endsWith(".egg-info")) continue; // 构建元数据，不进入 bundle
+      if (fs.statSync(modSrc).isDirectory()) {
+        syncDirIncremental(modSrc, path.join(serverDir, mod));
+      }
+    }
   }
   const pyprojectSrc = path.join(PROJECT_ROOT, "pyproject.toml");
   if (fs.existsSync(pyprojectSrc)) fs.copyFileSync(pyprojectSrc, path.join(serverDir, "pyproject.toml"));
