@@ -1,6 +1,14 @@
 # Changelog
 
-## [0.1.15] - 2026-08-27
+## [0.1.18] - 2026-08-27
+
+### D4 品牌 Logo 与应用壳视觉
+
+- **绿色狐狸 FtreLogo 替换 PixelLogo**：新增 `FtreLogo` 组件（静态 SVG 资源、size 映射、role/alt 可访问性），TitleBar 与 LoadingScreen 切换引用，删除旧像素字母实现；组件测试覆盖默认与自定义尺寸
+- **Windows 统一品牌图标**：多尺寸 `ftre.ico` 接线 BrowserWindow（existsSync 防御开发态）与 electron-builder `build.win.icon`，窗口、任务栏和 exe 使用同一绿色狐狸图标
+- **bundle 仓内 Package 源码复制（FR6）**：`copyLocalPackageSources` 将 ftre `packages/*/src` 中带 `pyproject.toml` 的 monorepo 发行物（`ftre_llm`、`ftre_agent_runtime`、`ftre_inbox`、`ftre_compaction` 等）复制进 `resources/backend/server`，过滤 `__pycache__`/`.pyc`/`.git`/`.egg-info`，配套 node 测试覆盖；ownPkgs 判定改为精确包名匹配，修复前缀误杀（v0.1.15 回归教训），与 master 的 bundle 修复收敛为同一实现
+
+### [0.1.15] - 2026-08-27
 
 ### A2 聊天体验修复与重构
 

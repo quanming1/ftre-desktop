@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { ChevronDown, AlertTriangle, RotateCw } from "lucide-react";
-import { PixelLogo } from "@/components/PixelLogo";
+import { FtreLogo } from "@/components/FtreLogo";
 import { useWsStatus } from "@/stores/chat";
 
 export function LoadingScreen() {
@@ -74,7 +74,7 @@ export function LoadingScreen() {
               <AlertTriangle size={20} className="text-[var(--ftre-status-error)]" />
             </div>
           ) : (
-            <PixelLogo size={3} />
+            <FtreLogo size={3} />
           )}
         </div>
         <div className="text-[15px] font-medium text-[var(--ftre-text-secondary)]">

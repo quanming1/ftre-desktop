@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { Minus, Square, X, Copy, GitBranch, ChevronRight, Plug } from "lucide-react";
-import { PixelLogo } from "@/components/PixelLogo";
+import { FtreLogo } from "@/components/FtreLogo";
 import { ConfirmDialog, Tooltip, TooltipProvider } from "@ftre/ui";
 import { useEditor } from "@/stores/editor";
 import { useLayout } from "@/stores/layout";
@@ -80,7 +80,7 @@ export function TitleBar() {
             onClick={() => { setLogoMenuOpen((v) => !v); setHoveredMenu(null); }}
             className={`flex items-center justify-center w-9 h-full hover:bg-hover transition-colors ${logoMenuOpen ? "bg-active" : ""}`}
           >
-            <PixelLogo size={2.5} />
+            <FtreLogo size={2.5} />
           </button>
 
           {/* 一级菜单 */}

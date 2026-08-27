@@ -11,6 +11,34 @@ const {
   resolveManifestExecutable,
 } = require("../../packages/electron/dist/backend-runtime.js");
 const { WorkerManager } = require("../../packages/electron/dist/ipc/worker-manager.js");
+const { copyLocalPackageSources } = require("../bundle-backend.js");
+
+test("bundle-backend 复制仓内 Package 源码并过滤开发元数据", () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "ftre-package-sources-"));
+  const project = path.join(root, "project");
+  const packages = path.join(project, "packages");
+  const server = path.join(root, "server");
+  fs.mkdirSync(path.join(packages, "ftre-llm", "src", "ftre_llm"), { recursive: true });
+  fs.mkdirSync(path.join(packages, "ftre-llm", "src", "ftre_llm.egg-info"), { recursive: true });
+  fs.mkdirSync(path.join(packages, "ftre-llm", "src", "ftre_llm", "__pycache__"), { recursive: true });
+  fs.writeFileSync(path.join(packages, "ftre-llm", "pyproject.toml"), "[project]\nname='ftre-llm'\n", "utf8");
+  fs.writeFileSync(path.join(packages, "ftre-llm", "src", "ftre_llm", "contracts.py"), "VALUE = 1\n", "utf8");
+  fs.writeFileSync(path.join(packages, "ftre-llm", "src", "ftre_llm.egg-info", "PKG-INFO"), "metadata\n", "utf8");
+  fs.writeFileSync(path.join(packages, "ftre-llm", "src", "ftre_llm", "__pycache__", "contracts.pyc"), "cache\n", "utf8");
+  fs.mkdirSync(path.join(packages, "not-a-package", "src", "ignored"), { recursive: true });
+  fs.writeFileSync(path.join(packages, "not-a-package", "src", "ignored", "module.py"), "VALUE = 2\n", "utf8");
+
+  try {
+    const copied = copyLocalPackageSources(project, server);
+    assert.deepEqual(copied, ["ftre_llm"]);
+    assert.equal(fs.readFileSync(path.join(server, "ftre_llm", "contracts.py"), "utf8"), "VALUE = 1\n");
+    assert.equal(fs.existsSync(path.join(server, "ftre_llm.egg-info")), false);
+    assert.equal(fs.existsSync(path.join(server, "ftre_llm", "__pycache__")), false);
+    assert.equal(fs.existsSync(path.join(server, "ignored")), false);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
 
 test("electron-builder 声明 Mac dmg/zip 双架构产物和 bundled backend", () => {
   const config = JSON.parse(fs.readFileSync(path.join(__dirname, "../../electron-builder-full.json"), "utf8"));
@@ -20,6 +48,17 @@ test("electron-builder 声明 Mac dmg/zip 双架构产物和 bundled backend", (
   assert.equal(config.mac.artifactName, "ftre-${version}-mac-${arch}.${ext}");
   assert.ok(config.extraResources.some((resource) => resource.from === "backend/"));
   assert.ok(config.extraResources.some((resource) => resource.from === "scripts/start-gateway.sh"));
+});
+
+test("Windows 窗口、任务栏和 builder 使用同一 ICO", () => {
+  const packageConfig = JSON.parse(fs.readFileSync(path.join(__dirname, "../../package.json"), "utf8"));
+  const fullConfig = JSON.parse(fs.readFileSync(path.join(__dirname, "../../electron-builder-full.json"), "utf8"));
+  const windowSource = fs.readFileSync(path.join(__dirname, "../../packages/electron/src/window.ts"), "utf8");
+  assert.equal(packageConfig.build.win.icon, "packages/electron/assets/ftre.ico");
+  assert.equal(fullConfig.win.icon, "packages/electron/assets/ftre.ico");
+  assert.match(windowSource, /iconPath/);
+  assert.match(windowSource, /ftre\.ico/);
+  assert.ok(fs.existsSync(path.join(__dirname, "../../packages/electron/assets/ftre.ico")));
 });
 
 test("Release workflow 包含 macOS 矩阵和 SHA256 汇总", () => {

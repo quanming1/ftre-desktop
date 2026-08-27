@@ -309,6 +309,28 @@ stages:
           - packages/renderer/src/features/chat/turnFileChangeUtils.ts
         acceptance: pending messages 仍显示在输入框上方；运行状态、模型、时长、任务、文件变更、Git 分支与 Git 变更迁移到 Header 右上角弹窗；详情可展开且两类 Diff 都可打开
 
+      - id: D4
+        title: 品牌 Logo 与应用壳视觉
+        status: in_progress
+        date: 2026-08-27
+        prd: docs/prd/PRD-D4-brand-logo.md
+        prd_status: 开发中
+        depends_on:
+          - D3
+        implementation_boundary: 只修改 renderer 的品牌 Logo 组件、TitleBar、LoadingScreen、Windows 自包含包的打包脚本、测试和文档；不修改 ftre 后端源码、WebSocket 协议、会话数据或业务交互
+        modules:
+          - packages/renderer/src/assets/ftre-fox-logo.svg
+          - packages/renderer/src/components/FtreLogo.tsx
+          - packages/renderer/src/app/TitleBar.tsx
+          - packages/renderer/src/app/LoadingScreen.tsx
+          - packages/electron/src/window.ts
+          - packages/electron/assets/ftre.ico
+          - electron-builder-full.json
+          - package.json（build.win.icon）
+          - scripts/bundle-backend.js
+          - scripts/tests/backend-runtime.test.cjs
+        acceptance: TitleBar、LoadingScreen、Windows 窗口和任务栏使用绿色狐狸 Logo；Logo 保持透明背景和比例，菜单/启动状态行为不回归；renderer 测试、tsc、build、full pack 通过；自包含安装包可启动并可看到新 Logo
+
   - id: E
     name: 跨平台发布
     steps:
