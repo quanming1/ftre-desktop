@@ -514,16 +514,27 @@ html[data-theme="dark"] .tool-highlight .hljs-type {
   color: #9ca0aa;
 }
 
-/* 连续 assistant 消息之间减小间距
-   space-y-4 给非最后子元素 margin-block-end: 14px，
-   ReAct 多轮 tool call 场景下连续 assistant 消息之间显得过大 */
-[data-assistant-message]:has(+ [data-assistant-message]) {
-  margin-block-end: 2px;
+/* 消息间距：统一用 padding-top（flex 列内 padding 不折叠、不依赖 last-child
+   判定，子元素增删时布局稳定）。基础间距 16px，特殊配对覆盖。 */
+[data-msg-role="user"],
+[data-assistant-message],
+[data-compact-bubble] {
+  padding-top: 1rem;
+}
+[data-msg-role="user"]:first-child,
+[data-assistant-message]:first-child,
+[data-compact-bubble]:first-child {
+  padding-top: 0;
 }
 
-/* User ↔ Assistant 之间增大间距（不影响 user↔user 和附件紧贴气泡） */
+/* 连续 assistant 消息之间减小间距（ReAct 多轮 tool call 场景） */
+[data-assistant-message]:has(+ [data-assistant-message]) {
+  padding-top: 2px;
+}
+
+/* User ↔ Assistant 之间增大间距（基础 16px + 额外 12px） */
 [data-assistant-message] + [data-msg-role="user"] {
-  padding-top: 0.75rem;
+  padding-top: 1.75rem;
 }
 [data-msg-role="user"]:has(+ [data-assistant-message]) {
   padding-bottom: 0.75rem;

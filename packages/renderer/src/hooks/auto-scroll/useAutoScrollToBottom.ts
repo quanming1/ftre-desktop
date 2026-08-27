@@ -61,12 +61,18 @@ export function useAutoScrollToBottom(
       lockRef.current = dist < LOCK_THRESHOLD;
     };
 
-    // ResizeObserver: 内容高度变化时（如 CodeDiff 异步展开），若锁定在底部则自动跟随
+    // ResizeObserver: 内容高度变化时（如流式增量、占位符出现），若锁定在底部则在
+    // 绘制前自动跟随。必须同时观察滚动容器与内容子元素——容器自身盒高被外层
+    // grid 锁死不会变化，只 observe 容器等于永远不会触发，滚底会退化为
+    // paint 之后的 effect 补滚，产生可见抖动。
     const ro = new ResizeObserver(() => {
       if (!lockRef.current) return;
       el.scrollTo({ top: el.scrollHeight, behavior: "auto" });
     });
     ro.observe(el);
+    // grid 包装层是唯一随内容伸缩的元素；ref 回调执行时子树已挂载。
+    const contentEl = el.firstElementChild;
+    if (contentEl) ro.observe(contentEl);
 
     el.addEventListener("scroll", onScroll, { passive: true });
     el.addEventListener("wheel", onWheel, { passive: true });

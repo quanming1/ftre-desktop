@@ -84,13 +84,6 @@ export function ChatView({ runContextOpen = false }: ChatViewProps) {
     && sessionActivity === "idle"
     && canSend;
   const activeTurn = hasActiveTurn(sessionStatus, sessionActivity);
-  const [composerOverlayHeight, setComposerOverlayHeight] = useState(0);
-  const handleComposerOverlayHeightChange = useCallback((height: number) => {
-    setComposerOverlayHeight((current) => current === height ? current : height);
-  }, []);
-  // 变更摘要 / pending 横幅采用定位显示在输入框上方；默认保留 30px，
-  // 再叠加定位内容的实际高度，避免消息被横幅遮挡。
-  const composerPaddingBottom = `calc(${composerOverlayHeight}px + 30px)`;
   const { containerRef, layoutMode } = useRunContextLayoutMode();
   const useRunContextRail = runContextOpen && layoutMode === "rail";
 
@@ -120,11 +113,10 @@ export function ChatView({ runContextOpen = false }: ChatViewProps) {
             pendingMessagesCount={pendingMessages.length}
             layoutClassName={gridColumns}
             className="col-start-1 col-end-4 row-start-1 min-h-0"
-            style={{ paddingBottom: composerPaddingBottom }}
           />
           {canSend ? (
             <div className="z-10 col-start-2 row-start-2 min-w-0">
-              <ChatInput onComposerOverlayHeightChange={handleComposerOverlayHeightChange} />
+              <ChatInput />
             </div>
           ) : (
             <div className="z-10 col-start-2 row-start-2 min-w-0">
