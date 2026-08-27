@@ -32,7 +32,6 @@ function resetStore() {
     sessionId: null,
     messages: [],
     sessionStatus: "idle",
-    isBusy: false,
     error: null,
     connected: false,
     model: null,
@@ -90,7 +89,7 @@ describe("performance — message list operations", () => {
   it("streaming content updates are fast", () => {
     const messages: ChatMessage[] = [makeMessage("stream-1", "assistant", "")];
     messages[0].streaming = true;
-    useChat.setState({ messages, isBusy: true });
+    useChat.setState({ messages, sessionStatus: "running", sessionActivity: "executing" });
 
     const start = performance.now();
     for (let i = 0; i < 50; i++) {

@@ -2,6 +2,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Loader2 } from "lucide-react";
 import { useChat } from "@/stores/chat";
+import { hasActiveTurn, hasPendingWork } from "@/stores/runtimeState";
 import { useSession } from "@/stores/session";
 import { wsClient } from "@/services/websocket-client";
 import { ChatMessageList } from "./ChatMessageList";
@@ -54,7 +55,9 @@ function useRunContextLayoutMode() {
 
 export function ChatView({ runContextOpen = false }: ChatViewProps) {
   const messages = useChat((state) => Array.isArray(state.messages) ? state.messages : []);
-  const isBusy = useChat((state) => state.isBusy);
+  const sessionStatus = useChat((state) => state.sessionStatus);
+  const sessionActivity = useChat((state) => state.sessionActivity);
+  const queueDepth = useChat((state) => state.queueDepth);
   // 所有待执行消息先停留在本地可靠队列；后端写入 UserMsg 并回显后才进入 messages。
   const pendingMessages = useChat((state) => state.pendingMessages);
   const sessionId = useChat((state) => state.sessionId);
@@ -74,14 +77,13 @@ export function ChatView({ runContextOpen = false }: ChatViewProps) {
   }, [sessionId, allSessions]);
   const canSend = currentSessionChannel === "ws";
   const isSessionLoading = loadingSessionId != null;
-  const isWelcome = !sessionId && !isBusy && canSend;
-  const [composerOverlayHeight, setComposerOverlayHeight] = useState(0);
-  const handleComposerOverlayHeightChange = useCallback((height: number) => {
-    setComposerOverlayHeight((current) => current === height ? current : height);
-  }, []);
-  // 变更摘要 / pending 横幅采用定位显示在输入框上方；默认保留 30px，
-  // 再叠加定位内容的实际高度，避免消息被横幅遮挡。
-  const composerPaddingBottom = `calc(${composerOverlayHeight}px + 30px)`;
+  const hasPending = hasPendingWork(queueDepth, pendingMessages);
+  const isWelcome = !sessionId
+    && !hasPending
+    && sessionStatus === "idle"
+    && sessionActivity === "idle"
+    && canSend;
+  const activeTurn = hasActiveTurn(sessionStatus, sessionActivity);
   const { containerRef, layoutMode } = useRunContextLayoutMode();
   const useRunContextRail = runContextOpen && layoutMode === "rail";
 
@@ -106,15 +108,15 @@ export function ChatView({ runContextOpen = false }: ChatViewProps) {
         <>
           <ChatMessageList
             messages={messages}
-            isBusy={isBusy}
+            hasActiveTurn={activeTurn}
+            isCompacting={sessionStatus === "compacting"}
             pendingMessagesCount={pendingMessages.length}
             layoutClassName={gridColumns}
             className="col-start-1 col-end-4 row-start-1 min-h-0"
-            style={{ paddingBottom: composerPaddingBottom }}
           />
           {canSend ? (
             <div className="z-10 col-start-2 row-start-2 min-w-0">
-              <ChatInput onComposerOverlayHeightChange={handleComposerOverlayHeightChange} />
+              <ChatInput />
             </div>
           ) : (
             <div className="z-10 col-start-2 row-start-2 min-w-0">

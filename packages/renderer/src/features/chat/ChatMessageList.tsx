@@ -31,12 +31,12 @@ import { shouldShowTurnActions } from "./turnActions";
 
 export interface ChatMessageListProps {
   messages: ChatMessage[];
-  /** Whether the agent is currently processing (shows typing indicator) */
-  isBusy?: boolean;
+  /** Agent 正在执行当前 Turn；队列 pending 或压缩不属于普通处理中占位。 */
+  hasActiveTurn?: boolean;
   /** Number of locally queued messages before the first user echo arrives. */
   pendingMessagesCount?: number;
-  /** Auto-scroll to bottom on new messages */
-  autoScroll?: boolean;
+  /** Compaction has its own status bubble; do not render the generic thinking placeholder. */
+  isCompacting?: boolean;
   /** Max height CSS value (default: none, fills parent) */
   maxHeight?: string;
   /** Class name for the outer container */
@@ -53,9 +53,9 @@ export interface ChatMessageListProps {
 
 export const ChatMessageList = memo(function ChatMessageList({
   messages,
-  isBusy = false,
+  hasActiveTurn = false,
   pendingMessagesCount = 0,
-  autoScroll = true,
+  isCompacting = false,
   maxHeight,
   className = "",
   layoutClassName = "grid-cols-[minmax(0,1fr)_minmax(0,848px)_minmax(0,1fr)]",
@@ -101,7 +101,7 @@ export const ChatMessageList = memo(function ChatMessageList({
   // 不用 lastMsgId：ReAct 循环每轮新增消息会让 lastMsgId 变化，
   // 触发锁重置 → 把用户滚上去的位置强制拉回底部。
   const sessionId = useChat((s) => s.sessionId);
-  const { ref: autoScrollRef, scrollToBottom, resetLock } = useAutoScrollToBottom(
+  const { ref: autoScrollRef } = useAutoScrollToBottom(
     [sessionId],
     { autoScrollLockDefault: true },
   );
@@ -113,44 +113,12 @@ export const ChatMessageList = memo(function ChatMessageList({
     [autoScrollRef],
   );
 
-  // 新一轮流开始 → 强制重新跟随
-  const prevBusy = useRef(false);
-  useEffect(() => {
-    if (isBusy && !prevBusy.current) resetLock();
-    prevBusy.current = isBusy;
-  }, [isBusy, resetLock]);
-
-  // ─── 尾部消息指纹 —— 覆盖流式期间所有增量来源 ─────────────────
-  // 流式期间 messages.length 不变，但最后一条的 content/parts/toolCalls 在涨。
-  // 指纹变化 → scrollToBottom，锁由 hook 内部管理。
-  const lastMsg = safeMessages[safeMessages.length - 1];
-  const tailFingerprint =
-    !lastMsg
-      ? ""
-      : `${lastMsg.id}:${(lastMsg.content ?? "").length}:${
-          lastMsg.blocks
-            ?.map((b) =>
-              b.type === "toolCall"
-                ? `t${b.id}`
-                : b.type === "thinking"
-                  ? `r${b.thinking.length}`
-                  : b.type === "data"
-                    ? `d${b.data.length}`
-                    : `x${b.text.length}`,
-            )
-            .join("|") ?? ""
-        }:${
-          lastMsg.toolResults
-            ? Object.entries(lastMsg.toolResults)
-                .map(([id, r]) => `${id}${r.status}${(r.result ?? "").length}`)
-                .join("|")
-            : ""
-        }`;
-
-  useEffect(() => {
-    if (!autoScroll) return;
-    scrollToBottom();
-  }, [tailFingerprint, autoScroll, scrollToBottom]);
+  // ─── 滚底单一事实源：useAutoScrollToBottom 内部 ResizeObserver ───
+  // 观察滚动容器与内容层：任何内容高度变化（新消息、流式增长、占位符）
+  // 都在绘制前完成 scrollToBottom。
+  // 跟随与否完全由用户行为决定（wheel 向上解锁、滚回底部附近重新锁定）；
+  // 不在 TURN_START/占位符出现时强制 resetLock——那会把滚上去看历史的
+  // 用户强行拉回底部。
 
   // ─── 加载更多（后端分页）──────────────────────────────────────────
 
@@ -185,6 +153,8 @@ export const ChatMessageList = memo(function ChatMessageList({
       className={`overflow-y-auto overflow-x-hidden ${className}`}
       style={{
         maxHeight,
+        // 滚动条槽位固定：避免首次溢出时滚动条出现引发宽度重排抖动。
+        scrollbarGutter: "stable",
         ...style,
       }}
     >
@@ -192,10 +162,12 @@ export const ChatMessageList = memo(function ChatMessageList({
         <ChatOutline messages={safeMessages} />
 
         <div className="col-start-2 min-w-0 px-6 pb-0 pt-3">
-          <div className="mx-auto w-full max-w-[800px] space-y-4 break-words">
+          {/* 消息间距统一走 padding（见 global.css [data-msg-role]/[data-assistant-message] 规则），
+              不用 space-y-*：margin 系间距在子元素增删时依赖 last-child 判定，易产生一帧错位。 */}
+          <div className="mx-auto flex w-full max-w-[800px] flex-col break-words">
         {/* Load more */}
         {hasMoreHistory && (
-          <div className="text-center py-2">
+          <div className="shrink-0 text-center py-2">
             <button
               onClick={loadMore}
               disabled={loadingHistory}
@@ -213,19 +185,17 @@ export const ChatMessageList = memo(function ChatMessageList({
           </div>
         )}
 
-        {safeMessages.length === 0 && !isBusy && (
+        {safeMessages.length === 0 && !hasActiveTurn && (
           <div className="text-center text-t-dim text-sm py-12">
             No messages
           </div>
-        )}
-
-        {safeMessages.map((msg, i) => {
+        )}        {safeMessages.map((msg, i) => {
           const next = safeMessages[i + 1];
           const isTurnEnd =
             msg.role === "assistant" &&
             !msg.streaming &&
             (!next || next.role !== "assistant");
-          const showTurnActions = shouldShowTurnActions(safeMessages, i, isBusy);
+          const showTurnActions = shouldShowTurnActions(safeMessages, i, hasActiveTurn);
 
           // 本轮所有 assistant 消息的文本列表（从上一个 user 消息之后到本条）
           let turnTexts: string[] | undefined;
@@ -259,18 +229,24 @@ export const ChatMessageList = memo(function ChatMessageList({
               turnId={msg.id}
               turnDurationSec={msg.durationSec}
               turnModel={msg.model}
+              turnFinishedAt={msg.finishedAt}
             />
           );
         })}
 
-        {shouldShowThinkingPlaceholder(safeMessages, isBusy, pendingMessagesCount) && (
+        {!isCompacting && shouldShowThinkingPlaceholder(safeMessages, hasActiveTurn, pendingMessagesCount) && (
           <div
             data-testid="thinking-placeholder"
-            className="py-3"
+            className="shrink-0 pt-4 pb-1"
           >
             <span className="animate-process-breath text-[14px] text-t-dim">处理中</span>
           </div>
         )}
+
+        {/* 底部固定预留：输入框上方浮层（队列横幅/变更摘要）覆盖在此空白区，
+            高度恒定（72px）——横幅出现/消失不改变消息列表布局，从根上消除
+            发送消息时的布局跳动。 */}
+        <div className="shrink-0" aria-hidden="true" style={{ height: 72 }} />
 
           </div>
         </div>
@@ -304,6 +280,7 @@ const MessageItem = memo(function MessageItem({
   turnId,
   turnDurationSec,
   turnModel,
+  turnFinishedAt,
 }: {
   message: ChatMessage;
   showActions?: boolean;
@@ -317,6 +294,7 @@ const MessageItem = memo(function MessageItem({
   turnDurationSec?: number;
   /** 本轮使用的模型 ID */
   turnModel?: string;
+  turnFinishedAt?: number;
 }) {
   if (message.role === "user") {
     return <UserMessage message={message} />;
@@ -331,6 +309,7 @@ const MessageItem = memo(function MessageItem({
         turnId={turnId}
         turnDurationSec={turnDurationSec}
         turnModel={turnModel}
+        turnFinishedAt={turnFinishedAt}
       />
     );
   }
@@ -341,7 +320,7 @@ const MessageItem = memo(function MessageItem({
     }
     // 其他系统消息（错误等）
     return (
-      <div className="text-[13px] text-danger p-3 bg-danger/8 rounded-lg font-mono">
+      <div data-msg-role="system" className="text-[13px] text-danger p-3 bg-danger/8 rounded-lg font-mono">
         {message.content}
       </div>
     );
@@ -361,7 +340,7 @@ const CompactBubble = memo(function CompactBubble({
 
   if (status === "running") {
     return (
-      <div className="flex items-center justify-start py-2">
+      <div data-compact-bubble="true" className="flex items-center justify-start py-2">
         <span className="inline-flex items-center gap-1.5 text-[14px] text-t-dim">
           <Loader2 size={12} className="animate-spin" />
           {mode === "fast" ? "快速压缩中…" : "压缩上下文中…"}
@@ -372,7 +351,7 @@ const CompactBubble = memo(function CompactBubble({
 
   if (status === "failed") {
     return (
-      <div className="flex items-center justify-center py-2">
+      <div data-compact-bubble="true" className="flex items-center justify-center py-2">
         <span className="inline-flex items-center gap-1.5 text-[11px] text-warning/80">
           <AlertCircle size={12} />
           上下文压缩失败{reason ? `：${reason}` : ""}
@@ -395,7 +374,7 @@ const CompactBubble = memo(function CompactBubble({
   const detailStr = detailParts.length > 0 ? ` · ${detailParts.join(" · ")}` : "";
 
   return (
-    <div className="py-2">
+    <div data-compact-bubble="true" className="py-2">
       <button
         onClick={() => summaryPreview && setOpen((v) => !v)}
         className={`inline-flex items-center gap-1.5 text-[14px] text-t-dim ${summaryPreview ? "cursor-pointer hover:text-t-ghost transition-colors" : "cursor-default"}`}

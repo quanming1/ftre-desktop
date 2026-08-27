@@ -11,7 +11,6 @@ function freshProjection(): SessionProjectionState {
   const b = useChat.getState();
   return {
     messages: [],
-    isBusy: false,
     sessionStatus: "idle",
     sessionActivity: "idle",
     sessionRevision: -1,
@@ -35,9 +34,12 @@ function freshProjection(): SessionProjectionState {
   } as unknown as SessionProjectionState;
 }
 
+let snapshotRevision = 0;
+
 function snapshot(pendingCount: number) {
   return {
     session_id: "ws_sess_A",
+    revision: ++snapshotRevision,
     items: Array.from({ length: pendingCount }, (_, i) => ({
       id: `req-${i}`,
       placement: "queued",
@@ -58,6 +60,7 @@ function canSendOf(
 
 describe("发送按钮卡死复现（按 WS 日志事件序列）", () => {
   beforeEach(() => {
+    snapshotRevision = 0;
     useChat.setState({
       sessionId: "ws_sess_A",
       sessionStatus: "idle",
@@ -67,7 +70,6 @@ describe("发送按钮卡死复现（按 WS 日志事件序列）", () => {
       clientCanSend: true,
       queueDepth: 0,
       pendingMessages: [],
-      isBusy: false,
     });
   });
 
@@ -80,8 +82,8 @@ describe("发送按钮卡死复现（按 WS 日志事件序列）", () => {
     applyQueueSnapshot(b, snapshot(1));
     expect(b.hasCoordinatorState).toBe(true);
     expect(b.clientCanSend).toBe(true);
-    expect(b.isBusy).toBe(true); // queueDepth=1
-    expect(b.sessionStatus).toBe("running"); // isBusy → running
+    expect(b.queueDepth).toBe(1);
+    expect(b.sessionStatus).toBe("running");
 
     // 2) take 消耗 rev=103 但无快照；turn 进行 48s——客户端保持上述状态
     // 3) 用户打字（hasDraft=true）→ 按钮必须可点（排队语义）
@@ -90,9 +92,7 @@ describe("发送按钮卡死复现（按 WS 日志事件序列）", () => {
     // 4) status 先回 idle，再收到空队列快照。
     b.sessionStatus = "idle";
     b.sessionActivity = "idle";
-    b.isBusy = false;
     applyQueueSnapshot(b, snapshot(0));
-    expect(b.isBusy).toBe(false);
     expect(b.sessionStatus).toBe("idle");
     expect(canSendOf(b, true)).toBe(true);
   });
@@ -125,12 +125,11 @@ describe("发送按钮卡死复现（按 WS 日志事件序列）", () => {
     expect(b.sessionStatus).toBe("idle");
   });
 
-  it("迟到 ACK 在 idle 后到达：只置 running，不能挡住后续发送", () => {
+  it("迟到状态更新在 idle 后到达：只置 running，不能挡住后续发送", () => {
     const b = freshProjection();
     applyQueueSnapshot(b, snapshot(0)); // turn 完成 idle
 
-    // 迟到的 admission ack 路径（复刻 1319-1346 的直接赋值）
-    b.isBusy = true;
+    // 迟到的运行状态路径：队列响应与 status 事件不应锁死输入框。
     b.sessionStatus = "running";
     if (!b.hasCoordinatorState) b.sessionActivity = "dispatching";
 

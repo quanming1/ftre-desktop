@@ -11,6 +11,7 @@ describe("Inbox queue protocol", () => {
       metadata: { session_id: "ws_sess_1" },
       payload: {
         session_id: "ws_sess_1",
+        revision: 1,
         items: [{
           id: "req-1",
           placement: "queued",

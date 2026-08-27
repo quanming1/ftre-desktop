@@ -23,6 +23,7 @@ import { previewRollback, executeRollback } from "@/services/api";
 import { fetchSessionMessages } from "@/services/api";
 import { RollbackConfirmDialog } from "./RollbackConfirmDialog";
 import { ContextMenu, type ContextMenuItem, Tooltip, TooltipProvider, ImageViewer } from "@ftre/ui";
+import { formatAbsoluteMessageTime, formatMessageTime } from "./messageTime";
 
 /**
  * 渲染 parts 数组为 inline 内容
@@ -62,7 +63,7 @@ function getMessageText(message: ChatMessage): string {
 
 /**
  * 渲染附件区（仅图片）
- * 和输入框的附件栏样式一致：小缩略图 + 文件名，放在消息下方。
+ * 小缩略图 + 文件名卡片，放在消息下方，与气泡同底色。
  * 点击弹出全屏预览，Ctrl/Cmd + 点击在浏览器打开原图。
  */
 function AttachmentStrip({
@@ -95,13 +96,13 @@ function AttachmentStrip({
               setPreviewSrc(att.url);
             }}
             title={att.name || "image — 点击预览"}
-            className="group inline-flex items-center gap-2.5 pl-1.5 pr-3 py-1.5 rounded-xl border border-border-subtle bg-panel text-t-primary text-[13px] max-w-[240px] cursor-pointer hover:border-neon/40 transition-colors"
+            className="group inline-flex items-center gap-2.5 pl-1.5 pr-3 py-1.5 rounded-lg border border-white/60 bg-user-message text-t-primary text-[13px] max-w-[240px] cursor-pointer transition-colors"
           >
             {/* 缩略图 */}
             <img
               src={att.url}
               alt={att.name || "image"}
-              className="block w-9 h-9 rounded-lg object-cover bg-elevated shrink-0"
+              className="block w-9 h-9 rounded-md object-cover bg-elevated shrink-0"
               draggable={false}
             />
             {/* 文件名 */}
@@ -133,9 +134,10 @@ export const UserMessage = memo(
     const hasContent = hasParts || (message.content && message.content.trim() !== "");
     const hasAttachments = message.attachments && message.attachments.length > 0;
     const sessionId = useChat((s) => s.sessionId);
-    const isBusy = useChat((s) => s.isBusy);
+    const sessionStatus = useChat((s) => s.sessionStatus);
+    const queueDepth = useChat((s) => s.queueDepth);
+    const pendingMessages = useChat((s) => s.pendingMessages);
 
-    const [isHovered, setIsHovered] = useState(false);
     const [isLoadingPreview, setIsLoadingPreview] = useState(false);
     const [showConfirmDialog, setShowConfirmDialog] = useState(false);
     const [isExecuting, setIsExecuting] = useState(false);
@@ -148,7 +150,6 @@ export const UserMessage = memo(
       y: number;
     } | null>(null);
 
-    const messageRef = useRef<HTMLDivElement>(null);
     const bubbleRef = useRef<HTMLDivElement>(null);
 
     // 动态圆角：短消息接近胶囊，长消息收敛到固定值
@@ -177,8 +178,11 @@ export const UserMessage = memo(
       return () => ro.disconnect();
     }, [message.content, message.parts]);
 
-    // 检查是否可以回滚（不在处理中，有 sessionId）
-    const canRollback = !isBusy && !!sessionId;
+    // 回滚要求当前会话空闲且 Inbox 没有未交接输入；队列 pending 不等于 Agent 正在流式输出。
+    const canRollback = sessionStatus === "idle"
+      && queueDepth === 0
+      && pendingMessages.length === 0
+      && !!sessionId;
 
 
     // 复制消息内容
@@ -317,101 +321,100 @@ export const UserMessage = memo(
     ];
 
     return (
-      <div id={`msg-${message.id}`} data-msg-id={message.id} data-msg-role="user">
+      <div
+        id={`msg-${message.id}`}
+        data-msg-id={message.id}
+        data-msg-role="user"
+        className="group flex flex-col items-end"
+      >
         <TooltipProvider>
-          {/* 有文字内容时：显示完整气泡 + 操作按钮 */}
+          {/* 消息内容气泡（纯附件消息时省略） */}
           {hasContent && (
-            <div
-              className="flex items-start justify-end gap-1.5 group"
-              onMouseEnter={() => setIsHovered(true)}
-              onMouseLeave={() => setIsHovered(false)}
-            >
-              {/* 操作按钮 - 在消息左侧，与消息顶部对齐 */}
-              <div className="flex items-center gap-1 pt-2">
-                {/* 复制按钮 - hover 时显示，在最左边 */}
-                <Tooltip content="复制" side="top">
+            <div className="relative max-w-[85%] w-fit">
+              <div
+                data-testid="user-message-bubble"
+                ref={(node) => {
+                  bubbleRef.current = node;
+                }}
+                onContextMenu={handleContextMenu}
+                style={{
+                  borderRadius: bubbleRadius,
+                  maxHeight:
+                    !isOverflowing
+                      ? undefined
+                      : collapsed
+                        ? COLLAPSE_HEIGHT_PX
+                        : contentHeight,
+                  overflow: isOverflowing ? "hidden" : undefined,
+                }}
+                className="text-[var(--text-md)] leading-relaxed text-t-primary bg-user-message px-4 py-3 whitespace-pre-wrap break-words font-sans cursor-default transition-[max-height] duration-300 ease-out"
+              >
+                {hasParts ? (
+                  <PartsContent parts={message.parts!} />
+                ) : (
+                  message.content
+                )}
+              </div>
+
+              {/* 折叠时底部渐隐遮罩（展开时渐隐） */}
+              {isOverflowing && (
+                <div
+                  className={`pointer-events-none absolute left-0 right-0 bottom-0 h-12 bg-gradient-to-t from-user-message to-transparent transition-opacity duration-300 ease-out ${
+                    collapsed ? "opacity-100" : "opacity-0"
+                  }`}
+                  style={{
+                    borderBottomLeftRadius: bubbleRadius,
+                    borderBottomRightRadius: bubbleRadius,
+                  }}
+                />
+              )}
+
+              {/* 展开/收起按钮 */}
+              {isOverflowing && (
+                <Tooltip
+                  content={collapsed ? "展开文字" : "收起"}
+                  side="top"
+                >
                   <button
-                    onClick={handleCopy}
-                    className={`flex items-center justify-center w-9 h-9 text-t-ghost hover:text-t-secondary rounded-full hover:bg-hover transition-all ${
-                      isHovered ? "opacity-100" : "opacity-0 pointer-events-none"
-                    }`}
+                    onClick={() => setCollapsed((v) => !v)}
+                    className="absolute right-3 bottom-3 w-9 h-9 flex items-center justify-center rounded-full bg-white text-t-secondary hover:text-t-primary hover:bg-gray-100 shadow-md transition-colors"
                   >
-                    {copied ? (
-                      <Check size={18} className="text-green-500" />
+                    {collapsed ? (
+                      <ChevronDown size={22} className="relative top-px" />
                     ) : (
-                      <Copy size={18} />
+                      <ChevronUp size={22} className="relative top-px" />
                     )}
                   </button>
                 </Tooltip>
-
-              </div>
-
-              {/* 消息内容 */}
-              <div className="relative max-w-[85%] w-fit">
-                <div
-                  ref={(node) => {
-                    messageRef.current = node;
-                    bubbleRef.current = node;
-                  }}
-                  onContextMenu={handleContextMenu}
-                  style={{
-                    borderRadius: bubbleRadius,
-                    maxHeight:
-                      !isOverflowing
-                        ? undefined
-                        : collapsed
-                          ? COLLAPSE_HEIGHT_PX
-                          : contentHeight,
-                    overflow: isOverflowing ? "hidden" : undefined,
-                  }}
-                  className="text-[var(--text-md)] leading-relaxed text-t-primary bg-panel px-4 py-3 whitespace-pre-wrap break-words font-sans cursor-default transition-[max-height] duration-300 ease-out"
-                >
-                  {hasParts ? (
-                    <PartsContent parts={message.parts!} />
-                  ) : (
-                    message.content
-                  )}
-                </div>
-
-                {/* 折叠时底部渐隐遮罩（展开时渐隐） */}
-                {isOverflowing && (
-                  <div
-                    className={`pointer-events-none absolute left-0 right-0 bottom-0 h-12 bg-gradient-to-t from-panel to-transparent transition-opacity duration-300 ease-out ${
-                      collapsed ? "opacity-100" : "opacity-0"
-                    }`}
-                    style={{
-                      borderBottomLeftRadius: bubbleRadius,
-                      borderBottomRightRadius: bubbleRadius,
-                    }}
-                  />
-                )}
-
-                {/* 展开/收起按钮 */}
-                {isOverflowing && (
-                  <Tooltip
-                    content={collapsed ? "展开文字" : "收起"}
-                    side="top"
-                  >
-                    <button
-                      onClick={() => setCollapsed((v) => !v)}
-                      className="absolute right-3 bottom-3 w-9 h-9 flex items-center justify-center rounded-full bg-white text-t-secondary hover:text-t-primary hover:bg-gray-100 shadow-md transition-colors"
-                    >
-                      {collapsed ? (
-                        <ChevronDown size={22} className="relative top-px" />
-                      ) : (
-                        <ChevronUp size={22} className="relative top-px" />
-                      )}
-                    </button>
-                  </Tooltip>
-                )}
-              </div>
+              )}
             </div>
           )}
 
-          {/* 附件区 - 右对齐，有内容时独立一行，无内容时作为主体 */}
+          {/* 附件区：紧跟气泡（AttachmentStrip 自带右对齐与 mt-1），
+              不再被 hover 才显示的元数据行隔开 */}
           {hasAttachments && (
-            <div className={`flex justify-end ${hasContent ? "mt-2" : ""}`}>
-              <AttachmentStrip attachments={message.attachments!} />
+            <AttachmentStrip attachments={message.attachments!} />
+          )}
+
+          {/* 元数据行沉底：hover 显示，不占据气泡与附件之间的空间 */}
+          {hasContent && (
+            <div className="invisible mt-1 flex items-center justify-end gap-1.5 text-[12px] leading-none text-t-faint opacity-0 transition-opacity duration-150 group-hover:visible group-hover:opacity-100 group-hover:pointer-events-auto pointer-events-none">
+              <span
+                className="tabular-nums"
+                title={`发送时间：${formatAbsoluteMessageTime(message.timestamp)}`}
+              >
+                {formatMessageTime(message.timestamp)}
+              </span>
+              <Tooltip content={copied ? "已复制" : "复制"} side="top">
+                <button
+                  type="button"
+                  aria-label={copied ? "已复制" : "复制消息"}
+                  onClick={handleCopy}
+                  className="inline-flex h-7 w-7 items-center justify-center rounded-md text-t-faint transition-colors hover:bg-hover hover:text-t-primary"
+                >
+                  {copied ? <Check size={14} className="text-green-500" /> : <Copy size={14} />}
+                </button>
+              </Tooltip>
             </div>
           )}
         </TooltipProvider>

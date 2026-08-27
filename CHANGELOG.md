@@ -1,5 +1,47 @@
 # Changelog
 
+## [0.1.15] - 2026-08-27
+
+### A2 聊天体验修复与重构
+
+- **图片上传三问题修复**：配额判定改用同步镜像（修「首张图误报最多8张」与多次粘贴才成功）；Electron 主进程与打包 index.html 双处 CSP 的 `img-src` 放行 gateway 回环图片服务（修实时消息图片裂图，刷新才显示）
+- **消息列表发送抖动根治**：滚底收敛为 ResizeObserver 单一事实源（观察容器+内容层，绘制前修正）；删除 tailFingerprint paint 后重复滚动与 TURN_START 强制拉底，跟随完全由用户滚动位置决定；输入框浮层改为固定 72px 底部 spacer，出现/消失零布局变化；消息间距由 margin 系改 padding 规则
+- **git 状态解析修复**：`status -z` 模式 rename/copy 旧路径按顺序配对；文件树对同文件 staged/unstaged 双记录使用含 staged 维度的 key，消除 React key 冲突
+- **UI 微调**：图片附件卡片与气泡同底色并加白描边、圆角收敛；hover 元数据行 g/y 降部截断修复；输入框与用户消息底色统一 `#f6f7f9`
+
+### B7 会话列表信息 Tooltip 化（已完成，未发布）
+
+- sessionList 会话项统一为紧凑单行，移除常驻 desc；悬停整行显示标题、最后消息、工作区和相对时间。
+- Tooltip 使用白底、无边框、轻阴影并即时出现，不影响会话切换、菜单、置顶、运行和拖拽行为。
+
+### B6 客户端运行状态语义收敛（开发中）
+
+- 聊天 UI 不再使用 `isBusy` 判断执行、压缩、队列和流式状态，改用精确的 session、queue、
+  activity 和 message streaming 字段。
+- `useIsStreaming` 改为依据 Assistant 消息的真实 `streaming` 标记。
+
+### B5 Queue Operation Response（已完成，未发布）
+
+- 客户端以带 `revision` 的 `session/queue` 操作响应同时结算聊天 outbox、队列控制 Promise
+  和队列投影；删除独立 Message ACK parser 与本地 Steering 猜测状态。
+- 旧协议不做兼容；缺少 revision 或 Assistant `message_id` 的旧帧按当前协议丢弃，取消控制
+  ACK 保持不变。
+- 修复 claim 后队列横幅残留：移除 `awaitingEcho` 中间态，Queue Snapshot 清空后立即移除已消费项，
+  UserMessage 回显独立进入 MessageList。
+- 修复 Inbox 在 Queue Operation Response 返回前完成 claim 时的队列残留：客户端按响应
+  `request_id` 结算本地 optimistic 项，不受后台快照先到或旧 revision 影响。
+- 重构 Chat Store：纯 Queue/Reply/Event 投影迁移到 `chatProjection.ts`，`chat.ts` 从 2112 行降至 997 行，
+  Zustand 生命周期与协议 reducer 解耦。
+- Tool Call 实时投影以 `TOOL_CALL_END.arguments` 作为最终入参快照；即使中间 delta 丢失，工具卡片
+  也能在当前运行中恢复完整参数。
+- 修复完成消息操作栏延迟显示：`session/queue` 不再阻止后续 `session/status: idle`，回复结束后
+  立即显示复制按钮、token 用量和模型信息，无需刷新会话。
+- Queue UI 按预览重构：队列项改为输入框上方的单行消息条，使用与输入框一致的 composer Surface，保留
+  调整方向、删除、编辑和更多菜单，不再显示重复的队列标题或消息预览。
+- Assistant 消息底部改为用输入/输出图标展示 token、模型和相对结束时间；超过一周显示绝对时间，元数据使用更淡颜色并仅在 hover 时显示。
+- User 消息复制按钮移动到气泡下方，与 Assistant 共用时间表达和 hover 显示规则。
+- 修复压缩命令刚发送时同时显示“压缩上下文中…”和“处理中”的问题。
+
 ## [0.1.14] - 2026-08-24
 
 - 修复 macOS 14 arm64 runner 交叉构建 Intel runtime 时架构校验误用宿主 `uname` 的问题。
@@ -40,14 +82,22 @@
 
 ### 新增
 
+- B4：Assistant 流事件和 attach 快照按服务端 `message_id` 投影，Steering 同一 `reply_id`
+  下自然显示 `Assistant A → UserMessage → Assistant B`；删除客户端 `reply_segment` 推断。
+- B3：队列横幅新增“插入当前运行”Steering 按钮；同一 request_id 从 queued 升级为 steering，
+  后端 USER_MESSAGE 持久化回显后立即进入 MessageList，队列按权威快照完成清理。
 - A3：文件、图片和 Diff 预览的路径段支持逐级打开目录文件列表；目录按需懒加载，点击文件可复用或打开对应 Inspector Tab；新增规范化 `fs:listDirectory` IPC 与错误码。
 - A6：运行详情的 Changes 入口打开唯一 Inspector 审阅 Tab，支持未提交/未暂存/已暂存对比、文件级按需 Diff、复制 Diff 和打开源文件。
 - E1：客户端新增 macOS x64/arm64 打包链路，安装包内置架构匹配的 Python runtime、ftre Gateway 与 cordis-py；增加 UTF-8、路径、进程组清理和 GitHub Release 资产校验。
 
 ### 修复
 
+- A3：FileRenderer 在 preload bridge 暂不可用时安全隐藏 Git Diff 能力，不再访问 `undefined.git` 导致 Inspector 崩溃。
 - A2：重复的 TOOL_CALL_START 事件按 tool_call_id 幂等处理，消除聊天工具卡片 duplicate key 警告；Reply 快照转换同样按 id 去重。
 - A1：renderer 声明 Content-Security-Policy（index.html meta + 开发模式响应头注入），消除 Electron 开发模式 Insecure Content-Security-Policy 警告。
+- B4：Steering 控制 Queue Response 成功后立即将队列项显示为“等待下一次推理”，不再必须刷新 Session；
+  Queue Response 不再误标普通 pending 消息为“正在消费”，claim 后队列项立即清理，旧数据不再
+  走兼容分支，按当前 message_id 协议处理。
 
 ## [0.1.9] - 2026-08-20
 

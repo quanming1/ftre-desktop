@@ -70,12 +70,26 @@ describe("ChatInput 发送按钮", () => {
       messages: [],
       pendingMessages: [],
       lastUserInputTs: null,
-      isBusy: false,
       sessionStatus: "idle",
+      sessionActivity: "idle",
       clientCanSend: true,
       hasCoordinatorState: false,
       canCancel: false,
     });
+  });
+
+  it("输入框使用淡黑色边框并保留阴影", () => {
+    render(<ChatInput />);
+
+    const surface = screen.getByTestId("chat-input-surface");
+    expect(surface).toHaveClass("bg-input");
+    expect(surface).toHaveClass("border", "border-input-border");
+    expect(surface).toHaveClass(
+      "focus-within:shadow-[0_2px_12px_rgba(15,23,42,0.08),inset_0_1px_0_rgba(255,255,255,0.6)]",
+    );
+    expect(surface).not.toHaveClass(
+      "shadow-[0_2px_12px_rgba(15,23,42,0.08),inset_0_1px_0_rgba(255,255,255,0.6)]",
+    );
   });
 
   it("输入普通文本后发送按钮从禁用变为可点击", () => {
@@ -146,7 +160,8 @@ describe("ChatInput 发送按钮", () => {
           },
         },
       ],
-      isBusy: true,
+      sessionStatus: "running",
+      sessionActivity: "executing",
       lastUserInputTs: 2,
     });
 
@@ -155,7 +170,7 @@ describe("ChatInput 发送按钮", () => {
     expect(screen.getByTestId("turn-file-changes-summary")).toHaveTextContent("1 个文件已更改");
     expect(screen.getByTestId("turn-file-changes-summary")).toHaveTextContent("+6");
     expect(screen.getByTestId("turn-file-changes-summary")).toHaveTextContent("-4");
-    expect(screen.getByTestId("turn-file-changes-summary")).not.toHaveClass("border");
+    expect(screen.getByTestId("turn-file-changes-summary")).toHaveClass("border", "border-white/60");
     expect(screen.getByTestId("turn-file-changes-summary")).toHaveClass("backdrop-blur-md");
     expect(screen.getByTestId("turn-file-changes-summary").parentElement).toHaveClass("justify-center");
 
@@ -166,6 +181,38 @@ describe("ChatInput 发送按钮", () => {
       turnId: "pending:u1",
     }));
     openAuditTab.mockRestore();
+  });
+
+  it("压缩期间隐藏上一轮文件变更摘要", () => {
+    useChat.setState({
+      messages: [
+        { id: "u1", role: "user", content: "修改文件", timestamp: 1 },
+        {
+          id: "a1",
+          role: "assistant",
+          content: null,
+          timestamp: 2,
+          blocks: [{ type: "toolCall", id: "edit-1", name: "edit", arguments: {} }],
+          toolResults: {
+            "edit-1": {
+              id: "edit-1",
+              name: "edit",
+              result: null,
+              error: null,
+              status: "completed",
+              metadata: { file: "src/a.ts", before: "a", after: "b", additions: 1, deletions: 0 },
+            },
+          },
+        },
+      ],
+      sessionStatus: "compacting",
+      sessionActivity: "compacting",
+      lastUserInputTs: 2,
+    });
+
+    render(<ChatInput />);
+
+    expect(screen.queryByTestId("turn-file-changes-summary")).not.toBeInTheDocument();
   });
 
   it("新消息进入队列后立即隐藏上一轮摘要", () => {
@@ -190,7 +237,8 @@ describe("ChatInput 发送按钮", () => {
           },
         },
       ],
-      isBusy: true,
+      sessionStatus: "running",
+      sessionActivity: "executing",
       pendingMessages: [{ request_id: "request-2", sequence: 1, content: "继续修改" }],
     });
 
@@ -221,7 +269,8 @@ describe("ChatInput 发送按钮", () => {
           },
         },
       ],
-      isBusy: true,
+      sessionStatus: "running",
+      sessionActivity: "executing",
       pendingMessages: [{ request_id: "stale-queue", sequence: 1, content: "已回显的消息" }],
       lastUserInputTs: 2,
     });
@@ -253,7 +302,6 @@ describe("ChatInput 发送按钮", () => {
           },
         },
       ],
-      isBusy: false,
       lastUserInputTs: 2,
     });
 
@@ -265,14 +313,16 @@ describe("ChatInput 发送按钮", () => {
   it("消息队列横幅定位在输入框上方且无底部间距", () => {
     useChat.setState({
       pendingMessages: [{ request_id: "queued-1", sequence: 1, content: "下一条消息" }],
-      isBusy: true,
+      sessionStatus: "running",
+      sessionActivity: "dispatching",
     });
 
     render(<ChatInput />);
 
     const queue = screen.getByRole("region", { name: "消息队列" });
     const queueSurface = queue.parentElement;
-    const composer = screen.getByTestId("chat-input-surface").parentElement;
+    const inputSurface = screen.getByTestId("chat-input-surface");
+    const composer = inputSurface.parentElement;
     const overlay = composer?.firstElementChild;
     expect(overlay).toHaveAttribute("data-chat-composer-stack", "");
     expect(overlay).toHaveClass("absolute", "bottom-full");
@@ -306,12 +356,14 @@ describe("ChatInput 发送按钮", () => {
       ],
       pendingMessages: [{ request_id: "queued-2", sequence: 1, content: "下一条消息" }],
       lastUserInputTs: 2,
-      isBusy: true,
+      sessionStatus: "running",
+      sessionActivity: "executing",
     });
 
     render(<ChatInput />);
 
-    const composer = screen.getByTestId("chat-input-surface").parentElement;
+    const inputSurface = screen.getByTestId("chat-input-surface");
+    const composer = inputSurface.parentElement;
     const overlay = composer?.firstElementChild;
     expect(overlay?.querySelector("[data-testid='turn-file-changes-summary']"))
       .toBe(screen.getByTestId("turn-file-changes-summary"));

@@ -75,7 +75,7 @@ describe("websocket-client F12 protocol handling", () => {
     });
   });
 
-  it("keeps the same request_id until the durable RPC ACK", async () => {
+  it("keeps the same request_id until the queue response", async () => {
     const { wsClient } = await loadClient();
     wsClient.connect();
     const ws = FakeWebSocket.instances[0];
@@ -87,9 +87,10 @@ describe("websocket-client F12 protocol handling", () => {
 
     ws.onmessage?.({
       data: JSON.stringify({
+        type: "session/queue",
         request_id: "client-ack",
         ok: true,
-        value: { accepted: true, session_id: "ws_a" },
+        payload: { session_id: "ws_a", revision: 1, items: [] },
       }),
     });
     ws.onopen?.();
@@ -109,6 +110,7 @@ describe("websocket-client F12 protocol handling", () => {
       metadata: {},
       payload: {
         session_id: "ws_a",
+        revision: 1,
         items: [{
           id: "queued-1",
           placement: "queued",
@@ -141,13 +143,18 @@ describe("websocket-client F12 protocol handling", () => {
 
     expect(getSessionEventPayload({
       type: "session/queue",
-      metadata: { session_id: "ws_b" },
+      metadata: {},
       payload: { session_id: "ws_a", items: [] },
     })).toBeNull();
     expect(getSessionEventPayload({
       type: "session/queue",
+      metadata: { session_id: "ws_b" },
+      payload: { session_id: "ws_a", revision: 1, items: [] },
+    })).toBeNull();
+    expect(getSessionEventPayload({
+      type: "session/queue",
       metadata: {},
-      payload: { session_id: "ws_a", items: [{ id: "bad", placement: "unknown", message: {} }] },
+      payload: { session_id: "ws_a", revision: 1, items: [{ id: "bad", placement: "unknown", message: {} }] },
     })).toBeNull();
     expect(getSessionStatusPayload({
       type: "session/status",
@@ -182,7 +189,7 @@ describe("websocket-client F12 protocol handling", () => {
     expect(ws.sent).toHaveLength(2);
   });
 
-  it("updates the Inbox queue through session.updateQueue and waits for its ACK", async () => {
+  it("updates the Inbox queue through session.updateQueue and resolves with its snapshot", async () => {
     const { wsClient } = await loadClient();
     wsClient.connect();
     const ws = FakeWebSocket.instances[0];
@@ -201,19 +208,40 @@ describe("websocket-client F12 protocol handling", () => {
 
     ws.onmessage?.({
       data: JSON.stringify({
+        type: "session/queue",
         request_id: frame.request_id,
         ok: true,
-        value: { accepted: true, session_id: "ws_a", item_id: "queued-1" },
+        payload: { session_id: "ws_a", revision: 2, items: [] },
       }),
     });
 
     await expect(pending).resolves.toEqual({
-      accepted: true,
       session_id: "ws_a",
-      item_id: "queued-1",
+      revision: 2,
+      items: [],
     });
     ws.onopen?.();
     expect(ws.sent).toHaveLength(1);
+  });
+
+  it("promotes a queued item through the steer queue action", async () => {
+    const { wsClient } = await loadClient();
+    wsClient.connect();
+    const ws = FakeWebSocket.instances[0];
+    ws.onopen?.();
+
+    const pending = wsClient.promoteQueueItemToSteer("ws_a", "queued-1");
+    const frame = JSON.parse(ws.sent[0]);
+    expect(frame.payload.action).toEqual({ kind: "steer" });
+    ws.onmessage?.({
+      data: JSON.stringify({
+        type: "session/queue",
+        request_id: frame.request_id,
+        ok: true,
+        payload: { session_id: "ws_a", revision: 3, items: [] },
+      }),
+    });
+    await expect(pending).resolves.toMatchObject({ session_id: "ws_a", revision: 3, items: [] });
   });
 
   it("stamps reply snapshots with the current client connection epoch", async () => {
@@ -249,6 +277,7 @@ describe("websocket-client F12 protocol handling", () => {
 
     expect(epochs).toEqual([1, 2]);
   });
+
 
   it("rejects a full disconnected outbox without dropping its oldest frame", async () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);

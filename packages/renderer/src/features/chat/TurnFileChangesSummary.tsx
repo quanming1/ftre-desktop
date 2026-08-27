@@ -21,7 +21,7 @@ export const TurnFileChangesSummary = memo(function TurnFileChangesSummary({
         title="审查本轮变更"
         aria-label="审查本轮变更"
         onClick={onReview}
-        className="inline-flex h-10 items-center gap-3 rounded-full bg-surface/45 px-4 text-[14px] text-t-secondary shadow-[0_4px_16px_rgba(15,23,42,0.08)] backdrop-blur-md backdrop-saturate-150 transition-colors hover:bg-surface/65"
+        className="inline-flex h-10 items-center gap-3 rounded-full border border-white/60 bg-surface/45 px-4 text-[14px] text-t-secondary shadow-[0_4px_16px_rgba(15,23,42,0.08)] backdrop-blur-md backdrop-saturate-150 transition-colors hover:bg-surface/65"
       >
         <span>{changes.length} 个文件已更改</span>
         <span className="font-mono text-[13px]">

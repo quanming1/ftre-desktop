@@ -7,13 +7,22 @@ import { splitBlocks } from "./streamingMarkdown";
 import { InlineToolCallCard } from "./InlineToolCallCard";
 import { TurnFileChanges } from "./TurnFileChanges";
 import type { TurnFileChange } from "./turnFileChangeUtils";
-import { ChevronRight, Copy, Check, BookOpen, Code2 } from "lucide-react";
+import {
+  ArrowDownToLine,
+  ArrowUpFromLine,
+  ChevronRight,
+  Copy,
+  Check,
+  BookOpen,
+  Code2,
+} from "lucide-react";
 import { Tooltip, TooltipProvider } from "@ftre/ui";
 import { useNotification } from "@/stores/notification";
 import { remarkPlugins, rehypePlugins, urlTransform } from "@/lib/markdown-plugins";
 import { useAutoScrollToBottom } from "@/hooks/auto-scroll";
 import { MermaidBlock } from "@/components/MermaidBlock";
 import { FileLink } from "@/components/FileLink";
+import { formatAbsoluteMessageTime, formatMessageTime } from "./messageTime";
 import {
   assistantMessagePropsEqual,
   contentBlocksEqual,
@@ -375,6 +384,7 @@ function NonTextProcessGroup({
   // 流式中也显示摘要：工具名在 toolCall 产生时就已知，thinking 增长不影响去重后的摘要，
   // 让用户在不展开组的情况下也能跟进过程内容。"处理中"状态由外层按钮表达，这里不再重复。
   const label = summarizeNonTextBlocks(blocks, toolResults, streaming);
+  const labelView = renderProcessLabel(label);
 
   return (
     <div className="w-full min-w-0 max-w-full py-0.5">
@@ -390,7 +400,7 @@ function NonTextProcessGroup({
           className={`min-w-0 flex-1 truncate ${breathing ? "animate-process-breath" : ""}`}
           style={{ whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}
         >
-          {label}
+          {labelView}
         </span>
         <ChevronRight
           size={12}
@@ -415,6 +425,22 @@ function NonTextProcessGroup({
         </div>
       </div>
     </div>
+  );
+}
+
+/** 给文件变更统计加颜色：新增行绿色，删除行红色，其余标题保持原色。 */
+function renderProcessLabel(label: string): React.ReactNode {
+  // 文件统计是整组动作的总计，固定放在标题最末尾，避免被后续动作夹在中间。
+  const match = label.match(/^(.*?)(?:（\+(\d+) -(\d+)）)$/);
+  if (!match) return label;
+  return (
+    <>
+      {match[1]}
+      <span className="relative -top-px ml-1 inline-flex items-center gap-1 font-mono text-[12px]">
+        <span className="text-green-600 dark:text-green-400">+{match[2]}</span>
+        <span className="text-red-500 dark:text-red-400">-{match[3]}</span>
+      </span>
+    </>
   );
 }
 
@@ -525,6 +551,7 @@ export const AssistantMessage = memo(
     turnId,
     turnDurationSec,
     turnModel,
+    turnFinishedAt,
   }: {
     message: ChatMessage;
     showActions?: boolean;
@@ -533,6 +560,7 @@ export const AssistantMessage = memo(
     turnId?: string;
     turnDurationSec?: number;
     turnModel?: string;
+    turnFinishedAt?: number;
   }) {
     const isStreaming = message.streaming ?? false;
     const mdRef = useRef<HTMLDivElement>(null);
@@ -558,6 +586,7 @@ export const AssistantMessage = memo(
     const hasTokenUsage = Boolean(message.token?.usage);
     const hasTurnDuration = !hasProcess && typeof turnDurationSec === "number" && turnDurationSec >= 0;
     const hasTurnModel = Boolean(turnModel);
+    const hasFinishedAt = !isStreaming && typeof turnFinishedAt === "number";
 
     // 复制
     const [copied, setCopied] = useState(false);
@@ -573,7 +602,7 @@ export const AssistantMessage = memo(
     }, [copyText, message.content]);
 
     return (
-      <div data-assistant-message="true" className="flex justify-start">
+      <div data-assistant-message="true" className="group flex justify-start">
         <div className="w-full">
           <StreamingContext.Provider value={isStreaming}>
             <div className="text-[var(--text-md)] leading-relaxed text-t-primary font-sans break-words">
@@ -649,21 +678,21 @@ export const AssistantMessage = memo(
               )}
 
                 {showActions && !isStreaming && !message.isError && (
-                  <div className="mt-2.5 flex min-h-7 flex-wrap items-center gap-2.5 text-[12px] leading-none text-t-ghost">
+                  <div className="invisible mt-2.5 flex min-h-7 flex-wrap items-center gap-2.5 py-0.5 text-[12px] leading-[1.4] text-t-faint opacity-0 transition-opacity duration-150 group-hover:visible group-hover:opacity-100 group-hover:pointer-events-auto pointer-events-none">
                     <TooltipProvider>
                       <Tooltip content={copied ? "已复制" : "复制"} side="top">
                         <button
                           type="button"
                           aria-label={copied ? "已复制" : "复制"}
                           onClick={handleCopy}
-                          className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-t-ghost transition-colors hover:bg-hover hover:text-t-primary"
+                          className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-t-faint transition-colors hover:bg-hover hover:text-t-primary"
                         >
                           {copied ? <Check size={14} className="text-green-500" /> : <Copy size={14} />}
                         </button>
                       </Tooltip>
 
-                      {(hasTokenUsage || hasTurnDuration || hasTurnModel) && (
-                        <div className="inline-flex min-w-0 max-w-full items-center gap-2.5 text-t-muted">
+                      {(hasTokenUsage || hasTurnModel || hasFinishedAt) && (
+                        <div className="inline-flex min-w-0 max-w-full items-center gap-2.5 text-t-faint">
                           {hasTokenUsage && message.token?.usage && (
                             <Tooltip
                               content={
@@ -672,15 +701,15 @@ export const AssistantMessage = memo(
                                     <tbody>
                                       <tr>
                                         <td className="pr-3 text-t-muted">输入</td>
-                                        <td className="text-right font-mono text-t-secondary">{message.token.usage.prompt_tokens}</td>
+                                        <td className="text-right font-mono text-t-secondary">{fmtTokens(message.token.usage.prompt_tokens)}</td>
                                       </tr>
                                       <tr>
                                         <td className="pr-3 text-t-muted">输出</td>
-                                        <td className="text-right font-mono text-t-secondary">{message.token.usage.completion_tokens}</td>
+                                        <td className="text-right font-mono text-t-secondary">{fmtTokens(message.token.usage.completion_tokens)}</td>
                                       </tr>
                                       <tr>
                                         <td className="pr-3 text-t-muted">合计</td>
-                                        <td className="text-right font-mono text-t-secondary">{message.token.usage.total_tokens}</td>
+                                        <td className="text-right font-mono text-t-secondary">{fmtTokens(message.token.usage.total_tokens)}</td>
                                       </tr>
                                     </tbody>
                                   </table>
@@ -688,24 +717,42 @@ export const AssistantMessage = memo(
                               }
                               side="top"
                             >
-                              <span className="cursor-default font-mono tabular-nums text-t-muted transition-colors hover:text-t-primary">
-                                {fmtTokens(message.token.usage.total_tokens)}
+                              <span
+                                className="inline-flex cursor-default items-center gap-1.5 font-mono tabular-nums text-t-faint transition-colors hover:text-t-primary"
+                                title={`Input tokens: ${message.token.usage.prompt_tokens}; Output tokens: ${message.token.usage.completion_tokens}`}
+                              >
+                                <span className="inline-flex items-center gap-0.5" aria-label={`Input tokens: ${message.token.usage.prompt_tokens}`}>
+                                  <ArrowDownToLine size={13} strokeWidth={1.7} aria-hidden="true" />
+                                  {fmtTokens(message.token.usage.prompt_tokens)}
+                                </span>
+                                <span aria-hidden="true" className="text-t-ghost/50">·</span>
+                                <span className="inline-flex items-center gap-0.5" aria-label={`Output tokens: ${message.token.usage.completion_tokens}`}>
+                                  <ArrowUpFromLine size={13} strokeWidth={1.7} aria-hidden="true" />
+                                  {fmtTokens(message.token.usage.completion_tokens)}
+                                </span>
                               </span>
                             </Tooltip>
                           )}
-                          {hasTokenUsage && (hasTurnDuration || hasTurnModel) && (
-                            <span aria-hidden="true" className="text-t-ghost/50">·</span>
-                          )}
-                          {hasTurnDuration && (
-                            <span className="font-mono tabular-nums text-t-muted">{formatDuration(turnDurationSec)}</span>
-                          )}
-                          {hasTurnDuration && hasTurnModel && (
+                          {hasTokenUsage && (hasTurnModel || hasFinishedAt) && (
                             <span aria-hidden="true" className="text-t-ghost/50">·</span>
                           )}
                           {hasTurnModel && (
-                            <span className="min-w-0 max-w-[240px] truncate font-mono text-t-ghost">
+                            <span className="min-w-0 max-w-[240px] truncate font-mono text-t-faint leading-[1.4] py-0.5">
                               {turnModel}
                             </span>
+                          )}
+                          {hasFinishedAt && (
+                            <>
+                              {(hasTokenUsage || hasTurnModel) && (
+                                <span aria-hidden="true" className="text-t-ghost/50">·</span>
+                              )}
+                              <span
+                                className="tabular-nums text-t-faint"
+                                title={`结束时间：${formatAbsoluteMessageTime(turnFinishedAt)}`}
+                              >
+                                {formatMessageTime(turnFinishedAt)}
+                              </span>
+                            </>
                           )}
                         </div>
                       )}

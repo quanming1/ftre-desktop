@@ -77,32 +77,33 @@ export function collectLatestTurnFileChanges(messages: ChatMessage[]): TurnFileC
   return collectTurnFileChanges(messages, messages.length - 1);
 }
 
-/** 运行详情使用的兼容入口：仅在会话运行时收集当前轮变更。 */
+/** 运行详情入口：仅在 Agent 确实执行当前 Turn 时收集变更。 */
 export function collectActiveTurnFileChanges(
   messages: ChatMessage[],
-  isBusy: boolean,
+  hasActiveTurn: boolean,
 ): TurnFileChange[] {
-  return isBusy ? collectLatestTurnFileChanges(messages) : [];
+  return hasActiveTurn ? collectLatestTurnFileChanges(messages) : [];
 }
 
-/** 输入框摘要是否可见；新一轮尚未回显或流式结束时自动隐藏。 */
+/** 输入框摘要是否可见；压缩期间必须隐藏上一轮的临时摘要。 */
 export function shouldShowTurnFileChangesSummary(
   messages: ChatMessage[],
-  isBusy: boolean,
+  hasActiveTurn: boolean,
   pendingMessagesCount: number,
   lastUserInputTs: number | null,
+  isCompacting = false,
 ): boolean {
-  if (!isBusy || (pendingMessagesCount > 0 && lastUserInputTs == null)) return false;
+  if (!hasActiveTurn || isCompacting || (pendingMessagesCount > 0 && lastUserInputTs == null)) return false;
   return collectLatestTurnFileChanges(messages).length > 0;
 }
 
 /** 当前轮还没有任何 assistant 消息时，用于渲染发送后的等待占位。 */
 export function shouldShowThinkingPlaceholder(
   messages: ChatMessage[],
-  isBusy: boolean,
+  hasActiveTurn: boolean,
   pendingMessagesCount = 0,
 ): boolean {
-  if (!isBusy) return false;
+  if (!hasActiveTurn) return false;
   const lastUserIndex = messages.reduce(
     (found, message, index) => (message.role === "user" ? index : found),
     -1,

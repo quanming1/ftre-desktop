@@ -54,12 +54,11 @@ export interface SessionProjectionState {
   hasCoordinatorState?: boolean;
   queueDepth?: number;
   queueCapacity?: number | null;
-  /** 输入框上方横幅：服务端 Inbox items + 尚未 ACK 的本地发送预览，不混入聊天正文。 */
+  /** 输入框上方横幅：服务端 Inbox items + 尚未收到响应的本地预览，不混入聊天正文。 */
   pendingMessages?: QueueItemView[];
   clientCanSend?: boolean;
   canCancel?: boolean;
   blockedReason?: string | null;
-  isBusy: boolean;
   error: string | null;
   retryState: RetryState | null;
   turnStartTs: number | null;
@@ -91,7 +90,6 @@ export class ClientSessionProjection implements SessionProjectionState {
   clientCanSend = true;
   canCancel = false;
   blockedReason: string | null = null;
-  isBusy = false;
   error: string | null = null;
   retryState: RetryState | null = null;
   turnStartTs: number | null = null;
@@ -145,7 +143,6 @@ export class ClientSessionProjection implements SessionProjectionState {
         : history.status === "compacting"
           ? "compacting"
           : "executing";
-      this.isBusy = history.status !== "idle";
       this.clientCanSend = history.status !== "compacting";
       this.canCancel = history.status === "running";
     }

@@ -12,6 +12,7 @@ import { Slate, Editable, ReactEditor } from "slate-react";
 import { Range } from "slate";
 import { ArrowUp, Box, ChevronRight, Paperclip, Plus, Terminal, X } from "lucide-react";
 import { useChat, type MessageAttachment } from "@/stores/chat";
+import { hasActiveTurn } from "@/stores/runtimeState";
 import { useLayout } from "@/stores/layout";
 import { useInspector } from "@/stores/inspector";
 import { useSession } from "@/stores/session";
@@ -282,32 +283,8 @@ function MenuItem({
 
 // ─── 主组件 ────────────────────────────────────────────────────────
 
-interface ChatInputProps {
-  onComposerOverlayHeightChange?: (height: number) => void;
-}
-
-export function ChatInput({ onComposerOverlayHeightChange }: ChatInputProps = {}) {
+export function ChatInput() {
   const inputEditor = useMemo(() => new ChatInputEditor(), []);
-  const composerOverlayRef = useRef<HTMLDivElement>(null);
-
-  useLayoutEffect(() => {
-    const overlay = composerOverlayRef.current;
-    if (!overlay || !onComposerOverlayHeightChange) return;
-
-    const reportHeight = () => {
-      onComposerOverlayHeightChange(Math.ceil(overlay.getBoundingClientRect().height));
-    };
-    reportHeight();
-
-    if (typeof ResizeObserver === "undefined") {
-      window.addEventListener("resize", reportHeight);
-      return () => window.removeEventListener("resize", reportHeight);
-    }
-
-    const observer = new ResizeObserver(reportHeight);
-    observer.observe(overlay);
-    return () => observer.disconnect();
-  }, [onComposerOverlayHeightChange]);
 
   // 模型切换后自动聚焦输入框（如果未聚焦）
   // ── 发送按钮水波纹 ──
@@ -332,8 +309,8 @@ export function ChatInput({ onComposerOverlayHeightChange }: ChatInputProps = {}
   }, []);
 
   // 细粒度选择器：仅订阅各自需要的字段，避免无关状态变化触发重渲染
-  const isBusy = useChat((s) => s.isBusy);
   const sessionStatus = useChat((s) => s.sessionStatus);
+  const sessionActivity = useChat((s) => s.sessionActivity);
   const clientCanSend = useChat((s) => s.clientCanSend);
   const canCancel = useChat((s) => s.canCancel);
   const hasCoordinatorState = useChat((s) => s.hasCoordinatorState);
@@ -377,6 +354,20 @@ export function ChatInput({ onComposerOverlayHeightChange }: ChatInputProps = {}
 
   // ── 附件栏状态 ──
   const [attachments, setAttachments] = useState<ImageRef[]>([]);
+  // 同步镜像 attachments，供配额判定在事件处理期间同步读取。
+  // React 18 的函数式 setState 不保证 updater 同步执行；不能在
+  // setAttachments(updater) 里给外部变量赋值后立刻读取。
+  const attachmentsRef = useRef<ImageRef[]>([]);
+  const setAttachmentsSynced = useCallback(
+    (next: ImageRef[] | ((prev: ImageRef[]) => ImageRef[])) => {
+      setAttachments((prev) => {
+        const resolved = typeof next === "function" ? next(prev) : next;
+        attachmentsRef.current = resolved;
+        return resolved;
+      });
+    },
+    [],
+  );
 
   // ── 「+」菜单状态 ──
   const [addMenuOpen, setAddMenuOpen] = useState(false);
@@ -401,15 +392,15 @@ export function ChatInput({ onComposerOverlayHeightChange }: ChatInputProps = {}
     return commandList.filter(
       (c) => {
         if (c.command.startsWith("/skill:")) return false;
-        // /cancel 仅在 session running 时展示
-        if (c.command === "/cancel" && !isBusy) return false;
+        // /cancel 只在确实存在可取消的活动 Turn 时展示。
+        if (c.command === "/cancel" && !canCancel) return false;
         return (
           c.command.toLowerCase().includes(q) ||
           c.description.toLowerCase().includes(q)
         );
       },
     );
-  }, [skillSearch, commandList, isBusy]);
+  }, [skillSearch, commandList, canCancel]);
 
   // 过滤候选 skill（从指令列表中筛选 /skill: 开头的）
   const skillCandidates = useMemo(() => {
@@ -486,7 +477,7 @@ export function ChatInput({ onComposerOverlayHeightChange }: ChatInputProps = {}
 
     inputEditor.clear();
     setSkillSearch(null);
-    setAttachments([]);
+    setAttachmentsSynced([]);
 
     // 发送后清除当前 session 的草稿（内容已被消费）
     const sid = state.sessionId;
@@ -535,28 +526,19 @@ export function ChatInput({ onComposerOverlayHeightChange }: ChatInputProps = {}
   const handleAddImages = useCallback(
     async (files: File[]) => {
       if (files.length === 0) return;
-      // 用函数式 setState 拿到最新长度，避免闭包陈旧值
-      let overflow = 0;
-      let accepted: File[] = [];
-      setAttachments((prev) => {
-        const remaining = IMAGE_MAX_PER_MESSAGE - prev.length;
-        if (remaining <= 0) {
-          overflow = files.length;
-          accepted = [];
-          return prev;
-        }
-        accepted = files.slice(0, remaining);
-        overflow = files.length - accepted.length;
-        return prev;
-      });
-
-      if (accepted.length === 0) {
+      // 配额判定必须同步完成：attachmentsRef 在每次增删时同步更新。
+      // 不能在 setAttachments(updater) 里给外部变量赋值后立刻读取——
+      // React 18 不保证 updater 同步执行（曾导致首张图片也误报超限）。
+      const remaining = IMAGE_MAX_PER_MESSAGE - attachmentsRef.current.length;
+      if (remaining <= 0) {
         useNotification.getState().addNotification({
           level: "warning",
           message: `最多附加 ${IMAGE_MAX_PER_MESSAGE} 张图片`,
         });
         return;
       }
+      const accepted = files.slice(0, remaining);
+      const overflow = files.length - accepted.length;
       if (overflow > 0) {
         useNotification.getState().addNotification({
           level: "warning",
@@ -567,7 +549,9 @@ export function ChatInput({ onComposerOverlayHeightChange }: ChatInputProps = {}
       for (const file of accepted) {
         try {
           const ref = await fileToImageRef(file);
-          setAttachments((prev) => [...prev, ref]);
+          setAttachmentsSynced((prev) =>
+            prev.length >= IMAGE_MAX_PER_MESSAGE ? prev : [...prev, ref],
+          );
         } catch (err) {
           const msg =
             err instanceof ImageValidationError
@@ -580,12 +564,15 @@ export function ChatInput({ onComposerOverlayHeightChange }: ChatInputProps = {}
         }
       }
     },
-    [],
+    [setAttachmentsSynced],
   );
 
-  const handleRemoveAttachment = useCallback((id: string) => {
-    setAttachments((prev) => prev.filter((a) => a.id !== id));
-  }, []);
+  const handleRemoveAttachment = useCallback(
+    (id: string) => {
+      setAttachmentsSynced((prev) => prev.filter((a) => a.id !== id));
+    },
+    [setAttachmentsSynced],
+  );
 
   const handlePickImages = useCallback(() => {
     fileInputRef.current?.click();
@@ -750,7 +737,7 @@ export function ChatInput({ onComposerOverlayHeightChange }: ChatInputProps = {}
         },
       );
       inputEditor.setContent([{ type: "text", text: detail.content || "" }]);
-      setAttachments(restoredAttachments);
+      setAttachmentsSynced(restoredAttachments);
       window.requestAnimationFrame(() => inputEditor.focus());
     };
 
@@ -779,17 +766,19 @@ export function ChatInput({ onComposerOverlayHeightChange }: ChatInputProps = {}
   }, []);
 
   const hasDraft = hasText || attachments.length > 0;
+  const activeTurn = hasActiveTurn(sessionStatus, sessionActivity);
   const turnFileChanges = useMemo(
     // pending 只有在新 user 尚未回显时才代表“新一轮”；USER_MESSAGE 到达后，
     // 即使队列快照短暂滞后，也必须继续展示当前轮已经完成的文件修改。
-    // 流式结束后由 isBusy 关闭这个摘要浮窗，完整审查入口仍保留在消息卡片中。
+    // Agent Turn 结束后由 activeTurn 关闭这个摘要浮窗，完整审查入口仍保留在消息卡片中。
     () => shouldShowTurnFileChangesSummary(
       messages,
-      isBusy,
+      activeTurn,
       pendingMessages.length,
       lastUserInputTs,
+      sessionStatus === "compacting",
     ) ? collectLatestTurnFileChanges(messages) : [],
-    [isBusy, messages, pendingMessages.length, lastUserInputTs],
+    [activeTurn, messages, pendingMessages.length, lastUserInputTs, sessionStatus],
   );
   const turnWorkspace = useMemo(() => {
     if (!sessionId) return "";
@@ -816,8 +805,7 @@ export function ChatInput({ onComposerOverlayHeightChange }: ChatInputProps = {}
     sessionStatus !== "compacting"
     && (!hasCoordinatorState || clientCanSend)
     && hasDraft;
-  const showCancel = isBusy
-    && (hasCoordinatorState ? canCancel : sessionStatus === "running");
+  const showCancel = hasCoordinatorState ? canCancel : activeTurn;
   // 运行中没有待发送内容时显示停止；用户开始输入后，原位置切换为发送。
   const showStopButton = showCancel && !hasDraft;
 
@@ -825,14 +813,13 @@ export function ChatInput({ onComposerOverlayHeightChange }: ChatInputProps = {}
     <div className="px-6 pb-4">
       <div className="mx-auto w-full max-w-[800px]">
         <div className="relative">
-          <div ref={composerOverlayRef} data-chat-composer-stack="" className="absolute bottom-full left-0 right-0 z-10 flex flex-col">
-          <TurnFileChangesSummary changes={turnFileChanges} onReview={handleReviewTurnChanges} />
-
-          {pendingMessages.length > 0 && (
-            <div className="mx-4 overflow-hidden rounded-t-xl rounded-b-none border border-b-0 border-black/10 bg-[#f6f7f9]/65 shadow-[0_4px_14px_rgba(15,23,42,0.05),inset_0_1px_0_rgba(255,255,255,0.6)] backdrop-blur-md backdrop-saturate-150">
-              <QueuedMessagesBanner items={pendingMessages} />
-            </div>
-          )}
+          <div data-chat-composer-stack="" className="absolute bottom-full left-0 right-0 z-10 flex flex-col">
+            <TurnFileChangesSummary changes={turnFileChanges} onReview={handleReviewTurnChanges} />
+            {pendingMessages.length > 0 && (
+              <div className="relative z-20 mx-4 overflow-visible bg-transparent">
+                <QueuedMessagesBanner items={pendingMessages} />
+              </div>
+            )}
           </div>
 
           <div
@@ -840,7 +827,7 @@ export function ChatInput({ onComposerOverlayHeightChange }: ChatInputProps = {}
             onDragOver={handleDragOver}
             onDragLeave={handleDragLeave}
             onDrop={handleDrop}
-            className={`relative bg-[#f6f7f9]/65 border border-black/10 focus-within:border-neon/30 transition-colors rounded-3xl backdrop-blur-md backdrop-saturate-150 shadow-[inset_0_1px_0_rgba(255,255,255,0.6)] ${
+            className={`relative rounded-3xl border border-input-border bg-input transition-shadow focus-within:shadow-[0_2px_12px_rgba(15,23,42,0.08),inset_0_1px_0_rgba(255,255,255,0.6)] ${
               isDragging ? "border-neon/50 ring-1 ring-neon/30" : ""
             }`}
           >

@@ -87,7 +87,7 @@ describe("ChatMessageList", () => {
       message("a2", "assistant", "assistant two"),
     ];
 
-    const { container } = render(<ChatMessageList messages={messages} isBusy />);
+    const { container } = render(<ChatMessageList messages={messages} hasActiveTurn />);
 
     expect(screen.getByText("user zero")).toBeInTheDocument();
     expect(screen.getByText("assistant zero a")).toBeInTheDocument();
@@ -130,7 +130,7 @@ describe("ChatMessageList", () => {
     render(
       <ChatMessageList
         messages={[message("u1", "user", "请修改文件")]}
-        isBusy
+        hasActiveTurn
       />,
     );
 
@@ -150,7 +150,19 @@ describe("ChatMessageList", () => {
             blocks: [{ type: "thinking", thinking: "正在处理", blockId: "thinking-1" }],
           },
         ]}
-        isBusy
+        hasActiveTurn
+      />,
+    );
+
+    expect(screen.queryByTestId("thinking-placeholder")).not.toBeInTheDocument();
+  });
+
+  it("hides the generic thinking placeholder while compaction is running", () => {
+    render(
+      <ChatMessageList
+        messages={[message("u1", "user", "/compact")]}
+        hasActiveTurn
+        isCompacting
       />,
     );
 

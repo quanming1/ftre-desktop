@@ -372,9 +372,11 @@ function GitChangesSection({
         const statusChar = GIT_STATUS_LABEL[status];
         const statusColor = GIT_STATUS_COLOR[status];
 
+        // 同一文件可能同时有 staged 与 unstaged 两条记录（如 AM 状态），
+        // key 必须带上 staged 维度，否则 React 列表 key 冲突。
         return (
           <button
-            key={file.absolutePath}
+            key={`${file.absolutePath}:${file.staged ? "S" : "W"}`}
             onClick={() => onGitFileClick(file)}
             onContextMenu={(e) => onContextMenu(e, file)}
             title={relPath}
