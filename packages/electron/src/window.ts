@@ -13,7 +13,10 @@ const RENDERER_CSP = [
   "default-src 'self'",
   "script-src 'self' 'unsafe-inline'",
   "style-src 'self' 'unsafe-inline'",
-  "img-src 'self' data: blob:",
+  // gateway 图片服务（/api/images/...）走 http 回环地址，必须列入 img-src；
+  // 端口可经 VITE_API_BASE / servers 配置变化，用回环端口通配兜底。
+  // 与 renderer/index.html 保持一致，两处同源策略需同步修改。
+  "img-src 'self' data: blob: http://127.0.0.1:* http://localhost:*",
   "font-src 'self' data:",
   "connect-src 'self' http: https: ws: wss:",
   "media-src 'self' data: blob:",
