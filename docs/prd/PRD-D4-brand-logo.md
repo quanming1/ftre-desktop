@@ -1,4 +1,4 @@
-# PRD-D4 品牌 Logo 与应用壳视觉
+﻿# PRD-D4 品牌 Logo 与应用壳视觉
 
 ## 元信息
 
@@ -131,3 +131,4 @@ export function FtreLogo({ size = 2, className }: FtreLogoProps): JSX.Element;
 | 2026-08-27 | 根据 full 包启动失败补充 FR6/AC7：打包时复制仓内 Package 源码 | ftre 自有 Package 尚未全部作为 PyPI 发行物，不能只依赖 pip 依赖解析 |
 | 2026-08-27 | 修复 `bundle-backend.js`，并通过嵌入式 Python 导入测试与 11 项 Electron 平台测试 | 原 full 包缺少 `ftre_llm` 等仓内 Package，导致 Gateway 启动后连续崩溃 |
 | 2026-08-27 | 根据 Windows 状态栏反馈补充 FR7/AC8：加入 ICO 并接入 BrowserWindow/electron-builder | renderer SVG 不会自动改变 Windows 任务栏和 exe 图标 |
+| 2026-08-27 | 按仓库门禁整理提交：FtreLogo 组件、ICO 接线与 PRD/TODO 一并落地 | 提交分组符合 feat 必须同步 PRD 变更记录的 hook 要求 |
