@@ -321,6 +321,44 @@ function syncDirIncremental(source, destination) {
   }
 }
 
+/**
+ * 复制 ftre 仓内 Package 的源码到自包含 Gateway。
+ *
+ * 这些 Package 在开发仓库里通过 workspace 的 package-dir 提供，未必已经
+ * 发布到 PyPI；运行时只安装第三方依赖，因此必须把本地源码一起带入包。
+ * 只收集带 pyproject.toml 的正式 Package，并过滤 egg-info/缓存目录，避免
+ * 把开发环境元数据和生成文件带进最终客户端。
+ */
+function copyLocalPackageSources(projectRoot, serverDir) {
+  const packagesRoot = path.join(projectRoot, "packages");
+  if (!fs.existsSync(packagesRoot)) return [];
+
+  const copied = [];
+  for (const packageEntry of fs.readdirSync(packagesRoot, { withFileTypes: true })) {
+    if (!packageEntry.isDirectory()) continue;
+    const packageRoot = path.join(packagesRoot, packageEntry.name);
+    if (!fs.existsSync(path.join(packageRoot, "pyproject.toml"))) continue;
+
+    const sourceRoot = path.join(packageRoot, "src");
+    if (!fs.existsSync(sourceRoot)) continue;
+    for (const sourceEntry of fs.readdirSync(sourceRoot, { withFileTypes: true })) {
+      if (
+        sourceEntry.name === "__pycache__" ||
+        sourceEntry.name === ".git" ||
+        sourceEntry.name.endsWith(".pyc") ||
+        sourceEntry.name.endsWith(".egg-info")
+      ) continue;
+
+      const sourcePath = path.join(sourceRoot, sourceEntry.name);
+      const destinationPath = path.join(serverDir, sourceEntry.name);
+      if (sourceEntry.isDirectory()) syncDirIncremental(sourcePath, destinationPath);
+      else fs.copyFileSync(sourcePath, destinationPath);
+      copied.push(path.relative(serverDir, destinationPath).split(path.sep).join("/"));
+    }
+  }
+  return copied;
+}
+
 function cleanPycache(root) {
   if (!fs.existsSync(root)) return;
   for (const item of fs.readdirSync(root, { withFileTypes: true })) {
@@ -451,9 +489,21 @@ async function main() {
   const { parseTomlDeps } = require("./parse-deps");
   const agentCoreDeps = parseTomlDeps(path.join(AGENT_CORE_ROOT, "pyproject.toml"));
   const ftreDeps = parseTomlDeps(path.join(PROJECT_ROOT, "pyproject.toml"));
-  const ownPkgs = ["ftre-agent-core", "ftre", "cordis-py", "litellm"];
+
+  // ftre 主仓 packages/ 下的独立发行物（monorepo Package）：源码随 bundle 复制
+  // （见 copyLocalPackageSources），不进 pip 安装（PyPI 上不存在）。
+  const monorepoRoot = path.join(PROJECT_ROOT, "packages");
+  const monorepoPkgs = fs.existsSync(monorepoRoot)
+    ? fs.readdirSync(monorepoRoot)
+        .filter((dir) => fs.existsSync(path.join(monorepoRoot, dir, "pyproject.toml")))
+    : [];
+  // ownPkgs = 以源码复制方式进入 bundle 的包。注意必须精确匹配包名：
+  // 前缀匹配会把 "ftre-llm"/"ftre-inbox" 等全部当成 "ftre" 误过滤，
+  // 导致这些包既不 pip 安装又不复制源码（2026-08-27 v0.1.15 回归教训）。
+  const pkgName = (dependency) => dependency.replace(/[<>=!~].*$/, "").trim();
+  const ownPkgs = ["ftre-agent-core", "ftre", "cordis-py", "litellm", ...monorepoPkgs];
   const allDeps = [...new Set([...agentCoreDeps, ...ftreDeps])]
-    .filter((dependency) => !ownPkgs.some((name) => dependency.startsWith(name)));
+    .filter((dependency) => !ownPkgs.includes(pkgName(dependency)));
   const depsHash = crypto.createHash("sha256").update(`${targetKey}\n${allDeps.join("\n")}`).digest("hex");
   let preparedDepsHash = null;
   if (!skipDeps && (depsHash !== state.depsHash || forceClean)) {
@@ -493,6 +543,8 @@ async function main() {
   const cordisSrc = path.join(CORDIS_ROOT, "src", "cordis");
   const cordisDest = path.join(serverDir, "cordis");
   if (fs.existsSync(cordisSrc)) syncDirIncremental(cordisSrc, cordisDest);
+  const localPackages = copyLocalPackageSources(PROJECT_ROOT, serverDir);
+  log(`本地 Package 源码已复制：${localPackages.length} 项`);
   const pyprojectSrc = path.join(PROJECT_ROOT, "pyproject.toml");
   if (fs.existsSync(pyprojectSrc)) fs.copyFileSync(pyprojectSrc, path.join(serverDir, "pyproject.toml"));
   mkdirp(path.join(serverDir, "data", "logs"));
@@ -508,7 +560,11 @@ async function main() {
   log(`=== 后端打包完成：${(getDirSize(BACKEND_DIR) / 1024 / 1024).toFixed(1)} MB ===`);
 }
 
-main().catch((error) => {
-  console.error("[bundle] 错误：", error);
-  process.exit(1);
-});
+if (require.main === module) {
+  main().catch((error) => {
+    console.error("[bundle] 错误：", error);
+    process.exit(1);
+  });
+}
+
+module.exports = { copyLocalPackageSources, syncDirIncremental };

@@ -44,6 +44,7 @@
     },
     "files": [
       "packages/electron/dist/**/*",
+      "packages/electron/assets/**/*",
       "packages/renderer/dist/**/*",
       "packages/shared/dist/**/*",
       "node_modules/node-pty/**/*",
@@ -53,6 +54,7 @@
       "node_modules/node-pty/**/*"
     ],
     "win": {
+      "icon": "packages/electron/assets/ftre.ico",
       "target": "nsis"
     },
     "nsis": {
