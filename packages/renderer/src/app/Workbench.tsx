@@ -226,15 +226,16 @@ export function Workbench() {
 
   // Compute flex style for each panel
   // sessions uses fixed width; chat and inspector share the remaining space
-  // transition 恒为 "width 160ms ease"（折叠/展开动画）；拖动时由 startLiveDrag 直接操作 DOM 覆盖为 none
-  // contain: layout 隔离面板间 reflow 传播（chat 内消息列表 DOM 最多，隔离收益最大）
+  // transition 恒为面板宽度缓动（折叠/展开动画）；拖动时由 startLiveDrag 直接操作 DOM 覆盖为 none
+  // 曲线用 iOS sheet 风格 cubic-bezier(0.32,0.72,0,1)：柔和起步 + 柔和落定，
+  // 比默认 ease 的"急起急停"观感自然；420ms 是面板级动画的舒适慢速。
   const getPanelStyle = (id: PanelId): React.CSSProperties => {
     if (id === "sessions") {
       return {
         width: sessionsCollapsed ? 48 : sessionsWidth,
         flexShrink: 0,
         order: getOrder(id),
-        transition: "width 160ms ease",
+        transition: "width 420ms cubic-bezier(0.32, 0.72, 0, 1)",
         contain: "layout",
       };
     }
@@ -243,7 +244,7 @@ export function Workbench() {
         width: inspectorWidth,
         flexShrink: 0,
         order: getOrder(id),
-        transition: "width 160ms ease",
+        transition: "width 420ms cubic-bezier(0.32, 0.72, 0, 1)",
         contain: "layout",
       };
     }
@@ -536,7 +537,7 @@ export function Workbench() {
                   order: getOrder("inspector"),
                   overflow: "hidden",
                   contain: "layout",
-                  transition: "width 160ms ease",
+                  transition: "width 420ms cubic-bezier(0.32, 0.72, 0, 1)",
                 }
           }
         >

@@ -1021,7 +1021,10 @@ export function SessionPanel() {
           )}
         </div>
       ) : (
-      <div className="h-full flex flex-col bg-transparent text-[14px]">
+      <div
+        className="h-full flex flex-col bg-transparent text-[14px] overflow-hidden"
+        style={{ width: sessionsWidth }}
+      >
         {/* ── 顶层动作区（New thread / Cron / Skills）── */}
         <div className="shrink-0 px-2 pt-2 pb-1">
           <div className="flex items-center gap-1">
