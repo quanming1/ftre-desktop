@@ -170,7 +170,7 @@ describe("ChatInput 发送按钮", () => {
     expect(screen.getByTestId("turn-file-changes-summary")).toHaveTextContent("1 个文件已更改");
     expect(screen.getByTestId("turn-file-changes-summary")).toHaveTextContent("+6");
     expect(screen.getByTestId("turn-file-changes-summary")).toHaveTextContent("-4");
-    expect(screen.getByTestId("turn-file-changes-summary")).not.toHaveClass("border");
+    expect(screen.getByTestId("turn-file-changes-summary")).toHaveClass("border", "border-white/60");
     expect(screen.getByTestId("turn-file-changes-summary")).toHaveClass("backdrop-blur-md");
     expect(screen.getByTestId("turn-file-changes-summary").parentElement).toHaveClass("justify-center");
 

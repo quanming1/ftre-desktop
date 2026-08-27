@@ -678,7 +678,7 @@ export const AssistantMessage = memo(
               )}
 
                 {showActions && !isStreaming && !message.isError && (
-                  <div className="invisible mt-2.5 flex min-h-7 flex-wrap items-center gap-2.5 text-[12px] leading-none text-t-faint opacity-0 transition-opacity duration-150 group-hover:visible group-hover:opacity-100 group-hover:pointer-events-auto pointer-events-none">
+                  <div className="invisible mt-2.5 flex min-h-7 flex-wrap items-center gap-2.5 py-0.5 text-[12px] leading-[1.4] text-t-faint opacity-0 transition-opacity duration-150 group-hover:visible group-hover:opacity-100 group-hover:pointer-events-auto pointer-events-none">
                     <TooltipProvider>
                       <Tooltip content={copied ? "已复制" : "复制"} side="top">
                         <button
@@ -737,7 +737,7 @@ export const AssistantMessage = memo(
                             <span aria-hidden="true" className="text-t-ghost/50">·</span>
                           )}
                           {hasTurnModel && (
-                            <span className="min-w-0 max-w-[240px] truncate font-mono text-t-faint">
+                            <span className="min-w-0 max-w-[240px] truncate font-mono text-t-faint leading-[1.4] py-0.5">
                               {turnModel}
                             </span>
                           )}

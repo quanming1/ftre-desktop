@@ -283,32 +283,8 @@ function MenuItem({
 
 // ─── 主组件 ────────────────────────────────────────────────────────
 
-interface ChatInputProps {
-  onComposerOverlayHeightChange?: (height: number) => void;
-}
-
-export function ChatInput({ onComposerOverlayHeightChange }: ChatInputProps = {}) {
+export function ChatInput() {
   const inputEditor = useMemo(() => new ChatInputEditor(), []);
-  const composerOverlayRef = useRef<HTMLDivElement>(null);
-
-  useLayoutEffect(() => {
-    const overlay = composerOverlayRef.current;
-    if (!overlay || !onComposerOverlayHeightChange) return;
-
-    const reportHeight = () => {
-      onComposerOverlayHeightChange(Math.ceil(overlay.getBoundingClientRect().height));
-    };
-    reportHeight();
-
-    if (typeof ResizeObserver === "undefined") {
-      window.addEventListener("resize", reportHeight);
-      return () => window.removeEventListener("resize", reportHeight);
-    }
-
-    const observer = new ResizeObserver(reportHeight);
-    observer.observe(overlay);
-    return () => observer.disconnect();
-  }, [onComposerOverlayHeightChange]);
 
   // 模型切换后自动聚焦输入框（如果未聚焦）
   // ── 发送按钮水波纹 ──
@@ -378,6 +354,20 @@ export function ChatInput({ onComposerOverlayHeightChange }: ChatInputProps = {}
 
   // ── 附件栏状态 ──
   const [attachments, setAttachments] = useState<ImageRef[]>([]);
+  // 同步镜像 attachments，供配额判定在事件处理期间同步读取。
+  // React 18 的函数式 setState 不保证 updater 同步执行；不能在
+  // setAttachments(updater) 里给外部变量赋值后立刻读取。
+  const attachmentsRef = useRef<ImageRef[]>([]);
+  const setAttachmentsSynced = useCallback(
+    (next: ImageRef[] | ((prev: ImageRef[]) => ImageRef[])) => {
+      setAttachments((prev) => {
+        const resolved = typeof next === "function" ? next(prev) : next;
+        attachmentsRef.current = resolved;
+        return resolved;
+      });
+    },
+    [],
+  );
 
   // ── 「+」菜单状态 ──
   const [addMenuOpen, setAddMenuOpen] = useState(false);
@@ -487,7 +477,7 @@ export function ChatInput({ onComposerOverlayHeightChange }: ChatInputProps = {}
 
     inputEditor.clear();
     setSkillSearch(null);
-    setAttachments([]);
+    setAttachmentsSynced([]);
 
     // 发送后清除当前 session 的草稿（内容已被消费）
     const sid = state.sessionId;
@@ -536,28 +526,19 @@ export function ChatInput({ onComposerOverlayHeightChange }: ChatInputProps = {}
   const handleAddImages = useCallback(
     async (files: File[]) => {
       if (files.length === 0) return;
-      // 用函数式 setState 拿到最新长度，避免闭包陈旧值
-      let overflow = 0;
-      let accepted: File[] = [];
-      setAttachments((prev) => {
-        const remaining = IMAGE_MAX_PER_MESSAGE - prev.length;
-        if (remaining <= 0) {
-          overflow = files.length;
-          accepted = [];
-          return prev;
-        }
-        accepted = files.slice(0, remaining);
-        overflow = files.length - accepted.length;
-        return prev;
-      });
-
-      if (accepted.length === 0) {
+      // 配额判定必须同步完成：attachmentsRef 在每次增删时同步更新。
+      // 不能在 setAttachments(updater) 里给外部变量赋值后立刻读取——
+      // React 18 不保证 updater 同步执行（曾导致首张图片也误报超限）。
+      const remaining = IMAGE_MAX_PER_MESSAGE - attachmentsRef.current.length;
+      if (remaining <= 0) {
         useNotification.getState().addNotification({
           level: "warning",
           message: `最多附加 ${IMAGE_MAX_PER_MESSAGE} 张图片`,
         });
         return;
       }
+      const accepted = files.slice(0, remaining);
+      const overflow = files.length - accepted.length;
       if (overflow > 0) {
         useNotification.getState().addNotification({
           level: "warning",
@@ -568,7 +549,9 @@ export function ChatInput({ onComposerOverlayHeightChange }: ChatInputProps = {}
       for (const file of accepted) {
         try {
           const ref = await fileToImageRef(file);
-          setAttachments((prev) => [...prev, ref]);
+          setAttachmentsSynced((prev) =>
+            prev.length >= IMAGE_MAX_PER_MESSAGE ? prev : [...prev, ref],
+          );
         } catch (err) {
           const msg =
             err instanceof ImageValidationError
@@ -581,12 +564,15 @@ export function ChatInput({ onComposerOverlayHeightChange }: ChatInputProps = {}
         }
       }
     },
-    [],
+    [setAttachmentsSynced],
   );
 
-  const handleRemoveAttachment = useCallback((id: string) => {
-    setAttachments((prev) => prev.filter((a) => a.id !== id));
-  }, []);
+  const handleRemoveAttachment = useCallback(
+    (id: string) => {
+      setAttachmentsSynced((prev) => prev.filter((a) => a.id !== id));
+    },
+    [setAttachmentsSynced],
+  );
 
   const handlePickImages = useCallback(() => {
     fileInputRef.current?.click();
@@ -751,7 +737,7 @@ export function ChatInput({ onComposerOverlayHeightChange }: ChatInputProps = {}
         },
       );
       inputEditor.setContent([{ type: "text", text: detail.content || "" }]);
-      setAttachments(restoredAttachments);
+      setAttachmentsSynced(restoredAttachments);
       window.requestAnimationFrame(() => inputEditor.focus());
     };
 
@@ -827,7 +813,7 @@ export function ChatInput({ onComposerOverlayHeightChange }: ChatInputProps = {}
     <div className="px-6 pb-4">
       <div className="mx-auto w-full max-w-[800px]">
         <div className="relative">
-          <div ref={composerOverlayRef} data-chat-composer-stack="" className="absolute bottom-full left-0 right-0 z-10 flex flex-col">
+          <div data-chat-composer-stack="" className="absolute bottom-full left-0 right-0 z-10 flex flex-col">
             <TurnFileChangesSummary changes={turnFileChanges} onReview={handleReviewTurnChanges} />
             {pendingMessages.length > 0 && (
               <div className="relative z-20 mx-4 overflow-visible bg-transparent">
