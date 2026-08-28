@@ -199,7 +199,7 @@ describe("chat store", () => {
     });
 
     projection.apply({
-      type: "CUSTOM",
+      type: "SESSION_MAINTENANCE",
       eventId: "compact-start",
       data: {
         name: "context_compact_start",
