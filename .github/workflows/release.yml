@@ -21,12 +21,6 @@ jobs:
           repository: quanming1/ftre
           path: ftre
 
-      - name: Checkout ftre-agent-core
-        uses: actions/checkout@v4
-        with:
-          repository: quanming1/ftre-agent-core
-          path: ftre-agent-core
-
       - name: Checkout cordis-py
         uses: actions/checkout@v4
         with:
@@ -49,7 +43,6 @@ jobs:
       - name: Bundle backend (Windows x64)
         env:
           FTRE_ROOT: ${{ github.workspace }}\ftre
-          FTRE_AGENT_CORE_ROOT: ${{ github.workspace }}\ftre-agent-core
           CORDIS_ROOT: ${{ github.workspace }}\cordis-py
           PIP_INDEX_URL: https://pypi.org/simple
         run: node scripts/bundle-backend.js --clean --platform win32 --arch x64
@@ -61,7 +54,7 @@ jobs:
           if ($manifest.platform -ne 'win32' -or $manifest.arch -ne 'x64') { throw 'Windows runtime manifest mismatch' }
           $env:PYTHONPATH = "${{ github.workspace }}\backend\server"
           $env:PYTHONUTF8 = '1'
-          backend/python/python.exe -c "import cordis, ftre, ftre_agent_core; print('bundled runtime ok')"
+          backend/python/python.exe -c "import cordis, ftre, ftre_agent, ftre_agent_runtime; print('bundled runtime ok')"
 
       - name: Build and package Windows x64
         run: npm run dist:full -- --publish never
@@ -98,12 +91,6 @@ jobs:
           repository: quanming1/ftre
           path: ftre
 
-      - name: Checkout ftre-agent-core
-        uses: actions/checkout@v4
-        with:
-          repository: quanming1/ftre-agent-core
-          path: ftre-agent-core
-
       - name: Checkout cordis-py
         uses: actions/checkout@v4
         with:
@@ -126,7 +113,6 @@ jobs:
       - name: Bundle backend (macOS ${{ matrix.arch }})
         env:
           FTRE_ROOT: ${{ github.workspace }}/ftre
-          FTRE_AGENT_CORE_ROOT: ${{ github.workspace }}/ftre-agent-core
           CORDIS_ROOT: ${{ github.workspace }}/cordis-py
           PIP_INDEX_URL: https://pypi.org/simple
         run: node scripts/bundle-backend.js --clean --platform darwin --arch ${{ matrix.arch }}
@@ -140,7 +126,7 @@ jobs:
           python3 -c "import json; m=json.load(open('backend/manifest.json')); assert m['platform']=='darwin' and m['arch']=='${{ matrix.arch }}'"
           PYTHONPATH="$GITHUB_WORKSPACE/backend/server" \
             PYTHONUTF8=1 backend/python/bin/python3.12 \
-            -c "import cordis, ftre, ftre_agent_core; print('bundled runtime ok')"
+            -c "import cordis, ftre, ftre_agent, ftre_agent_runtime; print('bundled runtime ok')"
 
       - name: Build and package macOS ${{ matrix.arch }}
         run: pnpm build && pnpm exec electron-builder --mac --${{ matrix.arch }} -c electron-builder-full.json --publish never

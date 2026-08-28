@@ -8,7 +8,7 @@
 | 目标 | macOS x64/arm64 零前置环境安装包，并上传 GitHub Release |
 | 当前状态 | 开发完成，待 macOS runner/真实设备收口验收；当前工作区未授权 commit/push |
 | 执行范围 | 仅 `E:\\binn\\ftre-desktop` 客户端仓库 |
-| 未修改 | `E:\\ftre`、`E:\\ftre-agent-core`、`E:\\cordis-py` 源码 |
+| 未修改 | `E:\\ftre`、`E:\\ftre\\packages\\ftre-agent`、`E:\\ftre\\packages\\ftre-agent-runtime`、`E:\\cordis-py` 源码 |
 
 ## 2. 已实现
 
@@ -29,7 +29,7 @@
   - macOS 使用 python-build-standalone `install_only`；
   - x64 使用 `x86_64-apple-darwin`，arm64 使用 `aarch64-apple-darwin`；
   - runtime archive SHA256 校验；
-  - 同步 ftre、ftre-agent-core 和 cordis-py 源码；
+  - 同步 ftre、ftre-agent、ftre-agent-runtime 和 cordis-py 源码；
   - 生成 `backend/python/runtime.json` 和 `backend/manifest.json`；
   - 复制许可证文件；
   - 不在发布模式依赖系统 Python、Node、Homebrew、conda、Git 或源码。
@@ -56,8 +56,8 @@
 - `pnpm --filter @ftre/electron build`；
 - `node --check scripts/bundle-backend.js`；
 - package/builder/TODO/workflow YAML/JSON 语法验证；
-- Windows x64 backend bundle：Python、依赖、ftre、ftre-agent-core、cordis-py 完成同步；
-- bundled Python 导入验证：`cordis`、`ftre`、`ftre_agent_core` 和中文 stdout；
+- Windows x64 backend bundle：Python、依赖、ftre、ftre-agent、ftre-agent-runtime、cordis-py 完成同步；
+- bundled Python 导入验证：`cordis`、`ftre`、`ftre_agent`、`ftre_agent_runtime` 和中文 stdout；
 - `electron-builder --win --x64 --dir -c electron-builder-full.json --publish never`；
 - Windows unpacked 资源验证：runtime manifest、Python、cordis、bat/sh launcher 均存在。
 
