@@ -11,6 +11,7 @@ import { registerWatcherIPC, disposeWatcherIPC } from "./ipc/watcher";
 import { registerMemoryIPC } from "./ipc/memory";
 import { WorkerManager } from "./ipc/worker-manager";
 import { registerWsLogIPC } from "./ipc/ws-log";
+import { applyDockIcon, createTray, disposeTray } from "./app-icon";
 
 // GPU 加速 + 滚动性能优化
 app.commandLine.appendSwitch("enable-gpu-rasterization");
@@ -60,6 +61,9 @@ ipcMain.handle("backend:restart", async () => {
 // --- 生命周期 ---
 
 app.whenReady().then(() => {
+  applyDockIcon();
+  createTray();
+
   // 注册 IPC handlers
   registerFsIPC();
   registerGitIPC();
@@ -90,6 +94,7 @@ app.on("window-all-closed", () => {
 });
 
 app.on("before-quit", () => {
+  disposeTray();
   disposeWatcherIPC();
   disposeTerminalIPC();
   workerManager.dispose();

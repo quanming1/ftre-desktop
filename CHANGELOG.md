@@ -53,6 +53,8 @@
 
 ### 新增
 
+- D4：统一使用用户提供的 Ftre Logo；TitleBar、LoadingScreen、Windows 窗口/任务栏/EXE/托盘和 macOS
+  Dock 均接入同一 SVG/PNG 派生资源，补齐 ICNS 与原生托盘生命周期。
 - B4：Assistant 流事件和 attach 快照按服务端 `message_id` 投影，Steering 同一 `reply_id`
   下自然显示 `Assistant A → UserMessage → Assistant B`；删除客户端 `reply_segment` 推断。
 - B3：队列横幅新增“插入当前运行”Steering 按钮；同一 request_id 从 queued 升级为 steering，

@@ -317,19 +317,22 @@ stages:
         prd_status: 开发中
         depends_on:
           - D3
-        implementation_boundary: 只修改 renderer 的品牌 Logo 组件、TitleBar、LoadingScreen、Windows 自包含包的打包脚本、测试和文档；不修改 ftre 后端源码、WebSocket 协议、会话数据或业务交互
+        implementation_boundary: 只修改 renderer 的品牌 Logo 组件、TitleBar、LoadingScreen、Electron 原生窗口/托盘/Dock 图标、跨平台打包脚本、测试和文档；不修改 ftre 后端源码、WebSocket 协议、会话数据或业务交互
         modules:
-          - packages/renderer/src/assets/ftre-fox-logo.svg
+          - packages/renderer/src/assets/ftre-logo.svg
           - packages/renderer/src/components/FtreLogo.tsx
           - packages/renderer/src/app/TitleBar.tsx
           - packages/renderer/src/app/LoadingScreen.tsx
           - packages/electron/src/window.ts
+          - packages/electron/src/app-icon.ts
           - packages/electron/assets/ftre.ico
+          - packages/electron/assets/ftre.icns
+          - packages/electron/assets/ftre-logo.png
           - electron-builder-full.json
           - package.json（build.win.icon）
           - scripts/bundle-backend.js
           - scripts/tests/backend-runtime.test.cjs
-        acceptance: TitleBar、LoadingScreen、Windows 窗口和任务栏使用绿色狐狸 Logo；Logo 保持透明背景和比例，菜单/启动状态行为不回归；renderer 测试、tsc、build、full pack 通过；自包含安装包可启动并可看到新 Logo
+        acceptance: TitleBar、LoadingScreen、Windows 窗口/任务栏/托盘、macOS Dock 使用同一 Logo；Logo 保持透明背景和比例，菜单/启动状态行为不回归；renderer 测试、tsc、build、full pack 和平台图标静态检查通过
 
   - id: E
     name: 跨平台发布
