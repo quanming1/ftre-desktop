@@ -94,7 +94,8 @@ test("Windows、macOS、托盘与 renderer 使用统一品牌资源", () => {
 
 test("Release workflow 包含 macOS 矩阵和 SHA256 汇总", () => {
   const workflow = fs.readFileSync(path.join(__dirname, "../../.github/workflows/release.yml"), "utf8");
-  assert.equal((workflow.match(/runner: macos-14/g) || []).length, 2);
+  assert.equal((workflow.match(/runner: macos-14/g) || []).length, 1);
+  assert.equal((workflow.match(/runner: macos-15-intel/g) || []).length, 1);
   assert.doesNotMatch(workflow, /runner: macos-13/);
   assert.match(workflow, /runtime_arch=\$\(file backend\/python\/bin\/python3\.12\)/);
   assert.match(workflow, /SHA256SUMS/);
@@ -112,7 +113,8 @@ test("develop 预发布 workflow 使用 SemVer 通道并先过质量门禁", () 
   assert.match(workflow, /prerelease: true/);
   assert.match(workflow, /make_latest: false/);
   assert.match(workflow, /ref: develop/);
-  assert.equal((workflow.match(/runner: macos-14/g) || []).length, 2);
+  assert.equal((workflow.match(/runner: macos-14/g) || []).length, 1);
+  assert.equal((workflow.match(/runner: macos-15-intel/g) || []).length, 1);
   assert.doesNotMatch(workflow, /runner: macos-13/);
 });
 
