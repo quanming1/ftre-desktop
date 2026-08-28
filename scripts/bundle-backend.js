@@ -26,6 +26,24 @@ const BACKEND_DIR = path.join(DESKTOP_DIR, "backend");
 const CACHE_DIR = path.join(DESKTOP_DIR, ".cache");
 const STATE_FILE = path.join(CACHE_DIR, "bundle-state.json");
 
+function collectExternalDependencies(projectRoot) {
+  const { parseTomlDeps } = require("./parse-deps");
+  const rootDeps = parseTomlDeps(path.join(projectRoot, "pyproject.toml"));
+  const monorepoRoot = path.join(projectRoot, "packages");
+  const monorepoPkgs = fs.existsSync(monorepoRoot)
+    ? fs.readdirSync(monorepoRoot)
+        .filter((dir) => fs.existsSync(path.join(monorepoRoot, dir, "pyproject.toml")))
+    : [];
+  const packageDeps = monorepoPkgs.flatMap((dir) =>
+    parseTomlDeps(path.join(monorepoRoot, dir, "pyproject.toml")),
+  );
+  const pkgName = (dependency) => dependency.replace(/[<>=!~].*$/, "").trim();
+  const ownPkgs = ["ftre", "cordis-py", "litellm", ...monorepoPkgs];
+  const externalDeps = [...new Set([...rootDeps, ...packageDeps])]
+    .filter((dependency) => !ownPkgs.includes(pkgName(dependency)));
+  return { externalDeps, monorepoPkgs };
+}
+
 const WINDOWS_PYTHON_VERSION = "3.12.3";
 const STANDALONE_RELEASE = process.env.PYTHON_STANDALONE_RELEASE || "20260814";
 const STANDALONE_VERSION = process.env.PYTHON_STANDALONE_VERSION || "3.12.14";
@@ -368,10 +386,22 @@ function cleanPycache(root) {
 }
 
 function getDirSize(root) {
+  if (!fs.existsSync(root)) return 0;
   let total = 0;
   for (const item of fs.readdirSync(root, { withFileTypes: true })) {
     const fullPath = path.join(root, item.name);
-    total += item.isDirectory() ? getDirSize(fullPath) : fs.statSync(fullPath).size;
+    // Python embeddable/runtime layouts differ by platform (for example macOS
+    // arm64 may omit the legacy ``2to3`` launcher). A file can also disappear
+    // during cleanup; missing entries must not make an otherwise valid bundle fail.
+    if (item.isDirectory()) {
+      total += getDirSize(fullPath);
+      continue;
+    }
+    try {
+      total += fs.statSync(fullPath).size;
+    } catch (error) {
+      if (error?.code !== "ENOENT") throw error;
+    }
   }
   return total;
 }
@@ -476,30 +506,31 @@ async function main() {
     await installPipIfNeeded(runtime.executable, pythonDir);
   }
 
-  const { parseTomlDeps } = require("./parse-deps");
-  const ftreDeps = parseTomlDeps(path.join(PROJECT_ROOT, "pyproject.toml"));
-
   // ftre 主仓 packages/ 下的独立发行物（monorepo Package）：源码随 bundle 复制
   // （见 copyLocalPackageSources），不进 pip 安装（PyPI 上不存在）。
-  const monorepoRoot = path.join(PROJECT_ROOT, "packages");
-  const monorepoPkgs = fs.existsSync(monorepoRoot)
-    ? fs.readdirSync(monorepoRoot)
-        .filter((dir) => fs.existsSync(path.join(monorepoRoot, dir, "pyproject.toml")))
-    : [];
   // ownPkgs = 以源码复制方式进入 bundle 的包。注意必须精确匹配包名：
   // 前缀匹配会把 "ftre-llm"/"ftre-inbox" 等全部当成 "ftre" 误过滤，
   // 导致这些包既不 pip 安装又不复制源码（2026-08-27 v0.1.15 回归教训）。
-  const pkgName = (dependency) => dependency.replace(/[<>=!~].*$/, "").trim();
-  const ownPkgs = ["ftre", "cordis-py", "litellm", ...monorepoPkgs];
-  const allDeps = [...new Set(ftreDeps)]
-    .filter((dependency) => !ownPkgs.includes(pkgName(dependency)));
+  // Workspace Package 的外部 dependencies 由 collectExternalDependencies 一并安装。
+  const { externalDeps: allDeps, monorepoPkgs } = collectExternalDependencies(PROJECT_ROOT);
+  // macOS Intel 目前由 arm64 runner 交叉打包。此时如果 pip 找不到目标
+  // 架构的 wheel，会把 cryptography 等 Rust 扩展退回源码编译；编译过程
+  // 需要 Intel OpenSSL sysroot，而 runner 并未提供。只在这个交叉场景强制
+  // 选择已有 wheel，让 pip 选择满足版本约束的最后一个可用二进制版本；
+  // 原生 Windows/macOS 构建仍允许正常使用源码包作为兜底。
+  const targetWheelOnly = target.platform === "darwin"
+    && target.arch === "x64"
+    && process.arch === "arm64"
+    ? ["--only-binary", ":all:"]
+    : [];
   const depsHash = crypto.createHash("sha256").update(`${targetKey}\n${allDeps.join("\n")}`).digest("hex");
   let preparedDepsHash = null;
   if (!skipDeps && (depsHash !== state.depsHash || forceClean)) {
     log(`安装 Python 依赖：${allDeps.join(", ")}`);
     for (const dependency of allDeps) {
       execFileSync(runtime.executable, ["-m", "pip", "install", dependency,
-        "--disable-pip-version-check", "--no-warn-script-location", "--no-cache-dir", "-q"], {
+        "--disable-pip-version-check", "--no-warn-script-location", "--no-cache-dir", "-q",
+        ...targetWheelOnly], {
         stdio: "inherit",
         cwd: pythonDir,
       });
@@ -553,4 +584,4 @@ if (require.main === module) {
   });
 }
 
-module.exports = { copyLocalPackageSources, syncDirIncremental };
+module.exports = { collectExternalDependencies, copyLocalPackageSources, syncDirIncremental };

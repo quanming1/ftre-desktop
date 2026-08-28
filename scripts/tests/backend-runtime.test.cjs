@@ -11,7 +11,7 @@ const {
   resolveManifestExecutable,
 } = require("../../packages/electron/dist/backend-runtime.js");
 const { WorkerManager } = require("../../packages/electron/dist/ipc/worker-manager.js");
-const { copyLocalPackageSources } = require("../bundle-backend.js");
+const { collectExternalDependencies, copyLocalPackageSources } = require("../bundle-backend.js");
 
 test("bundle-backend 复制仓内 Package 源码并过滤开发元数据", () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "ftre-package-sources-"));
@@ -35,6 +35,29 @@ test("bundle-backend 复制仓内 Package 源码并过滤开发元数据", () =>
     assert.equal(fs.existsSync(path.join(server, "ftre_llm.egg-info")), false);
     assert.equal(fs.existsSync(path.join(server, "ftre_llm", "__pycache__")), false);
     assert.equal(fs.existsSync(path.join(server, "ignored")), false);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("bundle-backend 收集 workspace Package 的外部依赖", () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "ftre-package-deps-"));
+  fs.mkdirSync(path.join(root, "packages", "ftre-llm"), { recursive: true });
+  fs.writeFileSync(
+    path.join(root, "pyproject.toml"),
+    '[project]\ndependencies = [\n  "ftre-llm>=0.1.0,<0.2.0"\n]\n',
+    "utf8",
+  );
+  fs.writeFileSync(
+    path.join(root, "packages", "ftre-llm", "pyproject.toml"),
+    '[project]\ndependencies = [\n  "openai>=1.0.0"\n]\n',
+    "utf8",
+  );
+
+  try {
+    const { externalDeps, monorepoPkgs } = collectExternalDependencies(root);
+    assert.deepEqual(monorepoPkgs, ["ftre-llm"]);
+    assert.deepEqual(externalDeps, ["openai>=1.0.0"]);
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }
@@ -71,8 +94,9 @@ test("Windows、macOS、托盘与 renderer 使用统一品牌资源", () => {
 
 test("Release workflow 包含 macOS 矩阵和 SHA256 汇总", () => {
   const workflow = fs.readFileSync(path.join(__dirname, "../../.github/workflows/release.yml"), "utf8");
-  assert.match(workflow, /runner: macos-13/);
-  assert.match(workflow, /runner: macos-14/);
+  assert.equal((workflow.match(/runner: macos-14/g) || []).length, 2);
+  assert.doesNotMatch(workflow, /runner: macos-13/);
+  assert.match(workflow, /runtime_arch=\$\(file backend\/python\/bin\/python3\.12\)/);
   assert.match(workflow, /SHA256SUMS/);
   assert.match(workflow, /action-gh-release/);
 });
