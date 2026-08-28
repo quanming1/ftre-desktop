@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.1.20] - 2026-08-28
+
+### D4 品牌 Logo 与应用壳视觉
+
+- 使用用户提供的 SVG/PNG 统一 TitleBar、LoadingScreen、Windows 窗口/任务栏/EXE/托盘和 macOS Dock。
+- 新增统一的 ICO、ICNS、PNG 原生资源与平台图标解析，托盘生命周期随 Electron 应用正确创建和销毁。
+- 客户端 Host 事件投影、消息搜索和 workspace Package 打包链路同步到当前 develop。
+
 ## [0.1.18] - 2026-08-27
 
 ### D4 品牌 Logo 与应用壳视觉
