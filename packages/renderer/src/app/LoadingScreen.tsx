@@ -25,7 +25,7 @@ export function LoadingScreen() {
 
       const offExit = window.desktop.backend.onExit((code: number | null) => {
         if (code !== 0 && code !== null) {
-          setError("后端进程异常退出，请检查 ~/.ftre/config.json 中的 API Key 是否正确配置。");
+          setError((current) => current || "后端进程异常退出，请展开日志查看原因。");
           setLogsExpanded(true);
         }
       });
