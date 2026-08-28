@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.21] - 2026-08-28
+
+### 发布构建修复
+
+- 发布流水线固定检出 ftre `develop`，使用当前 `ftre-agent` 与 `ftre-agent-runtime` workspace Package，
+  不再请求已退役的 `ftre-agent-core` PyPI 依赖。
+
 ## [0.1.20] - 2026-08-28
 
 ### D4 品牌 Logo 与应用壳视觉
