@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.22] - 2026-08-28
+
+### 发布构建修复
+
+- bundle 递归安装 workspace Package 的外部依赖（包括 `openai`），确保内置 `ftre_llm`、`ftre_agent`
+  和 `ftre_agent_runtime` 在干净环境可导入。
+
 ## [0.1.21] - 2026-08-28
 
 ### 发布构建修复
