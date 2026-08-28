@@ -220,6 +220,22 @@ interface DesktopStore {
   set(key: string, value: unknown): Promise<{ success: boolean }>;
 }
 
+interface BackendStatus {
+  state: "idle" | "starting" | "ready" | "failed" | "stopping" | "stopped";
+  pid?: number;
+  generation: number;
+  exitCode?: number | null;
+  error?: { code: string; message: string; recentLogs: string[] };
+}
+
+interface BackendAPI {
+  onLog(callback: (line: string) => void): () => void;
+  onExit(callback: (code: number | null) => void): () => void;
+  onState(callback: (status: BackendStatus) => void): () => void;
+  getStatus(): Promise<BackendStatus>;
+  restart(): Promise<{ ok: boolean; error?: string }>;
+}
+
 interface DesktopAPI {
   platform: string;
   isElectron: boolean;
@@ -238,6 +254,7 @@ interface DesktopAPI {
   terminal: DesktopTerminal;
   memory: DesktopMemory;
   wsLog: DesktopWsLog;
+  backend?: BackendAPI;
 }
 
 declare global {

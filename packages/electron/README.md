@@ -32,7 +32,8 @@
 │   ├── preload.ts        # 预加载脚本 (contextBridge)
 │   ├── window.ts         # 窗口创建与管理
 │   ├── app-state.ts      # 应用状态管理
-│   ├── backend.ts        # 后端进程管理
+│   ├── backend-supervisor.ts # Gateway 生命周期管理
+│   ├── backend-readiness.ts  # Gateway ready/health 探测
 │   ├── ipc/              # IPC 处理器
 │   │   ├── fs.ts         # 文件系统 API
 │   │   ├── git.ts        # Git 集成 API
@@ -245,18 +246,19 @@ const mainWindow = new BrowserWindow({
 });
 ```
 
-### 后端进程 (`backend.ts`)
+### 后端进程 (`backend-supervisor.ts`)
 
-打包模式下由 `backend.ts` 管理安装包自带的 Gateway。主进程先读取
-`backend/python/runtime.json`，校验平台与架构，再启动 manifest 指定的解释器；
+打包模式下由 `BackendSupervisor` 管理安装包自带的 Gateway。主进程先读取
+`backend/python/runtime.json`，校验平台与架构，再启动 manifest 指定的解释器（Windows
+使用无控制台的 `pythonw.exe`）；
 不会猜测系统 Python 路径。开发模式仍由开发者手动运行 `ftre gateway`。
 
 输出通过 UTF-8 `StringDecoder` 组装，POSIX 平台用独立进程组回收 Gateway
 及其子进程，Windows 保留 `taskkill /t` 进程树清理。
 
-因此，新增平台不得复制一套 `startBackend()` 工厂或自行拼接解释器路径；
-必须复用 `resolveBackendRuntime()`、`readRuntimeManifest()` 和主进程的
-`startPythonBackend()` 生命周期入口。
+启动通过 stdout/stderr pipe 把日志交给 LoadingScreen，并等待 Gateway `/api/health`
+成功后才进入 ready。新增平台不得复制一套启动工厂或自行拼接解释器路径；必须复用
+`resolveBackendRuntime()`、`readRuntimeManifest()` 和 `BackendSupervisor` 生命周期入口。
 
 ## 📄 许可
 

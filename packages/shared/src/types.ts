@@ -259,7 +259,19 @@ export interface DesktopWsLog {
 export interface BackendAPI {
   onLog(callback: (line: string) => void): () => void;
   onExit(callback: (code: number | null) => void): () => void;
+  onState(callback: (status: BackendStatus) => void): () => void;
+  getStatus(): Promise<BackendStatus>;
   restart(): Promise<{ ok: boolean; error?: string }>;
+}
+
+export type BackendState = "idle" | "starting" | "ready" | "failed" | "stopping" | "stopped";
+
+export interface BackendStatus {
+  state: BackendState;
+  pid?: number;
+  generation: number;
+  exitCode?: number | null;
+  error?: { code: string; message: string; recentLogs: string[] };
 }
 
 export interface DesktopAPI {

@@ -1,6 +1,6 @@
 #!/bin/sh
 # macOS/Linux 调试与手工诊断入口。正式客户端由 Electron 主进程直接 spawn，
-# 这样可以把路径、进程组和日志管线统一收敛在 backend.ts；本脚本只依赖安装包
+# 这样可以把路径、进程组和日志管线统一收敛在 BackendSupervisor；本脚本只依赖安装包
 # 自带的 runtime，不依赖用户系统 Python。
 set -eu
 
