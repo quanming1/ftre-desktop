@@ -50,15 +50,23 @@ test("electron-builder 声明 Mac dmg/zip 双架构产物和 bundled backend", (
   assert.ok(config.extraResources.some((resource) => resource.from === "scripts/start-gateway.sh"));
 });
 
-test("Windows 窗口、任务栏和 builder 使用同一 ICO", () => {
+test("Windows、macOS、托盘与 renderer 使用统一品牌资源", () => {
   const packageConfig = JSON.parse(fs.readFileSync(path.join(__dirname, "../../package.json"), "utf8"));
   const fullConfig = JSON.parse(fs.readFileSync(path.join(__dirname, "../../electron-builder-full.json"), "utf8"));
   const windowSource = fs.readFileSync(path.join(__dirname, "../../packages/electron/src/window.ts"), "utf8");
+  const iconSource = fs.readFileSync(path.join(__dirname, "../../packages/electron/src/app-icon.ts"), "utf8");
+  const rendererLogo = fs.readFileSync(path.join(__dirname, "../../packages/renderer/src/assets/ftre-logo.svg"), "utf8");
   assert.equal(packageConfig.build.win.icon, "packages/electron/assets/ftre.ico");
   assert.equal(fullConfig.win.icon, "packages/electron/assets/ftre.ico");
-  assert.match(windowSource, /iconPath/);
-  assert.match(windowSource, /ftre\.ico/);
+  assert.equal(packageConfig.build.mac.icon, "packages/electron/assets/ftre.icns");
+  assert.equal(fullConfig.mac.icon, "packages/electron/assets/ftre.icns");
+  assert.match(windowSource, /resolveAppIconPath\("window"\)/);
+  assert.match(iconSource, /new Tray\(iconPath\)/);
+  assert.match(iconSource, /app\.dock\.setIcon\(iconPath\)/);
+  assert.match(rendererLogo, /width="1254" height="1254"/);
   assert.ok(fs.existsSync(path.join(__dirname, "../../packages/electron/assets/ftre.ico")));
+  assert.ok(fs.existsSync(path.join(__dirname, "../../packages/electron/assets/ftre.icns")));
+  assert.ok(fs.existsSync(path.join(__dirname, "../../packages/electron/assets/ftre-logo.png")));
 });
 
 test("Release workflow 包含 macOS 矩阵和 SHA256 汇总", () => {

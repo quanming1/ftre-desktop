@@ -23,8 +23,9 @@ import { useLayout } from "@/stores/layout";
 const PAGE_SIZE = 50;
 const STATE_CHECKPOINT_EVENTS = new Set([
   "USER_MESSAGE", "REPLY_START", "TEXT_BLOCK_END", "THINKING_BLOCK_END",
-  "DATA_BLOCK_END", "TOOL_CALL_START", "TOOL_CALL_END", "TOOL_RESULT_END",
-  "MODEL_CALL_END", "REQUIRE_USER_CONFIRM", "USER_CONFIRM_RESULT", "REPLY_END", "CUSTOM",
+  "TOOL_CALL_START", "TOOL_CALL_END", "TOOL_RESULT_END",
+  "MODEL_CALL_END", "REQUIRE_USER_CONFIRM", "USER_CONFIRM_RESULT", "REPLY_END",
+  "SESSION_MAINTENANCE",
 ]);
 
 export function SessionStateRenderer({ active }: { active: boolean }) {
@@ -89,7 +90,7 @@ export function SessionStateRenderer({ active }: { active: boolean }) {
     return wsClient.onMessage((message: ServerMessage) => {
       const eventType = (message.payload as any)?.type;
       if (
-        message.type !== "agent_event"
+        message.type !== "agent_event" && message.type !== "session_event"
         || message.metadata?.session_id !== sessionId
         || !STATE_CHECKPOINT_EVENTS.has(eventType)
       ) return;

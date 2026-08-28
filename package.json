@@ -1,6 +1,6 @@
 {
   "name": "ftre-desktop",
-  "version": "0.1.18",
+  "version": "0.1.20",
   "description": "AI Agent Desktop Client - Monorepo",
   "main": "packages/electron/dist/main.js",
   "private": true,
@@ -56,6 +56,9 @@
     "win": {
       "icon": "packages/electron/assets/ftre.ico",
       "target": "nsis"
+    },
+    "mac": {
+      "icon": "packages/electron/assets/ftre.icns"
     },
     "nsis": {
       "oneClick": false,

@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.1.20] - 2026-08-28
+
+### D4 品牌 Logo 与应用壳视觉
+
+- 使用用户提供的 SVG/PNG 统一 TitleBar、LoadingScreen、Windows 窗口/任务栏/EXE/托盘和 macOS Dock。
+- 新增统一的 ICO、ICNS、PNG 原生资源与平台图标解析，托盘生命周期随 Electron 应用正确创建和销毁。
+- 客户端 Host 事件投影、消息搜索和 workspace Package 打包链路同步到当前 develop。
+
 ## [0.1.18] - 2026-08-27
 
 ### D4 品牌 Logo 与应用壳视觉
@@ -90,6 +98,8 @@
 
 ### 新增
 
+- D4：统一使用用户提供的 Ftre Logo；TitleBar、LoadingScreen、Windows 窗口/任务栏/EXE/托盘和 macOS
+  Dock 均接入同一 SVG/PNG 派生资源，补齐 ICNS 与原生托盘生命周期。
 - B4：Assistant 流事件和 attach 快照按服务端 `message_id` 投影，Steering 同一 `reply_id`
   下自然显示 `Assistant A → UserMessage → Assistant B`；删除客户端 `reply_segment` 推断。
 - B3：队列横幅新增“插入当前运行”Steering 按钮；同一 request_id 从 queued 升级为 steering，

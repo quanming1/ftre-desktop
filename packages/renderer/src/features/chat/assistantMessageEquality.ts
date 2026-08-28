@@ -9,6 +9,8 @@ export interface AssistantMessageComparableProps {
   turnDurationSec?: number;
   turnModel?: string;
   turnFinishedAt?: number;
+  /** Ctrl+F 当前定位的匹配消息（容器高亮提示） */
+  isActiveMatch?: boolean;
 }
 
 export function contentBlocksEqual(
@@ -83,6 +85,7 @@ export function assistantMessagePropsEqual(
   if (prev.turnDurationSec !== next.turnDurationSec) return false;
   if (prev.turnModel !== next.turnModel) return false;
   if (prev.turnFinishedAt !== next.turnFinishedAt) return false;
+  if (prev.isActiveMatch !== next.isActiveMatch) return false;
   return (
     contentBlocksEqual(prev.message.blocks, next.message.blocks)
     && toolResultsEqual(prev.message.toolResults, next.message.toolResults)

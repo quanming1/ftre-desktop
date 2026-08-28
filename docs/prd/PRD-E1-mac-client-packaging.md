@@ -110,7 +110,7 @@ CPU 架构上，普通用户不需要预装 Python、Node.js、Homebrew、conda�
   - runtime 的解释器、标准库、ftre 运行所需依赖和启动元数据必须位于应用资源目录，并纳入产物完整性校验；
   - 运行时入口通过平台适配函数返回，不允许业务代码拼接 python.exe 或假设某个系统 Python 路径；
   - x64 包不得启动 arm64 runtime，arm64 包不得启动 x64 runtime；构建阶段必须检查 Mach-O/Python 架构与 Electron 目标架构一致；
-  - 记录 Python、ftre、ftre-agent-core 和 cordis-py 的版本来源、许可证、构建 commit 与校验和；
+  - 记录 Python、ftre、ftre-agent、ftre-agent-runtime 和 cordis-py 的版本来源、许可证、构建 commit 与校验和；
   - Windows 继续使用现有架构匹配的 bundled Python，不得因 macOS 适配移除 Windows runtime。
 
 - [ ] FR5：后端资源目录跨平台解析
@@ -266,7 +266,7 @@ Renderer、shared 和业务 Feature 不应自行判断 process.platform；
 - macOS arm64：面向 Apple Silicon；
 - universal 作为后续可选优化，只有在 native module 和 Python runtime 可以合并验证后才启用；
 - Windows x64：维持现有 NSIS；
-- 每个构建 job 生成 backend/manifest.json，记录版本、架构、commit、Python、ftre-agent-core、cordis-py、许可证文件和签名状态。
+- 每个构建 job 生成 backend/manifest.json，记录版本、架构、commit、Python、ftre-agent、ftre-agent-runtime、cordis-py、许可证文件和签名状态。
 
 ### 3.5 Gateway 资源策略
 
@@ -382,7 +382,7 @@ Release 至少包含：
 
 ## 8. 执行边界与当前进度
 
-本阶段只修改客户端仓库；不修改 E:\ftre 后端、E:\ftre-agent-core 或 cordis-py
+本阶段只修改客户端仓库；不修改 E:\ftre 后端、E:\ftre\packages\ftre-agent、E:\ftre\packages\ftre-agent-runtime 或 cordis-py
 源码。已完成的客户端范围包括：
 
 - Electron 主进程的 runtime manifest、架构校验、UTF-8 输出和进程组生命周期；

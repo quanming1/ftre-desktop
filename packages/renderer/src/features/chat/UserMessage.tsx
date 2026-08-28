@@ -1,4 +1,4 @@
-import { memo, useCallback, useState, useRef, useLayoutEffect } from "react";
+import { memo, useCallback, useState, useRef, useLayoutEffect, useMemo } from "react";
 import type { MessagePart } from "@/types/chat";
 import type { ChatMessage as WsChatMessage } from "@/stores/chat";
 
@@ -128,8 +128,61 @@ interface RollbackPreviewData {
   refillMessage: { parts: Array<{ type: string; text?: string; data?: unknown }> };
 }
 
+/** Ctrl+F 关键字分段高亮：大小写不敏感，命中片段以 mark 呈现。memo 避免流式重渲染重复分段。 */
+const HighlightText = memo(function HighlightText({
+  text,
+  query,
+}: {
+  text: string;
+  query: string;
+}) {
+  const segments = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return null;
+    const out: { text: string; hit: boolean }[] = [];
+    const lower = text.toLowerCase();
+    let i = 0;
+    while (i <= text.length) {
+      const idx = lower.indexOf(q, i);
+      if (idx < 0) {
+        if (i < text.length) out.push({ text: text.slice(i), hit: false });
+        break;
+      }
+      if (idx > i) out.push({ text: text.slice(i, idx), hit: false });
+      out.push({ text: text.slice(idx, idx + q.length), hit: true });
+      i = idx + q.length;
+    }
+    return out;
+  }, [text, query]);
+
+  if (!segments) return <>{text}</>;
+  return (
+    <>
+      {segments.map((seg, k) =>
+        seg.hit ? (
+          <mark key={k} className="rounded-[2px] bg-[#ffe58a] text-inherit">
+            {seg.text}
+          </mark>
+        ) : (
+          <span key={k}>{seg.text}</span>
+        ),
+      )}
+    </>
+  );
+});
+
 export const UserMessage = memo(
-  function UserMessage({ message }: { message: ChatMessage }) {
+  function UserMessage({
+    message,
+    searchQuery = "",
+    isActiveMatch = false,
+  }: {
+    message: ChatMessage;
+    /** Ctrl+F 搜索关键词（用于文本高亮） */
+    searchQuery?: string;
+    /** 当前定位的匹配消息（容器高亮提示） */
+    isActiveMatch?: boolean;
+  }) {
     const hasParts = message.parts && message.parts.length > 0;
     const hasContent = hasParts || (message.content && message.content.trim() !== "");
     const hasAttachments = message.attachments && message.attachments.length > 0;
@@ -325,7 +378,7 @@ export const UserMessage = memo(
         id={`msg-${message.id}`}
         data-msg-id={message.id}
         data-msg-role="user"
-        className="group flex flex-col items-end"
+        className={`group flex flex-col items-end transition-[box-shadow,background-color] duration-300 rounded-lg ${isActiveMatch ? "shadow-[0_0_0_2px_#facc15] bg-[#fefce8]/60" : ""}`}
       >
         <TooltipProvider>
           {/* 消息内容气泡（纯附件消息时省略） */}
@@ -351,6 +404,8 @@ export const UserMessage = memo(
               >
                 {hasParts ? (
                   <PartsContent parts={message.parts!} />
+                ) : typeof message.content === "string" && searchQuery.trim() ? (
+                  <HighlightText text={message.content} query={searchQuery} />
                 ) : (
                   message.content
                 )}
@@ -436,7 +491,9 @@ export const UserMessage = memo(
       prev.message.content === next.message.content &&
       prev.message.parts === next.message.parts &&
       prev.message.attachments === next.message.attachments &&
-      prev.message.id === next.message.id
+      prev.message.id === next.message.id &&
+      prev.searchQuery === next.searchQuery &&
+      prev.isActiveMatch === next.isActiveMatch
     );
   },
 );

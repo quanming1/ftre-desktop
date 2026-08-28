@@ -7,9 +7,10 @@
  *   下行：业务帧使用 {type, payload, metadata}；Inbox 操作成功直接返回
  *   session/queue 快照，错误使用统一 RPC envelope。
  *
- * Agent events follow ftre-agent-core's flat AgentStreamEvent protocol:
+ * Agent events follow ftre-agent's flat AgentStreamEvent protocol; Host
+ * pipeline/maintenance events use the session_event topic:
  *   REPLY_*, MODEL_CALL_*, TEXT_BLOCK_*, THINKING_BLOCK_*,
- *   TOOL_CALL_*, TOOL_RESULT_*, DATA_BLOCK_*, HINT_BLOCK, retry, CUSTOM.
+ *   TOOL_CALL_*, TOOL_RESULT_*, HINT_BLOCK, retry.
  */
 
 // ─── Types ──────────────────────────────────────────────────────────
@@ -53,8 +54,8 @@ export interface ReplySnapshotPayload {
   replies: ReplySnapshotItem[];
   /** 仅客户端使用的 WebSocket 连接世代，用于建立新的 revision 比较区间。 */
   client_connection_epoch?: number;
-  /** Projection 中仅驻内存的 session 级 active Event。 */
-  events?: AgentStreamEvent[];
+  /** Projection 中仅驻内存的 Agent 与 Host typed event。 */
+  events?: Array<AgentStreamEvent | SessionHostEvent>;
 }
 
 export interface QueueItemView {
@@ -279,6 +280,20 @@ export interface AgentStreamEvent {
   message_id?: string;
   metadata?: Record<string, unknown>;
   data?: Record<string, unknown>;
+  [key: string]: unknown;
+}
+
+/** SessionEventService 产生的 Host 维护事件；不属于 Agent 回复流。 */
+export interface SessionHostEvent {
+  type: "PIPELINE_EVENT" | "SESSION_MAINTENANCE";
+  id?: string;
+  created_at?: string;
+  session_id?: string;
+  reply_id?: string;
+  name?: string;
+  phase?: string;
+  value?: Record<string, unknown>;
+  metadata?: Record<string, unknown>;
   [key: string]: unknown;
 }
 

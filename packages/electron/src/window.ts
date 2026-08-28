@@ -1,7 +1,7 @@
 import { BrowserWindow, shell } from 'electron';
-import * as fs from 'fs';
 import * as path from 'path';
 import { isDev } from './app-state';
+import { resolveAppIconPath } from './app-icon';
 
 // dev server 端口由根 scripts/dev.mjs 解析 ~/.ftre/config.json 的
 // servers.frontend.port 后通过 FTRE_FRONTEND_PORT 注入；缺省回退 48651。
@@ -46,16 +46,14 @@ function registerDevCsp(mainWindow: BrowserWindow): void {
 }
 
 export function createWindow(): BrowserWindow {
-  // Windows 任务栏/标题栏图标必须使用 ICO；renderer 内的 SVG 只负责页面 Logo。
-  // 开发模式可能尚未构建该资源，因此不存在时让 Electron 使用默认行为。
-  const iconPath = path.join(__dirname, '..', 'assets', 'ftre.ico');
+  const iconPath = resolveAppIconPath("window");
   const mainWindow = new BrowserWindow({
     width: 1280,
     height: 860,
     minWidth: 800,
     minHeight: 600,
     title: 'ftre',
-    ...(fs.existsSync(iconPath) ? { icon: iconPath } : {}),
+    ...(iconPath ? { icon: iconPath } : {}),
     backgroundColor: '#1e1e1e',
     frame: false,
     titleBarStyle: 'hidden',

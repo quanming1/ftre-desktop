@@ -93,7 +93,7 @@ describe("SessionPanel", () => {
         session_id: "ws_s1",
         title: "分析 cordis-py 项目架构",
         channel: "ws",
-        workspace: "E:/ftre-agent-core",
+        workspace: "E:/ftre",
         updated_at: Date.now() / 1000,
         last_user_text: "这是最后一条用户消息",
       },
@@ -108,7 +108,7 @@ describe("SessionPanel", () => {
 
     await waitFor(() => {
       expect(screen.getAllByText("这是最后一条用户消息").length).toBeGreaterThan(0);
-      expect(screen.getAllByText("ftre-agent-core").length).toBeGreaterThan(0);
+      expect(screen.getAllByText("ftre").length).toBeGreaterThan(0);
     });
   });
 });

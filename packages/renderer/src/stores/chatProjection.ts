@@ -367,11 +367,9 @@ export function applyEvent(b: SessionProjectionState, ev: BusEvent): void {
     "REPLY_START", "REPLY_END", "MODEL_CALL_START", "MODEL_CALL_END",
     "TEXT_BLOCK_START", "TEXT_BLOCK_DELTA", "TEXT_BLOCK_END",
     "THINKING_BLOCK_START", "THINKING_BLOCK_DELTA", "THINKING_BLOCK_END",
-    "DATA_BLOCK_START", "DATA_BLOCK_DELTA", "DATA_BLOCK_END",
     "TOOL_CALL_START", "TOOL_CALL_DELTA", "TOOL_CALL_END",
-    "TOOL_RESULT_START", "TOOL_RESULT_TEXT_DELTA", "TOOL_RESULT_DATA_DELTA",
-    "TOOL_RESULT_END", "HINT_BLOCK", "REQUIRE_USER_CONFIRM", "RETRY", "retry",
-    "EXCEED_MAX_ITERS",
+    "TOOL_RESULT_START", "TOOL_RESULT_TEXT_DELTA", "TOOL_RESULT_END",
+    "HINT_BLOCK", "REQUIRE_USER_CONFIRM", "RETRY", "retry",
   ]);
   // 新协议的 Assistant 事件必须携带 message_id；旧帧直接丢弃，避免把
   // 已删除的旧数据重新聚合进当前 MessageList。
@@ -691,21 +689,6 @@ export function applyEvent(b: SessionProjectionState, ev: BusEvent): void {
     case "TEXT_BLOCK_END":
       return;
 
-    case "DATA_BLOCK_START":
-      appendDataBlock(d.block_id, d.media_type || "application/octet-stream");
-      return;
-
-    case "DATA_BLOCK_DELTA":
-      appendDataBlock(
-        d.block_id,
-        d.media_type || "application/octet-stream",
-        d.data || "",
-      );
-      return;
-
-    case "DATA_BLOCK_END":
-      return;
-
     case "THINKING_BLOCK_START":
       appendTextBlock("thinking", d.block_id);
       return;
@@ -846,17 +829,6 @@ export function applyEvent(b: SessionProjectionState, ev: BusEvent): void {
       }));
       return;
 
-    case "TOOL_RESULT_DATA_DELTA": {
-      const payload = d.data ?? d.url;
-      if (payload != null) {
-        updateToolResult(d.tool_call_id, (current) => ({
-          ...current,
-          result: (current.result || "") + String(payload),
-        }));
-      }
-      return;
-    }
-
     case "TOOL_RESULT_END":
       updateToolResult(d.tool_call_id, (current) => {
         const isError = d.state === "error";
@@ -908,16 +880,6 @@ export function applyEvent(b: SessionProjectionState, ev: BusEvent): void {
       return;
     }
 
-    case "EXCEED_MAX_ITERS": {
-      const message = "Agent exceeded the maximum number of iterations";
-      b.messages = [
-        ...b.messages,
-        { id: ev.eventId ?? nextId("err"), role: "assistant", content: message, timestamp: ts, isError: true },
-      ];
-      b.error = message;
-      return;
-    }
-
     case "external_message": {
       const text = typeof d.content === "string" ? d.content : "";
       const fromCh = typeof d.from_channel === "string" ? d.from_channel : "";
@@ -942,54 +904,9 @@ export function applyEvent(b: SessionProjectionState, ev: BusEvent): void {
 
 
     // 鈹€鈹€鈹€ 宸ュ叿缁撴灉锛氫粠灏鹃儴寰€鍓嶆壘鍒板搴?tc 鍐欏叆 鈹€鈹€鈹€
-    case "CUSTOM": {
+    case "SESSION_MAINTENANCE": {
       const phase = d.name;
       const phaseData = d.value || {};
-      if (phase === "PIPELINE_START") {
-        // pipeline 开始：进入派发态
-        if (!b.hasCoordinatorState) {
-          b.sessionStatus = "running";
-          b.sessionActivity = "dispatching";
-          b.clientCanSend = true;
-          b.canCancel = true;
-        }
-        b.error = null;
-        return;
-      }
-      if (phase === "PIPELINE_END") {
-        // pipeline 结束：恢复空闲，清除 Turn 级临时状态
-        if (!b.hasCoordinatorState) {
-          b.sessionStatus = "idle";
-          b.sessionActivity = "idle";
-          b.canCancel = false;
-        }
-        b.commandName = null;
-        return;
-      }
-      if (phase === "COMMAND_MATCHED") {
-        // 指令命中：状态栏更新为"执行指令..."
-        if (!b.hasCoordinatorState) {
-          b.sessionStatus = "running";
-          b.sessionActivity = "dispatching";
-          b.canCancel = true;
-        }
-        b.commandName = phaseData.command_name ?? null;
-        return;
-      }
-      if (phase === "TURN_START") {
-        if (!b.hasCoordinatorState) {
-          b.sessionStatus = "running";
-          b.sessionActivity = "executing";
-          b.clientCanSend = true;
-          b.canCancel = true;
-        }
-        b.error = null;
-        b.retryState = null;
-        b.commandName = null; // 进入 agent 执行，清除指令标记
-        b.turnStartTs = ts ?? null;
-        return;
-      }
-      // ── 上下文压缩事件（CustomEvent，与后端 compact done 投影的 Msg 同 id）──
       if (phase === CompactEventName.START) {
         if (!b.hasCoordinatorState) {
           b.sessionStatus = "compacting";
@@ -1022,7 +939,6 @@ export function applyEvent(b: SessionProjectionState, ev: BusEvent): void {
           b.clientCanSend = true;
           b.canCancel = false;
         }
-        // 用 event id 作为气泡 id，与后端投影的 compact Msg id 一致
         const compactId = ev.eventId ?? nextId("compact");
         const doneCompact = {
           status: "done" as const,
@@ -1084,6 +1000,55 @@ export function applyEvent(b: SessionProjectionState, ev: BusEvent): void {
             break;
           }
         }
+      }
+      return;
+    }
+
+    case "PIPELINE_EVENT": {
+      const phase = d.name;
+      const phaseData = d.value || {};
+      if (phase === "PIPELINE_START") {
+        // pipeline 开始：进入派发态
+        if (!b.hasCoordinatorState) {
+          b.sessionStatus = "running";
+          b.sessionActivity = "dispatching";
+          b.clientCanSend = true;
+          b.canCancel = true;
+        }
+        b.error = null;
+        return;
+      }
+      if (phase === "PIPELINE_END") {
+        // pipeline 结束：恢复空闲，清除 Turn 级临时状态
+        if (!b.hasCoordinatorState) {
+          b.sessionStatus = "idle";
+          b.sessionActivity = "idle";
+          b.canCancel = false;
+        }
+        b.commandName = null;
+        return;
+      }
+      if (phase === "COMMAND_MATCHED") {
+        // 指令命中：状态栏更新为"执行指令..."
+        if (!b.hasCoordinatorState) {
+          b.sessionStatus = "running";
+          b.sessionActivity = "dispatching";
+          b.canCancel = true;
+        }
+        b.commandName = phaseData.command_name ?? null;
+        return;
+      }
+      if (phase === "TURN_START") {
+        if (!b.hasCoordinatorState) {
+          b.sessionStatus = "running";
+          b.sessionActivity = "executing";
+          b.clientCanSend = true;
+          b.canCancel = true;
+        }
+        b.error = null;
+        b.retryState = null;
+        b.commandName = null; // 进入 agent 执行，清除指令标记
+        b.turnStartTs = ts ?? null;
         return;
       }
       if (phase !== "TURN_END") return;

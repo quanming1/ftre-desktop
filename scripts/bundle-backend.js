@@ -1,5 +1,5 @@
 /**
- * 将 ftre、ftre-agent-core 以及架构匹配的 Python runtime 打包到 backend/。
+ * 将 ftre 及其 workspace Package 和架构匹配的 Python runtime 打包到 backend/。
  *
  * 发布模式的核心约束是：安装包不能依赖用户机器上的 Python、Node、Homebrew
  * 或仓库源码。Windows 使用官方 embedded Python；macOS 使用按 x64/arm64
@@ -20,8 +20,6 @@ const crypto = require("crypto");
 
 const DESKTOP_DIR = path.resolve(__dirname, "..");
 const PROJECT_ROOT = process.env.FTRE_ROOT || path.resolve(__dirname, "..", "..", "..", "ftre");
-const AGENT_CORE_ROOT = process.env.FTRE_AGENT_CORE_ROOT ||
-  path.resolve(__dirname, "..", "..", "..", "ftre-agent-core");
 const CORDIS_ROOT = process.env.CORDIS_ROOT ||
   path.resolve(__dirname, "..", "..", "..", "cordis-py");
 const BACKEND_DIR = path.join(DESKTOP_DIR, "backend");
@@ -416,7 +414,6 @@ function writeBundleManifest(target, runtime) {
   mkdirp(licensesDir);
   const licenseFiles = [
     copyLicense(PROJECT_ROOT, "ftre", licensesDir),
-    copyLicense(AGENT_CORE_ROOT, "ftre-agent-core", licensesDir),
     copyLicense(CORDIS_ROOT, "cordis-py", licensesDir),
   ].filter(Boolean);
   const manifest = {
@@ -426,9 +423,6 @@ function writeBundleManifest(target, runtime) {
     commit: process.env.GITHUB_SHA || null,
     ftre: {
       version: projectVersion(path.join(PROJECT_ROOT, "pyproject.toml")),
-    },
-    agentCore: {
-      version: projectVersion(path.join(AGENT_CORE_ROOT, "pyproject.toml")),
     },
     cordis: {
       version: projectVersion(path.join(CORDIS_ROOT, "pyproject.toml")),
@@ -465,14 +459,10 @@ async function main() {
   const target = targetFromArgs(args);
   log(`=== 开始打包后端 ${target.platform}/${target.arch} ===`);
   log(`后端根目录：${PROJECT_ROOT}`);
-  log(`agent-core 根目录：${AGENT_CORE_ROOT}`);
   log(`cordis-py 根目录：${CORDIS_ROOT}`);
 
   if (!fs.existsSync(path.join(PROJECT_ROOT, "pyproject.toml"))) {
     throw new Error(`未找到 ftre 后端：${PROJECT_ROOT}/pyproject.toml，请设置 FTRE_ROOT`);
-  }
-  if (!fs.existsSync(path.join(AGENT_CORE_ROOT, "pyproject.toml"))) {
-    throw new Error(`未找到 ftre-agent-core：${AGENT_CORE_ROOT}/pyproject.toml，请设置 FTRE_AGENT_CORE_ROOT`);
   }
   if (!fs.existsSync(path.join(CORDIS_ROOT, "pyproject.toml"))) {
     throw new Error(`未找到 cordis-py：${CORDIS_ROOT}/pyproject.toml，请设置 CORDIS_ROOT`);
@@ -499,7 +489,6 @@ async function main() {
   }
 
   const { parseTomlDeps } = require("./parse-deps");
-  const agentCoreDeps = parseTomlDeps(path.join(AGENT_CORE_ROOT, "pyproject.toml"));
   const ftreDeps = parseTomlDeps(path.join(PROJECT_ROOT, "pyproject.toml"));
 
   // ftre 主仓 packages/ 下的独立发行物（monorepo Package）：源码随 bundle 复制
@@ -513,8 +502,8 @@ async function main() {
   // 前缀匹配会把 "ftre-llm"/"ftre-inbox" 等全部当成 "ftre" 误过滤，
   // 导致这些包既不 pip 安装又不复制源码（2026-08-27 v0.1.15 回归教训）。
   const pkgName = (dependency) => dependency.replace(/[<>=!~].*$/, "").trim();
-  const ownPkgs = ["ftre-agent-core", "ftre", "cordis-py", "litellm", ...monorepoPkgs];
-  const allDeps = [...new Set([...agentCoreDeps, ...ftreDeps])]
+  const ownPkgs = ["ftre", "cordis-py", "litellm", ...monorepoPkgs];
+  const allDeps = [...new Set(ftreDeps)]
     .filter((dependency) => !ownPkgs.includes(pkgName(dependency)));
   // macOS Intel 目前由 arm64 runner 交叉打包。此时如果 pip 找不到目标
   // 架构的 wheel，会把 cryptography 等 Rust 扩展退回源码编译；编译过程
@@ -560,9 +549,6 @@ async function main() {
   const ftreSrc = path.join(PROJECT_ROOT, "src", "ftre");
   const ftreDest = path.join(serverDir, "ftre");
   if (fs.existsSync(ftreSrc)) syncDirIncremental(ftreSrc, ftreDest);
-  const coreSrc = path.join(AGENT_CORE_ROOT, "src", "ftre_agent_core");
-  const coreDest = path.join(serverDir, "ftre_agent_core");
-  if (fs.existsSync(coreSrc)) syncDirIncremental(coreSrc, coreDest);
   const cordisSrc = path.join(CORDIS_ROOT, "src", "cordis");
   const cordisDest = path.join(serverDir, "cordis");
   if (fs.existsSync(cordisSrc)) syncDirIncremental(cordisSrc, cordisDest);

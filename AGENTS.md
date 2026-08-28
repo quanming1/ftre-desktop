@@ -1,7 +1,7 @@
 <project>
 前端路径：E:\binn\ftre-desktop\
 后端路径：E:\ftre\src\ftre\
-Agent 核心库：E:\ftre-agent-core\
+Agent 契约与 Runtime：E:\ftre\packages\ftre-agent、E:\ftre\packages\ftre-agent-runtime\
 配置目录：C:\Users\蒋全明\.ftre\
 包结构：packages/electron（主进程）/ packages/renderer（React 前端）/ packages/shared（共享类型）/ packages/ui（UI 组件）
 技术栈：Electron + React + TypeScript + Vite（pnpm workspace）

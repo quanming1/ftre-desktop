@@ -7,6 +7,9 @@ export interface TooltipProps {
   children: ReactNode;
   side?: "top" | "right" | "bottom" | "left";
   sideOffset?: number;
+  /** 沿侧轴的对齐：side="right" 时 start 即浮窗顶部与触发元素顶部对齐。 */
+  align?: "start" | "center" | "end";
+  alignOffset?: number;
   delayDuration?: number;
   className?: string;
 }
@@ -20,6 +23,8 @@ export const Tooltip = forwardRef<HTMLButtonElement, TooltipProps>(
       children,
       side = "top",
       sideOffset = 6,
+      align,
+      alignOffset,
       delayDuration = 0,
       className,
     },
@@ -34,6 +39,8 @@ export const Tooltip = forwardRef<HTMLButtonElement, TooltipProps>(
           <TooltipPrimitive.Content
             side={side}
             sideOffset={sideOffset}
+            align={align}
+            alignOffset={alignOffset}
             className={cn(
               "z-[9999] px-2.5 py-1.5 text-[12px] rounded shadow-lg",
               "bg-[var(--ftre-elevated,#2d2d2d)] text-[var(--ftre-text-primary,#e8e8e8)] border border-[var(--ftre-border,#3c3c3c)]",

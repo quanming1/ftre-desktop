@@ -53,6 +53,9 @@ export function Workbench() {
   // 拖动期间不更新 store 也不触发 React 重渲染，直接改 DOM style.width；
   // 松手时一次性把最终宽度写回 store。chat 是 flex:1，自动跟随填充。
   // transition/will-change 也通过直接 DOM 操作控制，避免 setResizing 触发整树重渲染。
+  // 注意：拖动结束必须显式恢复完整缓动值——设为 "" 后 React 会因 style prop
+  // 未变化而跳过 DOM 更新，导致后续折叠/展开永远没有过渡动画。
+  const PANEL_WIDTH_EASE = "width 420ms cubic-bezier(0.32, 0.72, 0, 1)";
   const sessionsRef = useRef<HTMLDivElement>(null);
   const inspectorRef = useRef<HTMLDivElement>(null);
   const dragStateRef = useRef<
@@ -82,7 +85,7 @@ export function Workbench() {
     if (drag) {
       const ref = drag.target === "sessions" ? sessionsRef : inspectorRef;
       if (ref.current) {
-        ref.current.style.transition = "";
+        ref.current.style.transition = PANEL_WIDTH_EASE;
         ref.current.style.willChange = "";
       }
       if (drag.target === "sessions") {
@@ -226,15 +229,16 @@ export function Workbench() {
 
   // Compute flex style for each panel
   // sessions uses fixed width; chat and inspector share the remaining space
-  // transition 恒为 "width 160ms ease"（折叠/展开动画）；拖动时由 startLiveDrag 直接操作 DOM 覆盖为 none
-  // contain: layout 隔离面板间 reflow 传播（chat 内消息列表 DOM 最多，隔离收益最大）
+  // transition 恒为面板宽度缓动（折叠/展开动画）；拖动时由 startLiveDrag 直接操作 DOM 覆盖为 none
+  // 曲线用 iOS sheet 风格 cubic-bezier(0.32,0.72,0,1)：柔和起步 + 柔和落定，
+  // 比默认 ease 的"急起急停"观感自然；420ms 是面板级动画的舒适慢速。
   const getPanelStyle = (id: PanelId): React.CSSProperties => {
     if (id === "sessions") {
       return {
         width: sessionsCollapsed ? 48 : sessionsWidth,
         flexShrink: 0,
         order: getOrder(id),
-        transition: "width 160ms ease",
+        transition: PANEL_WIDTH_EASE,
         contain: "layout",
       };
     }
@@ -243,7 +247,7 @@ export function Workbench() {
         width: inspectorWidth,
         flexShrink: 0,
         order: getOrder(id),
-        transition: "width 160ms ease",
+        transition: PANEL_WIDTH_EASE,
         contain: "layout",
       };
     }
@@ -536,7 +540,7 @@ export function Workbench() {
                   order: getOrder("inspector"),
                   overflow: "hidden",
                   contain: "layout",
-                  transition: "width 160ms ease",
+                  transition: "width 420ms cubic-bezier(0.32, 0.72, 0, 1)",
                 }
           }
         >

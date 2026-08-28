@@ -1,4 +1,4 @@
-import logoUrl from "@/assets/ftre-fox-logo.svg";
+import logoUrl from "@/assets/ftre-logo.svg";
 
 export type FtreLogoProps = {
   /** 与旧 Logo 的数值约定保持一致；数值越大，显示尺寸越大。 */

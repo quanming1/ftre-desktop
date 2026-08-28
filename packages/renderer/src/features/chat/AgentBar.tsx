@@ -541,7 +541,6 @@ export function AgentBar() {
           data-ftre-floating-menu="agent-picker"
           style={{ position: "fixed", left: agentPosition.left, top: agentPosition.top }}
           onMouseEnter={clearAgentHoverClose}
-          onMouseLeave={scheduleAgentHoverClose}
           className="fixed z-[9999] w-[260px] rounded-[14px] border border-border-subtle bg-surface p-1.5 shadow-[0_12px_30px_rgba(15,23,42,0.14)]"
         >
           <div className="max-h-[240px] overflow-y-auto">
@@ -568,7 +567,6 @@ export function AgentBar() {
           data-ftre-floating-menu="reasoning-effort"
           style={{ position: "fixed", left: effortPosition.left, top: effortPosition.top }}
           onMouseEnter={clearEffortHoverClose}
-          onMouseLeave={scheduleEffortHoverClose}
           className="fixed z-[9999] max-h-[calc(100vh-16px)] w-[180px] overflow-y-auto rounded-[14px] border border-border-subtle bg-surface p-1.5 shadow-[0_12px_30px_rgba(15,23,42,0.14)]"
         >
           {effortValues.map((effort) => {

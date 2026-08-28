@@ -73,15 +73,21 @@ pnpm package:mac:arm64
 - node-pty 终端
 
 **不含后端**（Python 运行时、后端代码等）。如需 Windows 自包含安装包，使用
-`pnpm package:win`；该命令会先准备 Python、ftre、ftre-agent-core 和 cordis-py。
+`pnpm package:win`；该命令会先准备 Python、ftre workspace Package 和 cordis-py。
 
-Mac 发布命令会先执行 `scripts/bundle-backend.js`，把 ftre、ftre-agent-core、
+Mac 发布命令会先执行 `scripts/bundle-backend.js`，把 ftre 及其 workspace Package、
 依赖和对应架构的 Python runtime 放入安装包。用户安装发布包时不需要预装
 Python、Node.js、Homebrew、conda、Git 或项目源码；只有 macOS 版本、CPU
 架构、磁盘空间和系统安装权限等操作系统条件需要满足。
 
 正式 Release 的签名/notarization 由 GitHub Actions 的 Apple 凭据控制；没有凭据
 时只能生成 unsigned 测试包，Release 说明必须如实标注，不能把它当作已公证包。
+
+## 品牌图标
+
+客户端统一使用 `packages/renderer/src/assets/ftre-logo.svg` 和由同一 PNG 派生的原生资源：
+Windows 窗口、任务栏、EXE 与托盘使用 `packages/electron/assets/ftre.ico`，macOS 应用/Dock 使用
+`packages/electron/assets/ftre.icns`，macOS/Linux 托盘使用 `packages/electron/assets/ftre-logo.png`。
 
 ## 窗口标题
 
