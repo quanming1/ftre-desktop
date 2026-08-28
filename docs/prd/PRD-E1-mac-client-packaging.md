@@ -429,3 +429,4 @@ Release 至少包含：
 | 2026-08-22 | 进入 E1 开发：完成 runtime manifest、跨平台 Gateway 生命周期、Python runtime 打包器、electron-builder Mac 目标、macOS CI 矩阵和平台契约测试 | 将零前置环境要求落到可执行的构建链路；Mac runner/真实设备验收保留到 CI 收口 |
 | 2026-08-22 | 下载器优先使用 curl 并增加目标 runtime 预检，CI 在打包前验证 manifest、机器架构和内置包导入 | 处理部分 Windows 代理对 Node HTTPS 流的长连接问题，并让 Mac 架构错配在打包前失败 |
 | 2026-08-28 | 增加 develop 自动预发布通道：alpha 默认、手动 beta/rc，测试通过后并行构建三平台并发布 GitHub Pre-release | 让 develop 每次上传都有可下载测试包，同时与正式 tag 发布隔离 |
+| 2026-08-28 | bundle 递归收集 workspace Package 的外部 dependencies（如 openai），避免源码复制后运行时缺少第三方模块 | v0.1.21 构建已暴露 `ftre_llm` 导入缺少 openai 的问题 |
