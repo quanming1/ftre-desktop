@@ -399,6 +399,7 @@ Release 至少包含：
   `prerelease=true` 且不参与 Latest；
 - `workflow_dispatch` 支持 `alpha`、`beta`、`rc` 通道和可选基线版本，便于发布候选验证；
 - 预发布与正式 Release 使用不同 workflow、artifact 名称和版本标签，不覆盖正式版本。
+- x64 使用 `macos-15-intel` 原生 Intel runner，arm64 使用 `macos-14` arm64 runner；验证步骤必须检查目标 runtime 二进制架构。
 - 平台契约测试、Windows bundle 验证和零前置环境验收脚本。
 
 仍必须在 GitHub macOS runner 或真实 Mac 上完成的证据：
@@ -424,6 +425,7 @@ Release 至少包含：
 
 | 日期 | 变更内容 | 理由 |
 |---|---|---|
+| 2026-08-28 | 正式版与 develop 预发布 workflow 的 macOS x64 runner 统一为 `macos-15-intel`，同步更新平台契约测试与执行记录 | `macos-14` 是 arm64 runner，不能作为 x64 宿主架构验证 |
 | 2026-08-22 | 创建 E1 Mac 客户端打包适配计划；暂不执行代码，冻结 macOS 安装包、编码、路径、文件分隔符、内置 Gateway、CI 和 GitHub Release 目标 | 当前客户端打包链路仅支持 Windows，需要先建立完整跨平台验收契约，避免直接改代码造成平台分支和发布资产不一致 |
 | 2026-08-22 | 增加“零前置环境安装”发布承诺；要求 x64/arm64 安装包自带可离线 Python runtime，并新增 AC16 干净环境验收 | 普通用户不应因为缺少 Python、Node.js、Homebrew、conda、Git 或仓库源码而无法安装和首次启动 |
 | 2026-08-22 | 进入 E1 开发：完成 runtime manifest、跨平台 Gateway 生命周期、Python runtime 打包器、electron-builder Mac 目标、macOS CI 矩阵和平台契约测试 | 将零前置环境要求落到可执行的构建链路；Mac runner/真实设备验收保留到 CI 收口 |
