@@ -145,3 +145,4 @@ export function FtreLogo({ size = 2, className }: FtreLogoProps): JSX.Element;
 | 2026-08-27 | 根据 Windows 状态栏反馈补充 FR7/AC8：加入 ICO 并接入 BrowserWindow/electron-builder | renderer SVG 不会自动改变 Windows 任务栏和 exe 图标 |
 | 2026-08-27 | 按仓库门禁整理提交：FtreLogo 组件、ICO 接线与 PRD/TODO 一并落地 | 提交分组符合 feat 必须同步 PRD 变更记录的 hook 要求 |
 | 2026-08-28 | 更换为用户提供的 SVG/PNG，并补齐 ICNS、macOS Dock 与系统托盘统一图标 | Windows、macOS、托盘和 renderer 必须使用同一品牌资源 |
+| 2026-08-28 | 将打包客户端 Gateway ready 等待从 30 秒提高到 90 秒；LoadingScreen 不再用 API Key 文案覆盖真实退出/超时原因 | 大量历史 session 首次加载可能超过 30 秒，原门槛会误杀仍在正常启动的后端并误导用户 |

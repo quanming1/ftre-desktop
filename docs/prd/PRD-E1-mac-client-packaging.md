@@ -439,3 +439,4 @@ Release 至少包含：
 | 2026-08-24 | macOS Intel 改由 macOS 14 runner 交叉构建时，依赖安装强制使用目标架构 wheel | 避免 arm64 runner 为 `cryptography` 回退 Rust/OpenSSL 源码编译，确保 x64 发布流水线可重复执行 |
 | 2026-08-24 | 交叉构建验证改为检查 bundled Python 二进制架构，不再读取 runner 的宿主架构 | macOS 14 runner 为 arm64，但目标 x64 runtime 必须在产物自身上验收 |
 | 2026-08-28 | F37 将正式 Gateway 启动入口收口到 `BackendSupervisor`，Windows 运行时改用 `pythonw.exe`，并通过 ready/health 状态与日志 IPC 连接 LoadingScreen | 消除启动时控制台闪现和启动失败时 LoadingScreen 丢失诊断的问题 |
+| 2026-08-29 | 将打包 Gateway ready 等待从 30 秒提高到 90 秒；后端异常退出时保留真实错误并引导查看日志，不再误报 API Key | 大量历史 Session 首次加载可能超过 30 秒，旧超时会误判正常启动失败并覆盖真实诊断 |

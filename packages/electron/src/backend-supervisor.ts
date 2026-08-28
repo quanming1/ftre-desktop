@@ -18,7 +18,7 @@ export type { BackendState, BackendStatus } from "@ftre/shared";
 
 const DEFAULT_GATEWAY_HOST = "127.0.0.1";
 const DEFAULT_GATEWAY_PORT = 48650;
-const STARTUP_TIMEOUT_MS = 30_000;
+const STARTUP_TIMEOUT_MS = 90_000;
 const MAX_CRASH_RETRIES = 3;
 const CRASH_RETRY_DELAY_MS = 2_000;
 const STOP_GRACE_PERIOD_MS = 1_500;
