@@ -552,6 +552,7 @@ export const AssistantMessage = memo(
     turnDurationSec,
     turnModel,
     turnFinishedAt,
+    isActiveMatch = false,
   }: {
     message: ChatMessage;
     showActions?: boolean;
@@ -561,6 +562,8 @@ export const AssistantMessage = memo(
     turnDurationSec?: number;
     turnModel?: string;
     turnFinishedAt?: number;
+    /** Ctrl+F 当前定位的匹配消息（容器高亮提示） */
+    isActiveMatch?: boolean;
   }) {
     const isStreaming = message.streaming ?? false;
     const mdRef = useRef<HTMLDivElement>(null);
@@ -602,7 +605,10 @@ export const AssistantMessage = memo(
     }, [copyText, message.content]);
 
     return (
-      <div data-assistant-message="true" className="group flex justify-start">
+      <div
+      data-assistant-message="true"
+      className={`group flex justify-start transition-[box-shadow,background-color] duration-300 rounded-lg ${isActiveMatch ? "shadow-[0_0_0_2px_#facc15] bg-[#fefce8]/50" : ""}`}
+    >
         <div className="w-full">
           <StreamingContext.Provider value={isStreaming}>
             <div className="text-[var(--text-md)] leading-relaxed text-t-primary font-sans break-words">

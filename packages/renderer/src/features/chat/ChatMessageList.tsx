@@ -45,6 +45,10 @@ export interface ChatMessageListProps {
   layoutClassName?: string;
   /** Optional content rendered in the right layout rail. */
   rightRail?: ReactNode;
+  /** Ctrl+F 搜索关键词（空串表示搜索未开启，消息不做高亮）。 */
+  searchQuery?: string;
+  /** 当前定位的匹配消息 ID（该消息容器会高亮提示）。 */
+  activeMatchMsgId?: string;
   /** Inline styles for scroll-area safety insets owned by the parent layout. */
   style?: CSSProperties;
 }
@@ -56,6 +60,8 @@ export const ChatMessageList = memo(function ChatMessageList({
   hasActiveTurn = false,
   pendingMessagesCount = 0,
   isCompacting = false,
+  searchQuery = "",
+  activeMatchMsgId,
   maxHeight,
   className = "",
   layoutClassName = "grid-cols-[minmax(0,1fr)_minmax(0,848px)_minmax(0,1fr)]",
@@ -230,6 +236,8 @@ export const ChatMessageList = memo(function ChatMessageList({
               turnDurationSec={msg.durationSec}
               turnModel={msg.model}
               turnFinishedAt={msg.finishedAt}
+              searchQuery={searchQuery}
+              isActiveMatch={activeMatchMsgId === msg.id}
             />
           );
         })}
@@ -281,6 +289,8 @@ const MessageItem = memo(function MessageItem({
   turnDurationSec,
   turnModel,
   turnFinishedAt,
+  searchQuery = "",
+  isActiveMatch = false,
 }: {
   message: ChatMessage;
   showActions?: boolean;
@@ -295,9 +305,19 @@ const MessageItem = memo(function MessageItem({
   /** 本轮使用的模型 ID */
   turnModel?: string;
   turnFinishedAt?: number;
+  /** Ctrl+F 搜索关键词（用于文本高亮） */
+  searchQuery?: string;
+  /** 当前定位的匹配消息（容器高亮提示） */
+  isActiveMatch?: boolean;
 }) {
   if (message.role === "user") {
-    return <UserMessage message={message} />;
+    return (
+      <UserMessage
+        message={message}
+        searchQuery={searchQuery}
+        isActiveMatch={isActiveMatch}
+      />
+    );
   }
   if (message.role === "assistant") {
     return (
@@ -310,6 +330,7 @@ const MessageItem = memo(function MessageItem({
         turnDurationSec={turnDurationSec}
         turnModel={turnModel}
         turnFinishedAt={turnFinishedAt}
+        isActiveMatch={isActiveMatch}
       />
     );
   }

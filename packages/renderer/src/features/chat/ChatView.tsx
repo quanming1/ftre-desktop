@@ -2,6 +2,8 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Loader2 } from "lucide-react";
 import { useChat } from "@/stores/chat";
+import { useMessageSearch } from "./useMessageSearch";
+import { MessageSearch } from "./MessageSearch";
 import { hasActiveTurn, hasPendingWork } from "@/stores/runtimeState";
 import { useSession } from "@/stores/session";
 import { wsClient } from "@/services/websocket-client";
@@ -84,6 +86,31 @@ export function ChatView({ runContextOpen = false }: ChatViewProps) {
     && sessionActivity === "idle"
     && canSend;
   const activeTurn = hasActiveTurn(sessionStatus, sessionActivity);
+
+  // ── Ctrl+F 消息搜索 ──
+  const search = useMessageSearch(messages);
+
+  // Ctrl+F / Cmd+F 打开搜索浮窗（ preventDefault 阻止浏览器原生查找）
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "f") {
+        e.preventDefault();
+        search.openSearch();
+      }
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [search.openSearch]);
+
+  // 当前匹配消息变化 → 滚动到该消息（居中）；主动跳转会触发 scroll 事件，
+  // auto-scroll hook 会按距离自然解锁底部跟随，符合搜索场景预期。
+  useEffect(() => {
+    if (!search.activeMsgId) return;
+    document
+      .getElementById(`msg-${search.activeMsgId}`)
+      ?.scrollIntoView({ behavior: "smooth", block: "center" });
+  }, [search.activeMsgId, search.current]);
+
   const { containerRef, layoutMode } = useRunContextLayoutMode();
   const useRunContextRail = runContextOpen && layoutMode === "rail";
 
@@ -113,7 +140,25 @@ export function ChatView({ runContextOpen = false }: ChatViewProps) {
             pendingMessagesCount={pendingMessages.length}
             layoutClassName={gridColumns}
             className="col-start-1 col-end-4 row-start-1 min-h-0"
+            searchQuery={search.open ? search.debouncedQuery : ""}
+            activeMatchMsgId={search.activeMsgId ?? undefined}
           />
+          {/* Ctrl+F 搜索浮窗：叠加在消息列右缘顶部（同 grid 格叠放，不随列表滚动） */}
+          {search.open && !isSessionLoading && (
+            <div className="pointer-events-none relative col-start-2 row-start-1 z-20 min-h-0 self-start justify-self-end">
+              <div className="absolute right-5 top-3 pointer-events-auto">
+                <MessageSearch
+                  query={search.query}
+                  onQueryChange={search.setQuery}
+                  current={search.current}
+                  total={search.total}
+                  onNext={search.next}
+                  onPrev={search.prev}
+                  onClose={search.closeSearch}
+                />
+              </div>
+            </div>
+          )}
           {canSend ? (
             <div className="z-10 col-start-2 row-start-2 min-w-0">
               <ChatInput />
