@@ -23,11 +23,12 @@ ftre-desktop 当前是 Electron + React + TypeScript + Vite 的桌面客户端�
 - package.json 的 pack/dist 脚本固定传入 electron-builder --win；
 - electron-builder-full.json 只有 win/nsis 配置；
 - GitHub Actions 只在 windows-latest 上构建；
-- 内置 Python 使用 Windows embed-amd64 包和 python.exe；
-- 后端启动依赖 start-gateway.bat、PowerShell 和 Windows 路径；
+- 内置 Python 使用 Windows embed-amd64 包；正式客户端由 F37 的 Supervisor 使用 pythonw.exe，
+  python.exe 仅用于构建和手工诊断；
+- 历史诊断脚本仍保留 Windows bat，但正式启动链由 F37 Supervisor 直接管理；
 - Release workflow 只上传 Setup.exe 与 blockmap；
-- Electron backend.ts 虽然已经对 SIGTERM 做了部分 POSIX 分支，
-  但打包路径仍然硬编码 python.exe。
+- Electron 后端启动已由 F37 的 BackendSupervisor 统一管理，
+  不再由业务代码硬编码平台解释器路径。
 
 因此，Electron UI 的部分代码理论上可以在 macOS 开发环境运行，
 但当前没有可交付的 .app、.dmg 或 macOS GitHub Release 安装包。
@@ -201,7 +202,8 @@ CPU 架构上，普通用户不需要预装 Python、Node.js、Homebrew、conda�
       ├─ assertRuntimeMatchesProcess()
       └─ resolveManifestExecutable()
 
-    packages/electron/src/backend.ts
+    packages/electron/src/backend-supervisor.ts
+    packages/electron/src/backend-readiness.ts
       ├─ UTF-8 output decoder
       ├─ Gateway spawn/retry
       └─ platform-specific process-group cleanup
@@ -225,8 +227,10 @@ Renderer、shared 和业务 Feature 不应自行判断 process.platform；
     │  ├─ start-gateway.bat
     │  └─ start-gateway.sh
     ├─ packages/
-    │  ├─ electron/src/backend.ts
-    │  ├─ electron/src/backend-runtime.ts
+    │  ├─ electron/src/
+    │  │  ├─ backend-supervisor.ts
+    │  │  ├─ backend-readiness.ts
+    │  │  └─ backend-runtime.ts
     │  ├─ electron/src/ipc/terminal.ts
     │  ├─ renderer/src/types/desktop.d.ts
     │  └─ shared/src/types.ts
@@ -434,3 +438,4 @@ Release 至少包含：
 | 2026-08-28 | bundle 递归收集 workspace Package 的外部 dependencies（如 openai），避免源码复制后运行时缺少第三方模块 | v0.1.21 构建已暴露 `ftre_llm` 导入缺少 openai 的问题 |
 | 2026-08-24 | macOS Intel 改由 macOS 14 runner 交叉构建时，依赖安装强制使用目标架构 wheel | 避免 arm64 runner 为 `cryptography` 回退 Rust/OpenSSL 源码编译，确保 x64 发布流水线可重复执行 |
 | 2026-08-24 | 交叉构建验证改为检查 bundled Python 二进制架构，不再读取 runner 的宿主架构 | macOS 14 runner 为 arm64，但目标 x64 runtime 必须在产物自身上验收 |
+| 2026-08-28 | F37 将正式 Gateway 启动入口收口到 `BackendSupervisor`，Windows 运行时改用 `pythonw.exe`，并通过 ready/health 状态与日志 IPC 连接 LoadingScreen | 消除启动时控制台闪现和启动失败时 LoadingScreen 丢失诊断的问题 |

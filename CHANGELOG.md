@@ -2,6 +2,13 @@
 
 ## [未发布]
 
+### F37 内嵌 Gateway 启动生命周期
+
+- 删除旧 `backend.ts`，由 `BackendSupervisor` 统一启动、ready 探测、崩溃恢复、重启和退出；Windows
+  正式入口使用 bundled `pythonw.exe`，保留 stdout/stderr 日志 pipe。
+- LoadingScreen 通过状态/日志 IPC 获取启动进度和结构化失败诊断；构建脚本清理旧 Electron 输出，
+  避免删除的 backend Owner 残留在 `dist`。
+
 ### 预发布流水线修复
 
 - macOS x64 构建改用原生 `macos-15-intel` runner，arm64 继续使用 `macos-14`，避免 arm64 主机上的 x64 架构验证失败。

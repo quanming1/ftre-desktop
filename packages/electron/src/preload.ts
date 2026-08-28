@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer } from "electron";
-import type { DesktopAPI } from "@ftre/shared";
+import type { BackendStatus, DesktopAPI } from "@ftre/shared";
 
 const api: DesktopAPI = {
   platform: process.platform,
@@ -151,6 +151,12 @@ const api: DesktopAPI = {
       ipcRenderer.on("backend:exit", handler);
       return () => ipcRenderer.removeListener("backend:exit", handler);
     },
+    onState: (callback: (status: BackendStatus) => void) => {
+      const handler = (_event: any, status: BackendStatus) => callback(status);
+      ipcRenderer.on("backend:state", handler);
+      return () => ipcRenderer.removeListener("backend:state", handler);
+    },
+    getStatus: () => ipcRenderer.invoke("backend:status"),
     restart: () => ipcRenderer.invoke("backend:restart"),
   },
 };

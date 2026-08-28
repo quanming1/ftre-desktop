@@ -30,6 +30,24 @@ export function LoadingScreen() {
         }
       });
       cleanups.push(offExit);
+
+      const applyStatus = (status: {
+        state: string;
+        error?: { message: string; recentLogs?: string[] };
+      }) => {
+        if (status.error?.recentLogs?.length) {
+          setLogs(status.error.recentLogs.slice(-100));
+        }
+        if (status.state === "failed") {
+          setError(status.error?.message || "后端启动失败，请检查运行时和配置。");
+          setLogsExpanded(true);
+        } else if (status.state === "starting" || status.state === "ready") {
+          setError(null);
+        }
+      };
+      const offState = window.desktop.backend.onState(applyStatus);
+      cleanups.push(offState);
+      void window.desktop.backend.getStatus().then(applyStatus).catch(() => undefined);
     }
 
     return () => cleanups.forEach((fn) => fn());

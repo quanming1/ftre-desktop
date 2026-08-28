@@ -1,7 +1,7 @@
 import { app, BrowserWindow, ipcMain, shell } from "electron";
 import { isDev, setMainWindow, getMainWindow } from "./app-state";
 import { createWindow } from "./window";
-import { startPythonBackend, stopPythonBackend, restartPythonBackend } from "./backend";
+import { backendSupervisor } from "./backend-supervisor";
 import { registerFsIPC } from "./ipc/fs";
 import { registerGitIPC } from "./ipc/git";
 import { registerTerminalIPC, disposeTerminalIPC } from "./ipc/terminal";
@@ -55,10 +55,13 @@ ipcMain.handle("shell:openExternal", (_event, url: string) => {
 
 // --- Backend ---
 ipcMain.handle("backend:restart", async () => {
-  return restartPythonBackend();
+  return backendSupervisor.restart();
 });
+ipcMain.handle("backend:status", () => backendSupervisor.status());
 
 // --- 生命周期 ---
+
+let shutdownStarted = false;
 
 app.whenReady().then(() => {
   applyDockIcon();
@@ -74,12 +77,13 @@ app.whenReady().then(() => {
   registerMemoryIPC();
   registerWsLogIPC();
 
-  // 启动内嵌 Python 后端（打包模式）
-  startPythonBackend();
-
   // 创建窗口
   const win = createWindow();
   setMainWindow(win);
+
+  // 启动内嵌 Python 后端（打包模式）；窗口先显示 LoadingScreen，
+  // Supervisor 再通过 backend:state/backend:log 发布启动进度。
+  void backendSupervisor.start();
 
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) {
@@ -93,10 +97,13 @@ app.on("window-all-closed", () => {
   if (process.platform !== "darwin") app.quit();
 });
 
-app.on("before-quit", () => {
+app.on("before-quit", (event) => {
+  if (shutdownStarted) return;
+  shutdownStarted = true;
+  event.preventDefault();
   disposeTray();
   disposeWatcherIPC();
   disposeTerminalIPC();
   workerManager.dispose();
-  stopPythonBackend();
+  void backendSupervisor.stop().finally(() => app.quit());
 });

@@ -21,7 +21,7 @@ stages:
         prd: docs/prd/PRD-A1-electron-scaffold.md
         prd_status: 已验收
         modules:
-          - packages/electron（main.ts / preload.ts / window.ts / backend.ts）
+          - packages/electron（main.ts / preload.ts / window.ts / backend-supervisor.ts）
           - packages/renderer（Vite + React app）
           - packages/shared（共享类型）
           - packages/ui（UI 组件库）
@@ -345,7 +345,8 @@ stages:
         modules:
           - package.json
           - electron-builder-full.json
-          - packages/electron/src/backend.ts
+          - packages/electron/src/backend-supervisor.ts
+          - packages/electron/src/backend-readiness.ts
           - packages/electron/src/backend-runtime.ts
           - packages/electron/src/main.ts
           - packages/electron/src/ipc/
