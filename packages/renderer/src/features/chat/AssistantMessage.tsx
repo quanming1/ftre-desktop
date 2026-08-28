@@ -1,9 +1,9 @@
-import { memo, useCallback, useEffect, useRef, useState, isValidElement, Children } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState, isValidElement, Children } from "react";
 import ReactMarkdown from "react-markdown";
 import type { ChatMessage, ContentBlock, ToolResult } from "@/stores/chat";
 import { CodeBlock, StreamingContext } from "./CodeBlock";
 import { useThrottledValue } from "@/hooks/useThrottledValue";
-import { splitBlocks } from "./streamingMarkdown";
+import { createBlockSplitter, type BlockSplitter } from "./streamingMarkdown";
 import { InlineToolCallCard } from "./InlineToolCallCard";
 import { TurnFileChanges } from "./TurnFileChanges";
 import type { TurnFileChange } from "./turnFileChangeUtils";
@@ -177,7 +177,8 @@ const ThoughtBlock = memo(
 /** 推理块：与 think 统一 UI，仅文案不同。流式时 throttle 文本避免高频重渲染打断交互。 */
 const ReasoningBlock = memo(
   function ReasoningBlock({ text, isActive }: { text: string; isActive: boolean }) {
-    const throttled = useThrottledValue(text, 10, isActive);
+    // 40ms：肉眼流畅度上限约 25fps，足够；比 10ms 少 3~4 倍 markdown 重解析
+    const throttled = useThrottledValue(text, 40, isActive);
     const display = isActive ? throttled : text;
     return <ThoughtBlock label="Reasoning" text={display} isActive={isActive} />;
   },
@@ -488,6 +489,21 @@ function ThinkAwareContent({
   live: boolean;
   anchor?: React.RefObject<HTMLDivElement | null>;
 }) {
+  // 流式增量切块缓存：按 think 段序号各持一个 splitter。流式文本 append-only，
+  // splitter 只重切「尾块 + 新增 delta」，闭合块对象与字符串复用（引用稳定，
+  // 配合 MarkdownBlock 的 content memo 完全跳过重渲染）。非 append-only 输入
+  // 由 splitter 内部自动退回全量切分。
+  const splitterMapRef = useRef<Map<number, BlockSplitter> | null>(null);
+  if (!splitterMapRef.current) splitterMapRef.current = new Map();
+  const getSplitter = (si: number): BlockSplitter => {
+    let s = splitterMapRef.current!.get(si);
+    if (!s) {
+      s = createBlockSplitter();
+      splitterMapRef.current!.set(si, s);
+    }
+    return s;
+  };
+
   const segs = splitThink(text);
   if (segs.length === 0) {
     return <div className="markdown-body" ref={anchor} />;
@@ -511,7 +527,7 @@ function ThinkAwareContent({
       );
       return;
     }
-    const blocks = splitBlocks(seg.content);
+    const blocks = getSplitter(si).split(seg.content);
     blocks.forEach((b, bi) => {
       const isTail = isLastSeg && bi === blocks.length - 1;
       nodes.push(
@@ -538,7 +554,8 @@ function TextPart({
   live: boolean;
   anchor?: React.RefObject<HTMLDivElement | null>;
 }) {
-  const throttled = useThrottledValue(text, 10, live);
+  // 40ms：肉眼流畅度上限约 25fps，足够；比 10ms 少 3~4 倍 markdown 重解析
+  const throttled = useThrottledValue(text, 40, live);
   const display = live ? throttled : text;
   return <ThinkAwareContent text={display} live={live} anchor={anchor} />;
 }
@@ -556,7 +573,6 @@ export const AssistantMessage = memo(
   }: {
     message: ChatMessage;
     showActions?: boolean;
-    turnTexts?: string[];
     turnFileChanges?: TurnFileChange[];
     turnId?: string;
     turnDurationSec?: number;
@@ -567,9 +583,14 @@ export const AssistantMessage = memo(
   }) {
     const isStreaming = message.streaming ?? false;
     const mdRef = useRef<HTMLDivElement>(null);
-    // 消息文本含 mermaid 代码块时显示「源码/渲染」切换按钮
-    const hasMermaid = textHasMermaid(message.content)
-      || (message.blocks ?? []).some((b) => b.type === "text" && textHasMermaid(b.text));
+    // 消息文本含 mermaid 代码块时显示「源码/渲染」切换按钮。
+    // useMemo 按内容引用缓存：mermaid 正则要扫全文，避免每次渲染重复执行。
+    const allBlocksForMermaid = message.blocks;
+    const hasMermaid = useMemo(
+      () => textHasMermaid(message.content)
+        || (allBlocksForMermaid ?? []).some((b) => b.type === "text" && textHasMermaid(b.text)),
+      [message.content, allBlocksForMermaid],
+    );
     const [showSource, setShowSource] = useState(false);
     // 保持原有策略：流式时展开过程，TURN 结束后收起并只保留最后一个 text。
     const [processExpanded, setProcessExpanded] = useState(isStreaming);

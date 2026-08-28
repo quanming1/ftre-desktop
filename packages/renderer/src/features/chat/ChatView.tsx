@@ -1,7 +1,7 @@
 /** ChatView — 消息列表、pending 队列横幅与输入框。 */
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Loader2 } from "lucide-react";
-import { useChat } from "@/stores/chat";
+import { useChat, type ChatMessage } from "@/stores/chat";
 import { useMessageSearch } from "./useMessageSearch";
 import { MessageSearch } from "./MessageSearch";
 import { hasActiveTurn, hasPendingWork } from "@/stores/runtimeState";
@@ -20,6 +20,10 @@ import {
 interface ChatViewProps {
   runContextOpen?: boolean;
 }
+
+// 稳定的空数组引用：messages selector 空会话时返回它，
+// 避免每次 store 更新都产生新 [] 破坏 ChatMessageList 的 memo。
+const EMPTY_MESSAGES: ChatMessage[] = [];
 
 function useRunContextLayoutMode() {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -56,7 +60,7 @@ function useRunContextLayoutMode() {
 }
 
 export function ChatView({ runContextOpen = false }: ChatViewProps) {
-  const messages = useChat((state) => Array.isArray(state.messages) ? state.messages : []);
+  const messages = useChat((state) => Array.isArray(state.messages) ? state.messages : EMPTY_MESSAGES);
   const sessionStatus = useChat((state) => state.sessionStatus);
   const sessionActivity = useChat((state) => state.sessionActivity);
   const queueDepth = useChat((state) => state.queueDepth);
