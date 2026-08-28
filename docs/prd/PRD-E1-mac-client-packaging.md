@@ -430,3 +430,5 @@ Release 至少包含：
 | 2026-08-22 | 下载器优先使用 curl 并增加目标 runtime 预检，CI 在打包前验证 manifest、机器架构和内置包导入 | 处理部分 Windows 代理对 Node HTTPS 流的长连接问题，并让 Mac 架构错配在打包前失败 |
 | 2026-08-28 | 增加 develop 自动预发布通道：alpha 默认、手动 beta/rc，测试通过后并行构建三平台并发布 GitHub Pre-release | 让 develop 每次上传都有可下载测试包，同时与正式 tag 发布隔离 |
 | 2026-08-28 | bundle 递归收集 workspace Package 的外部 dependencies（如 openai），避免源码复制后运行时缺少第三方模块 | v0.1.21 构建已暴露 `ftre_llm` 导入缺少 openai 的问题 |
+| 2026-08-24 | macOS Intel 改由 macOS 14 runner 交叉构建时，依赖安装强制使用目标架构 wheel | 避免 arm64 runner 为 `cryptography` 回退 Rust/OpenSSL 源码编译，确保 x64 发布流水线可重复执行 |
+| 2026-08-24 | 交叉构建验证改为检查 bundled Python 二进制架构，不再读取 runner 的宿主架构 | macOS 14 runner 为 arm64，但目标 x64 runtime 必须在产物自身上验收 |

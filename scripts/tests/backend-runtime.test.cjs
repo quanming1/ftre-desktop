@@ -94,8 +94,9 @@ test("Windows、macOS、托盘与 renderer 使用统一品牌资源", () => {
 
 test("Release workflow 包含 macOS 矩阵和 SHA256 汇总", () => {
   const workflow = fs.readFileSync(path.join(__dirname, "../../.github/workflows/release.yml"), "utf8");
-  assert.match(workflow, /runner: macos-13/);
-  assert.match(workflow, /runner: macos-14/);
+  assert.equal((workflow.match(/runner: macos-14/g) || []).length, 2);
+  assert.doesNotMatch(workflow, /runner: macos-13/);
+  assert.match(workflow, /runtime_arch=\$\(file backend\/python\/bin\/python3\.12\)/);
   assert.match(workflow, /SHA256SUMS/);
   assert.match(workflow, /action-gh-release/);
 });
