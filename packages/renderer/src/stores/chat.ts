@@ -65,11 +65,9 @@ let _defaultWsCache: string | null = null;
 const sessionProjections = new Map<string, ClientSessionProjection>();
 const STREAM_TYPES = new Set([
   "TEXT_BLOCK_DELTA",
-  "DATA_BLOCK_DELTA",
   "THINKING_BLOCK_DELTA",
   "TOOL_CALL_DELTA",
   "TOOL_RESULT_TEXT_DELTA",
-  "TOOL_RESULT_DATA_DELTA",
 ]);
 const _wsFlushTimers = new Map<string, ReturnType<typeof setTimeout>>();
 const _wsBatches = new Map<string, BusEvent[]>();
@@ -335,7 +333,7 @@ if (!(globalThis as any)[__wsBoundFlag]) {
       return;
     }
 
-    if (msg.type !== "agent_event") return;
+    if (msg.type !== "agent_event" && msg.type !== "session_event") return;
     const ev = msg.payload as AgentStreamEvent;
     if (!ev?.type) return;
 
@@ -345,7 +343,6 @@ if (!(globalThis as any)[__wsBoundFlag]) {
 
     const isCoreEvent =
       ev.type === "retry" ||
-      ev.type === "CUSTOM" ||
       /^[A-Z]+(?:_[A-Z]+)+$/.test(ev.type);
     const b = bucket(sid);
     const busEvent: BusEvent = {
@@ -391,7 +388,8 @@ if (!(globalThis as any)[__wsBoundFlag]) {
     // 鍏朵粬浜嬩欢锛氶渶瑕侀噸绠?pending_estimated 绛夛紝璋?API
     if (
       (
-        ev.type === "CUSTOM" ||
+        ev.type === "PIPELINE_EVENT" ||
+        ev.type === "SESSION_MAINTENANCE" ||
         ev.type === "REPLY_END" ||
         ev.type === "external_message"
       ) &&

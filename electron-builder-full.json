@@ -37,6 +37,7 @@
     ]
   },
   "mac": {
+    "icon": "packages/electron/assets/ftre.icns",
     "target": [
       {
         "target": "dmg",

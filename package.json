@@ -57,6 +57,9 @@
       "icon": "packages/electron/assets/ftre.ico",
       "target": "nsis"
     },
+    "mac": {
+      "icon": "packages/electron/assets/ftre.icns"
+    },
     "nsis": {
       "oneClick": false,
       "allowToChangeInstallationDirectory": true,
