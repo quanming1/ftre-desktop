@@ -77,6 +77,19 @@ test("Release workflow 包含 macOS 矩阵和 SHA256 汇总", () => {
   assert.match(workflow, /action-gh-release/);
 });
 
+test("develop 预发布 workflow 使用 SemVer 通道并先过质量门禁", () => {
+  const workflow = fs.readFileSync(path.join(__dirname, "../../.github/workflows/prerelease.yml"), "utf8");
+  assert.match(workflow, /branches:\s*\n\s+- develop/);
+  assert.match(workflow, /cancel-in-progress: true/);
+  assert.match(workflow, /alpha|beta|rc/);
+  assert.match(workflow, /GITHUB_RUN_NUMBER/);
+  assert.match(workflow, /GITHUB_RUN_ATTEMPT/);
+  assert.match(workflow, /run: pnpm test/);
+  assert.match(workflow, /prerelease: true/);
+  assert.match(workflow, /make_latest: false/);
+  assert.match(workflow, /ref: develop/);
+});
+
 test("Electron 退出入口注销 watcher 和 PTY", () => {
   const main = fs.readFileSync(path.join(__dirname, "../../packages/electron/src/main.ts"), "utf8");
   const watcher = fs.readFileSync(path.join(__dirname, "../../packages/electron/src/ipc/watcher.ts"), "utf8");

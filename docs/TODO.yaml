@@ -329,7 +329,7 @@ stages:
           - packages/electron/assets/ftre.icns
           - packages/electron/assets/ftre-logo.png
           - electron-builder-full.json
-          - package.json（build.win.icon）
+          - package.json（build.win.icon/build.mac.icon）
           - scripts/bundle-backend.js
           - scripts/tests/backend-runtime.test.cjs
         acceptance: TitleBar、LoadingScreen、Windows 窗口/任务栏/托盘、macOS Dock 使用同一 Logo；Logo 保持透明背景和比例，菜单/启动状态行为不回归；renderer 测试、tsc、build、full pack 和平台图标静态检查通过
@@ -352,6 +352,7 @@ stages:
           - scripts/bundle-backend.js
           - scripts/start-gateway.sh
           - .github/workflows/release.yml
+          - .github/workflows/prerelease.yml
           - packages/renderer/
           - packages/shared/
           - scripts/tests/
