@@ -389,6 +389,16 @@ Release 至少包含：
 - Windows/macOS 双平台 Gateway launcher；
 - x64/arm64 Python runtime 下载、校验、依赖安装和源码同步；
 - electron-builder macOS dmg/zip 目标与 GitHub Actions 构建矩阵；
+
+### 8.1 预发布通道
+
+为避免 develop 代码只能等正式 tag 才能验证，新增 `.github/workflows/prerelease.yml`：
+
+- 每次 `develop` push 自动触发，先执行 `pnpm test`，再并行构建 Windows x64、macOS x64 和 macOS arm64；
+- 预发布版本遵循 SemVer：`v<base>-alpha.<run_number>.<run_attempt>`，GitHub Release 标记为
+  `prerelease=true` 且不参与 Latest；
+- `workflow_dispatch` 支持 `alpha`、`beta`、`rc` 通道和可选基线版本，便于发布候选验证；
+- 预发布与正式 Release 使用不同 workflow、artifact 名称和版本标签，不覆盖正式版本。
 - 平台契约测试、Windows bundle 验证和零前置环境验收脚本。
 
 仍必须在 GitHub macOS runner 或真实 Mac 上完成的证据：
@@ -418,5 +428,7 @@ Release 至少包含：
 | 2026-08-22 | 增加“零前置环境安装”发布承诺；要求 x64/arm64 安装包自带可离线 Python runtime，并新增 AC16 干净环境验收 | 普通用户不应因为缺少 Python、Node.js、Homebrew、conda、Git 或仓库源码而无法安装和首次启动 |
 | 2026-08-22 | 进入 E1 开发：完成 runtime manifest、跨平台 Gateway 生命周期、Python runtime 打包器、electron-builder Mac 目标、macOS CI 矩阵和平台契约测试 | 将零前置环境要求落到可执行的构建链路；Mac runner/真实设备验收保留到 CI 收口 |
 | 2026-08-22 | 下载器优先使用 curl 并增加目标 runtime 预检，CI 在打包前验证 manifest、机器架构和内置包导入 | 处理部分 Windows 代理对 Node HTTPS 流的长连接问题，并让 Mac 架构错配在打包前失败 |
+| 2026-08-28 | 增加 develop 自动预发布通道：alpha 默认、手动 beta/rc，测试通过后并行构建三平台并发布 GitHub Pre-release | 让 develop 每次上传都有可下载测试包，同时与正式 tag 发布隔离 |
+| 2026-08-28 | bundle 递归收集 workspace Package 的外部 dependencies（如 openai），避免源码复制后运行时缺少第三方模块 | v0.1.21 构建已暴露 `ftre_llm` 导入缺少 openai 的问题 |
 | 2026-08-24 | macOS Intel 改由 macOS 14 runner 交叉构建时，依赖安装强制使用目标架构 wheel | 避免 arm64 runner 为 `cryptography` 回退 Rust/OpenSSL 源码编译，确保 x64 发布流水线可重复执行 |
 | 2026-08-24 | 交叉构建验证改为检查 bundled Python 二进制架构，不再读取 runner 的宿主架构 | macOS 14 runner 为 arm64，但目标 x64 runtime 必须在产物自身上验收 |

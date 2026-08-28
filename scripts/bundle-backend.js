@@ -507,11 +507,11 @@ async function main() {
   }
 
   // ftre 主仓 packages/ 下的独立发行物（monorepo Package）：源码随 bundle 复制
-  // （见 copyLocalPackageSources），不进 pip 安装（PyPI 上不存在）。
+  // （见 copyLocalPackageSources），不进 pip 安装（PyPI 上不存在）。Workspace Package 的
+  // 外部 dependencies 由 collectExternalDependencies 一并安装。
   // ownPkgs = 以源码复制方式进入 bundle 的包。注意必须精确匹配包名：
   // 前缀匹配会把 "ftre-llm"/"ftre-inbox" 等全部当成 "ftre" 误过滤，
   // 导致这些包既不 pip 安装又不复制源码（2026-08-27 v0.1.15 回归教训）。
-  // Workspace Package 的外部 dependencies 由 collectExternalDependencies 一并安装。
   const { externalDeps: allDeps, monorepoPkgs } = collectExternalDependencies(PROJECT_ROOT);
   // macOS Intel 目前由 arm64 runner 交叉打包。此时如果 pip 找不到目标
   // 架构的 wheel，会把 cryptography 等 Rust 扩展退回源码编译；编译过程

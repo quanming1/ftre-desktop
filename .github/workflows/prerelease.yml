@@ -1,0 +1,271 @@
+name: Pre-release
+
+on:
+  push:
+    branches:
+      - develop
+  workflow_dispatch:
+    inputs:
+      channel:
+        description: "预发布通道"
+        required: true
+        default: alpha
+        type: choice
+        options:
+          - alpha
+          - beta
+          - rc
+      base_version:
+        description: "可选的 semver 基线，例如 0.1.21"
+        required: false
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  group: prerelease-develop
+  cancel-in-progress: true
+
+jobs:
+  metadata:
+    runs-on: ubuntu-latest
+    outputs:
+      base_version: ${{ steps.version.outputs.base_version }}
+      channel: ${{ steps.version.outputs.channel }}
+      version: ${{ steps.version.outputs.version }}
+      tag: ${{ steps.version.outputs.tag }}
+    steps:
+      - name: Checkout desktop
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Resolve pre-release version
+        id: version
+        shell: bash
+        env:
+          REQUESTED_CHANNEL: ${{ inputs.channel || 'alpha' }}
+          REQUESTED_BASE_VERSION: ${{ inputs.base_version || '' }}
+        run: |
+          set -euo pipefail
+          channel="$REQUESTED_CHANNEL"
+          if [[ ! "$channel" =~ ^(alpha|beta|rc)$ ]]; then
+            echo "Unsupported pre-release channel: $channel" >&2
+            exit 1
+          fi
+          base="${REQUESTED_BASE_VERSION:-$(node -p "require('./package.json').version")}"
+          base="${base#v}"
+          base="${base%%-*}"
+          if [[ ! "$base" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Invalid base semver: $base" >&2
+            exit 1
+          fi
+          version="${base}-${channel}.${GITHUB_RUN_NUMBER}.${GITHUB_RUN_ATTEMPT}"
+          {
+            echo "base_version=$base"
+            echo "channel=$channel"
+            echo "version=$version"
+            echo "tag=v$version"
+          } >> "$GITHUB_OUTPUT"
+
+  quality:
+    needs: metadata
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout desktop
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Run client quality gates
+        run: pnpm test
+
+  build-windows:
+    needs: [metadata, quality]
+    runs-on: windows-latest
+    steps:
+      - name: Checkout desktop
+        uses: actions/checkout@v4
+
+      - name: Checkout ftre
+        uses: actions/checkout@v4
+        with:
+          repository: quanming1/ftre
+          ref: develop
+          path: ftre
+
+      - name: Checkout cordis-py
+        uses: actions/checkout@v4
+        with:
+          repository: quanming1/cordis-py
+          path: cordis-py
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Set package version
+        shell: pwsh
+        run: npm pkg set version="${{ needs.metadata.outputs.version }}"
+
+      - name: Bundle backend (Windows x64)
+        env:
+          FTRE_ROOT: ${{ github.workspace }}\ftre
+          CORDIS_ROOT: ${{ github.workspace }}\cordis-py
+          PIP_INDEX_URL: https://pypi.org/simple
+        run: node scripts/bundle-backend.js --clean --platform win32 --arch x64
+
+      - name: Verify bundled Windows runtime
+        shell: pwsh
+        run: |
+          $manifest = Get-Content backend/manifest.json | ConvertFrom-Json
+          if ($manifest.platform -ne 'win32' -or $manifest.arch -ne 'x64') { throw 'Windows runtime manifest mismatch' }
+          $env:PYTHONPATH = "${{ github.workspace }}\backend\server"
+          $env:PYTHONUTF8 = '1'
+          backend/python/python.exe -c "import cordis, ftre, ftre_agent, ftre_agent_runtime; print('bundled runtime ok')"
+
+      - name: Build and package Windows x64
+        run: npm run dist:full -- --publish never
+
+      - name: Upload Windows artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ftre-prerelease-windows-x64
+          if-no-files-found: error
+          path: |
+            release/*Setup*.exe
+            release/*Setup*.exe.blockmap
+
+  build-macos:
+    needs: [metadata, quality]
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-13
+            arch: x64
+          - runner: macos-14
+            arch: arm64
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - name: Checkout desktop
+        uses: actions/checkout@v4
+
+      - name: Checkout ftre
+        uses: actions/checkout@v4
+        with:
+          repository: quanming1/ftre
+          ref: develop
+          path: ftre
+
+      - name: Checkout cordis-py
+        uses: actions/checkout@v4
+        with:
+          repository: quanming1/cordis-py
+          path: cordis-py
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Set package version
+        shell: bash
+        run: npm pkg set version="${{ needs.metadata.outputs.version }}"
+
+      - name: Bundle backend (macOS ${{ matrix.arch }})
+        env:
+          FTRE_ROOT: ${{ github.workspace }}/ftre
+          CORDIS_ROOT: ${{ github.workspace }}/cordis-py
+          PIP_INDEX_URL: https://pypi.org/simple
+        run: node scripts/bundle-backend.js --clean --platform darwin --arch ${{ matrix.arch }}
+
+      - name: Verify bundled macOS runtime
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -x backend/python/bin/python3.12
+          test "$(uname -m)" = "${{ matrix.arch == 'x64' && 'x86_64' || 'arm64' }}"
+          python3 -c "import json; m=json.load(open('backend/manifest.json')); assert m['platform']=='darwin' and m['arch']=='${{ matrix.arch }}'"
+          PYTHONPATH="$GITHUB_WORKSPACE/backend/server" \
+            PYTHONUTF8=1 backend/python/bin/python3.12 \
+            -c "import cordis, ftre, ftre_agent, ftre_agent_runtime; print('bundled runtime ok')"
+
+      - name: Build and package macOS ${{ matrix.arch }}
+        run: pnpm build && pnpm exec electron-builder --mac --${{ matrix.arch }} -c electron-builder-full.json --publish never
+
+      - name: Upload macOS artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ftre-prerelease-macos-${{ matrix.arch }}
+          if-no-files-found: error
+          path: |
+            release/*mac-${{ matrix.arch }}.dmg
+            release/*mac-${{ matrix.arch }}.zip
+
+  publish:
+    needs: [metadata, build-windows, build-macos]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download platform artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: release
+          merge-multiple: true
+
+      - name: Generate SHA256SUMS
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd release
+          find . -type f ! -name SHA256SUMS -print0 \
+            | sort -z \
+            | xargs -0 sha256sum > SHA256SUMS
+
+      - name: Publish GitHub pre-release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ needs.metadata.outputs.tag }}
+          target_commitish: ${{ github.sha }}
+          name: ftre ${{ needs.metadata.outputs.version }}
+          prerelease: true
+          make_latest: false
+          generate_release_notes: true
+          body: |
+            这是从 develop 自动构建的 ${{ needs.metadata.outputs.channel }} 预发布版本。
+            基线版本：${{ needs.metadata.outputs.base_version }}
+            提交：${{ github.sha }}
+            该版本用于测试，不代表稳定发布。
+          files: release/*
