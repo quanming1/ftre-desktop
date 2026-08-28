@@ -112,6 +112,8 @@ test("develop 预发布 workflow 使用 SemVer 通道并先过质量门禁", () 
   assert.match(workflow, /prerelease: true/);
   assert.match(workflow, /make_latest: false/);
   assert.match(workflow, /ref: develop/);
+  assert.equal((workflow.match(/runner: macos-14/g) || []).length, 2);
+  assert.doesNotMatch(workflow, /runner: macos-13/);
 });
 
 test("Electron 退出入口注销 watcher 和 PTY", () => {
