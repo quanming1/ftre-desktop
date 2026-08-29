@@ -19,6 +19,10 @@ type InvalidateListener = (filePath: string) => void;
 const MAX_ENTRIES = 50;
 const POLL_INTERVAL_MS = 3000;
 
+function isVirtualPath(filePath: string): boolean {
+  return filePath.startsWith("ftre://");
+}
+
 class FilePreviewCache {
   private cache = new Map<string, CacheEntry>();
   private listeners = new Set<InvalidateListener>();
@@ -44,6 +48,10 @@ class FilePreviewCache {
     const paths = [...this.cache.keys()];
     const invalidated: string[] = [];
     for (const p of paths) {
+      if (isVirtualPath(p)) {
+        this.cache.delete(p);
+        continue;
+      }
       try {
         const result = await window.desktop.fs.stat(p);
         const entry = this.cache.get(p);
@@ -68,6 +76,7 @@ class FilePreviewCache {
 
   /** 写入缓存。LRU：Map 保持插入顺序，set 时先 delete 再 set 让它排到最后。 */
   set(filePath: string, entry: CacheEntry) {
+    if (isVirtualPath(filePath)) return;
     if (this.cache.has(filePath)) {
       this.cache.delete(filePath);
     } else if (this.cache.size >= MAX_ENTRIES) {

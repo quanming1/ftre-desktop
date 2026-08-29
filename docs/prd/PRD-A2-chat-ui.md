@@ -35,6 +35,8 @@
 - [x] FR11：同一 assistant reply 内相同 `tool_call_id` 的重复 `TOOL_CALL_START` 必须幂等处理，只保留一个工具调用 block；后续 `TOOL_CALL_DELTA`、`TOOL_CALL_END` 和工具结果仍按该 id 更新。
 - [x] FR12：消息列表保留所有已完成轮次的文件变更卡片；即使当前会话正在运行，之前轮次的变更仍可查看，当前流式轮次只在结束后展示完整变更卡片。
 - [x] FR13：连续思考与工具调用折叠组在流式执行时优先展示当前 edit/write 文件或 bash/exec/shell 命令摘要（`Edit <filename>` / `Ran <command>`）；缺少可展示参数时沿用通用动作摘要。
+- [x] FR14：MessageList 中的 HTTP/HTTPS 链接在地址或链接文本前展示目标站点图标；优先尝试 origin 下的 `favicon.ico`、常见 favicon 图片格式，再使用站点图标解析服务，全部失败时回退本地通用图标，不改变链接尺寸和现有 Ctrl/⌘ 点击打开浏览器行为。
+- [x] FR15：Skill 的 kebab-case 机器名在输入框、消息卡片和技能管理界面仅做显示层格式化（如 `refactor-cleanup-audit` → `Refactor Cleanup Audit`）；token、请求、缓存、CRUD 和后端解析始终保留 canonical id。
 
 ### 2.2 非功能需求
 
@@ -53,6 +55,7 @@
   - `CodeBlock.tsx`：代码块（highlight.js / shiki 高亮）
   - `InlineToolCallCard.tsx`：工具调用卡片
   - `streamingMarkdown.tsx`：流式 markdown 解析器
+- `components/HttpLink.tsx`：HTTP/HTTPS 链接与 favicon 失败回退渲染
 - 依赖选型：react-markdown（或自研 streamingMarkdown）、代码高亮库
 
 ## 4. 接口定义
@@ -71,6 +74,8 @@
 - [x] AC7：重复派发相同 `reply_id` + `tool_call_id` 的 `TOOL_CALL_START` 后，工具 blocks 数量仍为一个；后续 DELTA/END 更新同一 block，不产生 duplicate key。
 - [x] AC8：存在历史轮次变更且当前会话正在运行时，历史轮次的变更卡片仍展示；当前未结束轮次不提前展示不完整卡片。
 - [x] AC9：流式 edit/write 与 bash/exec/shell 工具调用分别展示文件名和命令摘要；工具完成后的历史折叠摘要、展开交互和思考内容不回归（AssistantMessage 测试通过）。
+- [x] AC10：MessageList 中的 HTTP/HTTPS Markdown 链接和用户消息中的纯文本 URL 均在文本前显示目标站点图标；按 origin favicon、常见图片格式、站点图标解析服务顺序回退，全部失败才显示通用图标。链接仍可通过 Ctrl/⌘ 打开，消息高度不因图标失败或加载状态抖动。
+- [x] AC11：Skill 显示名格式化不改变 canonical id；常见技术缩写保持可读大写，空分隔符不会产生异常空白。
 
 ## 6. 测试计划
 
@@ -152,3 +157,6 @@
 | 2026-08-24 | 新增 FR13 / AC9：流式折叠组根据最后一个仍在执行的工具显示 `Edit <filename>` 或 `Ran <command>`；无路径/命令参数时保持通用中文摘要，新增 AssistantMessage 回归测试 | 用户希望执行过程中直接看到当前正在编辑的文件或运行的命令 |
 | 2026-08-21 | 移除 ChatHeader 中已失效的“归档会话”菜单项及其触发逻辑，保留重命名和删除会话 | 用户反馈归档会话功能已不存在 |
 | 2026-08-25 | 浅色主题的输入框和用户消息统一使用 `#f6f7f9`，继续通过独立 token 控制，不改变深色主题及其他聊天表面 | 用户要求统一输入框与用户消息背景色 |
+| 2026-08-29 | 新增 FR14 / AC10：MessageList 的 HTTP/HTTPS 链接统一使用 origin `/favicon.ico` 作为前置站点图标；共享 `HttpLink` 处理 Ctrl/⌘ 外部打开、懒加载和失败回退，用户消息纯文本 URL 与 assistant Markdown 链接均接入，CSP 同步放行 HTTP(S) 图片 | 用户希望消息中的网址带站点图标，提升可读性和视觉一致性 |
+| 2026-08-29 | 新增 FR15 / AC11：Skill UI 统一将 kebab-case 名称转换为 Title Case，协议 token、API 参数、缓存 key 和 CRUD 仍使用原始 canonical id；新增通用 `formatSkillName` 和缩写映射测试 | 用户希望 `refactor-cleanup-audit` 等 Skill 名称在界面中更易读，避免显示层改动破坏协议身份 |
+| 2026-08-29 | 修复 FR14：部分站点没有 `/favicon.ico`（例如使用 `/favicon.png`），链接图标按 origin 常见格式和站点图标解析服务逐级回退，避免直接显示通用地球图标 | 用户反馈真实站点 favicon.ico 404 时图标展示失败 |

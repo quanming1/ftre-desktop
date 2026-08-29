@@ -24,6 +24,7 @@ import { fetchSessionMessages } from "@/services/api";
 import { RollbackConfirmDialog } from "./RollbackConfirmDialog";
 import { ContextMenu, type ContextMenuItem, Tooltip, TooltipProvider, ImageViewer } from "@ftre/ui";
 import { formatAbsoluteMessageTime, formatMessageTime } from "./messageTime";
+import { renderFtreInlineText } from "@/lib/ftre-extensions";
 
 /**
  * 渲染 parts 数组为 inline 内容
@@ -37,7 +38,7 @@ function PartsContent({ parts }: { parts: MessagePart[] }) {
     <>
       {parts.map((part, i) => {
         if (part.type === "text") {
-          return <span key={i}>{part.text ?? (part as any).data ?? ""}</span>;
+          return <span key={i}>{renderFtreInlineText(part.text ?? (part as any).data ?? "", { offsetTop: true })}</span>;
         }
         if (part.type === "email") {
           return <EmailCard key={i} data={part.data} />;
@@ -407,7 +408,7 @@ export const UserMessage = memo(
                 ) : typeof message.content === "string" && searchQuery.trim() ? (
                   <HighlightText text={message.content} query={searchQuery} />
                 ) : (
-                  message.content
+                  renderFtreInlineText(message.content ?? "", { offsetTop: true })
                 )}
               </div>
 

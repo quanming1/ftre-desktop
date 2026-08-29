@@ -20,7 +20,7 @@ export const rehypePlugins = [rehypeKatex] as const;
  * 本地文件链接是 system_prompt 与 AI 的约定（[名](file:///E:/abs/path)），
  * FileLink 点击只走 IPC 读文件打开编辑器 tab，不做导航，无远程内容注入面。
  */
-const SAFE_PROTOCOL_RE = /^(https?|ircs?|mailto|xmpp|file)$/i;
+const SAFE_PROTOCOL_RE = /^(https?|ircs?|mailto|xmpp|file|ftre)$/i;
 
 export function urlTransform(url: string): string {
   // 与 react-markdown defaultUrlTransform 同构：协议在首个冒号且不在白名单 → 清空

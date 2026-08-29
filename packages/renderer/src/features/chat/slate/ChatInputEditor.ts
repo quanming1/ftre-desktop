@@ -9,6 +9,8 @@ import {
 import { withReact, ReactEditor } from "slate-react";
 import { withHistory } from "slate-history";
 import type { MessagePart } from "@/types/chat";
+import type { SkillTokenElement } from "./types";
+import { parseFtreTokens, serializeFtreRef } from "@/lib/ftre-extensions";
 
 export const IMAGE_MIME_WHITELIST: readonly string[] = [
   "image/png",
@@ -41,6 +43,11 @@ export class ChatInputEditor {
 
   constructor() {
     this.editor = withHistory(withReact(createEditor()));
+    const { isInline, isVoid } = this.editor;
+    this.editor.isInline = (element) =>
+      element.type === "skill-token" ? true : isInline(element);
+    this.editor.isVoid = (element) =>
+      element.type === "skill-token" ? true : isVoid(element);
   }
 
   get value(): Descendant[] {
@@ -87,6 +94,17 @@ export class ChatInputEditor {
     Transforms.insertText(this.editor, text);
   }
 
+  replaceRangeWithSkill(targetRange: Range, ref: SkillTokenElement["ref"]): void {
+    Transforms.select(this.editor, targetRange);
+    Transforms.delete(this.editor);
+    Transforms.insertNodes(this.editor, {
+      type: "skill-token",
+      ref,
+      children: [{ text: "" }],
+    });
+    Transforms.insertText(this.editor, " ");
+  }
+
   clear(): void {
     Transforms.delete(this.editor, {
       at: {
@@ -106,7 +124,17 @@ export class ChatInputEditor {
     for (const part of parts) {
       if (part.type === "text") {
         const text = "text" in part ? String(part.text || "") : String(part.data || "");
-        if (text) Transforms.insertText(this.editor, text);
+        for (const segment of parseFtreTokens(text)) {
+          if (segment.ref?.type === "skill") {
+            Transforms.insertNodes(this.editor, {
+              type: "skill-token",
+              ref: segment.ref as SkillTokenElement["ref"],
+              children: [{ text: "" }],
+            });
+          } else if (segment.text) {
+            Transforms.insertText(this.editor, segment.text);
+          }
+        }
       }
     }
     this.focus();
@@ -133,6 +161,8 @@ export class ChatInputEditor {
       for (const child of node.children) {
         if ("text" in child) {
           lineText += (child as { text: string }).text;
+        } else if (child.type === "skill-token") {
+          lineText += serializeFtreRef(child.ref);
         }
       }
       lineTexts.push(lineText);

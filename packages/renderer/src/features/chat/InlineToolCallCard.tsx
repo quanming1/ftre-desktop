@@ -32,6 +32,7 @@ import { useLayout } from "@/stores/layout";
 import { useChat } from "@/stores/chat";
 import { FileIconView } from "@/components/FileIconView";
 import { IMAGE_EXTENSIONS, fileExtension } from "@/utils/filePreviewKinds";
+import { formatSkillName } from "@/lib/skill-display";
 import { Terminal } from "lucide-react";
 
 const API_BASE = import.meta.env.VITE_API_BASE || "http://127.0.0.1:48650";
@@ -156,7 +157,7 @@ function buildSummary(
       return isDone ? "Sent" : "Sending...";
     }
     case "loadSkill": {
-      const skill = (args.skill as string) ?? "";
+      const skill = formatSkillName((args.skill as string) ?? "");
       if (skill) {
         return isDone ? `Loaded Skill ?${skill}?` : `Loading Skill ?${skill}?��`;
       }
@@ -543,6 +544,7 @@ export const InlineToolCallCard = memo(
         description: desc,
       };
     }, [isLoadSkill, resultText, args.skill]);
+    const displaySkillName = formatSkillName(loadSkillMeta.name || (args.skill as string) || "");
 
     const handleCopy = useCallback(() => {
       if (!resultText) return;
@@ -576,7 +578,7 @@ export const InlineToolCallCard = memo(
                 <div className="flex items-center gap-1.5">
                   <Box size={12} strokeWidth={2} className="text-[#1a7f37] shrink-0" />
                   <span className="text-[14px] font-semibold text-[#1a7f37]">
-                    {loadSkillMeta.name || (args.skill as string) || ""}
+                    {displaySkillName}
                   </span>
                 </div>
                 {loadSkillMeta.description && (
@@ -594,7 +596,7 @@ export const InlineToolCallCard = memo(
               <Box size={14} className="text-[#1a7f37] shrink-0" strokeWidth={1.5} />
                 <span className="text-[14px] font-mono text-t-dim truncate">
                   <span className="text-t-dim font-medium">Loaded Skill</span>
-                {args.skill ? ` ?${args.skill}?` : ""}
+                {displaySkillName ? ` · ${displaySkillName}` : ""}
               </span>
               {status === "completed" && <Check size={12} className="text-green-600 shrink-0" />}
               {isError && <X size={12} className="text-red-500 shrink-0" />}
@@ -1003,6 +1005,7 @@ function formatBytes(bytes: number): string {
 /** loadSkill ���߽�� �� ��ȡ frontmatter ����ȾΪ�ο���Ƭ */
 function LoadSkillDetail({ result, isError }: { result: string; isError: boolean }) {
   const { name, description, body } = useMemo(() => parseSkillContent(result), [result]);
+  const displayName = formatSkillName(name);
 
   if (isError) return <RawPre result={result} isError />;
   return (
@@ -1012,7 +1015,7 @@ function LoadSkillDetail({ result, isError }: { result: string; isError: boolean
         <div className="flex items-center gap-2">
           <span className="inline-flex items-center gap-1.5 text-[14px] font-semibold text-[#1a7f37]">
             <Box size={14} strokeWidth={2} />
-            {name}
+            {displayName}
           </span>
         </div>
       )}

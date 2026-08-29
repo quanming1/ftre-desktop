@@ -180,3 +180,5 @@ fs.listDirectory(dirPath: string): Promise<ListDirectoryResult>;
 | 日期 | 变更内容 | 理由 |
 |---|---|---|
 | 2026-08-25 | FileRenderer 的 Git 能力访问统一使用 `window.desktop?.git?.`，并增加 preload bridge 缺失回归测试 | 开发环境 HMR/Preload 短暂不同步时，`window.desktop` 可能为空，不能因读取 `git` 让 Inspector 崩溃 |
+| 2026-08-29 | 配合后端 PRD-C6.5：FileRenderer 区分 filesystem source 与 content snapshot；真实 Skill `SKILL.md` 使用后端返回的绝对路径并保留目录面包屑，语义 `ftre://` 仅用于无文件来源的只读快照，不触发 fs IPC | 修复 Skill 预览把语义 URI 当文件路径导致目录展开 `ENOENT`；复用现有 FileRenderer，不新增 Skill 专用 Tab |
+| 2026-08-29 | C6.5 收尾审计补充虚拟资源保护：`ftre://` Tab 即使缺少内容快照也直接报错，不调用 `fs.readFile/stat` 或缓存轮询；新增 FileRenderer 回归测试 | 防止异常调用方把语义 URI 误送入通用磁盘读取分支 |
