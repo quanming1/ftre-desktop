@@ -117,6 +117,47 @@ describe("FileRenderer 渲染预览", () => {
     expect(screen.queryByTitle("查看源码")).not.toBeInTheDocument();
   });
 
+  it("虚拟 Skill 快照不回退到磁盘读取", async () => {
+    const readFile = vi.spyOn(window.desktop.fs, "readFile");
+    const stat = vi.spyOn(window.desktop.fs, "stat");
+    render(
+      <FileRenderer
+        tab={makeTab({
+          filePath: "ftre://v1/skill/review-code/SKILL.md",
+          title: "SKILL.md",
+          content: "# Review code",
+        })}
+        active
+        wordWrap={false}
+      />,
+    );
+
+    expect(await screen.findByRole("heading", { name: "Review code" })).toBeInTheDocument();
+    expect(readFile).not.toHaveBeenCalled();
+    expect(stat).not.toHaveBeenCalled();
+    expect(screen.queryByRole("button", { name: /浏览目录/ })).not.toBeInTheDocument();
+  });
+
+  it("虚拟资源缺少快照时也不访问文件系统", async () => {
+    const readFile = vi.spyOn(window.desktop.fs, "readFile");
+    const stat = vi.spyOn(window.desktop.fs, "stat");
+    render(
+      <FileRenderer
+        tab={makeTab({
+          filePath: "ftre://v1/skill/missing/SKILL.md",
+          title: "SKILL.md",
+          content: null,
+        })}
+        active
+        wordWrap={false}
+      />,
+    );
+
+    expect(await screen.findByText("资源内容快照不可用")).toBeInTheDocument();
+    expect(readFile).not.toHaveBeenCalled();
+    expect(stat).not.toHaveBeenCalled();
+  });
+
   it("git 无未暂存修改（干净 / 仅已暂存 / untracked）的文件不显示暂存区 Diff 按钮", () => {
     // indexDiff 默认 available:false（beforeEach），覆盖干净、仅已暂存、untracked
     render(

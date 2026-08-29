@@ -47,6 +47,7 @@ interface LoadedFile {
 export function FileRenderer({ tab, active, wordWrap }: TabRendererProps) {
   const { filePath, content, revealNonce } = tab as FileTab;
   const displayPath = filePath.replace(/\\/g, "/");
+  const snapshotOnly = filePath.startsWith("ftre://");
 
   const openPathEntry = useCallback((entry: FileEntry) => {
     const normalizedPath = entry.path.replace(/\\/g, "/");
@@ -67,7 +68,8 @@ export function FileRenderer({ tab, active, wordWrap }: TabRendererProps) {
 
   // mtime 失效后，放弃 snapshot 从磁盘重载（解决 read 快照过期问题）
   const [snapshotInvalidated, setSnapshotInvalidated] = useState(false);
-  const effectiveSnapshot = snapshotInvalidated ? null : snapshotFile;
+  // Skill 预览使用虚拟路径，内容只来自接口快照，永远不能回退到磁盘读取。
+  const effectiveSnapshot = snapshotOnly ? snapshotFile : snapshotInvalidated ? null : snapshotFile;
 
   // 非 snapshot 场景下，invalidation 后 effectiveSnapshot 不变（null→null），
   // load effect 不会重跑。用 reloadNonce 强制重跑。
@@ -116,7 +118,7 @@ export function FileRenderer({ tab, active, wordWrap }: TabRendererProps) {
   // 注意：preload 与 renderer 可能短暂版本撕裂（dev 下主进程不随 HMR 重启），
   // indexDiff 不存在或抛错时静默降级为无按钮，不产生 unhandled rejection。
   useEffect(() => {
-    if (!active) return;
+    if (!active || snapshotOnly) return;
     if (typeof window.desktop?.git?.indexDiff !== "function") return;
     let cancelled = false;
     (async () => {
@@ -130,7 +132,7 @@ export function FileRenderer({ tab, active, wordWrap }: TabRendererProps) {
       }
     })();
     return () => { cancelled = true; };
-  }, [filePath, active, reloadNonce, revealNonce]);
+  }, [filePath, active, reloadNonce, revealNonce, snapshotOnly]);
 
   // 点击时重新查询一次拿新鲜暂存区内容（与按钮显示的查询解耦），
   // 然后新开 DiffTab：before = 暂存区版本，after = 当前预览内容。
@@ -155,6 +157,11 @@ export function FileRenderer({ tab, active, wordWrap }: TabRendererProps) {
   }, [filePath, file?.content, displayPath]);
 
   const loadFile = useCallback(async (path: string) => {
+    if (path.startsWith("ftre://")) {
+      setLoading(false);
+      setError("资源内容快照不可用");
+      return;
+    }
     // 先查缓存，但校验 mtime 防止脏读
     const cached = filePreviewCache.get(path);
     if (cached) {
@@ -203,6 +210,9 @@ export function FileRenderer({ tab, active, wordWrap }: TabRendererProps) {
       setFile(effectiveSnapshot);
       setLoading(false);
       setError(null);
+    } else if (snapshotOnly) {
+      setLoading(false);
+      setError("资源内容快照不可用");
     } else {
       loadFile(filePath);
     }
@@ -211,7 +221,7 @@ export function FileRenderer({ tab, active, wordWrap }: TabRendererProps) {
   // snapshot 文件注册到 filePreviewCache，使 mtime 轮询能检测到外部修改
   // 没有 this，snapshot 文件不在缓存中，轮询不会监控它，onInvalidate 永远不触发
   useEffect(() => {
-    if (!effectiveSnapshot) return;
+    if (!effectiveSnapshot || snapshotOnly) return;
     let cancelled = false;
     (async () => {
       try {
@@ -228,7 +238,7 @@ export function FileRenderer({ tab, active, wordWrap }: TabRendererProps) {
       }
     })();
     return () => { cancelled = true; };
-  }, [effectiveSnapshot, filePath]);
+  }, [effectiveSnapshot, filePath, snapshotOnly]);
 
   // 监听缓存失效（mtime 变化），触发重载
   useEffect(() => {
@@ -270,7 +280,7 @@ export function FileRenderer({ tab, active, wordWrap }: TabRendererProps) {
       <PreviewHeader
         fileName={filePath}
         variant="breadcrumb"
-        pathPicker={{ onOpenFile: openPathEntry }}
+        pathPicker={snapshotOnly ? undefined : { onOpenFile: openPathEntry }}
         right={
           <>
             {/* 暂存区 Diff（仅 git 已跟踪且有未暂存修改的文件，点击新开 DiffTab） */}
