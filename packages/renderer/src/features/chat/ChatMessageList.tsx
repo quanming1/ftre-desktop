@@ -203,25 +203,13 @@ export const ChatMessageList = memo(function ChatMessageList({
             (!next || next.role !== "assistant");
           const showTurnActions = shouldShowTurnActions(safeMessages, i, hasActiveTurn);
 
-          // 本轮所有 assistant 消息的文本列表（从上一个 user 消息之后到本条）
-          let turnTexts: string[] | undefined;
+          // 本轮 edit/write 文件变更列表（isTurnEnd 时传入）。
+          // 用 WeakMap 按 turn-end 消息对象缓存：同一消息对象对应的 turn 区间
+          // 不可变（历史消息不会被原地修改），缓存命中即返回稳定引用——
+          // 避免每次渲染重建数组、破坏 AssistantMessage 的 memo。
           let turnFileChanges: TurnFileChange[] | undefined;
           if (isTurnEnd) {
-            let turnStart = 0;
-            for (let j = i - 1; j >= 0; j--) {
-              if (safeMessages[j].role === "user") {
-                turnStart = j + 1;
-                break;
-              }
-            }
-            turnTexts = [];
-            for (let j = turnStart; j <= i; j++) {
-              const m = safeMessages[j];
-              if (m.role !== "assistant") continue;
-              const text = m.content ?? "";
-              if (text) turnTexts.push(text);
-            }
-            const changes = collectTurnFileChanges(safeMessages, i);
+            const changes = getTurnFileChanges(msg, safeMessages, i);
             turnFileChanges = changes.length > 0 ? changes : undefined;
           }
 
@@ -230,7 +218,6 @@ export const ChatMessageList = memo(function ChatMessageList({
               key={msg.id}
               message={msg}
               showActions={showTurnActions}
-              turnTexts={turnTexts}
               turnFileChanges={turnFileChanges}
               turnId={msg.id}
               turnDurationSec={msg.durationSec}
@@ -280,10 +267,28 @@ export const ChatMessageList = memo(function ChatMessageList({
 
 // ─── Message Item ───────────────────────────────────────────────────
 
+/**
+ * turn 文件变更缓存：key 为 turn-end 消息对象。
+ * turn 区间由消息列表的不可变前缀决定，同一 turn-end 消息对象的变更集合恒定，
+ * 缓存返回稳定数组引用，避免流式期间反复扫描 + memo 失效。
+ */
+const turnFileChangesCache = new WeakMap<ChatMessage, TurnFileChange[]>();
+
+function getTurnFileChanges(
+  turnEnd: ChatMessage,
+  messages: ChatMessage[],
+  index: number,
+): TurnFileChange[] {
+  const cached = turnFileChangesCache.get(turnEnd);
+  if (cached) return cached;
+  const changes = collectTurnFileChanges(messages, index);
+  turnFileChangesCache.set(turnEnd, changes);
+  return changes;
+}
+
 const MessageItem = memo(function MessageItem({
   message,
   showActions = false,
-  turnTexts,
   turnFileChanges,
   turnId,
   turnDurationSec,
@@ -294,9 +299,7 @@ const MessageItem = memo(function MessageItem({
 }: {
   message: ChatMessage;
   showActions?: boolean;
-  /** 本轮所有 assistant 消息的纯文本列表（isLastOfTurn 时传入） */
-  turnTexts?: string[];
-  /** 本轮所有 edit/write 文件变更列表（isLastOfTurn 时传入） */
+  /** 本轮所有 edit/write 文件变更列表（isLastOfTurn 时传入，引用稳定） */
   turnFileChanges?: TurnFileChange[];
   /** 代表本轮结束的 assistant 消息 ID。 */
   turnId?: string;
@@ -324,7 +327,6 @@ const MessageItem = memo(function MessageItem({
       <AssistantMessage
         message={message}
         showActions={showActions}
-        turnTexts={turnTexts}
         turnFileChanges={turnFileChanges}
         turnId={turnId}
         turnDurationSec={turnDurationSec}

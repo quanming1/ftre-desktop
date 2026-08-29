@@ -7,7 +7,7 @@
  * - 绑定发送/取消/快捷键、粘贴/拖拽图片
  * - 监听外部事件（rollback refill、plan next step）
  */
-import { useCallback, useEffect, useLayoutEffect, useMemo, useState, useRef } from "react";
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useState, useRef } from "react";
 import { Slate, Editable, ReactEditor } from "slate-react";
 import { Range } from "slate";
 import { ArrowUp, Box, ChevronRight, Paperclip, Plus, Terminal, X } from "lucide-react";
@@ -283,7 +283,9 @@ function MenuItem({
 
 // ─── 主组件 ────────────────────────────────────────────────────────
 
-export function ChatInput() {
+// memo：ChatInput 无 props；父级 ChatView 在流式期间每个 WS 批都重渲染，
+// memo 避免无变化的 Slate 编辑器子树跟着陪跑。
+export const ChatInput = memo(function ChatInput() {
   const inputEditor = useMemo(() => new ChatInputEditor(), []);
 
   // 模型切换后自动聚焦输入框（如果未聚焦）
@@ -966,4 +968,4 @@ export function ChatInput() {
       </div>
     </div>
   );
-}
+});

@@ -11,8 +11,15 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ChatMessage } from "@/stores/chat";
 
-/** 提取一条消息的全部可搜索文本（换行拼接）。 */
+/** 提取一条消息的全部可搜索文本（换行拼接）。
+ *  结果按消息对象引用缓存（WeakMap）：消息不可变，同一条消息不会重复提取；
+ *  流式期间每次重算只剩最后一条变化消息的 O(len)。 */
+const searchTextCache = new WeakMap<ChatMessage, string>();
+
 export function extractMessageText(message: ChatMessage): string {
+  const cached = searchTextCache.get(message);
+  if (cached !== undefined) return cached;
+
   const chunks: string[] = [];
   if (typeof message.content === "string" && message.content.trim()) {
     chunks.push(message.content);
@@ -31,7 +38,9 @@ export function extractMessageText(message: ChatMessage): string {
       }
     }
   }
-  return chunks.join("\n");
+  const joined = chunks.join("\n");
+  searchTextCache.set(message, joined);
+  return joined;
 }
 
 export interface MessageSearchHit {

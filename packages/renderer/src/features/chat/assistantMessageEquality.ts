@@ -4,7 +4,6 @@ import type { TurnFileChange } from "./turnFileChangeUtils";
 export interface AssistantMessageComparableProps {
   message: ChatMessage;
   showActions?: boolean;
-  turnTexts?: string[];
   turnFileChanges?: TurnFileChange[];
   turnDurationSec?: number;
   turnModel?: string;
@@ -80,7 +79,6 @@ export function assistantMessagePropsEqual(
   if (prev.message.isError !== next.message.isError) return false;
   if (prev.message.error !== next.message.error) return false;
   if (prev.showActions !== next.showActions) return false;
-  if (prev.turnTexts !== next.turnTexts) return false;
   if (prev.turnFileChanges !== next.turnFileChanges) return false;
   if (prev.turnDurationSec !== next.turnDurationSec) return false;
   if (prev.turnModel !== next.turnModel) return false;

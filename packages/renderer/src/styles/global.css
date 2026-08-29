@@ -551,6 +551,17 @@ html[data-theme="dark"] .tool-highlight .hljs-type {
 [data-msg-role="user"]:has(+ [data-assistant-message]) {
   padding-bottom: 0.75rem;
 }
+
+/* 长会话性能：离屏消息跳过 layout/paint（Chromium 原生虚拟化）。
+   contain-intrinsic-size 提供离屏占位高度，auto 前缀让浏览器记住
+   上次真实渲染高度，滚动往返时几乎无跳动。
+   不影响 Ctrl+F scrollIntoView 定位（浏览器会先 realize 目标再滚动）。 */
+[data-msg-role="user"],
+[data-assistant-message],
+[data-compact-bubble] {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 120px;
+}
 "/* ===== Sonner Toast ��ʽ���� (�޸���) ===== */"  
 "[data-sonner-toaster] {"  
 "  --normal-bg: var(--ftre-bg-elevated, #1a1b1d) !important;"  

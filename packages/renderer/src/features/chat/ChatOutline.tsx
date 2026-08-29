@@ -28,9 +28,17 @@ const MARKER_MIN_WIDTH = 6;
 const MARKER_MAX_WIDTH = 27;
 const MARKER_WIDTH_STEP = 3.25;
 
-/** 把 user 消息平铺成一行简短文字，给预览卡显示用。 */
+/** 把 user 消息平铺成一行简短文字，给预览卡显示用。
+ *  结果按消息对象引用缓存（WeakMap）：流式期间 getHistoryItems 每批重算，
+ *  未变化消息的全文 replace 不再重复执行。 */
+const summarizeCache = new WeakMap<ChatMessage, string>();
+
 function summarize(message: ChatMessage): string {
-  return (message.content ?? "").replace(/\s+/g, " ").trim();
+  const cached = summarizeCache.get(message);
+  if (cached !== undefined) return cached;
+  const summarized = (message.content ?? "").replace(/\s+/g, " ").trim();
+  summarizeCache.set(message, summarized);
+  return summarized;
 }
 
 function getHistoryItems(messages: ChatMessage[]): HistoryItem[] {
