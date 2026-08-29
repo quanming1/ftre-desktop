@@ -24,8 +24,17 @@ import {
   type TurnFileChange,
 } from "./turnFileChangeUtils";
 import { ContextMenu, type ContextMenuItem } from "@ftre/ui";
-import { remarkPlugins, rehypePlugins } from "@/lib/markdown-plugins";
+import { remarkPlugins, rehypePlugins, urlTransform } from "@/lib/markdown-plugins";
+import { FtreExtensionImage } from "@/lib/ftre-extensions";
+import { HttpLink, parseHttpUrl } from "@/components/HttpLink";
 import { shouldShowTurnActions } from "./turnActions";
+
+const compactMarkdownComponents = {
+  img: FtreExtensionImage,
+  a({ href, children }: { href?: string; children?: ReactNode }) {
+    return href && parseHttpUrl(href) ? <HttpLink href={href}>{children}</HttpLink> : <a href={href}>{children}</a>;
+  },
+};
 
 // ─── Types ──────────────────────────────────────────────────────────
 
@@ -413,7 +422,14 @@ const CompactBubble = memo(function CompactBubble({
       </button>
       {open && summaryPreview ? (
         <div className="markdown-body mt-2 max-w-[680px] text-[12px] opacity-80">
-          <ReactMarkdown remarkPlugins={[...remarkPlugins]} rehypePlugins={[...rehypePlugins]}>{summaryPreview}</ReactMarkdown>
+          <ReactMarkdown
+            remarkPlugins={[...remarkPlugins]}
+            rehypePlugins={[...rehypePlugins]}
+            components={compactMarkdownComponents}
+            urlTransform={urlTransform}
+          >
+            {summaryPreview}
+          </ReactMarkdown>
         </div>
       ) : null}
     </div>

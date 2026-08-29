@@ -27,9 +27,22 @@ export interface MentionChipElement {
   children: [{ text: "" }];
 }
 
+export interface SkillTokenElement {
+  type: "skill-token";
+  ref: {
+    version: "v1";
+    type: "skill";
+    name: string;
+    args: Record<string, string>;
+    raw: string;
+  };
+  children: [{ text: "" }];
+}
+
 export type CustomElement =
   | ParagraphElement
-  | MentionChipElement;
+  | MentionChipElement
+  | SkillTokenElement;
 
 export type CustomText = { text: string };
 

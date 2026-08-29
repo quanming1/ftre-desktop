@@ -32,4 +32,25 @@ describe("UserMessage", () => {
     fireEvent.click(copyButton);
     await waitFor(() => expect(writeText).toHaveBeenCalledWith("你好"));
   });
+
+  it("纯文本 HTTP 地址前显示站点 favicon", () => {
+    render(
+      <UserMessage
+        message={{
+          id: "user-http-link",
+          role: "user",
+          content: "参考 https://example.com/docs。",
+          timestamp: Date.now(),
+        }}
+      />,
+    );
+
+    const link = screen.getByRole("link", { name: /https:\/\/example\.com\/docs/ });
+    expect(link).toHaveAttribute("href", "https://example.com/docs");
+    expect(link.querySelector("img")).toHaveAttribute(
+      "src",
+      "https://example.com/favicon.ico",
+    );
+    expect(link.parentElement).toHaveTextContent("。");
+  });
 });

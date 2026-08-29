@@ -9,12 +9,13 @@
  * 故 mock slate-react 的渲染边界、保留真实 editor，用捕获的 onChange
  * 模拟"用户输入"——这正是回归所在的接线层。
  */
-import { render, screen, act, fireEvent } from "@testing-library/react";
+import { render, screen, act, fireEvent, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Descendant } from "slate";
 
 // 捕获 Slate 挂载时的 editor 与 onChange，供测试驱动
 let capturedOnChange: ((value: Descendant[]) => void) | null = null;
+const fetchSkillsMock = vi.hoisted(() => vi.fn().mockResolvedValue([]));
 
 vi.mock("slate-react", async (importOriginal) => {
   const actual = await importOriginal<typeof import("slate-react")>();
@@ -52,6 +53,7 @@ vi.mock("./TokenRing", () => ({ TokenRing: () => <div data-testid="token-ring" /
 vi.mock("./WorkspaceBadge", () => ({ WorkspaceBadge: () => <div data-testid="workspace-badge" /> }));
 vi.mock("@/services/api", () => ({
   fetchCommands: vi.fn().mockResolvedValue([]),
+  fetchSkills: fetchSkillsMock,
 }));
 
 import { ChatInput } from "./ChatInput";
@@ -65,6 +67,7 @@ const HELLO_DOC: Descendant[] = [
 describe("ChatInput 发送按钮", () => {
   beforeEach(() => {
     capturedOnChange = null;
+    fetchSkillsMock.mockClear();
     useChat.setState({
       sessionId: null,
       messages: [],
@@ -90,6 +93,12 @@ describe("ChatInput 发送按钮", () => {
     expect(surface).not.toHaveClass(
       "shadow-[0_2px_12px_rgba(15,23,42,0.08),inset_0_1px_0_rgba(255,255,255,0.6)]",
     );
+  });
+
+  it("从 HTTP Skill API 加载当前 Agent 的技能候选", async () => {
+    render(<ChatInput />);
+    await waitFor(() => expect(fetchSkillsMock).toHaveBeenCalled());
+    expect(fetchSkillsMock.mock.calls[0][0]).toBeDefined();
   });
 
   it("输入普通文本后发送按钮从禁用变为可点击", () => {

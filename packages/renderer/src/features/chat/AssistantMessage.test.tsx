@@ -780,7 +780,7 @@ describe("AssistantMessage 本地文件链接（file://）", () => {
     expect(tab?.revealLine).toBe(88);
   });
 
-  it("http 链接不受影响（仍渲染为 <a>）", () => {
+  it("http 链接带站点 favicon 且仍渲染为 <a>", () => {
     const message: ChatMessage = {
       id: "reply-weblink",
       role: "assistant",
@@ -793,5 +793,9 @@ describe("AssistantMessage 本地文件链接（file://）", () => {
     const link = screen.getByTitle("Ctrl + 点击在浏览器打开");
     expect(link.tagName).toBe("A");
     expect(link).toHaveAttribute("href", "https://example.com/docs");
+    expect(link.querySelector("img")).toHaveAttribute(
+      "src",
+      "https://example.com/favicon.ico",
+    );
   });
 });

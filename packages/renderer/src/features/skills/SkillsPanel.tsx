@@ -23,17 +23,25 @@ import {
   FileText,
   Folder,
   Zap,
+  Plus,
+  Pencil,
+  Save,
 } from "lucide-react";
 import { ToggleSwitch } from "@/components/ToggleSwitch";
 import {
   fetchSkills,
   fetchSkill,
+  createSkill,
+  updateSkill,
   deleteSkill,
   toggleSkillDisabled,
   type SkillSummary,
+  type SkillKind,
 } from "@/services/api";
 import { useNotification } from "@/stores/notification";
-import { remarkPlugins, rehypePlugins } from "@/lib/markdown-plugins";
+import { remarkPlugins, rehypePlugins, urlTransform } from "@/lib/markdown-plugins";
+import { FtreExtensionImage } from "@/lib/ftre-extensions";
+import { formatSkillName } from "@/lib/skill-display";
 import { Modal } from "@/components/Modal";
 
 // ─── Helpers ────────────────────────────────────────────────────────
@@ -52,13 +60,16 @@ function SkillCard({
   onPreview,
   onDelete,
   onToggleDisabled,
+  onEdit,
 }: {
   skill: SkillSummary;
   onPreview: () => void;
   onDelete: () => void;
   onToggleDisabled: () => void;
+  onEdit: () => void;
 }) {
   const KindIcon = skill.kind === "dir" ? Folder : FileText;
+  const readOnly = skill.scope === "private";
 
   return (
     <div
@@ -74,7 +85,7 @@ function SkillCard({
             <KindIcon size={13} className="text-neon/70" />
           </span>
           <span className="text-[15px] font-semibold text-t-primary truncate">
-            {skill.name}
+            <span title={skill.name}>{formatSkillName(skill.name)}</span>
           </span>
           {skill.disabled && (
             <span className="shrink-0 px-1.5 py-0.5 rounded text-[10px] font-medium bg-t-ghost/10 text-t-ghost">
@@ -90,13 +101,24 @@ function SkillCard({
           >
             <Eye size={13} />
           </button>
-          <button
-            onClick={(e) => { e.stopPropagation(); onDelete(); }}
-            title="删除"
-            className="w-7 h-7 rounded-full flex items-center justify-center text-t-ghost hover:text-red-400 hover:bg-red-400/10 transition-colors"
-          >
-            <Trash2 size={13} />
-          </button>
+          {!readOnly && (
+            <>
+              <button
+                onClick={(e) => { e.stopPropagation(); onEdit(); }}
+                title="编辑"
+                className="w-7 h-7 rounded-full flex items-center justify-center text-t-ghost hover:text-t-primary hover:bg-white/8 transition-colors"
+              >
+                <Pencil size={13} />
+              </button>
+              <button
+                onClick={(e) => { e.stopPropagation(); onDelete(); }}
+                title="删除"
+                className="w-7 h-7 rounded-full flex items-center justify-center text-t-ghost hover:text-red-400 hover:bg-red-400/10 transition-colors"
+              >
+                <Trash2 size={13} />
+              </button>
+            </>
+          )}
         </div>
       </div>
 
@@ -112,10 +134,10 @@ function SkillCard({
         ) : (
           <div />
         )}
-        <div onClick={(e) => e.stopPropagation()}>
+        <div onClick={(e) => e.stopPropagation()} className={readOnly ? "pointer-events-none opacity-60" : ""}>
           <ToggleSwitch
             checked={!skill.disabled}
-            onChange={() => onToggleDisabled()}
+            onChange={() => { if (!readOnly) onToggleDisabled(); }}
             size="sm"
           />
         </div>
@@ -143,7 +165,12 @@ function SkillPreview({
 
   return (
     <div className="markdown-body">
-      <ReactMarkdown remarkPlugins={[...remarkPlugins]} rehypePlugins={[...rehypePlugins]}>
+      <ReactMarkdown
+        remarkPlugins={[...remarkPlugins]}
+        rehypePlugins={[...rehypePlugins]}
+        components={{ img: FtreExtensionImage }}
+        urlTransform={urlTransform}
+      >
         {content || "（空内容）"}
       </ReactMarkdown>
     </div>
@@ -154,7 +181,9 @@ function SkillPreview({
 
 type EditState =
   | null
-  | { mode: "preview"; name: string; content: string; loading: boolean };
+  | { mode: "preview"; name: string; content: string; loading: boolean }
+  | { mode: "create"; name: string; description: string; content: string; kind: SkillKind; saving: boolean }
+  | { mode: "edit"; name: string; content: string; loading: boolean; saving: boolean };
 
 export function SkillsPanel() {
   const [skills, setSkills] = useState<SkillSummary[]>([]);
@@ -199,11 +228,57 @@ export function SkillsPanel() {
     });
   }, []);
 
+  const openEdit = useCallback(async (name: string) => {
+    setEditing({ mode: "edit", name, content: "", loading: true, saving: false });
+    const res = await fetchSkill(name);
+    if ("error" in res) {
+      useNotification.getState().addNotification({ level: "error", message: `打开失败: ${res.error}` });
+      setEditing(null);
+      return;
+    }
+    setEditing({ mode: "edit", name, content: res.skill.content, loading: false, saving: false });
+  }, []);
+
+  const submitCreate = useCallback(async () => {
+    if (!editing || editing.mode !== "create") return;
+    if (!editing.name.trim()) {
+      useNotification.getState().addNotification({ level: "warning", message: "请输入 Skill 名称" });
+      return;
+    }
+    setEditing({ ...editing, saving: true });
+    const result = await createSkill({
+      name: editing.name.trim(),
+      description: editing.description,
+      content: editing.content,
+      kind: editing.kind,
+    });
+    if ("error" in result) {
+      setEditing({ ...editing, saving: false });
+      useNotification.getState().addNotification({ level: "error", message: `创建失败: ${result.error}` });
+      return;
+    }
+    setEditing(null);
+    await reload();
+  }, [editing, reload]);
+
+  const submitEdit = useCallback(async () => {
+    if (!editing || editing.mode !== "edit" || editing.loading) return;
+    setEditing({ ...editing, saving: true });
+    const result = await updateSkill(editing.name, editing.content);
+    if ("error" in result) {
+      setEditing({ ...editing, saving: false });
+      useNotification.getState().addNotification({ level: "error", message: `保存失败: ${result.error}` });
+      return;
+    }
+    setEditing(null);
+    await reload();
+  }, [editing, reload]);
+
   const handleDelete = useCallback(
     async (skill: SkillSummary) => {
       const extra =
         skill.kind === "dir" ? "（将连同其目录下所有资源一并删除）" : "";
-      if (!confirm(`确定删除 Skill「${skill.name}」？${extra}`)) return;
+      if (!confirm(`确定删除 Skill「${formatSkillName(skill.name)}」？${extra}`)) return;
       const res = await deleteSkill(skill.name);
       if ("error" in res) {
         useNotification.getState().addNotification({
@@ -230,8 +305,8 @@ export function SkillsPanel() {
       useNotification.getState().addNotification({
         level: "success",
         message: res.disabled
-          ? `已禁用 Skill「${skill.name}」`
-          : `已启用 Skill「${skill.name}」`,
+          ? `已禁用 Skill「${formatSkillName(skill.name)}」`
+          : `已启用 Skill「${formatSkillName(skill.name)}」`,
       });
       await reload();
     },
@@ -262,6 +337,13 @@ export function SkillsPanel() {
             </p>
           </div>
           <div className="flex items-center gap-2">
+            <button
+              onClick={() => setEditing({ mode: "create", name: "", description: "", content: "", kind: "dir", saving: false })}
+              title="新建 Skill"
+              className="inline-flex h-8 items-center gap-1.5 rounded-lg px-2.5 text-[12px] text-t-dim hover:text-t-primary hover:bg-hover transition-colors"
+            >
+              <Plus size={14} /> 新建
+            </button>
             <button onClick={reload} disabled={loading} title="刷新"
               className="w-8 h-8 rounded-lg flex items-center justify-center text-t-dim hover:text-t-primary hover:bg-white/6 transition-colors disabled:opacity-30"
             >
@@ -315,6 +397,7 @@ export function SkillsPanel() {
             {filtered.map((skill) => (
               <SkillCard key={skill.name} skill={skill}
                 onPreview={() => openPreview(skill.name)}
+                onEdit={() => openEdit(skill.name)}
                 onDelete={() => handleDelete(skill)}
                 onToggleDisabled={() => handleToggleDisabled(skill)}
               />
@@ -335,7 +418,7 @@ export function SkillsPanel() {
         <Modal
           open
           onClose={() => setEditing(null)}
-          title={`预览 · ${editing.name}`}
+          title={`预览 · ${formatSkillName(editing.name)}`}
           width={900}
         >
           <SkillPreview
@@ -345,6 +428,120 @@ export function SkillsPanel() {
           />
         </Modal>
       )}
+      {editing?.mode === "create" && (
+        <Modal open onClose={() => setEditing(null)} title="新建 Skill" width={760}>
+          <SkillForm
+            mode="create"
+            name={editing.name}
+            description={editing.description}
+            kind={editing.kind}
+            content={editing.content}
+            saving={editing.saving}
+            onChange={(patch) => setEditing((current) => current?.mode === "create" ? { ...current, ...patch } : current)}
+            onCancel={() => setEditing(null)}
+            onSubmit={submitCreate}
+          />
+        </Modal>
+      )}
+      {editing?.mode === "edit" && (
+          <Modal open onClose={() => setEditing(null)} title={`编辑 · ${formatSkillName(editing.name)}`} width={900}>
+          {editing.loading ? (
+            <div className="flex items-center justify-center py-16"><Loader2 size={18} className="text-t-ghost animate-spin" /></div>
+          ) : (
+            <SkillForm
+              mode="edit"
+              name={editing.name}
+              description=""
+              kind="file"
+              content={editing.content}
+              saving={editing.saving}
+              onChange={(patch) => setEditing((current) => current?.mode === "edit" ? { ...current, ...patch } : current)}
+              onCancel={() => setEditing(null)}
+              onSubmit={submitEdit}
+            />
+          )}
+        </Modal>
+      )}
+    </div>
+  );
+}
+
+function SkillForm({
+  mode,
+  name,
+  description,
+  kind,
+  content,
+  saving,
+  onChange,
+  onCancel,
+  onSubmit,
+}: {
+  mode: "create" | "edit";
+  name: string;
+  description: string;
+  kind: SkillKind;
+  content: string;
+  saving: boolean;
+  onChange: (patch: Partial<{ name: string; description: string; kind: SkillKind; content: string }>) => void;
+  onCancel: () => void;
+  onSubmit: () => void;
+}) {
+  return (
+    <div className="flex flex-col gap-4">
+      <div className="grid grid-cols-[1fr_auto] gap-3">
+        <label className="flex flex-col gap-1.5 text-[12px] text-t-dim">
+          名称
+          <input
+            value={name}
+            disabled={mode === "edit" || saving}
+            onChange={(event) => onChange({ name: event.target.value })}
+            placeholder="review-code"
+            className="rounded-lg border border-border-subtle bg-surface px-3 py-2 text-[13px] text-t-primary outline-none focus:border-neon/50 disabled:opacity-60"
+          />
+        </label>
+        {mode === "create" && (
+          <label className="flex flex-col gap-1.5 text-[12px] text-t-dim">
+            存储
+            <select
+              value={kind}
+              onChange={(event) => onChange({ kind: event.target.value as SkillKind })}
+              className="rounded-lg border border-border-subtle bg-surface px-3 py-2 text-[13px] text-t-primary outline-none"
+            >
+              <option value="dir">目录</option>
+              <option value="file">文件</option>
+            </select>
+          </label>
+        )}
+      </div>
+      {mode === "create" && (
+        <label className="flex flex-col gap-1.5 text-[12px] text-t-dim">
+          描述
+          <input
+            value={description}
+            disabled={saving}
+            onChange={(event) => onChange({ description: event.target.value })}
+            placeholder="这个 Skill 用来做什么"
+            className="rounded-lg border border-border-subtle bg-surface px-3 py-2 text-[13px] text-t-primary outline-none focus:border-neon/50"
+          />
+        </label>
+      )}
+      <label className="flex flex-col gap-1.5 text-[12px] text-t-dim">
+        内容（Markdown）
+        <textarea
+          value={content}
+          disabled={saving}
+          onChange={(event) => onChange({ content: event.target.value })}
+          rows={16}
+          className="resize-y rounded-lg border border-border-subtle bg-surface px-3 py-2 font-mono text-[13px] leading-relaxed text-t-primary outline-none focus:border-neon/50"
+        />
+      </label>
+      <div className="flex justify-end gap-2">
+        <button type="button" onClick={onCancel} className="rounded-lg px-3 py-2 text-[12px] text-t-dim hover:bg-hover">取消</button>
+        <button type="button" onClick={onSubmit} disabled={saving} className="inline-flex items-center gap-1.5 rounded-lg bg-neon px-3 py-2 text-[12px] text-white disabled:opacity-50">
+          <Save size={13} /> {saving ? "保存中…" : mode === "create" ? "创建" : "保存"}
+        </button>
+      </div>
     </div>
   );
 }

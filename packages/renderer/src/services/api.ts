@@ -871,6 +871,8 @@ export interface SkillSummary {
   /** Skill 唯一标识。Skill 以名称为主键，这里 id === name（兼容 @ 提及/chip）。 */
   id: string;
   name: string;
+  /** Portable semantic resource identity; never pass this value to fs IPC. */
+  uri: string;
   description: string;
   kind: SkillKind;
   /** 内容文件最近修改时间（epoch 秒） */
@@ -879,11 +881,27 @@ export interface SkillSummary {
   disabled?: boolean;
   /** 来源范围：global（~/.ftre/skills）或 private（~/.ftre/agents/<id>/skills） */
   scope?: "global" | "private";
+  user_invocable?: boolean;
+  model_invocable?: boolean;
 }
 
 /** 详情：含完整正文 */
 export interface SkillDetail extends SkillSummary {
   content: string;
+  media_type: string;
+  revision: string;
+  source: SkillSource;
+  capabilities: SkillCapabilities;
+}
+
+export type SkillSource =
+  | { kind: "filesystem"; path: string }
+  | { kind: "content" };
+
+export interface SkillCapabilities {
+  read: boolean;
+  browse: boolean;
+  write: boolean;
 }
 
 /** 创建 Skill 的输入 */
@@ -903,30 +921,50 @@ function mapSkillRow(s: any): SkillSummary {
   return {
     id: name,
     name,
+    uri: typeof s?.uri === "string" ? s.uri : `ftre://v1/skill/${name}`,
     description: typeof s?.description === "string" ? s.description : "",
     kind: s?.kind === "file" ? "file" : "dir",
     updated_at: typeof s?.updated_at === "number" ? s.updated_at : 0,
     disabled: s?.disabled === true,
     scope: s?.scope === "private" ? "private" : "global",
+    user_invocable: s?.user_invocable !== false,
+    model_invocable: s?.model_invocable !== false,
+  };
+}
+
+function mapSkillDetail(s: any): SkillDetail {
+  const summary = mapSkillRow(s);
+  const source = s?.source?.kind === "filesystem" && typeof s?.source?.path === "string"
+    ? { kind: "filesystem" as const, path: s.source.path }
+    : { kind: "content" as const };
+  return {
+    ...summary,
+    content: typeof s?.content === "string" ? s.content : "",
+    media_type: typeof s?.media_type === "string" ? s.media_type : "text/markdown",
+    revision: typeof s?.revision === "string" ? s.revision : `updated:${summary.updated_at}`,
+    source,
+    capabilities: {
+      read: s?.capabilities?.read !== false,
+      browse: source.kind === "filesystem" && s?.capabilities?.browse === true,
+      write: source.kind === "filesystem" && s?.capabilities?.write === true,
+    },
   };
 }
 
 /** 获取 Skill 列表。传 agentId 时返回全局 + 该 agent 私有 skill（私有覆盖同名全局）。 */
 export async function fetchSkills(
   agentId?: string | null,
+  workspace?: string | null,
+  signal?: AbortSignal,
 ): Promise<SkillSummary[]> {
-  try {
-    const url = agentId
-      ? `${SKILLS_API}?agent_id=${encodeURIComponent(agentId)}`
-      : SKILLS_API;
-    const res = await fetch(url);
-    if (!res.ok) return [];
-    const data = await res.json();
-    return Array.isArray(data?.skills) ? data.skills.map(mapSkillRow) : [];
-  } catch (e) {
-    console.error("[api] fetchSkills failed:", e);
-    return [];
-  }
+  const params = new URLSearchParams();
+  if (agentId) params.set("agent_id", agentId);
+  if (workspace) params.set("workspace", workspace);
+  const query = params.toString();
+  const res = await fetch(query ? `${SKILLS_API}?${query}` : SKILLS_API, { signal });
+  if (!res.ok) throw new Error(await _readError(res));
+  const data = await res.json();
+  return Array.isArray(data?.skills) ? data.skills.map(mapSkillRow) : [];
 }
 
 // ─── Commands（斜杠指令）────────────────────────────────────────────
@@ -955,12 +993,20 @@ export async function fetchCommands(): Promise<CommandDef[]> {
 
 export async function fetchSkill(
   name: string,
+  agentId?: string | null,
+  workspace?: string | null,
 ): Promise<{ skill: SkillDetail } | { error: string }> {
   try {
-    const res = await fetch(`${SKILLS_API}/${encodeURIComponent(name)}`);
+    const params = new URLSearchParams();
+    if (agentId) params.set("agent_id", agentId);
+    if (workspace) params.set("workspace", workspace);
+    const query = params.toString();
+    const res = await fetch(
+      `${SKILLS_API}/${encodeURIComponent(name)}${query ? `?${query}` : ""}`,
+    );
     if (!res.ok) return { error: await _readError(res) };
     const raw = await res.json();
-    return { skill: { ...mapSkillRow(raw), content: raw?.content ?? "" } };
+    return { skill: mapSkillDetail(raw) };
   } catch (e) {
     return { error: (e as Error).message || "网络错误" };
   }
@@ -977,7 +1023,7 @@ export async function createSkill(
     });
     if (!res.ok) return { error: await _readError(res) };
     const raw = await res.json();
-    return { skill: { ...mapSkillRow(raw), content: raw?.content ?? "" } };
+    return { skill: mapSkillDetail(raw) };
   } catch (e) {
     return { error: (e as Error).message || "网络错误" };
   }
@@ -995,7 +1041,7 @@ export async function updateSkill(
     });
     if (!res.ok) return { error: await _readError(res) };
     const raw = await res.json();
-    return { skill: { ...mapSkillRow(raw), content: raw?.content ?? "" } };
+    return { skill: mapSkillDetail(raw) };
   } catch (e) {
     return { error: (e as Error).message || "网络错误" };
   }

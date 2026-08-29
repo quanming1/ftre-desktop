@@ -19,9 +19,11 @@ import {
 import { Tooltip, TooltipProvider } from "@ftre/ui";
 import { useNotification } from "@/stores/notification";
 import { remarkPlugins, rehypePlugins, urlTransform } from "@/lib/markdown-plugins";
+import { FtreExtensionImage } from "@/lib/ftre-extensions";
 import { useAutoScrollToBottom } from "@/hooks/auto-scroll";
 import { MermaidBlock } from "@/components/MermaidBlock";
 import { FileLink } from "@/components/FileLink";
+import { HttpLink, parseHttpUrl } from "@/components/HttpLink";
 import { formatAbsoluteMessageTime, formatMessageTime } from "./messageTime";
 import {
   assistantMessagePropsEqual,
@@ -34,6 +36,7 @@ import {
 } from "./assistantMessageDisplay";
 
 const markdownComponents = {
+  img: FtreExtensionImage,
   // 围栏代码块（带 language-）的外层 <pre> 透传：把样式控制权交给 <CodeBlock />，
   // 避免 .markdown-body pre 的背景/边框/圆角再包一层。
   // 无语言标识的 fenced 代码仍走默认 <pre>，保留块级语义。
@@ -64,6 +67,9 @@ const markdownComponents = {
     if (href && /^file:\/\//i.test(href)) {
       const label = typeof children === "string" ? children : "";
       return <FileLink href={href} label={label} />;
+    }
+    if (href && parseHttpUrl(href)) {
+      return <HttpLink href={href}>{children}</HttpLink>;
     }
     const handleClick = (e: React.MouseEvent) => {
       e.preventDefault();

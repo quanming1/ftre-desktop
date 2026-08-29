@@ -2,6 +2,21 @@
 
 ## [未发布]
 
+### A2 聊天消息渲染
+
+- HTTP/HTTPS 链接图标按站点 `favicon.ico`、常见图片格式和站点图标解析服务逐级回退；站点缺少
+  `/favicon.ico` 时不再错误地直接显示通用地球图标，链接尺寸和 Ctrl/⌘ 外部打开行为保持不变。
+
+### C6 通用 Markdown 扩展与 Skill UI
+
+- 输入框按 `/` 通过 `/api/skills` 加载当前 Agent/工作区 Skill，支持加载失败重试和完整
+  CRUD；选择后插入 `ftre://v1` canonical token。
+- Skill token 在输入框、用户消息、AI 消息、摘要和 MarkdownPreview 中统一渲染为可展开
+  Card，未知扩展安全降级且不会触发网络资源加载。
+- Skill 详情按当前 Session 的 Agent/工作区解析；文件来源使用后端返回的真实 `SKILL.md`
+  路径打开现有 FileRenderer，内容来源保持只读快照，避免 `ftre://` 被误当成本地路径。
+- 虚拟 Skill 预览缺少内容快照时不再回退本地文件系统读取。
+
 ### F37 内嵌 Gateway 启动生命周期
 
 - 删除旧 `backend.ts`，由 `BackendSupervisor` 统一启动、ready 探测、崩溃恢复、重启和退出；Windows

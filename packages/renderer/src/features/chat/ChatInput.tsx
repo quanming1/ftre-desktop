@@ -17,7 +17,7 @@ import { useLayout } from "@/stores/layout";
 import { useInspector } from "@/stores/inspector";
 import { useSession } from "@/stores/session";
 import { useNotification } from "@/stores/notification";
-import { fetchCommands, type CommandDef } from "@/services/api";
+import { fetchCommands, fetchSkills, type CommandDef, type SkillSummary } from "@/services/api";
 import { saveSessionDraft, getSessionDraft, deleteSessionDraft as removeDraft } from "./sessionDrafts";
 import { AgentBar } from "./AgentBar";
 import { TokenRing } from "./TokenRing";
@@ -35,6 +35,8 @@ import {
   type ImageRef,
   type ImageAttachmentDTO,
 } from "./slate";
+import { serializeFtreRef } from "@/lib/ftre-extensions";
+import { formatSkillName } from "@/lib/skill-display";
 import {
   fileToImageRef,
   extractImageFiles,
@@ -64,15 +66,19 @@ function notifySendFailure(
 function SlashDropdown({
   commands,
   skills,
+  skillLoading,
+  skillError,
   selectedIndex,
   onSelectCommand,
   onSelectSkill,
 }: {
   commands: CommandDef[];
-  skills: CommandDef[];
+  skills: SkillSummary[];
+  skillLoading: boolean;
+  skillError: string | null;
   selectedIndex: number;
   onSelectCommand: (cmd: CommandDef) => void;
-  onSelectSkill: (cmd: CommandDef) => void;
+  onSelectSkill: (skill: SkillSummary) => void;
 }) {
   const listRef = useRef<HTMLDivElement>(null);
 
@@ -83,7 +89,7 @@ function SlashDropdown({
     item?.scrollIntoView({ block: "nearest" });
   }, [selectedIndex]);
 
-  if (commands.length === 0 && skills.length === 0) return null;
+  if (commands.length === 0 && skills.length === 0 && !skillLoading && !skillError) return null;
 
   return (
     <div
@@ -130,7 +136,7 @@ function SlashDropdown({
             const idx = commands.length + i;
             return (
               <button
-                key={skill.command}
+                key={skill.id || skill.name}
                 data-slash-index={idx}
                 onMouseDown={(e) => {
                   e.preventDefault();
@@ -143,18 +149,27 @@ function SlashDropdown({
                 }`}
               >
                 <Box size={14} strokeWidth={1.9} className="shrink-0 text-t-secondary" />
-                <span className="shrink-0 text-[13px] leading-5 font-medium text-t-primary truncate max-w-[240px]">
-                  {skill.command.replace("/skill:", "")}
+                <span
+                  className="shrink-0 text-[13px] leading-5 font-medium text-t-primary truncate max-w-[240px]"
+                  title={skill.name}
+                >
+                  {formatSkillName(skill.name)}
                 </span>
                 {skill.description && (
                   <span className="min-w-0 flex-1 truncate text-[13px] leading-5 text-t-muted">
                     {skill.description}
-                  </span>
+                </span>
                 )}
               </button>
             );
           })}
         </>
+      )}
+      {skillLoading && skills.length === 0 && (
+        <div className="px-3 py-2 text-[12px] text-t-muted">正在加载技能…</div>
+      )}
+      {skillError && skills.length === 0 && (
+        <div className="px-3 py-2 text-[12px] text-red-400/80">技能加载失败：{skillError}</div>
       )}
     </div>
   );
@@ -317,11 +332,16 @@ export const ChatInput = memo(function ChatInput() {
   const canCancel = useChat((s) => s.canCancel);
   const hasCoordinatorState = useChat((s) => s.hasCoordinatorState);
   const sessionId = useChat((s) => s.sessionId);
+  const agentId = useChat((s) => s.agentId);
   const messages = useChat((s) => s.messages);
   const pendingMessages = useChat((s) => s.pendingMessages);
   const lastUserInputTs = useChat((s) => s.lastUserInputTs);
   const sessions = useSession((s) => s.sessions);
   const allSessions = useSession((s) => s.allSessions);
+  const currentWorkspace = useMemo(() => {
+    const current = [...sessions, ...allSessions].find((item) => item.session_id === sessionId);
+    return current?.workspace || null;
+  }, [allSessions, sessionId, sessions]);
   const autoFollow = useLayout((s) => s.autoFollowFiles);
   const toggleAutoFollow = useLayout((s) => s.toggleAutoFollowFiles);
   /** 输入框是否有文字（Slate 非受控，需在 onChange 中显式同步，见 handleSlateChange） */
@@ -381,19 +401,57 @@ export const ChatInput = memo(function ChatInput() {
   } | null>(null);
   const [skillIndex, setSkillIndex] = useState(0);
   const [commandList, setCommandList] = useState<CommandDef[]>([]);
+  const [skillList, setSkillList] = useState<SkillSummary[]>([]);
+  const [skillLoading, setSkillLoading] = useState(false);
+  const [skillError, setSkillError] = useState<string | null>(null);
+  const skillRequestRef = useRef<AbortController | null>(null);
 
   // 加载指令列表（全局，与工作区无关）
   useEffect(() => {
     fetchCommands().then(setCommandList);
   }, []);
 
-  // 过滤候选指令（/ 面板顶部，排除 /skill: 开头的指令——它们归入技能分组）
+  // Skill 列表随当前 Agent/工作区刷新，避免把旧 session 的目录显示到新会话。
+  const loadSkills = useCallback(() => {
+    skillRequestRef.current?.abort();
+    const controller = new AbortController();
+    skillRequestRef.current = controller;
+    setSkillLoading(true);
+    setSkillError(null);
+    fetchSkills(agentId, currentWorkspace, controller.signal)
+      .then((items) => {
+        if (!controller.signal.aborted) setSkillList(items);
+      })
+      .catch((error) => {
+        if (!controller.signal.aborted) {
+          setSkillList([]);
+          setSkillError(error instanceof Error ? error.message : "网络错误");
+        }
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setSkillLoading(false);
+    });
+  }, [agentId, currentWorkspace]);
+
+  useEffect(() => {
+    loadSkills();
+    return () => skillRequestRef.current?.abort();
+  }, [loadSkills]);
+
+  // 后端刚启动或网络短暂中断时，第一次加载可能失败；打开 / 面板时重试一次。
+  const skillMenuOpen = skillSearch !== null;
+  const skillMenuWasOpen = useRef(false);
+  useEffect(() => {
+    if (skillMenuOpen && !skillMenuWasOpen.current) loadSkills();
+    skillMenuWasOpen.current = skillMenuOpen;
+  }, [loadSkills, skillMenuOpen]);
+
+  // 过滤候选指令（/ 面板顶部；Skill 候选来自独立的 HTTP 目录）
   const commandCandidates = useMemo(() => {
     if (!skillSearch) return [];
     const q = skillSearch.search.toLowerCase();
     return commandList.filter(
       (c) => {
-        if (c.command.startsWith("/skill:")) return false;
         // /cancel 只在确实存在可取消的活动 Turn 时展示。
         if (c.command === "/cancel" && !canCancel) return false;
         return (
@@ -404,17 +462,17 @@ export const ChatInput = memo(function ChatInput() {
     );
   }, [skillSearch, commandList, canCancel]);
 
-  // 过滤候选 skill（从指令列表中筛选 /skill: 开头的）
+  // 过滤候选 Skill（来自后端 /api/skills）
   const skillCandidates = useMemo(() => {
     if (!skillSearch) return [];
     const q = skillSearch.search.toLowerCase();
-    return commandList.filter(
-      (c) =>
-        c.command.startsWith("/skill:") &&
-        (c.command.toLowerCase().includes(q) ||
-          c.description.toLowerCase().includes(q)),
+    return skillList.filter(
+      (skill) =>
+        !skill.disabled && skill.user_invocable !== false &&
+        (skill.name.toLowerCase().includes(q) ||
+          skill.description.toLowerCase().includes(q)),
     );
-  }, [skillSearch, commandList]);
+  }, [skillSearch, skillList]);
 
   // 合并候选总数（指令在前，技能在后），键盘导航用统一索引
   const slashTotal = commandCandidates.length + skillCandidates.length;
@@ -512,6 +570,25 @@ export const ChatInput = memo(function ChatInput() {
       }
       setSkillSearch(null);
       setSkillIndex(0);
+    },
+    [inputEditor, skillSearch],
+  );
+
+  const handleSelectSkill = useCallback(
+    (skill: SkillSummary) => {
+      if (!skillSearch) return;
+      const baseRef = {
+        version: "v1",
+        type: "skill",
+        name: skill.name,
+        args: {},
+      } as const;
+      const ref = { ...baseRef, raw: serializeFtreRef(baseRef) } as const;
+      inputEditor.replaceRangeWithSkill(skillSearch.range, ref);
+      setSkillSearch(null);
+      setSkillIndex(0);
+      // 先卸载下拉列表，再把焦点交还给 Slate，避免 React 重渲染抢走焦点。
+      window.requestAnimationFrame(() => inputEditor.focus());
     },
     [inputEditor, skillSearch],
   );
@@ -629,10 +706,10 @@ export const ChatInput = memo(function ChatInput() {
       if (idx < commandCandidates.length) {
         handleSelectCommand(commandCandidates[idx]);
       } else {
-        handleSelectCommand(skillCandidates[idx - commandCandidates.length]);
+        handleSelectSkill(skillCandidates[idx - commandCandidates.length]);
       }
     },
-    [commandCandidates, skillCandidates, handleSelectCommand],
+    [commandCandidates, skillCandidates, handleSelectCommand, handleSelectSkill],
   );
 
   const onKeyDown = useCallback(
@@ -840,7 +917,9 @@ export const ChatInput = memo(function ChatInput() {
               skills={skillCandidates}
               selectedIndex={skillIndex}
               onSelectCommand={handleSelectCommand}
-              onSelectSkill={handleSelectCommand}
+              onSelectSkill={handleSelectSkill}
+              skillLoading={skillLoading}
+              skillError={skillError}
             />
           )}
 
