@@ -32,6 +32,16 @@ describe("ftre inline extensions", () => {
     expect(parts[2].text).toBe(" after");
   });
 
+  it("recognizes a bare Skill URI copied from a rendered message", () => {
+    const parts = parseFtreTokens("before ftre://v1/skill/review-code?path=src after");
+    expect(parts).toHaveLength(3);
+    expect(parts[1].ref).toMatchObject({
+      type: "skill",
+      name: "review-code",
+      args: { path: "src" },
+    });
+  });
+
   it("renders a link-like skill and opens its SKILL.md in the inspector", async () => {
     useInspector.setState({ tabs: [], activeTabId: null });
     fetchSkillMock.mockResolvedValueOnce({
@@ -100,5 +110,38 @@ describe("ftre inline extensions", () => {
       type: "file",
       filePath: "E:/project/.ftre/skills/workspace-skill/SKILL.md",
     });
+  });
+
+  it("shows Skill origin, command and route in the preview tooltip", async () => {
+    useInspector.setState({ tabs: [], activeTabId: null });
+    fetchSkillMock.mockClear();
+    fetchSkillMock.mockResolvedValueOnce({
+      skill: {
+        id: "project-review",
+        name: "project-review",
+        uri: "ftre://v1/skill/project-review",
+        description: "Review a change",
+        kind: "dir",
+        scope: "project",
+        route: "ftre://v1/skill/project-review",
+        updated_at: 0,
+        content: "# Review",
+        source: { kind: "filesystem", path: "E:/project/.ftre/skills/review-code/SKILL.md" },
+        capabilities: { read: true, browse: true, write: false },
+      },
+    });
+
+    render(
+      <SkillReferenceCard
+        ref={{ version: "v1", type: "skill", name: "project-review", args: {}, raw: "" }}
+      />,
+    );
+    const trigger = screen.getByRole("button", { name: "打开 Skill：Project Review" });
+    fireEvent.focus(trigger);
+
+    await waitFor(() => expect(fetchSkillMock).toHaveBeenCalled());
+    expect((await screen.findAllByText("项目 Skill")).length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Command").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Route").length).toBeGreaterThan(0);
   });
 });

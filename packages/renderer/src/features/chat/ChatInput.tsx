@@ -8,7 +8,7 @@
  * - 监听外部事件（rollback refill、plan next step）
  */
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useState, useRef } from "react";
-import { Slate, Editable, ReactEditor } from "slate-react";
+import { Slate, Editable } from "slate-react";
 import { Range } from "slate";
 import { ArrowUp, Box, ChevronRight, Paperclip, Plus, Terminal, X } from "lucide-react";
 import { useChat, type MessageAttachment } from "@/stores/chat";
@@ -35,8 +35,8 @@ import {
   type ImageRef,
   type ImageAttachmentDTO,
 } from "./slate";
-import { serializeFtreRef } from "@/lib/ftre-extensions";
-import { formatSkillName } from "@/lib/skill-display";
+import { hasFtreToken, serializeFtreRef } from "@/lib/ftre-extensions";
+import { classifySkillOrigin, formatSkillName } from "@/lib/skill-display";
 import {
   fileToImageRef,
   extractImageFiles,
@@ -71,6 +71,7 @@ function SlashDropdown({
   selectedIndex,
   onSelectCommand,
   onSelectSkill,
+  workspace,
 }: {
   commands: CommandDef[];
   skills: SkillSummary[];
@@ -79,6 +80,7 @@ function SlashDropdown({
   selectedIndex: number;
   onSelectCommand: (cmd: CommandDef) => void;
   onSelectSkill: (skill: SkillSummary) => void;
+  workspace?: string | null;
 }) {
   const listRef = useRef<HTMLDivElement>(null);
 
@@ -86,7 +88,9 @@ function SlashDropdown({
     const item = listRef.current?.querySelector(
       `[data-slash-index="${selectedIndex}"]`,
     ) as HTMLElement | undefined;
-    item?.scrollIntoView({ block: "nearest" });
+    if (item && typeof item.scrollIntoView === "function") {
+      item.scrollIntoView({ block: "nearest" });
+    }
   }, [selectedIndex]);
 
   if (commands.length === 0 && skills.length === 0 && !skillLoading && !skillError) return null;
@@ -125,6 +129,9 @@ function SlashDropdown({
                   {cmd.description}
                 </span>
               )}
+              <span className="shrink-0 text-[10px] text-t-ghost">
+                {cmd.system ? "系统" : cmd.source || "插件"}
+              </span>
             </button>
           ))}
         </>
@@ -134,6 +141,13 @@ function SlashDropdown({
           <div className="px-3 pb-1 pt-1 text-[12px] leading-5 text-t-muted">技能</div>
           {skills.map((skill, i) => {
             const idx = commands.length + i;
+            const origin = classifySkillOrigin({
+              origin: skill.origin,
+              scope: skill.scope,
+              route: skill.route,
+              sourcePath: skill.source?.kind === "filesystem" ? skill.source.path : undefined,
+              workspace,
+            });
             return (
               <button
                 key={skill.id || skill.name}
@@ -158,8 +172,9 @@ function SlashDropdown({
                 {skill.description && (
                   <span className="min-w-0 flex-1 truncate text-[13px] leading-5 text-t-muted">
                     {skill.description}
-                </span>
+                  </span>
                 )}
+                <span className="shrink-0 text-[10px] text-t-ghost">{origin.shortLabel}</span>
               </button>
             );
           })}
@@ -302,6 +317,35 @@ function MenuItem({
 // memo 避免无变化的 Slate 编辑器子树跟着陪跑。
 export const ChatInput = memo(function ChatInput() {
   const inputEditor = useMemo(() => new ChatInputEditor(), []);
+  const editableRef = useRef<HTMLDivElement | null>(null);
+  const focusRestorePendingRef = useRef(false);
+
+  // Slash 面板会在选择后卸载，不能依赖浏览器默认焦点恢复；先让
+  // Slate 同步选区，再对真实 contenteditable 节点做一次兜底聚焦。
+  const focusInput = useCallback(() => {
+    try {
+      inputEditor.focus();
+    } catch {
+      // Slate 尚未完成 DOM 映射时由下面的原生节点聚焦兜底。
+    }
+    editableRef.current?.focus({ preventScroll: true });
+  }, [inputEditor]);
+
+  const restoreInputFocus = useCallback(() => {
+    focusRestorePendingRef.current = true;
+    // 先立即恢复一次，随后在 Slash 面板卸载后的两个渲染帧再次确认。
+    // 这样既覆盖键盘选择，也覆盖鼠标选择导致的焦点转移。
+    focusInput();
+    window.requestAnimationFrame(() => {
+      if (!focusRestorePendingRef.current) return;
+      focusInput();
+      window.requestAnimationFrame(() => {
+        if (!focusRestorePendingRef.current) return;
+        focusInput();
+        focusRestorePendingRef.current = false;
+      });
+    });
+  }, [focusInput]);
 
   // 模型切换后自动聚焦输入框（如果未聚焦）
   // ── 发送按钮水波纹 ──
@@ -370,9 +414,9 @@ export const ChatInput = memo(function ChatInput() {
     }
     // 切换 session 后自动聚焦输入框
     // rAF 确保 Slate DOM 已就绪（组件重新挂载场景下尤其需要）
-    const rafId = requestAnimationFrame(() => inputEditor.focus());
+    const rafId = requestAnimationFrame(() => focusInput());
     return () => cancelAnimationFrame(rafId);
-  }, [sessionId, inputEditor]);
+  }, [sessionId, inputEditor, focusInput]);
 
   // ── 附件栏状态 ──
   const [attachments, setAttachments] = useState<ImageRef[]>([]);
@@ -405,6 +449,14 @@ export const ChatInput = memo(function ChatInput() {
   const [skillLoading, setSkillLoading] = useState(false);
   const [skillError, setSkillError] = useState<string | null>(null);
   const skillRequestRef = useRef<AbortController | null>(null);
+
+  // 选择回调执行时 React 可能还没有卸载 Slash 面板；在提交后的 layout
+  // 阶段再聚焦一次，确保不会被面板卸载或 Slate 重绘抢走焦点。
+  useLayoutEffect(() => {
+    if (!skillSearch && focusRestorePendingRef.current) {
+      focusInput();
+    }
+  }, [focusInput, skillSearch]);
 
   // 加载指令列表（全局，与工作区无关）
   useEffect(() => {
@@ -553,7 +605,7 @@ export const ChatInput = memo(function ChatInput() {
       if (cmd.args_hint) {
         // 有参数：把 /xxx 替换成完整指令，等用户补全
         inputEditor.replaceRange(skillSearch.range, cmd.command + " ");
-        inputEditor.focus();
+        restoreInputFocus();
       } else {
         const result = useChat.getState().sendMessage(cmd.command, undefined, cmd.system);
         if (!result.ok) {
@@ -566,12 +618,13 @@ export const ChatInput = memo(function ChatInput() {
         setSkillIndex(0);
         // 先把 /xxx 从编辑器删掉，避免残留
         inputEditor.replaceRange(range, "");
+        restoreInputFocus();
         return;
       }
       setSkillSearch(null);
       setSkillIndex(0);
     },
-    [inputEditor, skillSearch],
+    [inputEditor, restoreInputFocus, skillSearch],
   );
 
   const handleSelectSkill = useCallback(
@@ -588,9 +641,9 @@ export const ChatInput = memo(function ChatInput() {
       setSkillSearch(null);
       setSkillIndex(0);
       // 先卸载下拉列表，再把焦点交还给 Slate，避免 React 重渲染抢走焦点。
-      window.requestAnimationFrame(() => inputEditor.focus());
+      restoreInputFocus();
     },
-    [inputEditor, skillSearch],
+    [inputEditor, restoreInputFocus, skillSearch],
   );
 
   // ── 取消 ──
@@ -672,9 +725,15 @@ export const ChatInput = memo(function ChatInput() {
       if (files.length > 0) {
         e.preventDefault();
         handleAddImages(files);
+        return;
       }
+      const text = e.clipboardData.getData("text/plain");
+      if (!text || !hasFtreToken(text)) return;
+      e.preventDefault();
+      inputEditor.insertTextWithExtensions(text);
+      restoreInputFocus();
     },
-    [handleAddImages],
+    [handleAddImages, inputEditor, restoreInputFocus],
   );
 
   const handleDragOver = useCallback((e: React.DragEvent) => {
@@ -714,18 +773,18 @@ export const ChatInput = memo(function ChatInput() {
 
   const onKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
-      if (skillSearch && slashTotal > 0) {
-        if (e.key === "ArrowDown") {
+      if (skillSearch) {
+        if (slashTotal > 0 && e.key === "ArrowDown") {
           e.preventDefault();
           setSkillIndex((p) => (p + 1) % slashTotal);
           return;
         }
-        if (e.key === "ArrowUp") {
+        if (slashTotal > 0 && e.key === "ArrowUp") {
           e.preventDefault();
           setSkillIndex((p) => (p - 1 + slashTotal) % slashTotal);
           return;
         }
-        if (e.key === "Enter" || e.key === "Tab") {
+        if (slashTotal > 0 && (e.key === "Enter" || e.key === "Tab")) {
           e.preventDefault();
           handleSelectSlashIndex(skillIndex);
           return;
@@ -733,6 +792,7 @@ export const ChatInput = memo(function ChatInput() {
         if (e.key === "Escape") {
           e.preventDefault();
           setSkillSearch(null);
+          setSkillIndex(0);
           return;
         }
       }
@@ -742,10 +802,6 @@ export const ChatInput = memo(function ChatInput() {
         handleSend();
         return;
       }
-      if (e.key === "Escape") {
-        e.preventDefault();
-        handleCancel();
-      }
     },
     [
       skillSearch,
@@ -753,7 +809,6 @@ export const ChatInput = memo(function ChatInput() {
       skillIndex,
       handleSelectSlashIndex,
       handleSend,
-      handleCancel,
     ],
   );
 
@@ -817,7 +872,7 @@ export const ChatInput = memo(function ChatInput() {
       );
       inputEditor.setContent([{ type: "text", text: detail.content || "" }]);
       setAttachmentsSynced(restoredAttachments);
-      window.requestAnimationFrame(() => inputEditor.focus());
+      restoreInputFocus();
     };
 
     window.addEventListener("ftre:queued-edit-request", handleEditRequest);
@@ -826,7 +881,7 @@ export const ChatInput = memo(function ChatInput() {
       window.removeEventListener("ftre:queued-edit-request", handleEditRequest);
       window.removeEventListener("ftre:queued-edit-refill", handleEditRefill);
     };
-  }, [attachments.length, inputEditor]);
+  }, [attachments.length, inputEditor, restoreInputFocus]);
 
   // ── 外部事件：Plan 模式下一步按钮 ──
   useEffect(() => {
@@ -920,6 +975,7 @@ export const ChatInput = memo(function ChatInput() {
               onSelectSkill={handleSelectSkill}
               skillLoading={skillLoading}
               skillError={skillError}
+              workspace={currentWorkspace}
             />
           )}
 
@@ -936,6 +992,7 @@ export const ChatInput = memo(function ChatInput() {
             onChange={handleSlateChange}
           >
             <Editable
+              ref={editableRef}
               renderElement={renderElement}
               onKeyDown={onKeyDown}
               onPaste={handlePaste}

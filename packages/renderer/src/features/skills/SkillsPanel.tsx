@@ -36,12 +36,13 @@ import {
   deleteSkill,
   toggleSkillDisabled,
   type SkillSummary,
+  type SkillDetail,
   type SkillKind,
 } from "@/services/api";
 import { useNotification } from "@/stores/notification";
 import { remarkPlugins, rehypePlugins, urlTransform } from "@/lib/markdown-plugins";
-import { FtreExtensionImage } from "@/lib/ftre-extensions";
-import { formatSkillName } from "@/lib/skill-display";
+import { FtreExtensionImage, serializeFtreRef } from "@/lib/ftre-extensions";
+import { classifySkillOrigin, formatSkillName } from "@/lib/skill-display";
 import { Modal } from "@/components/Modal";
 
 // ─── Helpers ────────────────────────────────────────────────────────
@@ -70,6 +71,12 @@ function SkillCard({
 }) {
   const KindIcon = skill.kind === "dir" ? Folder : FileText;
   const readOnly = skill.scope === "private";
+  const origin = classifySkillOrigin({
+    origin: skill.origin,
+    scope: skill.scope,
+    route: skill.route,
+    sourcePath: skill.source?.kind === "filesystem" ? skill.source.path : undefined,
+  });
 
   return (
     <div
@@ -128,12 +135,15 @@ function SkillCard({
       </p>
 
       {/* Footer */}
-      <div className="flex items-center justify-between">
-        {skill.updated_at > 0 ? (
-          <div className="text-[11px] text-t-ghost">更新于 {formatDate(skill.updated_at)}</div>
-        ) : (
-          <div />
-        )}
+      <div className="flex items-center justify-between gap-2">
+        <div className="flex min-w-0 items-center gap-2">
+          {skill.updated_at > 0 ? (
+            <span className="text-[11px] text-t-ghost">更新于 {formatDate(skill.updated_at)}</span>
+          ) : null}
+          <span className="shrink-0 rounded-full bg-black/[0.04] px-1.5 py-0.5 text-[10px] font-medium text-t-ghost dark:bg-white/[0.06]">
+            {origin.shortLabel}
+          </span>
+        </div>
         <div onClick={(e) => e.stopPropagation()} className={readOnly ? "pointer-events-none opacity-60" : ""}>
           <ToggleSwitch
             checked={!skill.disabled}
@@ -151,9 +161,11 @@ function SkillCard({
 function SkillPreview({
   content,
   loading,
+  skill,
 }: {
   content: string;
   loading: boolean;
+  skill?: SkillDetail | null;
 }) {
   if (loading) {
     return (
@@ -164,15 +176,52 @@ function SkillPreview({
   }
 
   return (
-    <div className="markdown-body">
-      <ReactMarkdown
-        remarkPlugins={[...remarkPlugins]}
-        rehypePlugins={[...rehypePlugins]}
-        components={{ img: FtreExtensionImage }}
-        urlTransform={urlTransform}
-      >
-        {content || "（空内容）"}
-      </ReactMarkdown>
+    <div className="space-y-4">
+      {skill && <SkillPreviewMeta skill={skill} />}
+      <div className="markdown-body">
+        <ReactMarkdown
+          remarkPlugins={[...remarkPlugins]}
+          rehypePlugins={[...rehypePlugins]}
+          components={{ img: FtreExtensionImage }}
+          urlTransform={urlTransform}
+        >
+          {content || "（空内容）"}
+        </ReactMarkdown>
+      </div>
+    </div>
+  );
+}
+
+function SkillPreviewMeta({ skill }: { skill: SkillDetail }) {
+  const origin = classifySkillOrigin({
+    origin: skill.origin,
+    scope: skill.scope,
+    route: skill.route,
+    sourcePath: skill.source?.kind === "filesystem" ? skill.source.path : undefined,
+  });
+  const route = skill.uri || `ftre://v1/skill/${skill.name}`;
+  const command = serializeFtreRef({
+    version: "v1",
+    type: "skill",
+    name: skill.name,
+    args: {},
+  });
+  return (
+    <div className="rounded-lg bg-hover/60 px-3 py-2.5 text-[12px] text-t-secondary">
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+        <span>Command <code className="break-all font-mono text-t-primary">{command}</code></span>
+      </div>
+      <div className="mt-1 break-all text-t-ghost">
+        Route <code className="font-mono text-t-secondary">{route}</code>
+      </div>
+      {skill.source?.kind === "filesystem" && (
+        <div className="mt-1 break-all text-t-ghost">
+          Path <code className="font-mono text-t-secondary">{skill.source.path}</code>
+        </div>
+      )}
+      <div className="mt-1">
+        <span className="font-semibold text-t-primary">{origin.label}</span>
+      </div>
     </div>
   );
 }
@@ -181,7 +230,7 @@ function SkillPreview({
 
 type EditState =
   | null
-  | { mode: "preview"; name: string; content: string; loading: boolean }
+  | { mode: "preview"; name: string; content: string; loading: boolean; detail?: SkillDetail | null }
   | { mode: "create"; name: string; description: string; content: string; kind: SkillKind; saving: boolean }
   | { mode: "edit"; name: string; content: string; loading: boolean; saving: boolean };
 
@@ -225,6 +274,7 @@ export function SkillsPanel() {
       name,
       content: res.skill.content,
       loading: false,
+      detail: res.skill,
     });
   }, []);
 
@@ -425,6 +475,7 @@ export function SkillsPanel() {
             key={editing.loading ? "loading" : "loaded"}
             content={editing.content}
             loading={editing.loading}
+            skill={editing.detail}
           />
         </Modal>
       )}

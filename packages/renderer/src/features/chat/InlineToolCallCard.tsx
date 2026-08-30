@@ -33,6 +33,7 @@ import { useChat } from "@/stores/chat";
 import { FileIconView } from "@/components/FileIconView";
 import { IMAGE_EXTENSIONS, fileExtension } from "@/utils/filePreviewKinds";
 import { formatSkillName } from "@/lib/skill-display";
+import { SkillReferenceCard } from "@/lib/ftre-extensions";
 import { Terminal } from "lucide-react";
 
 const API_BASE = import.meta.env.VITE_API_BASE || "http://127.0.0.1:48650";
@@ -155,13 +156,6 @@ function buildSummary(
       if (ch && sid) return `Sent �� ${ch}:${sid.slice(0, 8)}`;
       if (ch) return `Sent �� ${ch}`;
       return isDone ? "Sent" : "Sending...";
-    }
-    case "loadSkill": {
-      const skill = formatSkillName((args.skill as string) ?? "");
-      if (skill) {
-        return isDone ? `Loaded Skill ?${skill}?` : `Loading Skill ?${skill}?��`;
-      }
-      return isDone ? "Loaded Skill" : "Loading Skill��";
     }
     default:
       // δ֪/������ߣ�ԭ����ʾ������
@@ -536,15 +530,30 @@ export const InlineToolCallCard = memo(
 
     // loadSkill: �� result ��ȡ name + description ���� tooltip
     const loadSkillMeta = useMemo(() => {
-      if (!isLoadSkill || !resultText) return { name: "", description: "" };
-      const { name, description } = parseSkillContent(resultText);
-      const desc = (description || "").replace(/\s+/g, " ").trim();
+      if (!isLoadSkill) return { name: "", description: "" };
+      const parsed = resultText ? parseSkillContent(resultText) : { name: "", description: "" };
+      const argumentName = typeof args.name === "string"
+        ? args.name
+        : typeof args.skill === "string"
+          ? args.skill
+          : "";
+      const desc = (parsed.description || "").replace(/\s+/g, " ").trim();
       return {
-        name: name || (args.skill as string) || "",
+        name: parsed.name || argumentName,
         description: desc,
       };
-    }, [isLoadSkill, resultText, args.skill]);
-    const displaySkillName = formatSkillName(loadSkillMeta.name || (args.skill as string) || "");
+    }, [args.name, args.skill, isLoadSkill, resultText]);
+    const loadSkillRef = useMemo(() => {
+      const name = loadSkillMeta.name.trim().toLowerCase();
+      if (!name) return null;
+      return {
+        version: "v1" as const,
+        type: "skill",
+        name,
+        args: {},
+        raw: "",
+      };
+    }, [loadSkillMeta.name]);
 
     const handleCopy = useCallback(() => {
       if (!resultText) return;
@@ -568,41 +577,21 @@ export const InlineToolCallCard = memo(
       );
     }
 
-    // loadSkill������ʾһ�� title��hover չʾ skill ����
+    // loadSkill 与其它工具保持同一行密度，Skill 名称复用消息中的可点击 UI。
     if (isLoadSkill && !isDenied) {
       return (
-        <TooltipProvider>
-          <Tooltip
-            content={
-              <div className="flex flex-col gap-1.5 max-w-[320px]">
-                <div className="flex items-center gap-1.5">
-                  <Box size={12} strokeWidth={2} className="text-[#1a7f37] shrink-0" />
-                  <span className="text-[14px] font-semibold text-[#1a7f37]">
-                    {displaySkillName}
-                  </span>
-                </div>
-                {loadSkillMeta.description && (
-                  <p className="text-[13px] text-t-secondary leading-relaxed">
-                    {loadSkillMeta.description}
-                  </p>
-                )}
-              </div>
-            }
-            side="top"
-            sideOffset={4}
-            className="max-w-[360px]"
-          >
-            <div className="inline-flex items-center gap-2 py-1 cursor-default animate-[ftreToolIn_260ms_cubic-bezier(0.32,0.72,0,1)]">
-              <Box size={14} className="text-[#1a7f37] shrink-0" strokeWidth={1.5} />
-                <span className="text-[14px] font-mono text-t-dim truncate">
-                  <span className="text-t-dim font-medium">Loaded Skill</span>
-                {displaySkillName ? ` · ${displaySkillName}` : ""}
-              </span>
-              {status === "completed" && <Check size={12} className="text-green-600 shrink-0" />}
-              {isError && <X size={12} className="text-red-500 shrink-0" />}
-            </div>
-          </Tooltip>
-        </TooltipProvider>
+        <div className="inline-flex max-w-full items-center gap-2 py-1 animate-[ftreToolIn_260ms_cubic-bezier(0.32,0.72,0,1)]">
+          <span className="shrink-0 text-[14px] font-mono text-t-dim">Load Skill</span>
+          {loadSkillRef && (
+            <SkillReferenceCard
+              ref={loadSkillRef}
+              descriptionFallback={loadSkillMeta.description}
+              offsetTop
+            />
+          )}
+          {status === "completed" && <Check size={12} className="text-green-600 shrink-0" />}
+          {isError && <X size={12} className="text-red-500 shrink-0" />}
+        </div>
       );
     }
 

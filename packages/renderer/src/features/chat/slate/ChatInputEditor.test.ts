@@ -1,3 +1,4 @@
+import { Editor, Transforms } from "slate";
 import { describe, expect, it } from "vitest";
 import { ChatInputEditor } from "./ChatInputEditor";
 
@@ -24,5 +25,16 @@ describe("ChatInputEditor Skill token", () => {
         },
       ]).text,
     ).toBe("![ftre:skill](ftre://v1/skill/review-code) src");
+  });
+
+  it("converts pasted bare Skill URIs into inline tokens before serialization", () => {
+    const input = new ChatInputEditor();
+    input.editor.children = [{ type: "paragraph", children: [{ text: "" }] }];
+    Transforms.select(input.editor, Editor.start(input.editor, [0]));
+    input.insertTextWithExtensions("before ftre://v1/skill/review-code?path=src after");
+
+    expect(ChatInputEditor.serializeValue(input.editor.children)).toMatchObject({
+      text: "before ![ftre:skill](ftre://v1/skill/review-code?path=src) after",
+    });
   });
 });
