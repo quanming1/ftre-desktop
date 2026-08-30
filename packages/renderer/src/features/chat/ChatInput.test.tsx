@@ -67,6 +67,7 @@ vi.mock("@/services/api", () => ({
 import { ChatInput } from "./ChatInput";
 import { ChatInputEditor } from "./slate";
 import { useChat } from "@/stores/chat";
+import { useSession } from "@/stores/session";
 import { useInspector } from "@/stores/inspector";
 
 const HELLO_DOC: Descendant[] = [
@@ -90,6 +91,7 @@ describe("ChatInput 发送按钮", () => {
       canCancel: false,
       cancelStream: cancelStreamMock,
     });
+    useSession.setState({ sessions: [], allSessions: [] });
     cancelStreamMock.mockClear();
   });
 
@@ -111,6 +113,26 @@ describe("ChatInput 发送按钮", () => {
     render(<ChatInput />);
     await waitFor(() => expect(fetchSkillsMock).toHaveBeenCalled());
     expect(fetchSkillsMock.mock.calls[0][0]).toBeDefined();
+  });
+
+  it("切换 Session 后按 Session 的 agent_id 和 workspace 加载技能", async () => {
+    useChat.setState({ sessionId: "session-1", agentId: "default" });
+    useSession.setState({
+      sessions: [{
+        session_id: "session-1",
+        agent_id: "coder",
+        workspace: "E:/workspace",
+        channel: "ws",
+      } as any],
+      allSessions: [],
+    });
+
+    render(<ChatInput />);
+    await waitFor(() => expect(fetchSkillsMock).toHaveBeenCalledWith(
+      "coder",
+      "E:/workspace",
+      expect.any(AbortSignal),
+    ));
   });
 
   it("输入普通文本后发送按钮从禁用变为可点击", () => {

@@ -369,10 +369,13 @@ export const ChatInput = memo(function ChatInput() {
   const lastUserInputTs = useChat((s) => s.lastUserInputTs);
   const sessions = useSession((s) => s.sessions);
   const allSessions = useSession((s) => s.allSessions);
-  const currentWorkspace = useMemo(() => {
+  const currentSession = useMemo(() => {
     const current = [...sessions, ...allSessions].find((item) => item.session_id === sessionId);
-    return current?.workspace || null;
+    return current || null;
   }, [allSessions, sessionId, sessions]);
+  const currentWorkspace = currentSession?.workspace || null;
+  // Skill 目录属于当前 Session 的 Agent；新会话尚未落盘时才回退到全局选择。
+  const skillAgentId = currentSession?.agent_id || agentId || "default";
   const autoFollow = useLayout((s) => s.autoFollowFiles);
   const toggleAutoFollow = useLayout((s) => s.toggleAutoFollowFiles);
   /** 输入框是否有文字（Slate 非受控，需在 onChange 中显式同步，见 handleSlateChange） */
@@ -483,7 +486,7 @@ export const ChatInput = memo(function ChatInput() {
     skillRequestRef.current = controller;
     setSkillLoading(true);
     setSkillError(null);
-    fetchSkills(agentId, currentWorkspace, controller.signal)
+    fetchSkills(skillAgentId, currentWorkspace, controller.signal)
       .then((items) => {
         if (!controller.signal.aborted) setSkillList(items);
       })
@@ -496,7 +499,7 @@ export const ChatInput = memo(function ChatInput() {
       .finally(() => {
         if (!controller.signal.aborted) setSkillLoading(false);
     });
-  }, [agentId, currentWorkspace]);
+  }, [skillAgentId, currentWorkspace]);
 
   useEffect(() => {
     loadSkills();
