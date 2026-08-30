@@ -999,6 +999,24 @@ export async function fetchSkills(
   return Array.isArray(data?.skills) ? data.skills.map(mapSkillRow) : [];
 }
 
+export async function fetchSkillDiagnostics(
+  agentId?: string | null,
+  workspace?: string | null,
+  signal?: AbortSignal,
+): Promise<SkillDiagnostic[]> {
+  const params = new URLSearchParams();
+  if (agentId) params.set("agent_id", agentId);
+  if (workspace) params.set("workspace", workspace);
+  const query = params.toString();
+  const res = await fetch(
+    `${SKILLS_API}/diagnostics${query ? `?${query}` : ""}`,
+    { signal },
+  );
+  if (!res.ok) throw new Error(await _readError(res));
+  const data = await res.json();
+  return Array.isArray(data?.diagnostics) ? data.diagnostics : [];
+}
+
 // ─── Commands（斜杠指令）────────────────────────────────────────────
 
 const COMMANDS_API = `${API_BASE}/api/commands`;

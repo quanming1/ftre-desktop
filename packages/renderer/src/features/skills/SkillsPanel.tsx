@@ -413,6 +413,9 @@ export function SkillsPanel() {
                 ? "为智能体提供可复用的能力说明"
                 : `${skills.length} 个技能`}
             </p>
+            <p className="text-[11px] text-t-ghost mt-0.5">
+              作用域：全局 + Agent {skillAgentId}{currentWorkspace ? " + 当前工作区" : ""}
+            </p>
           </div>
           <div className="flex items-center gap-2">
             <button
