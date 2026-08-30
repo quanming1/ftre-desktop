@@ -10,12 +10,15 @@
  * 模拟"用户输入"——这正是回归所在的接线层。
  */
 import { render, screen, act, fireEvent, waitFor } from "@testing-library/react";
+import { forwardRef } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Descendant } from "slate";
 
 // 捕获 Slate 挂载时的 editor 与 onChange，供测试驱动
 let capturedOnChange: ((value: Descendant[]) => void) | null = null;
+let capturedOnKeyDown: ((event: React.KeyboardEvent) => void) | null = null;
 const fetchSkillsMock = vi.hoisted(() => vi.fn().mockResolvedValue([]));
+const cancelStreamMock = vi.hoisted(() => vi.fn());
 
 vi.mock("slate-react", async (importOriginal) => {
   const actual = await importOriginal<typeof import("slate-react")>();
@@ -42,7 +45,12 @@ vi.mock("slate-react", async (importOriginal) => {
       capturedOnChange = onChange;
       return <>{children}</>;
     },
-    Editable: () => <div data-testid="slate-editable" />,
+    Editable: forwardRef<HTMLDivElement, { onKeyDown?: (event: React.KeyboardEvent) => void }>(
+      ({ onKeyDown }, ref) => {
+        capturedOnKeyDown = onKeyDown ?? null;
+        return <div ref={ref} data-testid="slate-editable" contentEditable onKeyDown={onKeyDown} />;
+      },
+    ),
     ReactEditor: { ...actual.ReactEditor, focus: vi.fn() },
   };
 });
@@ -57,6 +65,7 @@ vi.mock("@/services/api", () => ({
 }));
 
 import { ChatInput } from "./ChatInput";
+import { ChatInputEditor } from "./slate";
 import { useChat } from "@/stores/chat";
 import { useInspector } from "@/stores/inspector";
 
@@ -67,6 +76,7 @@ const HELLO_DOC: Descendant[] = [
 describe("ChatInput 发送按钮", () => {
   beforeEach(() => {
     capturedOnChange = null;
+    capturedOnKeyDown = null;
     fetchSkillsMock.mockClear();
     useChat.setState({
       sessionId: null,
@@ -78,7 +88,9 @@ describe("ChatInput 发送按钮", () => {
       clientCanSend: true,
       hasCoordinatorState: false,
       canCancel: false,
+      cancelStream: cancelStreamMock,
     });
+    cancelStreamMock.mockClear();
   });
 
   it("输入框使用淡黑色边框并保留阴影", () => {
@@ -122,6 +134,48 @@ describe("ChatInput 发送按钮", () => {
 
     act(() => capturedOnChange!([{ type: "paragraph", children: [{ text: "" }] } as Descendant]));
     expect(screen.getByTitle("Send message")).toBeDisabled();
+  });
+
+  it("按 Escape 不再触发执行取消快捷键", () => {
+    render(<ChatInput />);
+    const editable = screen.getByTestId("slate-editable");
+    fireEvent.keyDown(editable, { key: "Escape" });
+    expect(cancelStreamMock).not.toHaveBeenCalled();
+  });
+
+  it("Slash 面板选择 Skill 后恢复输入框焦点", async () => {
+    const getSkillSearch = vi.spyOn(ChatInputEditor.prototype, "getSkillSearch").mockReturnValue({
+      search: "review",
+      range: {
+        anchor: { path: [0, 0], offset: 0 },
+        focus: { path: [0, 0], offset: 0 },
+      },
+    });
+    const replaceRangeWithSkill = vi.spyOn(ChatInputEditor.prototype, "replaceRangeWithSkill").mockImplementation(() => {});
+    try {
+      fetchSkillsMock.mockResolvedValue([{
+        id: "review-code",
+        name: "review-code",
+        uri: "ftre://v1/skill/review-code",
+        description: "Review code",
+        kind: "dir",
+        scope: "global",
+        updated_at: 0,
+      }]);
+      render(<ChatInput />);
+      await waitFor(() => expect(fetchSkillsMock).toHaveBeenCalled());
+
+      act(() => capturedOnChange!([{ type: "paragraph", children: [{ text: "/review" }] }]));
+      await waitFor(() => expect(screen.getByRole("button", { name: /Review Code/ })).toBeInTheDocument());
+
+      act(() => capturedOnKeyDown!({ key: "Enter", preventDefault: vi.fn() } as unknown as React.KeyboardEvent));
+      await waitFor(() => expect(document.activeElement).toBe(screen.getByTestId("slate-editable")));
+      expect(replaceRangeWithSkill).toHaveBeenCalled();
+    } finally {
+      getSkillSearch.mockRestore();
+      replaceRangeWithSkill.mockRestore();
+      fetchSkillsMock.mockResolvedValue([]);
+    }
   });
 
   it("在输入框上方展示本轮文件变更摘要", () => {

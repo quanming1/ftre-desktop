@@ -4,6 +4,7 @@ import { cancelQueuedMessage } from "@/services/api";
 import { wsClient, type QueueItemView } from "@/services/websocket-client";
 import { useChat } from "@/stores/chat";
 import { useNotification } from "@/stores/notification";
+import { renderFtreInlineText } from "@/lib/ftre-extensions";
 
 /**
  * 输入框上方的待执行消息横幅。
@@ -102,7 +103,9 @@ export const QueuedMessagesBanner = memo(function QueuedMessagesBanner({
                 <div className="flex min-w-0 items-center gap-2 bg-transparent px-3 py-1.5">
                   <ListOrdered size={14} className="shrink-0 text-t-muted" strokeWidth={1.7} />
                   {imageCount > 0 && <ImageIcon size={14} className="shrink-0 text-t-muted" strokeWidth={1.7} />}
-                  <span className="min-w-0 flex-1 truncate text-[13px] text-t-secondary" title={label}>{label}</span>
+                  <span className="min-w-0 flex-1 truncate text-[13px] text-t-secondary" title={label} data-queue-content="">
+                    {item.content ? renderFtreInlineText(item.content, { offsetTop: true }) : label}
+                  </span>
                   {isLocked ? (
                     <span className="inline-flex shrink-0 items-center gap-1 text-[11px] text-t-faint">
                       {isOptimistic && <Loader2 size={11} className="animate-spin" />}

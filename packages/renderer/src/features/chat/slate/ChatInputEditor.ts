@@ -121,23 +121,35 @@ export class ChatInputEditor {
 
   setContent(parts: Array<{ type: string; text?: string; data?: unknown }>): void {
     this.clear();
-    for (const part of parts) {
-      if (part.type === "text") {
-        const text = "text" in part ? String(part.text || "") : String(part.data || "");
-        for (const segment of parseFtreTokens(text)) {
-          if (segment.ref?.type === "skill") {
-            Transforms.insertNodes(this.editor, {
-              type: "skill-token",
-              ref: segment.ref as SkillTokenElement["ref"],
-              children: [{ text: "" }],
-            });
-          } else if (segment.text) {
-            Transforms.insertText(this.editor, segment.text);
-          }
-        }
-      }
-    }
+    const text = parts
+      .filter((part) => part.type === "text")
+      .map((part) => "text" in part ? String(part.text || "") : String(part.data || ""))
+      .join("");
+    if (text) this.insertTextWithExtensions(text);
     this.focus();
+  }
+
+  /** Insert pasted text while preserving Skill tokens as inline void nodes. */
+  insertTextWithExtensions(text: string): void {
+    const fragment = text.split("\n").map((line) => {
+      const children = parseFtreTokens(line).reduce<Array<SkillTokenElement | { text: string }>>((nodes, segment) => {
+        if (segment.ref?.type === "skill") {
+          nodes.push({
+            type: "skill-token" as const,
+            ref: segment.ref as SkillTokenElement["ref"],
+            children: [{ text: "" }],
+          } as SkillTokenElement);
+          return nodes;
+        }
+        if (segment.text) nodes.push({ text: segment.text });
+        return nodes;
+      }, []);
+      return {
+        type: "paragraph" as const,
+        children: children.length > 0 ? children : [{ text: "" }],
+      };
+    });
+    this.editor.insertFragment(fragment as Descendant[]);
   }
 
   serialize(): SerializedInput {

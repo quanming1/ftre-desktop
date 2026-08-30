@@ -41,6 +41,14 @@ describe("QueuedMessagesBanner", () => {
     expect(screen.getByText("first")).toBeInTheDocument();
   });
 
+  it("renders a queued Skill token as the shared Skill UI", () => {
+    render(<QueuedMessagesBanner items={[item(
+      "skill-item",
+      "请使用 ![ftre:skill](ftre://v1/skill/review-code)",
+    )]} />);
+    expect(screen.getByRole("button", { name: "打开 Skill：Review Code" })).toBeInTheDocument();
+  });
+
   it("cancels by pending request id and waits for the next snapshot to remove it", async () => {
     cancelQueuedMessage.mockResolvedValueOnce({ status: "cancelled" });
     render(<QueuedMessagesBanner items={[item("request-one", "remove me")]} />);

@@ -879,8 +879,14 @@ export interface SkillSummary {
   updated_at: number;
   /** 是否被禁用（config.json 的 disabled_skills 数组） */
   disabled?: boolean;
-  /** 来源范围：global（~/.ftre/skills）或 private（~/.ftre/agents/<id>/skills） */
-  scope?: "global" | "private";
+  /** 来源范围；旧后端只返回 global/private，新后端可返回更细粒度范围。 */
+  scope?: "global" | "private" | "system" | "project" | "agent" | "workspace";
+  /** 新版后端的规范化来源分类；旧服务缺失时由客户端按 scope/path 推断。 */
+  origin?: "system" | "project" | "agent" | "unknown";
+  /** 后端已解析的稳定路由或文件路径（仅用于展示，不直接交给 fs IPC）。 */
+  route?: string;
+  /** 列表接口若提供了已验证 source，供来源预览使用。 */
+  source?: SkillSource;
   user_invocable?: boolean;
   model_invocable?: boolean;
 }
@@ -918,6 +924,11 @@ export interface SkillCreateInput {
 /** 把后端返回的 skill 行补上 id（= name），便于前端按主键引用。 */
 function mapSkillRow(s: any): SkillSummary {
   const name = typeof s?.name === "string" ? s.name : "";
+  const source = s?.source?.kind === "filesystem" && typeof s.source.path === "string"
+    ? { kind: "filesystem" as const, path: s.source.path }
+    : s?.source?.kind === "content"
+      ? { kind: "content" as const }
+      : undefined;
   return {
     id: name,
     name,
@@ -926,7 +937,18 @@ function mapSkillRow(s: any): SkillSummary {
     kind: s?.kind === "file" ? "file" : "dir",
     updated_at: typeof s?.updated_at === "number" ? s.updated_at : 0,
     disabled: s?.disabled === true,
-    scope: s?.scope === "private" ? "private" : "global",
+    scope: ["global", "private", "system", "project", "agent", "workspace"].includes(s?.scope)
+      ? s.scope
+      : "global",
+    origin: ["system", "project", "agent", "unknown"].includes(s?.origin)
+      ? s.origin
+      : ["system", "project", "agent", "unknown"].includes(s?.scope_kind)
+        ? s.scope_kind
+        : undefined,
+    route: typeof s?.route === "string"
+      ? s.route
+      : source?.kind === "filesystem" ? source.path : undefined,
+    ...(source ? { source } : {}),
     user_invocable: s?.user_invocable !== false,
     model_invocable: s?.model_invocable !== false,
   };
@@ -943,6 +965,7 @@ function mapSkillDetail(s: any): SkillDetail {
     media_type: typeof s?.media_type === "string" ? s.media_type : "text/markdown",
     revision: typeof s?.revision === "string" ? s.revision : `updated:${summary.updated_at}`,
     source,
+    route: source.kind === "filesystem" ? source.path : summary.route,
     capabilities: {
       read: s?.capabilities?.read !== false,
       browse: source.kind === "filesystem" && s?.capabilities?.browse === true,
@@ -976,6 +999,8 @@ export interface CommandDef {
   description: string;    // "取消当前会话执行"
   args_hint: string;      // "[preset]" 或 ""
   system: boolean;        // 系统级指令（锁外执行，ephemeral，不持久化）
+  /** 注册来源，例如 builtin / plugin 名称；仅用于 UI 说明。 */
+  source?: string;
 }
 
 /** 获取后端注册的斜杠指令列表，供输入框 / 面板渲染。 */
