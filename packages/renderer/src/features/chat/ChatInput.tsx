@@ -108,9 +108,11 @@ function SlashDropdown({
               key={cmd.command}
               data-slash-index={i}
               onMouseDown={(e) => {
+                // 让编辑器继续持有焦点；选择动作延后到 click，避免浏览器
+                // 在回调之后把焦点重新交给候选按钮。
                 e.preventDefault();
-                onSelectCommand(cmd);
               }}
+              onClick={() => onSelectCommand(cmd)}
               className={`w-full flex items-center gap-2 px-3 py-1.5 text-left transition-colors ${
                 i === selectedIndex
                   ? "bg-active text-t-primary"
@@ -153,9 +155,10 @@ function SlashDropdown({
                 key={skill.id || skill.name}
                 data-slash-index={idx}
                 onMouseDown={(e) => {
+                  // 同上：mousedown 只阻止默认聚焦，避免点击结束后焦点落在按钮。
                   e.preventDefault();
-                  onSelectSkill(skill);
                 }}
+                onClick={() => onSelectSkill(skill)}
                 className={`w-full flex items-center gap-2 px-3 py-1.5 text-left transition-colors ${
                   idx === selectedIndex
                     ? "bg-active text-t-primary"
@@ -331,22 +334,6 @@ export const ChatInput = memo(function ChatInput() {
     editableRef.current?.focus({ preventScroll: true });
   }, [inputEditor]);
 
-  const restoreInputFocus = useCallback(() => {
-    focusRestorePendingRef.current = true;
-    // 先立即恢复一次，随后在 Slash 面板卸载后的两个渲染帧再次确认。
-    // 这样既覆盖键盘选择，也覆盖鼠标选择导致的焦点转移。
-    focusInput();
-    window.requestAnimationFrame(() => {
-      if (!focusRestorePendingRef.current) return;
-      focusInput();
-      window.requestAnimationFrame(() => {
-        if (!focusRestorePendingRef.current) return;
-        focusInput();
-        focusRestorePendingRef.current = false;
-      });
-    });
-  }, [focusInput]);
-
   // 模型切换后自动聚焦输入框（如果未聚焦）
   // ── 发送按钮水波纹 ──
   const [sendRipples, setSendRipples] = useState<
@@ -449,14 +436,40 @@ export const ChatInput = memo(function ChatInput() {
   const [skillLoading, setSkillLoading] = useState(false);
   const [skillError, setSkillError] = useState<string | null>(null);
   const skillRequestRef = useRef<AbortController | null>(null);
+  const [focusRequest, setFocusRequest] = useState(0);
+  const focusRequestRef = useRef(0);
+
+  const requestInputFocus = useCallback(() => {
+    const next = focusRequestRef.current + 1;
+    focusRequestRef.current = next;
+    setFocusRequest(next);
+  }, []);
+
+  const restoreInputFocus = useCallback(() => {
+    requestInputFocus();
+    focusRestorePendingRef.current = true;
+    // 先立即恢复一次，随后在 Slash 面板卸载后的两个渲染帧再次确认。
+    // 这样既覆盖键盘选择，也覆盖鼠标选择导致的焦点转移。
+    focusInput();
+    window.requestAnimationFrame(() => {
+      if (!focusRestorePendingRef.current) return;
+      focusInput();
+      window.requestAnimationFrame(() => {
+        if (!focusRestorePendingRef.current) return;
+        focusInput();
+        focusRestorePendingRef.current = false;
+      });
+    });
+  }, [focusInput, requestInputFocus]);
 
   // 选择回调执行时 React 可能还没有卸载 Slash 面板；在提交后的 layout
   // 阶段再聚焦一次，确保不会被面板卸载或 Slate 重绘抢走焦点。
   useLayoutEffect(() => {
-    if (!skillSearch && focusRestorePendingRef.current) {
+    if (focusRequest > 0 && focusRequestRef.current === focusRequest) {
+      focusRequestRef.current = 0;
       focusInput();
     }
-  }, [focusInput, skillSearch]);
+  }, [focusInput, focusRequest]);
 
   // 加载指令列表（全局，与工作区无关）
   useEffect(() => {
