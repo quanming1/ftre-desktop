@@ -160,83 +160,8 @@ jobs:
             release/*Setup*.exe
             release/*Setup*.exe.blockmap
 
-  build-macos:
-    needs: [metadata, quality]
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - runner: macos-15-intel
-            arch: x64
-          - runner: macos-14
-            arch: arm64
-    runs-on: ${{ matrix.runner }}
-    steps:
-      - name: Checkout desktop
-        uses: actions/checkout@v4
-
-      - name: Checkout ftre
-        uses: actions/checkout@v4
-        with:
-          repository: quanming1/ftre
-          ref: develop
-          path: ftre
-
-      - name: Checkout cordis-py
-        uses: actions/checkout@v4
-        with:
-          repository: quanming1/cordis-py
-          path: cordis-py
-
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 20
-
-      - name: Install pnpm
-        uses: pnpm/action-setup@v4
-        with:
-          version: 9
-
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
-
-      - name: Set package version
-        shell: bash
-        run: npm pkg set version="${{ needs.metadata.outputs.version }}"
-
-      - name: Bundle backend (macOS ${{ matrix.arch }})
-        env:
-          FTRE_ROOT: ${{ github.workspace }}/ftre
-          CORDIS_ROOT: ${{ github.workspace }}/cordis-py
-          PIP_INDEX_URL: https://pypi.org/simple
-        run: node scripts/bundle-backend.js --clean --platform darwin --arch ${{ matrix.arch }}
-
-      - name: Verify bundled macOS runtime
-        shell: bash
-        run: |
-          set -euo pipefail
-          test -x backend/python/bin/python3.12
-          test "$(uname -m)" = "${{ matrix.arch == 'x64' && 'x86_64' || 'arm64' }}"
-          python3 -c "import json; m=json.load(open('backend/manifest.json')); assert m['platform']=='darwin' and m['arch']=='${{ matrix.arch }}'"
-          PYTHONPATH="$GITHUB_WORKSPACE/backend/server" \
-            PYTHONUTF8=1 backend/python/bin/python3.12 \
-            -c "import cordis, ftre, ftre_agent, ftre_agent_runtime; print('bundled runtime ok')"
-
-      - name: Build and package macOS ${{ matrix.arch }}
-        run: pnpm build && pnpm exec electron-builder --mac --${{ matrix.arch }} -c electron-builder-full.json --publish never
-
-      - name: Upload macOS artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: ftre-prerelease-macos-${{ matrix.arch }}
-          if-no-files-found: error
-          path: |
-            release/*mac-${{ matrix.arch }}.dmg
-            release/*mac-${{ matrix.arch }}.zip
-
   publish:
-    needs: [metadata, build-windows, build-macos]
+    needs: [metadata, build-windows]
     runs-on: ubuntu-latest
     steps:
       - name: Download platform artifacts
@@ -267,5 +192,6 @@ jobs:
             这是从 develop 自动构建的 ${{ needs.metadata.outputs.channel }} 预发布版本。
             基线版本：${{ needs.metadata.outputs.base_version }}
             提交：${{ github.sha }}
+            预发布阶段仅提供 Windows x64 安装包；macOS x64/arm64 由正式 Release 流程构建。
             该版本用于测试，不代表稳定发布。
           files: release/*
