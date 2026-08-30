@@ -151,7 +151,9 @@ describe("ChatInput 发送按钮", () => {
         focus: { path: [0, 0], offset: 0 },
       },
     });
-    const replaceRangeWithSkill = vi.spyOn(ChatInputEditor.prototype, "replaceRangeWithSkill").mockImplementation(() => {});
+    const replaceRangeWithSkill = vi
+      .spyOn(ChatInputEditor.prototype, "replaceRangeWithSkill")
+      .mockImplementation(() => {});
     try {
       fetchSkillsMock.mockResolvedValue([{
         id: "review-code",
@@ -169,6 +171,44 @@ describe("ChatInput 发送按钮", () => {
       await waitFor(() => expect(screen.getByRole("button", { name: /Review Code/ })).toBeInTheDocument());
 
       act(() => capturedOnKeyDown!({ key: "Enter", preventDefault: vi.fn() } as unknown as React.KeyboardEvent));
+      await waitFor(() => expect(document.activeElement).toBe(screen.getByTestId("slate-editable")));
+      expect(replaceRangeWithSkill).toHaveBeenCalled();
+    } finally {
+      getSkillSearch.mockRestore();
+      replaceRangeWithSkill.mockRestore();
+      fetchSkillsMock.mockResolvedValue([]);
+    }
+  });
+
+  it("鼠标点击 Slash 面板 Skill 后不会把焦点留在候选按钮", async () => {
+    const getSkillSearch = vi.spyOn(ChatInputEditor.prototype, "getSkillSearch").mockReturnValue({
+      search: "review",
+      range: {
+        anchor: { path: [0, 0], offset: 0 },
+        focus: { path: [0, 0], offset: 0 },
+      },
+    });
+    const replaceRangeWithSkill = vi
+      .spyOn(ChatInputEditor.prototype, "replaceRangeWithSkill")
+      .mockImplementation(() => {});
+    try {
+      fetchSkillsMock.mockResolvedValue([{
+        id: "review-code",
+        name: "review-code",
+        uri: "ftre://v1/skill/review-code",
+        description: "Review code",
+        kind: "dir",
+        scope: "global",
+        updated_at: 0,
+      }]);
+      render(<ChatInput />);
+      await waitFor(() => expect(fetchSkillsMock).toHaveBeenCalled());
+
+      act(() => capturedOnChange!([{ type: "paragraph", children: [{ text: "/review" }] }]));
+      const skillButton = await screen.findByRole("button", { name: /Review Code/ });
+
+      fireEvent.mouseDown(skillButton);
+      fireEvent.click(skillButton);
       await waitFor(() => expect(document.activeElement).toBe(screen.getByTestId("slate-editable")));
       expect(replaceRangeWithSkill).toHaveBeenCalled();
     } finally {

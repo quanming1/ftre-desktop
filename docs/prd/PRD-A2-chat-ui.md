@@ -174,3 +174,4 @@
 | 2026-08-29 | 修复 FR14：部分站点没有 `/favicon.ico`（例如使用 `/favicon.png`），链接图标按 origin 常见格式和站点图标解析服务逐级回退，避免直接显示通用地球图标 | 用户反馈真实站点 favicon.ico 404 时图标展示失败 |
 | 2026-08-30 | 新增并验收 FR16-FR21 / AC12-AC17：统一 Skill 来源/命令/路由预览；输入框粘贴和队列复用 Skill token 解析；Slash 选择后恢复焦点；loadSkill 简化为 `Load Skill <Skill UI>`；移除输入框 Escape 取消快捷键。渲染器 567 项、平台 16 项测试通过，类型检查和构建通过 | 用户新增 Skill 预览、队列渲染、焦点和取消快捷键需求 |
 | 2026-08-30 | 修正 Skill UI：Slash 选择完成后在提交后的 layout 阶段再次恢复真实编辑器焦点（Enter/Tab、鼠标选择均覆盖）；`loadSkill` 仅渲染真实 Skill 名称并复用共享 Skill UI，不再出现占位 `<Skill>` 文案；来源标签统一放在 Tooltip、预览、候选项和管理卡片的元信息末尾 | 用户反馈焦点恢复失败、Skill 名称被占位文案替代、来源标识位置不一致 |
+| 2026-08-30 | 修复 Skill inline void 节点插入后的 Slate 选区：在 token 后创建/复用可编辑空格并显式选择其后插入点；Slash 候选鼠标选择延后到 click，避免按钮夺取焦点；补充 Enter/Tab、鼠标选择和编辑器选区回归测试 | 用户反馈按 Enter/Tab 或鼠标选择 Skill 后输入框仍未聚焦；原实现将光标留在 token 隐藏子节点内，浏览器没有可见插入点 |

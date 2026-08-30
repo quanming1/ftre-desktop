@@ -102,7 +102,22 @@ export class ChatInputEditor {
       ref,
       children: [{ text: "" }],
     });
-    Transforms.insertText(this.editor, " ");
+
+    // Inline void 节点会把 Slate 选区暂时放在其隐藏文本子节点内，
+    // 直接 insertText 不会产生可编辑的空格，焦点也因此没有可见插入点。
+    const tokenPoint = this.editor.selection?.focus;
+    const afterToken = tokenPoint
+      ? Editor.after(this.editor, tokenPoint, { unit: "offset" })
+      : undefined;
+    if (!afterToken) return;
+
+    const [nextLeaf] = Editor.leaf(this.editor, afterToken);
+    const nextChar = nextLeaf.text.slice(afterToken.offset, afterToken.offset + 1);
+    if (!nextChar || !/\s/.test(nextChar)) {
+      Transforms.insertText(this.editor, " ", { at: afterToken });
+    }
+    const caret = Editor.after(this.editor, afterToken, { unit: "offset" });
+    if (caret) Transforms.select(this.editor, caret);
   }
 
   clear(): void {
