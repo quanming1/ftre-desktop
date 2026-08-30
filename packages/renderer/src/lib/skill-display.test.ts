@@ -36,4 +36,14 @@ describe("classifySkillOrigin", () => {
       label: "系统 Skill",
     });
   });
+
+  it("labels Codex and Agents roots as external Skills", () => {
+    expect(classifySkillOrigin({
+      scope: "external",
+      sourcePath: "C:/Users/test/.codex/skills/review/SKILL.md",
+    })).toMatchObject({ kind: "external", shortLabel: "外部" });
+    expect(classifySkillOrigin({
+      sourcePath: "C:/Users/test/.agents/skills/browser/SKILL.md",
+    })).toMatchObject({ kind: "external", shortLabel: "外部" });
+  });
 });

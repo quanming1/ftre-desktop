@@ -10,7 +10,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { createPortal } from "react-dom";
 import { useChat } from "@/stores/chat";
 import { useSession } from "@/stores/session";
-import { fetchAppConfig } from "@/services/api";
+import { fetchAppConfig, fetchModelCatalog } from "@/services/api";
 import { ModelPicker, type ProviderInfo } from "./ModelPicker";
 import { buildProviderInfos, resolveEffortOnModelSwitch } from "./providerInfo";
 import { useLayout } from "@/stores/layout";
@@ -100,6 +100,14 @@ export function AgentBar() {
   }, []);
 
   const loadProviders = useCallback(async () => {
+    const catalog = await fetchModelCatalog();
+    if (catalog) {
+      const providerMap = Object.fromEntries(
+        catalog.providers.map((item) => [item.name, item]),
+      );
+      setProviders(buildProviderInfos(providerMap));
+      return;
+    }
     const config = await fetchAppConfig();
     if (config && Object.keys(config).length > 0) {
       setProviders(buildProviderInfos(config.providers));
@@ -109,6 +117,10 @@ export function AgentBar() {
   useEffect(() => {
     loadProviders();
   }, [loadProviders]);
+
+  useEffect(() => {
+    if (llmOpen) void loadProviders();
+  }, [llmOpen, loadProviders]);
 
   // 每次打开 Agent 菜单都刷新列表，保留原有自定义 Agent 的即时发现行为。
   useEffect(() => {

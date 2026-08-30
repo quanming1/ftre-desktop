@@ -678,6 +678,7 @@ export async function triggerCompaction(
 // 这样浏览器场景也能用，并且后端能在写入时做校验/格式化。
 
 const CONFIG_API = `${API_BASE}/api/config`;
+const MODEL_CATALOG_API = `${CONFIG_API}/models`;
 
 /** 读取应用配置（providers / agents 等）。失败返回空对象。 */
 export async function fetchAppConfig(): Promise<Record<string, any>> {
@@ -880,15 +881,24 @@ export interface SkillSummary {
   /** 是否被禁用（config.json 的 disabled_skills 数组） */
   disabled?: boolean;
   /** 来源范围；旧后端只返回 global/private，新后端可返回更细粒度范围。 */
-  scope?: "global" | "private" | "system" | "project" | "agent" | "workspace";
+  scope?: "global" | "private" | "external" | "system" | "project" | "agent" | "workspace";
   /** 新版后端的规范化来源分类；旧服务缺失时由客户端按 scope/path 推断。 */
-  origin?: "system" | "project" | "agent" | "unknown";
+  origin?: "system" | "project" | "agent" | "external" | "unknown";
   /** 后端已解析的稳定路由或文件路径（仅用于展示，不直接交给 fs IPC）。 */
   route?: string;
   /** 列表接口若提供了已验证 source，供来源预览使用。 */
   source?: SkillSource;
   user_invocable?: boolean;
   model_invocable?: boolean;
+}
+
+export interface SkillDiagnostic {
+  root: string;
+  scope: string;
+  path: string;
+  reason: string;
+  line?: number;
+  column?: number;
 }
 
 /** 详情：含完整正文 */
@@ -898,6 +908,40 @@ export interface SkillDetail extends SkillSummary {
   revision: string;
   source: SkillSource;
   capabilities: SkillCapabilities;
+}
+
+export interface ModelCatalogProvider {
+  name: string;
+  api_type?: string;
+  configured?: boolean;
+  models: ModelItem[];
+}
+
+export interface ModelCatalog {
+  revision: number;
+  providers: ModelCatalogProvider[];
+}
+
+/** 读取脱敏模型目录；失败返回 null，由调用方保留上一次列表。 */
+export async function fetchModelCatalog(): Promise<ModelCatalog | null> {
+  try {
+    const res = await fetch(MODEL_CATALOG_API);
+    if (!res.ok) return null;
+    const data = await res.json();
+    if (!data || !Array.isArray(data.providers)) return null;
+    return {
+      revision: Number(data.revision) || 0,
+      providers: data.providers.filter((item: any) => item && typeof item.name === "string").map((item: any) => ({
+        name: item.name,
+        api_type: typeof item.api_type === "string" ? item.api_type : undefined,
+        configured: item.configured === true,
+        models: Array.isArray(item.models) ? item.models : [],
+      })),
+    };
+  } catch (e) {
+    console.error("[api] fetchModelCatalog failed:", e);
+    return null;
+  }
 }
 
 export type SkillSource =
@@ -937,12 +981,12 @@ function mapSkillRow(s: any): SkillSummary {
     kind: s?.kind === "file" ? "file" : "dir",
     updated_at: typeof s?.updated_at === "number" ? s.updated_at : 0,
     disabled: s?.disabled === true,
-    scope: ["global", "private", "system", "project", "agent", "workspace"].includes(s?.scope)
+    scope: ["global", "private", "external", "system", "project", "agent", "workspace"].includes(s?.scope)
       ? s.scope
       : "global",
-    origin: ["system", "project", "agent", "unknown"].includes(s?.origin)
+    origin: ["system", "project", "agent", "external", "unknown"].includes(s?.origin)
       ? s.origin
-      : ["system", "project", "agent", "unknown"].includes(s?.scope_kind)
+      : ["system", "project", "agent", "external", "unknown"].includes(s?.scope_kind)
         ? s.scope_kind
         : undefined,
     route: typeof s?.route === "string"
@@ -988,6 +1032,24 @@ export async function fetchSkills(
   if (!res.ok) throw new Error(await _readError(res));
   const data = await res.json();
   return Array.isArray(data?.skills) ? data.skills.map(mapSkillRow) : [];
+}
+
+export async function fetchSkillDiagnostics(
+  agentId?: string | null,
+  workspace?: string | null,
+  signal?: AbortSignal,
+): Promise<SkillDiagnostic[]> {
+  const params = new URLSearchParams();
+  if (agentId) params.set("agent_id", agentId);
+  if (workspace) params.set("workspace", workspace);
+  const query = params.toString();
+  const res = await fetch(
+    `${SKILLS_API}/diagnostics${query ? `?${query}` : ""}`,
+    { signal },
+  );
+  if (!res.ok) throw new Error(await _readError(res));
+  const data = await res.json();
+  return Array.isArray(data?.diagnostics) ? data.diagnostics : [];
 }
 
 // ─── Commands（斜杠指令）────────────────────────────────────────────

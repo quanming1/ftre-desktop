@@ -11,7 +11,7 @@
  *   - 预览：大弹窗只读展示 Markdown 原文
  *   - 创建：Modal 内嵌表单
  */
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import {
   Search,
@@ -30,16 +30,20 @@ import {
 import { ToggleSwitch } from "@/components/ToggleSwitch";
 import {
   fetchSkills,
+  fetchSkillDiagnostics,
   fetchSkill,
   createSkill,
   updateSkill,
   deleteSkill,
   toggleSkillDisabled,
   type SkillSummary,
+  type SkillDiagnostic,
   type SkillDetail,
   type SkillKind,
 } from "@/services/api";
 import { useNotification } from "@/stores/notification";
+import { useChat } from "@/stores/chat";
+import { useSession } from "@/stores/session";
 import { remarkPlugins, rehypePlugins, urlTransform } from "@/lib/markdown-plugins";
 import { FtreExtensionImage, serializeFtreRef } from "@/lib/ftre-extensions";
 import { classifySkillOrigin, formatSkillName } from "@/lib/skill-display";
@@ -70,7 +74,7 @@ function SkillCard({
   onEdit: () => void;
 }) {
   const KindIcon = skill.kind === "dir" ? Folder : FileText;
-  const readOnly = skill.scope === "private";
+  const readOnly = skill.scope !== "global";
   const origin = classifySkillOrigin({
     origin: skill.origin,
     scope: skill.scope,
@@ -236,31 +240,55 @@ type EditState =
 
 export function SkillsPanel() {
   const [skills, setSkills] = useState<SkillSummary[]>([]);
+  const [diagnostics, setDiagnostics] = useState<SkillDiagnostic[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [editing, setEditing] = useState<EditState>(null);
+  const agentId = useChat((state) => state.agentId);
+  const sessionId = useChat((state) => state.sessionId);
+  const sessions = useSession((state) => state.sessions);
+  const allSessions = useSession((state) => state.allSessions);
+  const currentSession = useMemo(
+    () => [...sessions, ...allSessions].find((item) => item.session_id === sessionId) || null,
+    [allSessions, sessionId, sessions],
+  );
+  const skillAgentId = currentSession?.agent_id || agentId || "default";
+  const currentWorkspace = currentSession?.workspace || null;
+  const reloadRequestRef = useRef<AbortController | null>(null);
 
   const reload = useCallback(async () => {
+    reloadRequestRef.current?.abort();
+    const controller = new AbortController();
+    reloadRequestRef.current = controller;
     setLoading(true);
     setError(null);
     try {
-      const data = await fetchSkills();
+      const data = await fetchSkills(skillAgentId, currentWorkspace, controller.signal);
+      if (controller.signal.aborted) return;
       setSkills(data);
+      try {
+        setDiagnostics(await fetchSkillDiagnostics(skillAgentId, currentWorkspace, controller.signal));
+      } catch {
+        if (controller.signal.aborted) return;
+        setDiagnostics([]);
+      }
     } catch (e) {
+      if (controller.signal.aborted) return;
       setError((e as Error).message || "加载失败");
     } finally {
-      setLoading(false);
+      if (!controller.signal.aborted) setLoading(false);
     }
-  }, []);
+  }, [currentWorkspace, skillAgentId]);
 
   useEffect(() => {
     reload();
+    return () => reloadRequestRef.current?.abort();
   }, [reload]);
 
   const openPreview = useCallback(async (name: string) => {
     setEditing({ mode: "preview", name, content: "", loading: true });
-    const res = await fetchSkill(name);
+    const res = await fetchSkill(name, skillAgentId, currentWorkspace);
     if ("error" in res) {
       useNotification.getState().addNotification({
         level: "error",
@@ -276,18 +304,18 @@ export function SkillsPanel() {
       loading: false,
       detail: res.skill,
     });
-  }, []);
+  }, [currentWorkspace, skillAgentId]);
 
   const openEdit = useCallback(async (name: string) => {
     setEditing({ mode: "edit", name, content: "", loading: true, saving: false });
-    const res = await fetchSkill(name);
+    const res = await fetchSkill(name, skillAgentId, currentWorkspace);
     if ("error" in res) {
       useNotification.getState().addNotification({ level: "error", message: `打开失败: ${res.error}` });
       setEditing(null);
       return;
     }
     setEditing({ mode: "edit", name, content: res.skill.content, loading: false, saving: false });
-  }, []);
+  }, [currentWorkspace, skillAgentId]);
 
   const submitCreate = useCallback(async () => {
     if (!editing || editing.mode !== "create") return;
@@ -385,6 +413,9 @@ export function SkillsPanel() {
                 ? "为智能体提供可复用的能力说明"
                 : `${skills.length} 个技能`}
             </p>
+            <p className="text-[11px] text-t-ghost mt-0.5">
+              作用域：全局 + Agent {skillAgentId}{currentWorkspace ? " + 当前工作区" : ""}
+            </p>
           </div>
           <div className="flex items-center gap-2">
             <button
@@ -410,6 +441,24 @@ export function SkillsPanel() {
               onChange={(e) => setSearch(e.target.value)}
             />
           </div>
+        )}
+        {diagnostics.length > 0 && (
+          <details className="mt-3 rounded-lg border border-amber-500/20 bg-amber-500/[0.04] px-3 py-2 text-[11px] text-t-dim">
+            <summary className="cursor-pointer select-none text-amber-700/80 dark:text-amber-300/80">
+              <span className="inline-flex items-center gap-1.5">
+                <AlertCircle size={13} />
+                {diagnostics.length} 个文件未识别为 Skill
+              </span>
+            </summary>
+            <div className="mt-2 space-y-1.5">
+              {diagnostics.map((item) => (
+                <div key={`${item.path}:${item.reason}`} className="min-w-0">
+                  <div className="truncate font-mono text-t-ghost" title={item.path}>{item.path}</div>
+                  <div className="text-amber-700/70 dark:text-amber-200/70">{item.reason}</div>
+                </div>
+              ))}
+            </div>
+          </details>
         )}
       </div>
 

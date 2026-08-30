@@ -29,7 +29,7 @@ const DISPLAY_WORDS: Record<string, string> = {
   yaml: "YAML",
 };
 
-export type SkillOriginKind = "system" | "project" | "agent" | "unknown";
+export type SkillOriginKind = "system" | "project" | "agent" | "external" | "unknown";
 
 export interface SkillOriginInput {
   /** Explicit origin from a newer Skill API. */
@@ -53,6 +53,7 @@ const ORIGIN_LABELS: Record<SkillOriginKind, SkillOrigin> = {
   system: { kind: "system", label: "系统 Skill", shortLabel: "系统" },
   project: { kind: "project", label: "项目 Skill", shortLabel: "项目" },
   agent: { kind: "agent", label: "Agent 私有 Skill", shortLabel: "Agent 私有" },
+  external: { kind: "external", label: "外部 Skill", shortLabel: "外部" },
   unknown: { kind: "unknown", label: "来源未知", shortLabel: "未知来源" },
 };
 
@@ -90,6 +91,9 @@ export function classifySkillOrigin(input: SkillOriginInput): SkillOrigin {
   if (explicitOrigin === "agent" || explicitOrigin === "private") {
     return ORIGIN_LABELS.agent;
   }
+  if (explicitOrigin === "external") {
+    return ORIGIN_LABELS.external;
+  }
   if (explicitOrigin === "system" || explicitOrigin === "global") {
     return ORIGIN_LABELS.system;
   }
@@ -97,11 +101,15 @@ export function classifySkillOrigin(input: SkillOriginInput): SkillOrigin {
   // Path is more precise than the legacy private/global flag.
   if (isInside(sourcePath, workspaceSkills)) return ORIGIN_LABELS.project;
   if (/(?:^|\/)\.ftre\/agents(?:\/|$)/.test(sourcePath)) return ORIGIN_LABELS.agent;
+  if (/(?:^|\/)(?:\.codex|\.agents)\/skills(?:\/|$)/.test(sourcePath)) return ORIGIN_LABELS.external;
   if (scope === "project" || scope === "workspace" || scope.startsWith("workspace:")) {
     return ORIGIN_LABELS.project;
   }
   if (scope === "agent" || scope === "private" || scope.startsWith("agent:")) {
     return ORIGIN_LABELS.agent;
+  }
+  if (scope === "external" || scope === "codex-user" || scope === "agents-user") {
+    return ORIGIN_LABELS.external;
   }
   if (scope === "system" || scope === "global") return ORIGIN_LABELS.system;
   if (/(?:^|\/)\.ftre\/skills(?:\/|$)/.test(sourcePath)) return ORIGIN_LABELS.system;
