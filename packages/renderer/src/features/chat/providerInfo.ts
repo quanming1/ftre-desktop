@@ -1,6 +1,6 @@
 /**
  * 把 config.providers (raw dict) 转成 ModelPicker 需要的 ProviderInfo[]。
- * 仅保留 api_key + models 都齐的供应商。
+ * 仅保留已配置凭据（api_key 或 configured）且有模型的供应商。
  */
 
 import type { ModelItem } from "@/services/api";
@@ -58,7 +58,7 @@ export function buildProviderInfos(
     if (!providersDict) return [];
     return Object.entries(providersDict)
         .filter(([_, cfg]: [string, any]) => {
-            const hasApiKey = !!(cfg?.api_key || cfg?.apiKey);
+            const hasApiKey = !!(cfg?.api_key || cfg?.apiKey || cfg?.configured);
             const hasModels = Array.isArray(cfg?.models) && cfg.models.length > 0;
             return hasApiKey && hasModels;
         })
@@ -74,6 +74,8 @@ export function buildProviderInfos(
                         id: m.id ?? m.name ?? "",
                         context_window:
                             typeof m.context_window === "number" ? m.context_window : null,
+                        max_output:
+                            typeof m.max_output === "number" ? m.max_output : null,
                         vision: !!m.vision,
                         reasoning_effort_values: Array.isArray(m.reasoning_effort_values) ? m.reasoning_effort_values : undefined,
                     };

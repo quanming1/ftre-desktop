@@ -678,6 +678,7 @@ export async function triggerCompaction(
 // 这样浏览器场景也能用，并且后端能在写入时做校验/格式化。
 
 const CONFIG_API = `${API_BASE}/api/config`;
+const MODEL_CATALOG_API = `${CONFIG_API}/models`;
 
 /** 读取应用配置（providers / agents 等）。失败返回空对象。 */
 export async function fetchAppConfig(): Promise<Record<string, any>> {
@@ -907,6 +908,40 @@ export interface SkillDetail extends SkillSummary {
   revision: string;
   source: SkillSource;
   capabilities: SkillCapabilities;
+}
+
+export interface ModelCatalogProvider {
+  name: string;
+  api_type?: string;
+  configured?: boolean;
+  models: ModelItem[];
+}
+
+export interface ModelCatalog {
+  revision: number;
+  providers: ModelCatalogProvider[];
+}
+
+/** 读取脱敏模型目录；失败返回 null，由调用方保留上一次列表。 */
+export async function fetchModelCatalog(): Promise<ModelCatalog | null> {
+  try {
+    const res = await fetch(MODEL_CATALOG_API);
+    if (!res.ok) return null;
+    const data = await res.json();
+    if (!data || !Array.isArray(data.providers)) return null;
+    return {
+      revision: Number(data.revision) || 0,
+      providers: data.providers.filter((item: any) => item && typeof item.name === "string").map((item: any) => ({
+        name: item.name,
+        api_type: typeof item.api_type === "string" ? item.api_type : undefined,
+        configured: item.configured === true,
+        models: Array.isArray(item.models) ? item.models : [],
+      })),
+    };
+  } catch (e) {
+    console.error("[api] fetchModelCatalog failed:", e);
+    return null;
+  }
 }
 
 export type SkillSource =
