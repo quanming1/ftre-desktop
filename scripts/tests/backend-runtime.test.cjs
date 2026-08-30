@@ -118,9 +118,10 @@ test("develop 预发布 workflow 使用 SemVer 通道并先过质量门禁", () 
   assert.match(workflow, /prerelease: true/);
   assert.match(workflow, /make_latest: false/);
   assert.match(workflow, /ref: develop/);
-  assert.equal((workflow.match(/runner: macos-14/g) || []).length, 1);
-  assert.equal((workflow.match(/runner: macos-15-intel/g) || []).length, 1);
-  assert.doesNotMatch(workflow, /runner: macos-13/);
+  assert.match(workflow, /build-windows:/);
+  assert.match(workflow, /needs: \[metadata, build-windows\]/);
+  assert.match(workflow, /仅提供 Windows x64/);
+  assert.doesNotMatch(workflow, /runner:\s*macos-/);
 });
 
 test("Electron 退出入口注销 watcher 和 PTY", () => {

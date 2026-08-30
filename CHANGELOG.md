@@ -32,6 +32,8 @@
 
 - macOS x64 构建改用原生 `macos-15-intel` runner，arm64 继续使用 `macos-14`，避免 arm64 主机上的 x64 架构验证失败。
 
+- `develop` 预发布改为只构建 Windows x64；macOS x64/arm64 保留在正式 Release 流程，缩短日常测试包等待时间。
+
 ## [0.1.22] - 2026-08-28
 
 ### 发布构建修复
