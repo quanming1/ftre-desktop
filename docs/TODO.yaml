@@ -37,7 +37,8 @@ stages:
           - ChatPanel / ChatMessageList / ChatInput
           - AssistantMessage / UserMessage / CodeBlock / InlineToolCallCard
           - streamingMarkdown
-        acceptance: 消息正确渲染，流式输出无闪烁，工具卡片可折叠，代码高亮正确
+          - packages/ui/src/components/FloatingMenu.tsx（Agent / LLM / 推理强度统一浮层定位）
+        acceptance: 消息正确渲染，流式输出无闪烁，工具卡片可折叠，代码高亮正确；Agent、模型和推理强度浮层按真实尺寸定位并在视口边界自动翻转，不被父容器裁剪
 
       - id: A3
         title: Inspector 面板

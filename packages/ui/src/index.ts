@@ -5,4 +5,17 @@ export * from "./components";
 export { useThrottledValue } from "./hooks";
 
 // Utils
-export { cn, adjustMenuPosition, type Position, type Size } from "./utils";
+export {
+  cn,
+  adjustMenuPosition,
+  calculateFloatingMenuPosition,
+  type FloatingMenuAlign,
+  type FloatingMenuAnchorRect,
+  type FloatingMenuPlacement,
+  type FloatingMenuPosition,
+  type FloatingMenuPositionOptions,
+  type FloatingMenuSize,
+  type FloatingMenuViewport,
+  type Position,
+  type Size,
+} from "./utils";
