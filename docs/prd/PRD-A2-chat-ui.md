@@ -43,6 +43,7 @@
 - [x] FR19：消息队列中的 Skill token 使用与消息正文相同的 Skill UI 渲染，不退化为原始 Markdown 文本；纯文本队列消息的既有布局和操作按钮不变。
 - [x] FR20：`loadSkill` 工具行使用轻量统一格式 `Load Skill <Skill UI>`，Skill UI 复用消息中的名称、路由、来源和 Tooltip 行为，不再渲染独立的复杂卡片。
 - [x] FR21：移除输入框按 Escape 取消当前 Agent 执行的快捷键；Escape 仍可关闭 `/` 候选面板及其它明确属于弹层自身的关闭行为，停止执行仅通过 Stop 按钮或显式 `/cancel` 完成。
+- [x] FR22：Agent、LLM 模型和推理强度浮层统一使用同一个 Portal 定位组件；组件必须以触发器和浮层实时尺寸计算坐标，在内容高度变化、视口变化和滚动时重新定位，自动在首选方向与反向之间切换并将浮层限制在视口安全区内，不得被输入框或父容器裁剪。
 
 ### 2.2 非功能需求
 
@@ -62,6 +63,7 @@
   - `InlineToolCallCard.tsx`：工具调用卡片
   - `streamingMarkdown.tsx`：流式 markdown 解析器
 - `components/HttpLink.tsx`：HTTP/HTTPS 链接与 favicon 失败回退渲染
+- `packages/ui/src/components/FloatingMenu.tsx`：聊天选择器共用的 Portal 浮层与视口边界定位
 - 依赖选型：react-markdown（或自研 streamingMarkdown）、代码高亮库
 
 ## 4. 接口定义
@@ -88,6 +90,7 @@
 - [x] AC15：队列横幅中包含 Skill token 时显示与 User/Assistant 消息一致的 Skill UI，点击可打开 Inspector 中对应 `SKILL.md`，Tooltip 可展示来源/路由；无 token 的队列项仍显示原有纯文本。
 - [x] AC16：loadSkill 完成/运行态行均显示 `Load Skill` 与 Skill UI（名称、图标、Tooltip），不再出现旧的 `Loaded Skill ?... ?` 或重复独立描述卡片；工具状态图标仍正确。
 - [x] AC17：在输入框有草稿、运行中和候选面板打开/关闭等组合状态下按 Escape 不派发 `cancelStream`；Stop 按钮和 `/cancel` 命令仍能取消，候选面板 Escape 关闭行为保留。
+- [x] AC18：Agent、LLM 模型、推理强度三个选择器均通过 `FloatingMenu` 渲染；浮层首次打开、展开更多内容、内容异步刷新、窗口尺寸变化和滚动后都按真实宽高重新定位，优先方向空间不足时自动翻转，最终坐标与可滚动高度不超出视口安全区；Portal 不受输入框/父级 `overflow` 影响，三个选择器的选中、悬停、键盘和关闭行为不回归。
 
 ## 6. 测试计划
 
@@ -175,3 +178,4 @@
 | 2026-08-30 | 新增并验收 FR16-FR21 / AC12-AC17：统一 Skill 来源/命令/路由预览；输入框粘贴和队列复用 Skill token 解析；Slash 选择后恢复焦点；loadSkill 简化为 `Load Skill <Skill UI>`；移除输入框 Escape 取消快捷键。渲染器 567 项、平台 16 项测试通过，类型检查和构建通过 | 用户新增 Skill 预览、队列渲染、焦点和取消快捷键需求 |
 | 2026-08-30 | 修正 Skill UI：Slash 选择完成后在提交后的 layout 阶段再次恢复真实编辑器焦点（Enter/Tab、鼠标选择均覆盖）；`loadSkill` 仅渲染真实 Skill 名称并复用共享 Skill UI，不再出现占位 `<Skill>` 文案；来源标签统一放在 Tooltip、预览、候选项和管理卡片的元信息末尾 | 用户反馈焦点恢复失败、Skill 名称被占位文案替代、来源标识位置不一致 |
 | 2026-08-30 | 修复 Skill inline void 节点插入后的 Slate 选区：在 token 后创建/复用可编辑空格并显式选择其后插入点；Slash 候选鼠标选择延后到 click，避免按钮夺取焦点；补充 Enter/Tab、鼠标选择和编辑器选区回归测试 | 用户反馈按 Enter/Tab 或鼠标选择 Skill 后输入框仍未聚焦；原实现将光标留在 token 隐藏子节点内，浏览器没有可见插入点 |
+| 2026-09-01 | 新增统一 `FloatingMenu` Portal 定位组件，Agent、LLM 模型和推理强度浮层统一按触发器/真实内容尺寸定位；监听 ResizeObserver、滚动、窗口/VisualViewport 变化，空间不足自动翻转并限制安全区高度 | 修复不同屏幕、展开全量模型或靠近底部时浮层位置不刷新、下半部分被遮挡的问题 |
