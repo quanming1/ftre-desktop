@@ -270,6 +270,35 @@ stages:
           - terminal / global-search
         acceptance: 设置可持久化，终端可交互，搜索结果正确，MCP 服务器列表可刷新
 
+      - id: C2
+        title: MCP 上下文目录与三层管理 UI
+        status: in_progress
+        date: 2026-09-02
+        prd: docs/prd/PRD-C2-mcp-contextual-catalog.md
+        prd_status: approved
+        paired_stage: E:\\ftre F40
+        implementation_boundary: 只修改 renderer MCP API、浮窗、设置页、上下文 selector 和测试；不修改 Electron、WebSocket、聊天消息或 MCP 文件系统协议。
+        modules:
+          - packages/renderer/src/services/api.ts
+          - packages/renderer/src/features/mcp/
+          - packages/renderer/src/features/settings/McpSettings.tsx
+          - packages/renderer/src/stores/
+          - packages/renderer/src/**/*.test.tsx
+        acceptance: 当前 Session 的 Agent/工作区上下文传给 MCP API；浮窗显示 effective 项；设置页管理 global/agent/project 三层；CRUD 契约、状态、覆盖关系和测试正确。
+        tasks:
+          - id: C2.1
+            title: Catalog API 类型与上下文请求
+            status: todo
+          - id: C2.2
+            title: MCP 浮窗 effective 视图
+            status: todo
+          - id: C2.3
+            title: 设置页三层来源与 CRUD
+            status: todo
+          - id: C2.4
+            title: Renderer 回归与跨仓验收
+            status: todo
+
   - id: D
     name: 会话体验
     steps:
