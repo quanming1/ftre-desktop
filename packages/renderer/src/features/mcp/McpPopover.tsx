@@ -9,7 +9,7 @@
  *
  * 设计风格：与标题栏一体化的深色弹出层，neon 绿色状态指示
  */
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import {
   Plug,
   Settings,
@@ -19,9 +19,19 @@ import {
 import {
   fetchMcpServers,
   updateMcpServer,
+  type McpScope,
   type McpServerConfig,
 } from "@/services/api";
 import { useLayout } from "@/stores/layout";
+import { useChat } from "@/stores/chat";
+import { useSession } from "@/stores/session";
+
+// ─── 作用域徽标文案 ──────────────────────────────────────────
+const SCOPE_LABEL: Record<McpScope, string> = {
+  global: "全局",
+  agent: "Agent",
+  project: "项目",
+};
 
 // ─── 主组件 ──────────────────────────────────────────────────
 
@@ -31,27 +41,60 @@ export function McpPopover() {
   const [error, setError] = useState<string | null>(null);
   const [toggling, setToggling] = useState<string | null>(null);
 
-  const refresh = useCallback(async () => {
-    setLoading(true);
-    try {
-      const list = await fetchMcpServers("all");
-      setServers(list);
-      setError(null);
-    } catch (e: any) {
-      setError(e.message || "加载失败");
-    } finally {
-      setLoading(false);
-    }
-  }, []);
+  // 与 SkillsPanel 相同的上下文来源：优先当前会话绑定的 Agent/工作区，
+  // 否则回退到聊天状态里的 agentId。三层 MCP 解析依赖它，缺失会只看到全局层。
+  const agentId = useChat((state) => state.agentId);
+  const sessionId = useChat((state) => state.sessionId);
+  const sessions = useSession((state) => state.sessions);
+  const allSessions = useSession((state) => state.allSessions);
+  const currentSession = useMemo(
+    () =>
+      [...sessions, ...allSessions].find(
+        (item) => item.session_id === sessionId,
+      ) || null,
+    [allSessions, sessionId, sessions],
+  );
+  const mcpAgentId = currentSession?.agent_id || agentId || "default";
+  const currentWorkspace = currentSession?.workspace || null;
 
-  // 初始加载
-  useEffect(() => { refresh(); }, [refresh]);
+  const refresh = useCallback(
+    async (signal?: AbortSignal) => {
+      setLoading(true);
+      try {
+        const list = await fetchMcpServers(mcpAgentId, currentWorkspace, "effective", signal);
+        if (signal?.aborted) return;
+        setServers(list);
+        setError(null);
+      } catch (e: any) {
+        if (e?.name === "AbortError" || signal?.aborted) return;
+        setError(e.message || "加载失败");
+      } finally {
+        if (!signal?.aborted) setLoading(false);
+      }
+    },
+    [mcpAgentId, currentWorkspace],
+  );
+
+  // 初始加载 + 上下文变化时重新加载；切换会话/Agent/工作区时取消上一次请求，
+  // 避免旧结果覆盖新上下文（FR6 请求竞态）。
+  useEffect(() => {
+    const controller = new AbortController();
+    refresh(controller.signal);
+    return () => controller.abort();
+  }, [refresh]);
 
   const handleToggle = async (server: McpServerConfig) => {
-    const key = `${server.scope}-${server.name}`;
+    const scope: McpScope = server.scope || "global";
+    const key = `${scope}-${server.name}`;
     setToggling(key);
     try {
-      await updateMcpServer(server.name, { disabled: !server.disabled }, server.scope || "global");
+      await updateMcpServer(
+        server.name,
+        { disabled: !server.disabled },
+        scope,
+        mcpAgentId,
+        currentWorkspace,
+      );
       await refresh();
     } catch (e: any) {
       setError(e.message || "切换失败");
@@ -65,7 +108,7 @@ export function McpPopover() {
     useLayout.getState().setActiveLeftPanel("settings");
   };
 
-  // 统计信息
+  // 统计信息：已连接数按运行态 status 判断
   const connectedCount = servers.filter(
     (s) => !s.disabled && s.status === "connected",
   ).length;
@@ -89,7 +132,7 @@ export function McpPopover() {
           )}
         </div>
         <button
-          onClick={refresh}
+          onClick={() => refresh()}
           disabled={loading}
           className="p-1 rounded-md text-t-ghost hover:text-t-secondary hover:bg-hover transition-colors"
           aria-label="刷新"
@@ -156,9 +199,23 @@ function ServerRow({
   toggling: boolean;
   onToggle: () => void;
 }) {
-  const isDisabled = server.disabled;
-  const isConnected = server.status === "connected" && !isDisabled;
-  const isDisconnected = !isConnected && !isDisabled;
+  const isDisabled = server.disabled || server.status === "disabled";
+  const status = server.status;
+  const isConnected = status === "connected" && !isDisabled;
+  const isFailed = status === "failed" || status === "invalid";
+  const isConnecting = status === "connecting";
+  const isShadowed = !!server.shadowed_by;
+
+  // 状态圆点颜色：连接=绿，失败/非法=红，禁用/被覆盖=灰，其余(已配置/连接中)=中性
+  const dotStroke = isConnected
+    ? "var(--ftre-accent-default)"
+    : isFailed
+      ? "var(--ftre-status-error)"
+      : isDisabled || isShadowed
+        ? "var(--ftre-text-ghost)"
+        : "var(--ftre-text-muted)";
+
+  const scope: McpScope = server.scope || "global";
 
   return (
     <div className="flex items-center gap-2.5 px-3.5 py-2 hover:bg-hover/60 transition-colors">
@@ -166,23 +223,38 @@ function ServerRow({
       <Circle
         size={7}
         fill={isConnected ? "var(--ftre-accent-default)" : "none"}
-        stroke={isDisabled ? "var(--ftre-text-ghost)" : isDisconnected ? "var(--ftre-status-error)" : "var(--ftre-accent-default)"}
+        stroke={dotStroke}
         strokeWidth={2}
-        className="shrink-0"
+        className={`shrink-0 ${isConnecting ? "animate-pulse" : ""}`}
       />
 
-      {/* 名称 */}
+      {/* 名称 + 作用域/覆盖/工具数 */}
       <div className="flex-1 min-w-0 flex items-center gap-1.5">
         <span
           className={`text-[12px] font-mono truncate ${
-            isDisabled ? "text-t-ghost" : "text-t-primary"
+            isDisabled || isShadowed ? "text-t-ghost" : "text-t-primary"
           }`}
+          title={server.error || undefined}
         >
           {server.name}
         </span>
-        {server.scope === "private" && (
-          <span className="shrink-0 text-[9px] text-t-ghost/60 px-1 py-0.5 rounded bg-surface border border-border/30">
-            私有
+        {/* 作用域徽标：全局 / Agent / 项目 */}
+        <span className="shrink-0 text-[9px] text-t-ghost/70 px-1 py-0.5 rounded bg-surface border border-border/30">
+          {SCOPE_LABEL[scope]}
+        </span>
+        {/* 被更高优先级覆盖时提示 */}
+        {isShadowed && (
+          <span
+            className="shrink-0 text-[9px] text-t-ghost/60 px-1 py-0.5 rounded bg-surface border border-border/20"
+            title={`被 ${SCOPE_LABEL[server.shadowed_by as McpScope]} 层覆盖`}
+          >
+            被覆盖
+          </span>
+        )}
+        {/* 已注册工具数 */}
+        {typeof server.tools_count === "number" && server.tools_count > 0 && (
+          <span className="shrink-0 text-[9px] text-t-ghost/60 font-mono">
+            {server.tools_count} 工具
           </span>
         )}
       </div>

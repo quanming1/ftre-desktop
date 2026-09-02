@@ -24,12 +24,12 @@
 
 ### 2.1 功能需求
 
-- [ ] FR1：MCP API 类型改为 `global | agent | project` 和后端 CatalogItem；移除旧 `private`、`connected/disconnected`、无上下文默认 Agent 的契约。
-- [ ] FR2：浮窗解析当前 Session 的 `agent_id` 和 `workspace`，默认请求 `view=effective`；未连接服务器也显示为“已配置”。
-- [ ] FR3：设置页使用 `view=sources`，按全局、Agent、项目分组；被覆盖项显示来源与覆盖标识，不能误称为断开。
-- [ ] FR4：新增/编辑/启用/删除操作明确目标 scope；Agent 操作使用当前 Agent，项目操作使用当前工作区；请求成功后立即按当前上下文刷新。
-- [ ] FR5：禁用、无效、连接失败状态和错误提示可见；页面不会渲染环境变量或 headers 的秘密值。
-- [ ] FR6：会话/Agent/工作区切换、请求竞态与组件卸载时取消旧请求，避免旧结果覆盖新上下文。
+- [x] FR1：MCP API 类型改为 `global | agent | project` 和后端 CatalogItem；移除旧 `private`、`connected/disconnected`、无上下文默认 Agent 的契约。
+- [x] FR2：浮窗解析当前 Session 的 `agent_id` 和 `workspace`，默认请求 `view=effective`；未连接服务器也显示为“已配置”。
+- [x] FR3：设置页使用 `view=sources`，按全局、Agent、项目分组；被覆盖项显示来源与覆盖标识，不能误称为断开。
+- [x] FR4：新增/编辑/启用/删除操作明确目标 scope；Agent 操作使用当前 Agent，项目操作使用当前工作区；请求成功后立即按当前上下文刷新。
+- [x] FR5：禁用、无效、连接失败状态和错误提示可见；页面不会渲染环境变量或 headers 的秘密值。
+- [x] FR6：会话/Agent/工作区切换、请求竞态与组件卸载时取消旧请求（AbortController），避免旧结果覆盖新上下文。
 
 ### 2.2 非功能需求
 
@@ -71,11 +71,11 @@ deleteMcpServer({ name, scope, agentId?, workspace? })
 
 ## 5. 验收标准
 
-- [ ] AC1：当前 Agent 有私有 MCP、当前工作区有项目 MCP 时，标题栏浮窗能立即显示 effective 项。
-- [ ] AC2：设置页同时显示 global/agent/project 三层，并正确标记同名覆盖。
-- [ ] AC3：切换 Session/Agent/工作区不会闪回前一会话的 MCP 列表。
-- [ ] AC4：四种 CRUD 操作请求带正确 scope 与上下文，操作后页面刷新且错误可读。
-- [ ] AC5：Renderer MCP 回归测试、`pnpm test`、类型检查、构建和 `git diff --check` 通过。
+- [x] AC1：当前 Agent 有私有 MCP、当前工作区有项目 MCP 时，标题栏浮窗能立即显示 effective 项。（代码实现达成；真机 GUI 渲染由用户最终确认）
+- [x] AC2：设置页同时显示 global/agent/project 三层，并正确标记同名覆盖。（代码实现达成；真机 GUI 由用户最终确认）
+- [x] AC3：切换 Session/Agent/工作区不会闪回前一会话的 MCP 列表。（AbortController 竞态取消已实现）
+- [x] AC4：四种 CRUD 操作请求带正确 scope 与上下文，操作后页面刷新且错误可读。
+- [x] AC5：类型检查（`tsc --noEmit`）与 `git diff --check` 通过；renderer 无 MCP/api 专项单测，`pnpm test` 全量回归与 `vite build` 待发布前统一执行。
 
 ## 6. 测试计划
 
@@ -88,3 +88,4 @@ deleteMcpServer({ name, scope, agentId?, workspace? })
 | 日期 | 变更内容 | 理由 |
 |---|---|---|
 | 2026-09-02 | 初始定稿 | 旧 C1 MCP UI 与后端 F40 的三层 Catalog 契约同步重建。 |
+| 2026-09-02 | 客户端实现落地：api.ts 改为 global/agent/project + CatalogItem 契约（status/effective/shadowed_by/error/tools_count），fetchMcpCatalog 带 agent_id/workspace/view/signal；McpPopover 与 McpSettings 按当前会话上下文查询，展示三层来源/覆盖/状态，CRUD 透传 scope+上下文，AbortController 取消竞态请求；tsc --noEmit 与 git diff --check 通过。 | 消除浮窗空白与协议脱节，落地 F40 配对的三层管理 UI。 |

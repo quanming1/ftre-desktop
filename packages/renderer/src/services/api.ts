@@ -1563,7 +1563,20 @@ export async function sendRoomMessage(
 
 const MCP_API = `${API_BASE}/api/mcp`;
 
-export type McpScope = "global" | "private";
+/** 三层作用域：全局 / Agent 私有 / 项目（工作区）。与后端 F40 McpScope 对齐。 */
+export type McpScope = "global" | "agent" | "project";
+
+/** 目录项状态。与后端 McpStatus 对齐。 */
+export type McpStatus =
+  | "configured"
+  | "connecting"
+  | "connected"
+  | "failed"
+  | "disabled"
+  | "invalid";
+
+/** 目录视图：effective 只返回每个名字的生效层；sources 返回全部层。 */
+export type McpView = "effective" | "sources";
 
 export interface McpServerConfig {
   name: string;
@@ -1577,32 +1590,82 @@ export interface McpServerConfig {
   /** 通用 */
   disabled?: boolean;
   timeout?: number;
-  /** 运行时状态（仅 GET 返回） */
-  status?: "connected" | "disconnected";
   /** 作用域（GET 返回） */
   scope?: McpScope;
+  /** 目录项状态（GET 返回，取代旧 connected/disconnected） */
+  status?: McpStatus;
+  /** 该项在其作用域是否为生效层（未被更高优先级覆盖） */
+  effective?: boolean;
+  /** 若被覆盖，指出胜出的作用域 */
+  shadowed_by?: McpScope | null;
+  /** 解析/连接错误信息 */
+  error?: string | null;
+  /** 已注册工具数量 */
+  tools_count?: number;
 }
 
+export interface McpCatalog {
+  servers: McpServerConfig[];
+  /** 项目级配置文件解析错误等来源级诊断 */
+  diagnostics: string[];
+}
+
+/**
+ * 读取当前上下文的 MCP 目录。
+ *
+ * 后端按 agent_id + workspace 解析三层配置（project > agent > global），
+ * 因此浮窗/设置页必须传入当前会话的 Agent 和工作区，否则只会看到全局层。
+ */
 export async function fetchMcpServers(
-  scope: "all" | McpScope = "all",
   agentId: string = "default",
+  workspace?: string | null,
+  view: McpView = "effective",
+  signal?: AbortSignal,
 ): Promise<McpServerConfig[]> {
-  const params = new URLSearchParams();
-  if (scope !== "all") params.set("scope", scope);
-  if (scope === "private") params.set("agent_id", agentId);
-  const qs = params.toString();
-  const res = await fetch(qs ? `${MCP_API}?${qs}` : MCP_API);
+  const catalog = await fetchMcpCatalog(agentId, workspace, view, signal);
+  return catalog.servers;
+}
+
+/** 与 fetchMcpServers 相同的查询，但同时返回来源级诊断信息。 */
+export async function fetchMcpCatalog(
+  agentId: string = "default",
+  workspace?: string | null,
+  view: McpView = "effective",
+  signal?: AbortSignal,
+): Promise<McpCatalog> {
+  const params = new URLSearchParams({ agent_id: agentId || "default", view });
+  if (workspace) params.set("workspace", workspace);
+  const res = await fetch(`${MCP_API}?${params}`, { signal });
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    throw new Error(data.detail || `加载失败 (${res.status})`);
+  }
   const data = await res.json();
-  return data.servers || [];
+  return {
+    servers: Array.isArray(data.servers) ? data.servers : [],
+    diagnostics: Array.isArray(data.diagnostics) ? data.diagnostics : [],
+  };
+}
+
+/** 写入时透传作用域上下文：agent 层需要 agent_id，project 层需要 workspace。 */
+function mcpWriteParams(
+  scope: McpScope,
+  agentId: string,
+  workspace?: string | null,
+): URLSearchParams {
+  const params = new URLSearchParams({ scope });
+  if (scope === "agent") params.set("agent_id", agentId || "default");
+  if (scope === "project" && workspace) params.set("workspace", workspace);
+  return params;
 }
 
 export async function createMcpServer(
-  config: Omit<McpServerConfig, "status" | "scope">,
+  config: Omit<McpServerConfig, "status" | "scope" | "effective" | "shadowed_by" | "error" | "tools_count">,
   scope: McpScope = "global",
   agentId: string = "default",
+  workspace?: string | null,
 ): Promise<McpServerConfig> {
-  const params = new URLSearchParams({ scope });
-  if (scope === "private") params.set("agent_id", agentId);
+  const params = mcpWriteParams(scope, agentId, workspace);
   const res = await fetch(`${MCP_API}?${params}`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -1620,9 +1683,9 @@ export async function updateMcpServer(
   patch: Partial<McpServerConfig>,
   scope: McpScope = "global",
   agentId: string = "default",
+  workspace?: string | null,
 ): Promise<McpServerConfig> {
-  const params = new URLSearchParams({ scope });
-  if (scope === "private") params.set("agent_id", agentId);
+  const params = mcpWriteParams(scope, agentId, workspace);
   const res = await fetch(`${MCP_API}/${encodeURIComponent(name)}?${params}`, {
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
@@ -1639,9 +1702,9 @@ export async function deleteMcpServer(
   name: string,
   scope: McpScope = "global",
   agentId: string = "default",
+  workspace?: string | null,
 ): Promise<{ ok: true } | { error: string }> {
-  const params = new URLSearchParams({ scope });
-  if (scope === "private") params.set("agent_id", agentId);
+  const params = mcpWriteParams(scope, agentId, workspace);
   const res = await fetch(`${MCP_API}/${encodeURIComponent(name)}?${params}`, {
     method: "DELETE",
   });
