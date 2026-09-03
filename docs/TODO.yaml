@@ -21,7 +21,7 @@ stages:
         prd: docs/prd/PRD-A1-electron-scaffold.md
         prd_status: 已验收
         modules:
-          - packages/electron（main.ts / preload.ts / window.ts / backend.ts）
+          - packages/electron（main.ts / preload.ts / window.ts / backend-supervisor.ts）
           - packages/renderer（Vite + React app）
           - packages/shared（共享类型）
           - packages/ui（UI 组件库）
@@ -37,7 +37,8 @@ stages:
           - ChatPanel / ChatMessageList / ChatInput
           - AssistantMessage / UserMessage / CodeBlock / InlineToolCallCard
           - streamingMarkdown
-        acceptance: 消息正确渲染，流式输出无闪烁，工具卡片可折叠，代码高亮正确
+          - packages/ui/src/components/FloatingMenu.tsx（Agent / LLM / 推理强度统一浮层定位）
+        acceptance: 消息正确渲染，流式输出无闪烁，工具卡片可折叠，代码高亮正确；Agent、模型和推理强度浮层按真实尺寸定位并在视口边界自动翻转，不被父容器裁剪
 
       - id: A3
         title: Inspector 面板
@@ -269,6 +270,36 @@ stages:
           - terminal / global-search
         acceptance: 设置可持久化，终端可交互，搜索结果正确，MCP 服务器列表可刷新
 
+      - id: C2
+        title: MCP 上下文目录与三层管理 UI
+        status: done
+        date: 2026-09-02
+        completion_date: 2026-09-03
+        prd: docs/prd/PRD-C2-mcp-contextual-catalog.md
+        prd_status: 已验收
+        paired_stage: E:\\ftre F40
+        implementation_boundary: 只修改 renderer MCP API、浮窗、设置页、上下文 selector 和测试；不修改 Electron、WebSocket、聊天消息或 MCP 文件系统协议。
+        modules:
+          - packages/renderer/src/services/api.ts
+          - packages/renderer/src/features/mcp/
+          - packages/renderer/src/features/settings/McpSettings.tsx
+          - packages/renderer/src/stores/
+          - packages/renderer/src/**/*.test.tsx
+        acceptance: 当前 Session 的 Agent/工作区上下文传给 MCP API；浮窗显示 effective 项；设置页管理 global/agent/project 三层；CRUD 契约、状态、覆盖关系和测试正确。
+        tasks:
+          - id: C2.1
+            title: Catalog API 类型与上下文请求
+            status: done
+          - id: C2.2
+            title: MCP 浮窗 effective 视图
+            status: done
+          - id: C2.3
+            title: 设置页三层来源与 CRUD
+            status: done
+          - id: C2.4
+            title: Renderer 回归与跨仓验收
+            status: done
+
   - id: D
     name: 会话体验
     steps:
@@ -329,7 +360,7 @@ stages:
           - packages/electron/assets/ftre.icns
           - packages/electron/assets/ftre-logo.png
           - electron-builder-full.json
-          - package.json（build.win.icon）
+          - package.json（build.win.icon/build.mac.icon）
           - scripts/bundle-backend.js
           - scripts/tests/backend-runtime.test.cjs
         acceptance: TitleBar、LoadingScreen、Windows 窗口/任务栏/托盘、macOS Dock 使用同一 Logo；Logo 保持透明背景和比例，菜单/启动状态行为不回归；renderer 测试、tsc、build、full pack 和平台图标静态检查通过
@@ -345,13 +376,15 @@ stages:
         modules:
           - package.json
           - electron-builder-full.json
-          - packages/electron/src/backend.ts
+          - packages/electron/src/backend-supervisor.ts
+          - packages/electron/src/backend-readiness.ts
           - packages/electron/src/backend-runtime.ts
           - packages/electron/src/main.ts
           - packages/electron/src/ipc/
           - scripts/bundle-backend.js
           - scripts/start-gateway.sh
           - .github/workflows/release.yml
+          - .github/workflows/prerelease.yml
           - packages/renderer/
           - packages/shared/
           - scripts/tests/

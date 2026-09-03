@@ -57,4 +57,9 @@ void (async () => {
       prewarm(),
     );
   });
+
+  // 仅 dev：MessageList 性能压测入口（window.__ftrePerf），生产构建被静态消除
+  if (import.meta.env.DEV) {
+    void import("@/dev/perfHarness").then((m) => m.registerPerfHarness());
+  }
 })();

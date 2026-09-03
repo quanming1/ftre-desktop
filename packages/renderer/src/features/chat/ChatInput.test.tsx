@@ -9,12 +9,16 @@
  * 故 mock slate-react 的渲染边界、保留真实 editor，用捕获的 onChange
  * 模拟"用户输入"——这正是回归所在的接线层。
  */
-import { render, screen, act, fireEvent } from "@testing-library/react";
+import { render, screen, act, fireEvent, waitFor } from "@testing-library/react";
+import { forwardRef } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Descendant } from "slate";
 
 // 捕获 Slate 挂载时的 editor 与 onChange，供测试驱动
 let capturedOnChange: ((value: Descendant[]) => void) | null = null;
+let capturedOnKeyDown: ((event: React.KeyboardEvent) => void) | null = null;
+const fetchSkillsMock = vi.hoisted(() => vi.fn().mockResolvedValue([]));
+const cancelStreamMock = vi.hoisted(() => vi.fn());
 
 vi.mock("slate-react", async (importOriginal) => {
   const actual = await importOriginal<typeof import("slate-react")>();
@@ -41,7 +45,12 @@ vi.mock("slate-react", async (importOriginal) => {
       capturedOnChange = onChange;
       return <>{children}</>;
     },
-    Editable: () => <div data-testid="slate-editable" />,
+    Editable: forwardRef<HTMLDivElement, { onKeyDown?: (event: React.KeyboardEvent) => void }>(
+      ({ onKeyDown }, ref) => {
+        capturedOnKeyDown = onKeyDown ?? null;
+        return <div ref={ref} data-testid="slate-editable" contentEditable onKeyDown={onKeyDown} />;
+      },
+    ),
     ReactEditor: { ...actual.ReactEditor, focus: vi.fn() },
   };
 });
@@ -52,10 +61,13 @@ vi.mock("./TokenRing", () => ({ TokenRing: () => <div data-testid="token-ring" /
 vi.mock("./WorkspaceBadge", () => ({ WorkspaceBadge: () => <div data-testid="workspace-badge" /> }));
 vi.mock("@/services/api", () => ({
   fetchCommands: vi.fn().mockResolvedValue([]),
+  fetchSkills: fetchSkillsMock,
 }));
 
 import { ChatInput } from "./ChatInput";
+import { ChatInputEditor } from "./slate";
 import { useChat } from "@/stores/chat";
+import { useSession } from "@/stores/session";
 import { useInspector } from "@/stores/inspector";
 
 const HELLO_DOC: Descendant[] = [
@@ -65,6 +77,8 @@ const HELLO_DOC: Descendant[] = [
 describe("ChatInput 发送按钮", () => {
   beforeEach(() => {
     capturedOnChange = null;
+    capturedOnKeyDown = null;
+    fetchSkillsMock.mockClear();
     useChat.setState({
       sessionId: null,
       messages: [],
@@ -75,7 +89,10 @@ describe("ChatInput 发送按钮", () => {
       clientCanSend: true,
       hasCoordinatorState: false,
       canCancel: false,
+      cancelStream: cancelStreamMock,
     });
+    useSession.setState({ sessions: [], allSessions: [] });
+    cancelStreamMock.mockClear();
   });
 
   it("输入框使用淡黑色边框并保留阴影", () => {
@@ -90,6 +107,32 @@ describe("ChatInput 发送按钮", () => {
     expect(surface).not.toHaveClass(
       "shadow-[0_2px_12px_rgba(15,23,42,0.08),inset_0_1px_0_rgba(255,255,255,0.6)]",
     );
+  });
+
+  it("从 HTTP Skill API 加载当前 Agent 的技能候选", async () => {
+    render(<ChatInput />);
+    await waitFor(() => expect(fetchSkillsMock).toHaveBeenCalled());
+    expect(fetchSkillsMock.mock.calls[0][0]).toBeDefined();
+  });
+
+  it("切换 Session 后按 Session 的 agent_id 和 workspace 加载技能", async () => {
+    useChat.setState({ sessionId: "session-1", agentId: "default" });
+    useSession.setState({
+      sessions: [{
+        session_id: "session-1",
+        agent_id: "coder",
+        workspace: "E:/workspace",
+        channel: "ws",
+      } as any],
+      allSessions: [],
+    });
+
+    render(<ChatInput />);
+    await waitFor(() => expect(fetchSkillsMock).toHaveBeenCalledWith(
+      "coder",
+      "E:/workspace",
+      expect.any(AbortSignal),
+    ));
   });
 
   it("输入普通文本后发送按钮从禁用变为可点击", () => {
@@ -113,6 +156,88 @@ describe("ChatInput 发送按钮", () => {
 
     act(() => capturedOnChange!([{ type: "paragraph", children: [{ text: "" }] } as Descendant]));
     expect(screen.getByTitle("Send message")).toBeDisabled();
+  });
+
+  it("按 Escape 不再触发执行取消快捷键", () => {
+    render(<ChatInput />);
+    const editable = screen.getByTestId("slate-editable");
+    fireEvent.keyDown(editable, { key: "Escape" });
+    expect(cancelStreamMock).not.toHaveBeenCalled();
+  });
+
+  it("Slash 面板选择 Skill 后恢复输入框焦点", async () => {
+    const getSkillSearch = vi.spyOn(ChatInputEditor.prototype, "getSkillSearch").mockReturnValue({
+      search: "review",
+      range: {
+        anchor: { path: [0, 0], offset: 0 },
+        focus: { path: [0, 0], offset: 0 },
+      },
+    });
+    const replaceRangeWithSkill = vi
+      .spyOn(ChatInputEditor.prototype, "replaceRangeWithSkill")
+      .mockImplementation(() => {});
+    try {
+      fetchSkillsMock.mockResolvedValue([{
+        id: "review-code",
+        name: "review-code",
+        uri: "ftre://v1/skill/review-code",
+        description: "Review code",
+        kind: "dir",
+        scope: "global",
+        updated_at: 0,
+      }]);
+      render(<ChatInput />);
+      await waitFor(() => expect(fetchSkillsMock).toHaveBeenCalled());
+
+      act(() => capturedOnChange!([{ type: "paragraph", children: [{ text: "/review" }] }]));
+      await waitFor(() => expect(screen.getByRole("button", { name: /Review Code/ })).toBeInTheDocument());
+
+      act(() => capturedOnKeyDown!({ key: "Enter", preventDefault: vi.fn() } as unknown as React.KeyboardEvent));
+      await waitFor(() => expect(document.activeElement).toBe(screen.getByTestId("slate-editable")));
+      expect(replaceRangeWithSkill).toHaveBeenCalled();
+    } finally {
+      getSkillSearch.mockRestore();
+      replaceRangeWithSkill.mockRestore();
+      fetchSkillsMock.mockResolvedValue([]);
+    }
+  });
+
+  it("鼠标点击 Slash 面板 Skill 后不会把焦点留在候选按钮", async () => {
+    const getSkillSearch = vi.spyOn(ChatInputEditor.prototype, "getSkillSearch").mockReturnValue({
+      search: "review",
+      range: {
+        anchor: { path: [0, 0], offset: 0 },
+        focus: { path: [0, 0], offset: 0 },
+      },
+    });
+    const replaceRangeWithSkill = vi
+      .spyOn(ChatInputEditor.prototype, "replaceRangeWithSkill")
+      .mockImplementation(() => {});
+    try {
+      fetchSkillsMock.mockResolvedValue([{
+        id: "review-code",
+        name: "review-code",
+        uri: "ftre://v1/skill/review-code",
+        description: "Review code",
+        kind: "dir",
+        scope: "global",
+        updated_at: 0,
+      }]);
+      render(<ChatInput />);
+      await waitFor(() => expect(fetchSkillsMock).toHaveBeenCalled());
+
+      act(() => capturedOnChange!([{ type: "paragraph", children: [{ text: "/review" }] }]));
+      const skillButton = await screen.findByRole("button", { name: /Review Code/ });
+
+      fireEvent.mouseDown(skillButton);
+      fireEvent.click(skillButton);
+      await waitFor(() => expect(document.activeElement).toBe(screen.getByTestId("slate-editable")));
+      expect(replaceRangeWithSkill).toHaveBeenCalled();
+    } finally {
+      getSkillSearch.mockRestore();
+      replaceRangeWithSkill.mockRestore();
+      fetchSkillsMock.mockResolvedValue([]);
+    }
   });
 
   it("在输入框上方展示本轮文件变更摘要", () => {

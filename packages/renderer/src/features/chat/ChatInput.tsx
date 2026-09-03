@@ -7,8 +7,8 @@
  * - 绑定发送/取消/快捷键、粘贴/拖拽图片
  * - 监听外部事件（rollback refill、plan next step）
  */
-import { useCallback, useEffect, useLayoutEffect, useMemo, useState, useRef } from "react";
-import { Slate, Editable, ReactEditor } from "slate-react";
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useState, useRef } from "react";
+import { Slate, Editable } from "slate-react";
 import { Range } from "slate";
 import { ArrowUp, Box, ChevronRight, Paperclip, Plus, Terminal, X } from "lucide-react";
 import { useChat, type MessageAttachment } from "@/stores/chat";
@@ -17,7 +17,7 @@ import { useLayout } from "@/stores/layout";
 import { useInspector } from "@/stores/inspector";
 import { useSession } from "@/stores/session";
 import { useNotification } from "@/stores/notification";
-import { fetchCommands, type CommandDef } from "@/services/api";
+import { fetchCommands, fetchSkills, type CommandDef, type SkillSummary } from "@/services/api";
 import { saveSessionDraft, getSessionDraft, deleteSessionDraft as removeDraft } from "./sessionDrafts";
 import { AgentBar } from "./AgentBar";
 import { TokenRing } from "./TokenRing";
@@ -35,6 +35,8 @@ import {
   type ImageRef,
   type ImageAttachmentDTO,
 } from "./slate";
+import { hasFtreToken, serializeFtreRef } from "@/lib/ftre-extensions";
+import { classifySkillOrigin, formatSkillName } from "@/lib/skill-display";
 import {
   fileToImageRef,
   extractImageFiles,
@@ -64,15 +66,21 @@ function notifySendFailure(
 function SlashDropdown({
   commands,
   skills,
+  skillLoading,
+  skillError,
   selectedIndex,
   onSelectCommand,
   onSelectSkill,
+  workspace,
 }: {
   commands: CommandDef[];
-  skills: CommandDef[];
+  skills: SkillSummary[];
+  skillLoading: boolean;
+  skillError: string | null;
   selectedIndex: number;
   onSelectCommand: (cmd: CommandDef) => void;
-  onSelectSkill: (cmd: CommandDef) => void;
+  onSelectSkill: (skill: SkillSummary) => void;
+  workspace?: string | null;
 }) {
   const listRef = useRef<HTMLDivElement>(null);
 
@@ -80,10 +88,12 @@ function SlashDropdown({
     const item = listRef.current?.querySelector(
       `[data-slash-index="${selectedIndex}"]`,
     ) as HTMLElement | undefined;
-    item?.scrollIntoView({ block: "nearest" });
+    if (item && typeof item.scrollIntoView === "function") {
+      item.scrollIntoView({ block: "nearest" });
+    }
   }, [selectedIndex]);
 
-  if (commands.length === 0 && skills.length === 0) return null;
+  if (commands.length === 0 && skills.length === 0 && !skillLoading && !skillError) return null;
 
   return (
     <div
@@ -98,9 +108,11 @@ function SlashDropdown({
               key={cmd.command}
               data-slash-index={i}
               onMouseDown={(e) => {
+                // 让编辑器继续持有焦点；选择动作延后到 click，避免浏览器
+                // 在回调之后把焦点重新交给候选按钮。
                 e.preventDefault();
-                onSelectCommand(cmd);
               }}
+              onClick={() => onSelectCommand(cmd)}
               className={`w-full flex items-center gap-2 px-3 py-1.5 text-left transition-colors ${
                 i === selectedIndex
                   ? "bg-active text-t-primary"
@@ -119,6 +131,9 @@ function SlashDropdown({
                   {cmd.description}
                 </span>
               )}
+              <span className="shrink-0 text-[10px] text-t-ghost">
+                {cmd.system ? "系统" : cmd.source || "插件"}
+              </span>
             </button>
           ))}
         </>
@@ -128,14 +143,22 @@ function SlashDropdown({
           <div className="px-3 pb-1 pt-1 text-[12px] leading-5 text-t-muted">技能</div>
           {skills.map((skill, i) => {
             const idx = commands.length + i;
+            const origin = classifySkillOrigin({
+              origin: skill.origin,
+              scope: skill.scope,
+              route: skill.route,
+              sourcePath: skill.source?.kind === "filesystem" ? skill.source.path : undefined,
+              workspace,
+            });
             return (
               <button
-                key={skill.command}
+                key={skill.id || skill.name}
                 data-slash-index={idx}
                 onMouseDown={(e) => {
+                  // 同上：mousedown 只阻止默认聚焦，避免点击结束后焦点落在按钮。
                   e.preventDefault();
-                  onSelectSkill(skill);
                 }}
+                onClick={() => onSelectSkill(skill)}
                 className={`w-full flex items-center gap-2 px-3 py-1.5 text-left transition-colors ${
                   idx === selectedIndex
                     ? "bg-active text-t-primary"
@@ -143,18 +166,28 @@ function SlashDropdown({
                 }`}
               >
                 <Box size={14} strokeWidth={1.9} className="shrink-0 text-t-secondary" />
-                <span className="shrink-0 text-[13px] leading-5 font-medium text-t-primary truncate max-w-[240px]">
-                  {skill.command.replace("/skill:", "")}
+                <span
+                  className="shrink-0 text-[13px] leading-5 font-medium text-t-primary truncate max-w-[240px]"
+                  title={skill.name}
+                >
+                  {formatSkillName(skill.name)}
                 </span>
                 {skill.description && (
                   <span className="min-w-0 flex-1 truncate text-[13px] leading-5 text-t-muted">
                     {skill.description}
                   </span>
                 )}
+                <span className="shrink-0 text-[10px] text-t-ghost">{origin.shortLabel}</span>
               </button>
             );
           })}
         </>
+      )}
+      {skillLoading && skills.length === 0 && (
+        <div className="px-3 py-2 text-[12px] text-t-muted">正在加载技能…</div>
+      )}
+      {skillError && skills.length === 0 && (
+        <div className="px-3 py-2 text-[12px] text-red-400/80">技能加载失败：{skillError}</div>
       )}
     </div>
   );
@@ -283,8 +316,23 @@ function MenuItem({
 
 // ─── 主组件 ────────────────────────────────────────────────────────
 
-export function ChatInput() {
+// memo：ChatInput 无 props；父级 ChatView 在流式期间每个 WS 批都重渲染，
+// memo 避免无变化的 Slate 编辑器子树跟着陪跑。
+export const ChatInput = memo(function ChatInput() {
   const inputEditor = useMemo(() => new ChatInputEditor(), []);
+  const editableRef = useRef<HTMLDivElement | null>(null);
+  const focusRestorePendingRef = useRef(false);
+
+  // Slash 面板会在选择后卸载，不能依赖浏览器默认焦点恢复；先让
+  // Slate 同步选区，再对真实 contenteditable 节点做一次兜底聚焦。
+  const focusInput = useCallback(() => {
+    try {
+      inputEditor.focus();
+    } catch {
+      // Slate 尚未完成 DOM 映射时由下面的原生节点聚焦兜底。
+    }
+    editableRef.current?.focus({ preventScroll: true });
+  }, [inputEditor]);
 
   // 模型切换后自动聚焦输入框（如果未聚焦）
   // ── 发送按钮水波纹 ──
@@ -315,11 +363,19 @@ export function ChatInput() {
   const canCancel = useChat((s) => s.canCancel);
   const hasCoordinatorState = useChat((s) => s.hasCoordinatorState);
   const sessionId = useChat((s) => s.sessionId);
+  const agentId = useChat((s) => s.agentId);
   const messages = useChat((s) => s.messages);
   const pendingMessages = useChat((s) => s.pendingMessages);
   const lastUserInputTs = useChat((s) => s.lastUserInputTs);
   const sessions = useSession((s) => s.sessions);
   const allSessions = useSession((s) => s.allSessions);
+  const currentSession = useMemo(() => {
+    const current = [...sessions, ...allSessions].find((item) => item.session_id === sessionId);
+    return current || null;
+  }, [allSessions, sessionId, sessions]);
+  const currentWorkspace = currentSession?.workspace || null;
+  // Skill 目录属于当前 Session 的 Agent；新会话尚未落盘时才回退到全局选择。
+  const skillAgentId = currentSession?.agent_id || agentId || "default";
   const autoFollow = useLayout((s) => s.autoFollowFiles);
   const toggleAutoFollow = useLayout((s) => s.toggleAutoFollowFiles);
   /** 输入框是否有文字（Slate 非受控，需在 onChange 中显式同步，见 handleSlateChange） */
@@ -348,9 +404,9 @@ export function ChatInput() {
     }
     // 切换 session 后自动聚焦输入框
     // rAF 确保 Slate DOM 已就绪（组件重新挂载场景下尤其需要）
-    const rafId = requestAnimationFrame(() => inputEditor.focus());
+    const rafId = requestAnimationFrame(() => focusInput());
     return () => cancelAnimationFrame(rafId);
-  }, [sessionId, inputEditor]);
+  }, [sessionId, inputEditor, focusInput]);
 
   // ── 附件栏状态 ──
   const [attachments, setAttachments] = useState<ImageRef[]>([]);
@@ -379,19 +435,91 @@ export function ChatInput() {
   } | null>(null);
   const [skillIndex, setSkillIndex] = useState(0);
   const [commandList, setCommandList] = useState<CommandDef[]>([]);
+  const [skillList, setSkillList] = useState<SkillSummary[]>([]);
+  const [skillLoading, setSkillLoading] = useState(false);
+  const [skillError, setSkillError] = useState<string | null>(null);
+  const skillRequestRef = useRef<AbortController | null>(null);
+  const [focusRequest, setFocusRequest] = useState(0);
+  const focusRequestRef = useRef(0);
+
+  const requestInputFocus = useCallback(() => {
+    const next = focusRequestRef.current + 1;
+    focusRequestRef.current = next;
+    setFocusRequest(next);
+  }, []);
+
+  const restoreInputFocus = useCallback(() => {
+    requestInputFocus();
+    focusRestorePendingRef.current = true;
+    // 先立即恢复一次，随后在 Slash 面板卸载后的两个渲染帧再次确认。
+    // 这样既覆盖键盘选择，也覆盖鼠标选择导致的焦点转移。
+    focusInput();
+    window.requestAnimationFrame(() => {
+      if (!focusRestorePendingRef.current) return;
+      focusInput();
+      window.requestAnimationFrame(() => {
+        if (!focusRestorePendingRef.current) return;
+        focusInput();
+        focusRestorePendingRef.current = false;
+      });
+    });
+  }, [focusInput, requestInputFocus]);
+
+  // 选择回调执行时 React 可能还没有卸载 Slash 面板；在提交后的 layout
+  // 阶段再聚焦一次，确保不会被面板卸载或 Slate 重绘抢走焦点。
+  useLayoutEffect(() => {
+    if (focusRequest > 0 && focusRequestRef.current === focusRequest) {
+      focusRequestRef.current = 0;
+      focusInput();
+    }
+  }, [focusInput, focusRequest]);
 
   // 加载指令列表（全局，与工作区无关）
   useEffect(() => {
     fetchCommands().then(setCommandList);
   }, []);
 
-  // 过滤候选指令（/ 面板顶部，排除 /skill: 开头的指令——它们归入技能分组）
+  // Skill 列表随当前 Agent/工作区刷新，避免把旧 session 的目录显示到新会话。
+  const loadSkills = useCallback(() => {
+    skillRequestRef.current?.abort();
+    const controller = new AbortController();
+    skillRequestRef.current = controller;
+    setSkillLoading(true);
+    setSkillError(null);
+    fetchSkills(skillAgentId, currentWorkspace, controller.signal)
+      .then((items) => {
+        if (!controller.signal.aborted) setSkillList(items);
+      })
+      .catch((error) => {
+        if (!controller.signal.aborted) {
+          setSkillList([]);
+          setSkillError(error instanceof Error ? error.message : "网络错误");
+        }
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setSkillLoading(false);
+    });
+  }, [skillAgentId, currentWorkspace]);
+
+  useEffect(() => {
+    loadSkills();
+    return () => skillRequestRef.current?.abort();
+  }, [loadSkills]);
+
+  // 后端刚启动或网络短暂中断时，第一次加载可能失败；打开 / 面板时重试一次。
+  const skillMenuOpen = skillSearch !== null;
+  const skillMenuWasOpen = useRef(false);
+  useEffect(() => {
+    if (skillMenuOpen && !skillMenuWasOpen.current) loadSkills();
+    skillMenuWasOpen.current = skillMenuOpen;
+  }, [loadSkills, skillMenuOpen]);
+
+  // 过滤候选指令（/ 面板顶部；Skill 候选来自独立的 HTTP 目录）
   const commandCandidates = useMemo(() => {
     if (!skillSearch) return [];
     const q = skillSearch.search.toLowerCase();
     return commandList.filter(
       (c) => {
-        if (c.command.startsWith("/skill:")) return false;
         // /cancel 只在确实存在可取消的活动 Turn 时展示。
         if (c.command === "/cancel" && !canCancel) return false;
         return (
@@ -402,17 +530,17 @@ export function ChatInput() {
     );
   }, [skillSearch, commandList, canCancel]);
 
-  // 过滤候选 skill（从指令列表中筛选 /skill: 开头的）
+  // 过滤候选 Skill（来自后端 /api/skills）
   const skillCandidates = useMemo(() => {
     if (!skillSearch) return [];
     const q = skillSearch.search.toLowerCase();
-    return commandList.filter(
-      (c) =>
-        c.command.startsWith("/skill:") &&
-        (c.command.toLowerCase().includes(q) ||
-          c.description.toLowerCase().includes(q)),
+    return skillList.filter(
+      (skill) =>
+        !skill.disabled && skill.user_invocable !== false &&
+        (skill.name.toLowerCase().includes(q) ||
+          skill.description.toLowerCase().includes(q)),
     );
-  }, [skillSearch, commandList]);
+  }, [skillSearch, skillList]);
 
   // 合并候选总数（指令在前，技能在后），键盘导航用统一索引
   const slashTotal = commandCandidates.length + skillCandidates.length;
@@ -493,7 +621,7 @@ export function ChatInput() {
       if (cmd.args_hint) {
         // 有参数：把 /xxx 替换成完整指令，等用户补全
         inputEditor.replaceRange(skillSearch.range, cmd.command + " ");
-        inputEditor.focus();
+        restoreInputFocus();
       } else {
         const result = useChat.getState().sendMessage(cmd.command, undefined, cmd.system);
         if (!result.ok) {
@@ -506,12 +634,32 @@ export function ChatInput() {
         setSkillIndex(0);
         // 先把 /xxx 从编辑器删掉，避免残留
         inputEditor.replaceRange(range, "");
+        restoreInputFocus();
         return;
       }
       setSkillSearch(null);
       setSkillIndex(0);
     },
-    [inputEditor, skillSearch],
+    [inputEditor, restoreInputFocus, skillSearch],
+  );
+
+  const handleSelectSkill = useCallback(
+    (skill: SkillSummary) => {
+      if (!skillSearch) return;
+      const baseRef = {
+        version: "v1",
+        type: "skill",
+        name: skill.name,
+        args: {},
+      } as const;
+      const ref = { ...baseRef, raw: serializeFtreRef(baseRef) } as const;
+      inputEditor.replaceRangeWithSkill(skillSearch.range, ref);
+      setSkillSearch(null);
+      setSkillIndex(0);
+      // 先卸载下拉列表，再把焦点交还给 Slate，避免 React 重渲染抢走焦点。
+      restoreInputFocus();
+    },
+    [inputEditor, restoreInputFocus, skillSearch],
   );
 
   // ── 取消 ──
@@ -593,9 +741,15 @@ export function ChatInput() {
       if (files.length > 0) {
         e.preventDefault();
         handleAddImages(files);
+        return;
       }
+      const text = e.clipboardData.getData("text/plain");
+      if (!text || !hasFtreToken(text)) return;
+      e.preventDefault();
+      inputEditor.insertTextWithExtensions(text);
+      restoreInputFocus();
     },
-    [handleAddImages],
+    [handleAddImages, inputEditor, restoreInputFocus],
   );
 
   const handleDragOver = useCallback((e: React.DragEvent) => {
@@ -627,26 +781,26 @@ export function ChatInput() {
       if (idx < commandCandidates.length) {
         handleSelectCommand(commandCandidates[idx]);
       } else {
-        handleSelectCommand(skillCandidates[idx - commandCandidates.length]);
+        handleSelectSkill(skillCandidates[idx - commandCandidates.length]);
       }
     },
-    [commandCandidates, skillCandidates, handleSelectCommand],
+    [commandCandidates, skillCandidates, handleSelectCommand, handleSelectSkill],
   );
 
   const onKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
-      if (skillSearch && slashTotal > 0) {
-        if (e.key === "ArrowDown") {
+      if (skillSearch) {
+        if (slashTotal > 0 && e.key === "ArrowDown") {
           e.preventDefault();
           setSkillIndex((p) => (p + 1) % slashTotal);
           return;
         }
-        if (e.key === "ArrowUp") {
+        if (slashTotal > 0 && e.key === "ArrowUp") {
           e.preventDefault();
           setSkillIndex((p) => (p - 1 + slashTotal) % slashTotal);
           return;
         }
-        if (e.key === "Enter" || e.key === "Tab") {
+        if (slashTotal > 0 && (e.key === "Enter" || e.key === "Tab")) {
           e.preventDefault();
           handleSelectSlashIndex(skillIndex);
           return;
@@ -654,6 +808,7 @@ export function ChatInput() {
         if (e.key === "Escape") {
           e.preventDefault();
           setSkillSearch(null);
+          setSkillIndex(0);
           return;
         }
       }
@@ -663,10 +818,6 @@ export function ChatInput() {
         handleSend();
         return;
       }
-      if (e.key === "Escape") {
-        e.preventDefault();
-        handleCancel();
-      }
     },
     [
       skillSearch,
@@ -674,7 +825,6 @@ export function ChatInput() {
       skillIndex,
       handleSelectSlashIndex,
       handleSend,
-      handleCancel,
     ],
   );
 
@@ -738,7 +888,7 @@ export function ChatInput() {
       );
       inputEditor.setContent([{ type: "text", text: detail.content || "" }]);
       setAttachmentsSynced(restoredAttachments);
-      window.requestAnimationFrame(() => inputEditor.focus());
+      restoreInputFocus();
     };
 
     window.addEventListener("ftre:queued-edit-request", handleEditRequest);
@@ -747,7 +897,7 @@ export function ChatInput() {
       window.removeEventListener("ftre:queued-edit-request", handleEditRequest);
       window.removeEventListener("ftre:queued-edit-refill", handleEditRefill);
     };
-  }, [attachments.length, inputEditor]);
+  }, [attachments.length, inputEditor, restoreInputFocus]);
 
   // ── 外部事件：Plan 模式下一步按钮 ──
   useEffect(() => {
@@ -838,7 +988,10 @@ export function ChatInput() {
               skills={skillCandidates}
               selectedIndex={skillIndex}
               onSelectCommand={handleSelectCommand}
-              onSelectSkill={handleSelectCommand}
+              onSelectSkill={handleSelectSkill}
+              skillLoading={skillLoading}
+              skillError={skillError}
+              workspace={currentWorkspace}
             />
           )}
 
@@ -855,6 +1008,7 @@ export function ChatInput() {
             onChange={handleSlateChange}
           >
             <Editable
+              ref={editableRef}
               renderElement={renderElement}
               onKeyDown={onKeyDown}
               onPaste={handlePaste}
@@ -966,4 +1120,4 @@ export function ChatInput() {
       </div>
     </div>
   );
-}
+});

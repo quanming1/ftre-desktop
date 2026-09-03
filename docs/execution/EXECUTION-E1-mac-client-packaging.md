@@ -39,7 +39,7 @@
   - backend、bat、sh launcher 作为 extraResources。
 - `.github/workflows/release.yml`
   - Windows x64 job；
-  - macOS x64（macos-13）和 arm64（macos-14）矩阵；
+  - macOS x64（macos-15-intel）和 arm64（macos-14）矩阵；
   - bundle 后先校验 manifest、机器架构和三项 Python 导入，再进入 electron-builder；
   - 汇总产物、生成 `SHA256SUMS` 并上传 GitHub Release。
 - `scripts/start-gateway.bat` / `scripts/start-gateway.sh`

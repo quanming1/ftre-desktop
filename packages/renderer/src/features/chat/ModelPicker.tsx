@@ -18,17 +18,15 @@
 import {
   useState,
   useEffect,
-  useLayoutEffect,
   useRef,
   useCallback,
   useMemo,
-  type CSSProperties,
   type ReactNode,
 } from "react";
-import { createPortal } from "react-dom";
 import { Check, ChevronDown, Pin, Search, Settings2 } from "lucide-react";
 import { ModelBadges } from "./ModelBadges";
 import type { ModelItem } from "@/services/api";
+import { FloatingMenu, type FloatingMenuPlacement } from "@ftre/ui";
 
 // ─────────────────────────────────────────────────────────────
 // Pin 模型存储（纯前端，localStorage）
@@ -116,7 +114,7 @@ export interface ModelPickerProps {
   }) => ReactNode;
   extraTopOption?: ModelPickerExtraOption;
   onOpenSettings?: () => void;
-  placement?: "top" | "bottom" | "right";
+  placement?: FloatingMenuPlacement;
   /** Hover 型触发器：鼠标进入触发器或子面板时打开，离开整个区域后关闭。 */
   openOnHover?: boolean;
   /** 同一组 hover 菜单的互斥 key。 */
@@ -169,11 +167,6 @@ export function ModelPicker({
   const [search, setSearch] = useState("");
   const [focusIndex, setFocusIndex] = useState(-1);
   const [showAllModels, setShowAllModels] = useState(!pinnedOnlyByDefault);
-  const [floatingPosition, setFloatingPosition] = useState<{
-    left: number;
-    top: number;
-    maxHeight: number;
-  } | null>(null);
   const panelRef = useRef<HTMLDivElement>(null);
   const floatingPanelRef = useRef<HTMLDivElement>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
@@ -214,85 +207,6 @@ export function ModelPicker({
     window.addEventListener(HOVER_MENU_EVENT, handleOtherHoverMenu);
     return () => window.removeEventListener(HOVER_MENU_EVENT, handleOtherHoverMenu);
   }, [clearHoverClose, hoverMenuKey, openOnHover]);
-
-  const updateFloatingPosition = useCallback(() => {
-    const trigger = panelRef.current;
-    if (!trigger || typeof window === "undefined") return;
-    const rect = trigger.getBoundingClientRect();
-    const panel = floatingPanelRef.current;
-    const panelWidth = panel?.offsetWidth || 300;
-    const panelHeight = panel?.offsetHeight || Math.min(420, Math.max(160, window.innerHeight - 16));
-    const viewportPadding = 8;
-    const gap = 4;
-    const maxLeft = Math.max(viewportPadding, window.innerWidth - panelWidth - viewportPadding);
-    const maxTop = Math.max(viewportPadding, window.innerHeight - panelHeight - viewportPadding);
-    const clamp = (value: number, min: number, max: number) => Math.min(Math.max(value, min), max);
-
-    let left: number;
-    let top: number;
-
-    if (placement === "right") {
-      const rightCandidate = rect.right + gap;
-      const leftCandidate = rect.left - panelWidth - gap;
-      left = rightCandidate + panelWidth <= window.innerWidth - viewportPadding
-        ? rightCandidate
-        : leftCandidate >= viewportPadding
-          ? leftCandidate
-          : clamp(rightCandidate, viewportPadding, maxLeft);
-      top = clamp(rect.top, viewportPadding, maxTop);
-    } else {
-      left = clamp(rect.left, viewportPadding, maxLeft);
-      const belowCandidate = rect.bottom + gap;
-      const aboveCandidate = rect.top - panelHeight - gap;
-      if (placement === "bottom") {
-        top = belowCandidate + panelHeight <= window.innerHeight - viewportPadding
-          ? belowCandidate
-          : aboveCandidate >= viewportPadding
-            ? aboveCandidate
-            : clamp(belowCandidate, viewportPadding, maxTop);
-      } else {
-        top = aboveCandidate >= viewportPadding
-          ? aboveCandidate
-          : belowCandidate + panelHeight <= window.innerHeight - viewportPadding
-            ? belowCandidate
-            : clamp(aboveCandidate, viewportPadding, maxTop);
-      }
-    }
-
-    const nextPosition = {
-      left: Math.round(left),
-      top: Math.round(top),
-      maxHeight: Math.max(80, window.innerHeight - viewportPadding * 2),
-    };
-    setFloatingPosition((current) => (
-      current &&
-      current.left === nextPosition.left &&
-      current.top === nextPosition.top &&
-      current.maxHeight === nextPosition.maxHeight
-        ? current
-        : nextPosition
-    ));
-  }, [placement]);
-
-  // Portal 首次挂载后重新测量真实尺寸，修正首帧的估算位置，避免高菜单被视口裁掉。
-  useLayoutEffect(() => {
-    if (open) updateFloatingPosition();
-  }, [open, floatingPosition, updateFloatingPosition]);
-
-  useEffect(() => {
-    if (!open) {
-      setFloatingPosition(null);
-      return;
-    }
-    updateFloatingPosition();
-    const handleViewportChange = () => updateFloatingPosition();
-    window.addEventListener("resize", handleViewportChange);
-    window.addEventListener("scroll", handleViewportChange, true);
-    return () => {
-      window.removeEventListener("resize", handleViewportChange);
-      window.removeEventListener("scroll", handleViewportChange, true);
-    };
-  }, [open, updateFloatingPosition]);
 
   useEffect(() => () => clearHoverClose(), [clearHoverClose]);
 
@@ -437,23 +351,21 @@ export function ModelPicker({
   const isFocused = (key: string) => flatItems.findIndex((i) => i.key === key) === focusIndex;
   const hasKeyboardFocus = focusIndex >= 0;
 
-  const floatingPanelStyle: CSSProperties = {
-    position: "fixed",
-    left: floatingPosition?.left,
-    top: floatingPosition?.top,
-    maxHeight: floatingPosition?.maxHeight,
-  };
-
-  const floatingPanel = open && floatingPosition ? (
-    <div
-      ref={floatingPanelRef}
-      style={floatingPanelStyle}
-      data-ftre-floating-menu="model-picker"
+  const floatingPanel = (
+    <FloatingMenu
+      open={open}
+      anchorRef={panelRef}
+      placement={placement}
+      align="start"
+      gap={4}
+      viewportPadding={8}
+      menuId="model-picker"
+      contentRef={floatingPanelRef}
       onMouseEnter={openOnHover ? clearHoverClose : undefined}
-      // portal 面板的合成事件沿组件树冒泡到容器 onMouseLeave，导致「面板移出即关闭」；
+      // Portal 面板的合成事件沿组件树冒泡到容器 onMouseLeave，导致「面板移出即关闭」；
       // 阻断冒泡，面板移出不关闭，仅由触发项移出或点击外部关闭。
       onMouseLeave={openOnHover ? (event) => event.stopPropagation() : undefined}
-      className={`fixed ${panelWidthClass} z-[9999] flex flex-col overflow-hidden rounded-xl border border-border-subtle bg-surface shadow-[0_12px_30px_rgba(15,23,42,0.14)]`}
+      className={`flex ${panelWidthClass} flex-col overflow-hidden rounded-xl border border-border-subtle bg-surface shadow-[0_12px_30px_rgba(15,23,42,0.14)]`}
     >
       {/* 搜索框 */}
       <div className="flex items-center gap-1.5 p-2">
@@ -601,8 +513,8 @@ export function ModelPicker({
         </div>
       )}
 
-    </div>
-  ) : null;
+    </FloatingMenu>
+  );
 
   return (
     <div
@@ -612,10 +524,7 @@ export function ModelPicker({
       onMouseLeave={openOnHover ? scheduleHoverClose : undefined}
     >
       {renderTrigger({ open, toggle })}
-      {typeof document === "undefined" ? null : createPortal(
-        floatingPanel,
-        document.body,
-      )}
+      {floatingPanel}
     </div>
   );
 }

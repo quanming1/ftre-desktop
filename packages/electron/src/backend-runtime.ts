@@ -31,7 +31,7 @@ export interface RuntimeManifest {
 const PYTHON_BASENAME = "python3.12";
 
 function defaultPythonExecutable(pythonDir: string, platform: NodeJS.Platform): string {
-  if (platform === "win32") return path.join(pythonDir, "python.exe");
+  if (platform === "win32") return path.join(pythonDir, "pythonw.exe");
   return path.join(pythonDir, "bin", PYTHON_BASENAME);
 }
 
@@ -101,6 +101,12 @@ export function resolveManifestExecutable(
   // manifest 中只能使用相对路径，避免构建机绝对路径泄漏到发布包。
   if (path.isAbsolute(manifest.pythonExecutable)) {
     throw new Error("Python runtime manifest 不允许包含绝对路径");
+  }
+  if (
+    path.basename(paths.pythonExecutable).toLowerCase() === "pythonw.exe" &&
+    path.basename(manifest.pythonExecutable).toLowerCase() !== "pythonw.exe"
+  ) {
+    throw new Error("Windows 客户端必须使用 pythonw.exe 启动 Gateway");
   }
   const executable = path.resolve(paths.pythonDir, manifest.pythonExecutable);
   const runtimeRoot = path.resolve(paths.pythonDir);

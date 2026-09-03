@@ -73,3 +73,61 @@ export function splitBlocks(text: string): MarkdownBlock[] {
     flush();
     return blocks;
 }
+
+/**
+ * createBlockSplitter — splitBlocks 的增量缓存版本（供流式渲染使用）。
+ *
+ * 流式文本只会追加（TEXT_BLOCK_DELTA 单调拼接，throttle 展示值是全文前缀），
+ * 而「追加永远不会改变已闭合的块」——块边界只由空行/围栏闭合决定，
+ * 都位于追加点之前。因此只需重切「上一块内容 + 新增后缀」，
+ * 复杂度从 O(全文) 降到 O(尾块 + delta)。
+ *
+ * 输入不满足 append-only 时（换消息、回退）自动退回全量切分并重置缓存。
+ * 返回的已闭合块对象复用同一实例（引用稳定），内容字符串也不重新分配。
+ */
+export interface BlockSplitter {
+    split(text: string): MarkdownBlock[];
+}
+
+export function createBlockSplitter(): BlockSplitter {
+    let hasState = false;
+    let input = "";
+    /** 已闭合块（不含进行中的尾块） */
+    let closed: MarkdownBlock[] = [];
+    /** 进行中的尾块内容 */
+    let tail = "";
+
+    return {
+        split(text: string): MarkdownBlock[] {
+            if (!text) {
+                hasState = true;
+                input = "";
+                closed = [];
+                tail = "";
+                return [];
+            }
+
+            if (hasState && input.length > 0 && text.length >= input.length && text.startsWith(input)) {
+                // append-only 快路径：重切 尾块 + 新增部分。
+                // merged 的非尾块并入 closed；返回值 = closed + merged 的尾块。
+                const merged = splitBlocks(tail + text.slice(input.length));
+                for (let i = 0; i < merged.length - 1; i++) {
+                    closed.push(merged[i]);
+                }
+                tail = merged.length > 0 ? merged[merged.length - 1].content : "";
+                input = text;
+                return merged.length > 0
+                    ? closed.concat(merged[merged.length - 1])
+                    : [...closed];
+            }
+
+            // 慢路径：全量切分并重置
+            const blocks = splitBlocks(text);
+            hasState = true;
+            input = text;
+            closed = blocks.length > 0 ? blocks.slice(0, -1) : [];
+            tail = blocks.length > 0 ? blocks[blocks.length - 1].content : "";
+            return blocks;
+        },
+    };
+}

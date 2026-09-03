@@ -76,9 +76,8 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # macos-13 runners are no longer reliably schedulable; macos-14 can
-          # cross-build the Intel target while keeping the two-architecture matrix.
-          - runner: macos-14
+          # Intel 产物使用原生 Intel runner，避免在 arm64 主机上误判/交叉验证。
+          - runner: macos-15-intel
             arch: x64
           - runner: macos-14
             arch: arm64
@@ -126,8 +125,8 @@ jobs:
         run: |
           set -euo pipefail
           test -x backend/python/bin/python3.12
-          # macos-14 runner 是 arm64；Intel 产物在该 runner 上交叉构建，
-          # 因此不能用宿主 uname 判断目标架构，必须检查实际 runtime 二进制。
+          # x64 使用原生 Intel runner，arm64 使用 macos-14 arm64 runner；
+          # 两者都必须检查实际 runtime 二进制，防止目标架构漂移。
           runtime_arch=$(file backend/python/bin/python3.12)
           if [ "${{ matrix.arch }}" = "x64" ]; then
             echo "$runtime_arch" | grep -Eq 'x86_64|universal'

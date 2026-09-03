@@ -92,6 +92,7 @@ interface AuditTab extends TabBase {
 
 | 日期 | 变更内容 | 理由 |
 |---|---|---|
+| 2026-08-28 | MessageList 性能优化：删除无效 turnTexts 传参、turnFileChanges 与搜索/摘要文本按消息引用缓存、ChatInput memo、流式 markdown 节流 10ms→40ms、增量切块（createBlockSplitter）、离屏消息 content-visibility: auto、dev 压测入口 `__ftrePerf` | 长会话 + 流式场景下每次 WS 批触发全列表无效渲染与全文重解析，收敛到仅 streaming 消息本身 |
 | 2026-08-28 | MessageList 新增 Ctrl+F 搜索：右上角浮窗（上下导航 + x/N 计数）、用户消息关键字 mark 高亮、匹配消息定位 ring | 审阅与会话列表内快速查找内容，不影响流式性能 |
 | 2026-08-21 | 初始定稿：新增唯一 Inspector 审计 Tab，Changes 常驻并支持未提交/未暂存/已暂存三种对比范围；文件 Diff 按需展开，提供复制和打开源文件操作 | 用户需求与 Codex 参考图 |
 | 2026-08-21 | Changes 行右侧增加工作区增删统计，统一展示为 `+xxx -xxx`，无变更时显示 `+0 -0` | 用户视觉调整需求 |

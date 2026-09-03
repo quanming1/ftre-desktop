@@ -235,11 +235,16 @@ async function installPythonRuntime(target, pythonDir, forceClean) {
   const expectedExecutable = target.platform === "win32"
     ? path.join(pythonDir, "python.exe")
     : path.join(pythonDir, "bin", "python3.12");
+  const launchExecutable = target.platform === "win32"
+    ? path.join(pythonDir, "pythonw.exe")
+    : expectedExecutable;
   if (
     existing &&
     existing.platform === target.platform &&
     existing.arch === target.arch &&
-    fs.existsSync(expectedExecutable)
+    fs.existsSync(expectedExecutable) &&
+    fs.existsSync(launchExecutable) &&
+    existing.pythonExecutable === path.relative(pythonDir, launchExecutable).split(path.sep).join("/")
   ) {
     log(`✓ 已存在 ${target.platform}/${target.arch} Python runtime，跳过下载`);
     return { executable: expectedExecutable, manifest: existing };
@@ -295,16 +300,23 @@ async function installPythonRuntime(target, pythonDir, forceClean) {
     }
   }
 
+  const launchRelativeExecutable = target.platform === "win32"
+    ? "pythonw.exe"
+    : copied.relativeExecutable.split(path.sep).join("/");
+  const launchPath = path.join(pythonDir, launchRelativeExecutable);
+  if (!fs.existsSync(launchPath)) {
+    throw new Error(`解压后的 Python runtime 中找不到客户端启动解释器：${launchPath}`);
+  }
   const manifest = {
     formatVersion: 1,
     platform: target.platform,
     arch: target.arch,
     pythonVersion: target.platform === "win32" ? WINDOWS_PYTHON_VERSION : STANDALONE_VERSION,
-    pythonExecutable: copied.relativeExecutable.split(path.sep).join("/"),
+    pythonExecutable: launchRelativeExecutable,
     source: target.platform === "win32" ? "python.org-embedded" : "python-build-standalone",
     sourceUrl,
     archiveSha256,
-    runtimeSha256: sha256File(copied.executable),
+    runtimeSha256: sha256File(launchPath),
   };
   fs.writeFileSync(runtimeManifestPath, `${JSON.stringify(manifest, null, 2)}\n`, "utf8");
   log(`Python runtime 已安装：${manifest.platform}/${manifest.arch} ${manifest.pythonVersion}`);
@@ -350,6 +362,7 @@ function copyLocalPackageSources(projectRoot, serverDir) {
   if (!fs.existsSync(packagesRoot)) return [];
 
   const copied = [];
+  const expectedPackages = new Set(["ftre", "cordis", "data"]);
   for (const packageEntry of fs.readdirSync(packagesRoot, { withFileTypes: true })) {
     if (!packageEntry.isDirectory()) continue;
     const packageRoot = path.join(packagesRoot, packageEntry.name);
@@ -369,7 +382,18 @@ function copyLocalPackageSources(projectRoot, serverDir) {
       const destinationPath = path.join(serverDir, sourceEntry.name);
       if (sourceEntry.isDirectory()) syncDirIncremental(sourcePath, destinationPath);
       else fs.copyFileSync(sourcePath, destinationPath);
+      expectedPackages.add(sourceEntry.name);
       copied.push(path.relative(serverDir, destinationPath).split(path.sep).join("/"));
+    }
+  }
+  // A removed workspace package must not survive in an incremental bundle.
+  // Keep runtime data and the two top-level sources, but remove stale Python
+  // package directories such as the retired ftre_agent_core.
+  if (fs.existsSync(serverDir)) {
+    for (const item of fs.readdirSync(serverDir, { withFileTypes: true })) {
+      if (!item.isDirectory() || expectedPackages.has(item.name)) continue;
+      const candidate = path.join(serverDir, item.name);
+      if (fs.existsSync(path.join(candidate, "__init__.py"))) rmrf(candidate);
     }
   }
   return copied;
@@ -507,11 +531,11 @@ async function main() {
   }
 
   // ftre 主仓 packages/ 下的独立发行物（monorepo Package）：源码随 bundle 复制
-  // （见 copyLocalPackageSources），不进 pip 安装（PyPI 上不存在）。
+  // （见 copyLocalPackageSources），不进 pip 安装（PyPI 上不存在）。Workspace Package 的
+  // 外部 dependencies 由 collectExternalDependencies 一并安装。
   // ownPkgs = 以源码复制方式进入 bundle 的包。注意必须精确匹配包名：
   // 前缀匹配会把 "ftre-llm"/"ftre-inbox" 等全部当成 "ftre" 误过滤，
   // 导致这些包既不 pip 安装又不复制源码（2026-08-27 v0.1.15 回归教训）。
-  // Workspace Package 的外部 dependencies 由 collectExternalDependencies 一并安装。
   const { externalDeps: allDeps, monorepoPkgs } = collectExternalDependencies(PROJECT_ROOT);
   // macOS Intel 目前由 arm64 runner 交叉打包。此时如果 pip 找不到目标
   // 架构的 wheel，会把 cryptography 等 Rust 扩展退回源码编译；编译过程

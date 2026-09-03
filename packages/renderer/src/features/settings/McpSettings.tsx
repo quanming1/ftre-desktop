@@ -5,7 +5,7 @@
  * 分为「公共 MCP」（config.json，所有 agent 共享）和
  * 「Agent 私有 MCP」（agent.config.json，仅对当前 agent 可见）两组。
  */
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import {
   Trash2,
   Terminal,
@@ -15,25 +15,35 @@ import {
   X,
   AlertTriangle,
   Check,
-  Info,
   Lock,
   Users,
+  FolderGit2,
 } from "lucide-react";
-import { Button } from "@ftre/ui";
 import {
-  fetchMcpServers,
+  fetchMcpCatalog,
   createMcpServer,
   updateMcpServer,
   deleteMcpServer,
   type McpServerConfig,
   type McpScope,
 } from "@/services/api";
+import { useChat } from "@/stores/chat";
+import { useSession } from "@/stores/session";
 
 // ─── Types ──────────────────────────────────────────────────────────
 
-type ServerFormState = Omit<McpServerConfig, "status" | "scope"> & {
+type ServerFormState = Omit<
+  McpServerConfig,
+  "status" | "scope" | "effective" | "shadowed_by" | "error" | "tools_count"
+> & {
   _originalName?: string;
   _scope?: McpScope;
+};
+
+const SCOPE_LABEL: Record<McpScope, string> = {
+  global: "公共",
+  agent: "Agent",
+  project: "项目",
 };
 
 const EMPTY_LOCAL: ServerFormState = {
@@ -58,26 +68,54 @@ const EMPTY_REMOTE: ServerFormState = {
 
 export function McpSettings() {
   const [servers, setServers] = useState<McpServerConfig[]>([]);
+  const [diagnostics, setDiagnostics] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [editing, setEditing] = useState<ServerFormState | null>(null);
   const [expanded, setExpanded] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
 
-  const refresh = useCallback(async () => {
-    setLoading(true);
-    try {
-      const list = await fetchMcpServers("all");
-      setServers(list);
-      setError(null);
-    } catch (e: any) {
-      setError(e.message || "加载失败");
-    } finally {
-      setLoading(false);
-    }
-  }, []);
+  // 当前会话上下文：agent 层 CRUD 需要 agent_id，project 层解析/展示需要 workspace。
+  const agentId = useChat((state) => state.agentId);
+  const sessionId = useChat((state) => state.sessionId);
+  const sessions = useSession((state) => state.sessions);
+  const allSessions = useSession((state) => state.allSessions);
+  const currentSession = useMemo(
+    () =>
+      [...sessions, ...allSessions].find(
+        (item) => item.session_id === sessionId,
+      ) || null,
+    [allSessions, sessionId, sessions],
+  );
+  const mcpAgentId = currentSession?.agent_id || agentId || "default";
+  const currentWorkspace = currentSession?.workspace || null;
 
-  useEffect(() => { refresh(); }, [refresh]);
+  const refresh = useCallback(
+    async (signal?: AbortSignal) => {
+      setLoading(true);
+      try {
+        // sources 视图返回全部层（含被覆盖项），设置页据此按 scope 分组展示。
+        const catalog = await fetchMcpCatalog(mcpAgentId, currentWorkspace, "sources", signal);
+        if (signal?.aborted) return;
+        setServers(catalog.servers);
+        setDiagnostics(catalog.diagnostics);
+        setError(null);
+      } catch (e: any) {
+        if (e?.name === "AbortError" || signal?.aborted) return;
+        setError(e.message || "加载失败");
+      } finally {
+        if (!signal?.aborted) setLoading(false);
+      }
+    },
+    [mcpAgentId, currentWorkspace],
+  );
+
+  // 上下文变化时取消上一次请求，避免旧结果覆盖新上下文（FR6 请求竞态）。
+  useEffect(() => {
+    const controller = new AbortController();
+    refresh(controller.signal);
+    return () => controller.abort();
+  }, [refresh]);
 
   const handleSave = async () => {
     if (!editing) return;
@@ -86,10 +124,10 @@ export function McpSettings() {
       const scope = editing._scope || "global";
       if (editing._originalName) {
         const { _originalName, _scope, ...patch } = editing;
-        await updateMcpServer(_originalName, patch as any, scope);
+        await updateMcpServer(_originalName, patch as any, scope, mcpAgentId, currentWorkspace);
       } else {
         const { _originalName, _scope, ...data } = editing;
-        await createMcpServer(data as any, scope);
+        await createMcpServer(data as any, scope, mcpAgentId, currentWorkspace);
       }
       setEditing(null);
       await refresh();
@@ -101,7 +139,13 @@ export function McpSettings() {
   const handleToggle = async (server: McpServerConfig) => {
     setError(null);
     try {
-      await updateMcpServer(server.name, { disabled: !server.disabled }, server.scope || "global");
+      await updateMcpServer(
+        server.name,
+        { disabled: !server.disabled },
+        server.scope || "global",
+        mcpAgentId,
+        currentWorkspace,
+      );
       await refresh();
     } catch (e: any) {
       setError(e.message || "切换失败");
@@ -110,7 +154,12 @@ export function McpSettings() {
 
   const handleDelete = async (server: McpServerConfig) => {
     setError(null);
-    const result = await deleteMcpServer(server.name, server.scope || "global");
+    const result = await deleteMcpServer(
+      server.name,
+      server.scope || "global",
+      mcpAgentId,
+      currentWorkspace,
+    );
     if ("error" in result) {
       setError(result.error);
     } else {
@@ -157,9 +206,11 @@ export function McpSettings() {
     );
   }
 
-  // 按 scope 分组
-  const globalServers = servers.filter((s) => s.scope !== "private");
-  const privateServers = servers.filter((s) => s.scope === "private");
+  // 按 scope 分组（三层）
+  const globalServers = servers.filter((s) => (s.scope || "global") === "global");
+  const agentServers = servers.filter((s) => s.scope === "agent");
+  const projectServers = servers.filter((s) => s.scope === "project");
+  const hasWorkspace = !!currentWorkspace;
 
   return (
     <div className="space-y-6">
@@ -169,6 +220,13 @@ export function McpSettings() {
           连接外部工具服务器，扩展 Agent 可用工具集
         </p>
       </div>
+
+      {diagnostics.length > 0 && (
+        <div className="flex items-start gap-2 rounded-lg bg-red-50 px-3 py-2.5 text-[12px] leading-5 text-red-600">
+          <AlertTriangle size={14} className="mt-0.5 shrink-0" />
+          <div>{diagnostics.map((diagnostic) => <div key={diagnostic}>{diagnostic}</div>)}</div>
+        </div>
+      )}
 
       {error && (
         <div className="flex items-center gap-2 px-4 py-2.5 text-[12px] rounded-lg bg-black/[0.02] border border-black/[0.06] text-black/60">
@@ -189,14 +247,23 @@ export function McpSettings() {
           添加公共
         </button>
         <button
-          onClick={() => setEditing({ ...EMPTY_LOCAL, _scope: "private" })}
+          onClick={() => setEditing({ ...EMPTY_LOCAL, _scope: "agent" })}
           className="flex items-center gap-2 h-9 px-4 rounded-full text-[13px] font-medium bg-black/[0.04] text-black/70 hover:bg-black/[0.08] active:scale-[0.96] transition-[background-color,transform]"
         >
           <Plus size={14} />
-          添加私有
+          添加 Agent
         </button>
         <button
-          onClick={refresh}
+          onClick={() => setEditing({ ...EMPTY_LOCAL, _scope: "project" })}
+          disabled={!hasWorkspace}
+          title={hasWorkspace ? "为当前工作区添加项目 MCP" : "当前会话未绑定工作区，无法添加项目 MCP"}
+          className="flex items-center gap-2 h-9 px-4 rounded-full text-[13px] font-medium bg-black/[0.04] text-black/70 hover:bg-black/[0.08] active:scale-[0.96] transition-[background-color,transform] disabled:opacity-30 disabled:pointer-events-none"
+        >
+          <Plus size={14} />
+          添加项目
+        </button>
+        <button
+          onClick={() => refresh()}
           className="ml-auto flex items-center gap-1.5 text-[12px] text-black/30 hover:text-black/60 active:scale-[0.96] transition-[color,transform]"
         >
           <RefreshCw size={12} className={loading ? "animate-spin" : ""} />
@@ -235,7 +302,7 @@ export function McpSettings() {
       {servers.length === 0 ? (
         <EmptyState
           onAddGlobal={() => setEditing({ ...EMPTY_LOCAL, _scope: "global" })}
-          onAddPrivate={() => setEditing({ ...EMPTY_LOCAL, _scope: "private" })}
+          onAddAgent={() => setEditing({ ...EMPTY_LOCAL, _scope: "agent" })}
         />
       ) : (
         <div className="space-y-6">
@@ -260,20 +327,41 @@ export function McpSettings() {
             </ServerGroup>
           )}
 
-          {/* 私有 MCP */}
-          {privateServers.length > 0 && (
+          {/* Agent 私有 MCP */}
+          {agentServers.length > 0 && (
             <ServerGroup
               icon={<Lock size={13} />}
               title="Agent 私有 MCP"
-              hint="仅当前 Agent 可见"
+              hint={`仅 ${mcpAgentId} 可见`}
             >
-              {privateServers.map((s) => (
+              {agentServers.map((s) => (
                 <McpServerCard
-                  key={`private-${s.name}`}
+                  key={`agent-${s.name}`}
                   server={s}
-                  expanded={expanded === `private-${s.name}`}
-                  onExpand={() => setExpanded(expanded === `private-${s.name}` ? null : `private-${s.name}`)}
-                  onEdit={() => setEditing({ ...s, _originalName: s.name, _scope: "private" })}
+                  expanded={expanded === `agent-${s.name}`}
+                  onExpand={() => setExpanded(expanded === `agent-${s.name}` ? null : `agent-${s.name}`)}
+                  onEdit={() => setEditing({ ...s, _originalName: s.name, _scope: "agent" })}
+                  onToggle={() => handleToggle(s)}
+                  onDelete={() => setDeleteConfirm(s.name)}
+                />
+              ))}
+            </ServerGroup>
+          )}
+
+          {/* 项目 MCP */}
+          {projectServers.length > 0 && (
+            <ServerGroup
+              icon={<FolderGit2 size={13} />}
+              title="项目 MCP"
+              hint="仅当前工作区可见"
+            >
+              {projectServers.map((s) => (
+                <McpServerCard
+                  key={`project-${s.name}`}
+                  server={s}
+                  expanded={expanded === `project-${s.name}`}
+                  onExpand={() => setExpanded(expanded === `project-${s.name}` ? null : `project-${s.name}`)}
+                  onEdit={() => setEditing({ ...s, _originalName: s.name, _scope: "project" })}
                   onToggle={() => handleToggle(s)}
                   onDelete={() => setDeleteConfirm(s.name)}
                 />
@@ -308,7 +396,7 @@ function ServerGroup({ icon, title, hint, children }: {
 
 // ─── 空状态 ──────────────────────────────────────────────────────────
 
-function EmptyState({ onAddGlobal, onAddPrivate }: { onAddGlobal: () => void; onAddPrivate: () => void }) {
+function EmptyState({ onAddGlobal, onAddAgent }: { onAddGlobal: () => void; onAddAgent: () => void }) {
   return (
     <div className="flex flex-col items-center justify-center py-12 rounded-2xl bg-black/[0.01] border border-dashed border-black/[0.06]">
       <div className="w-12 h-12 rounded-2xl bg-black/[0.03] flex items-center justify-center mb-4">
@@ -320,8 +408,8 @@ function EmptyState({ onAddGlobal, onAddPrivate }: { onAddGlobal: () => void; on
         <button onClick={onAddGlobal} className="flex items-center gap-2 h-8 px-4 rounded-full text-[13px] font-medium bg-black text-white hover:bg-black/85 active:scale-[0.96] transition-[background-color,transform]">
           <Users size={13} />公共
         </button>
-        <button onClick={onAddPrivate} className="flex items-center gap-2 h-8 px-4 rounded-full text-[13px] font-medium bg-black/[0.04] text-black/70 hover:bg-black/[0.08] active:scale-[0.96] transition-[background-color,transform]">
-          <Lock size={13} />私有
+        <button onClick={onAddAgent} className="flex items-center gap-2 h-8 px-4 rounded-full text-[13px] font-medium bg-black/[0.04] text-black/70 hover:bg-black/[0.08] active:scale-[0.96] transition-[background-color,transform]">
+          <Lock size={13} />Agent
         </button>
       </div>
     </div>
@@ -365,9 +453,16 @@ function McpServerCard({
             <span className={`shrink-0 text-[10px] font-medium rounded px-1.5 py-0.5 ${isDisabled ? "bg-black/[0.04] text-black/40" : "bg-black/[0.04] text-black/60"}`}>
               {isDisabled ? "已禁用" : "启用"}
             </span>
-            <span className={`shrink-0 text-[9px] font-medium rounded px-1 py-0.5 ${server.scope === "private" ? "bg-black/[0.06] text-black/50" : "bg-black/[0.03] text-black/30"}`}>
-              {server.scope === "private" ? "私有" : "公共"}
+            <span className={`shrink-0 text-[9px] font-medium rounded px-1 py-0.5 ${
+              server.scope === "global" ? "bg-black/[0.03] text-black/30" : "bg-black/[0.06] text-black/50"
+            }`}>
+              {SCOPE_LABEL[server.scope || "global"]}
             </span>
+            {server.shadowed_by && (
+              <span className="shrink-0 text-[9px] font-medium rounded px-1 py-0.5 bg-black/[0.03] text-black/30" title={`被 ${SCOPE_LABEL[server.shadowed_by]} 层覆盖`}>
+                被覆盖
+              </span>
+            )}
           </div>
           <div className="flex items-center gap-2 mt-0.5">
             <span className="text-[11px] text-black/40">{isLocal ? "stdio" : "remote"}</span>
@@ -398,6 +493,7 @@ function McpServerCard({
             <DetailRow label="URL" value={server.url || "—"} mono />
           )}
           <DetailRow label="超时" value={`${server.timeout || 30000}ms`} />
+          {server.error && <DetailRow label="错误" value={server.error} />}
           <div className="flex gap-2 pt-1">
             <button
               onClick={onEdit}
@@ -465,7 +561,7 @@ function McpServerForm({
       {!isEdit && (
         <FormField label="作用域">
           <div className="flex gap-2">
-            {(["global", "private"] as const).map((sc) => (
+            {(["global", "agent", "project"] as const).map((sc) => (
               <button
                 key={sc}
                 onClick={() => onChange({ ...data, _scope: sc })}
@@ -475,8 +571,12 @@ function McpServerForm({
                     : "border-black/[0.08] bg-white text-black/60 hover:border-black/[0.15]"
                 }`}
               >
-                {sc === "global" ? <Users size={14} /> : <Lock size={14} />}
-                {sc === "global" ? "公共（所有 Agent 共享）" : "私有（仅当前 Agent）"}
+                {sc === "global" ? <Users size={14} /> : sc === "agent" ? <Lock size={14} /> : <FolderGit2 size={14} />}
+                {sc === "global"
+                  ? "公共（所有 Agent 共享）"
+                  : sc === "agent"
+                    ? "Agent（仅当前 Agent）"
+                    : "项目（仅当前工作区）"}
               </button>
             ))}
           </div>

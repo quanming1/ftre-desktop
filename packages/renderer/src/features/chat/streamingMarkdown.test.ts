@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { splitBlocks } from "./streamingMarkdown";
+import { splitBlocks, createBlockSplitter } from "./streamingMarkdown";
 
 describe("splitBlocks", () => {
     it("空字符串返回空数组", () => {
@@ -70,5 +70,63 @@ describe("splitBlocks", () => {
         expect(blocks1[1].content).toBe(blocks2[1].content);
         // 只有最后一块在变
         expect(blocks1[2].content).not.toBe(blocks2[2].content);
+    });
+});
+
+describe("createBlockSplitter（增量切块）", () => {
+    /** 模拟流式：逐段追加，校验每一步与全量 splitBlocks 的结果一致 */
+    function streamSteps(chunks: string[]): Array<{ text: string; splitter: ReturnType<typeof createBlockSplitter> }> {
+        const splitter = createBlockSplitter();
+        let text = "";
+        const steps = chunks.map((chunk) => {
+            text += chunk;
+            return { text, splitter };
+        });
+        return steps;
+    }
+
+    it("append-only 追加与全量切分结果一致（普通段落）", () => {
+        const chunks = ["第一段", "还在写", "\n\n第二段开始", "，继续", "\n\n\n第三段"];
+        for (const { text, splitter } of streamSteps(chunks)) {
+            expect(splitter.split(text)).toEqual(splitBlocks(text));
+        }
+    });
+
+    it("append-only 追加与全量切分结果一致（围栏代码块闭合）", () => {
+        const chunks = ["intro\n\n```ts", "\nconst a = 1;", "\n\n```", "\n\n尾巴", "追加"];
+        for (const { text, splitter } of streamSteps(chunks)) {
+            expect(splitter.split(text)).toEqual(splitBlocks(text));
+        }
+    });
+
+    it("append-only 追加与全量切分结果一致（未闭合代码块内含空行）", () => {
+        const chunks = ["```py", "\nx = 1", "\n", "\ny = 2", "\nz = 3"];
+        for (const { text, splitter } of streamSteps(chunks)) {
+            expect(splitter.split(text)).toEqual(splitBlocks(text));
+        }
+    });
+
+    it("已闭合块对象引用稳定（memo 可直接 bail out）", () => {
+        const splitter = createBlockSplitter();
+        const first = splitter.split("块一\n\n块二还在写");
+        const second = splitter.split("块一\n\n块二还在写，追加内容");
+
+        expect(second).toHaveLength(2);
+        expect(second[0]).toBe(first[0]); // 同一对象实例
+        expect(second[1].content).not.toBe(first[1].content);
+    });
+
+    it("非 append-only 输入自动退回全量切分（结果仍正确）", () => {
+        const splitter = createBlockSplitter();
+        splitter.split("第一版内容\n\n第二段");
+        const shrunk = "第一版内容，被替换";
+        expect(splitter.split(shrunk)).toEqual(splitBlocks(shrunk));
+    });
+
+    it("空输入重置状态", () => {
+        const splitter = createBlockSplitter();
+        splitter.split("一些内容");
+        expect(splitter.split("")).toEqual([]);
+        expect(splitter.split("重新开始")).toEqual(splitBlocks("重新开始"));
     });
 });

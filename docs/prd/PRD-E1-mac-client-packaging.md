@@ -23,11 +23,12 @@ ftre-desktop 当前是 Electron + React + TypeScript + Vite 的桌面客户端�
 - package.json 的 pack/dist 脚本固定传入 electron-builder --win；
 - electron-builder-full.json 只有 win/nsis 配置；
 - GitHub Actions 只在 windows-latest 上构建；
-- 内置 Python 使用 Windows embed-amd64 包和 python.exe；
-- 后端启动依赖 start-gateway.bat、PowerShell 和 Windows 路径；
+- 内置 Python 使用 Windows embed-amd64 包；正式客户端由 F37 的 Supervisor 使用 pythonw.exe，
+  python.exe 仅用于构建和手工诊断；
+- 历史诊断脚本仍保留 Windows bat，但正式启动链由 F37 Supervisor 直接管理；
 - Release workflow 只上传 Setup.exe 与 blockmap；
-- Electron backend.ts 虽然已经对 SIGTERM 做了部分 POSIX 分支，
-  但打包路径仍然硬编码 python.exe。
+- Electron 后端启动已由 F37 的 BackendSupervisor 统一管理，
+  不再由业务代码硬编码平台解释器路径。
 
 因此，Electron UI 的部分代码理论上可以在 macOS 开发环境运行，
 但当前没有可交付的 .app、.dmg 或 macOS GitHub Release 安装包。
@@ -101,6 +102,13 @@ CPU 架构上，普通用户不需要预装 Python、Node.js、Homebrew、conda�
   - 不得在首次启动时偷偷联网下载核心运行时或 Python/Node 依赖；联网只允许用于产品本身明确声明的在线功能；
   - 安装器和首次启动检查必须给出 macOS 最低版本、CPU 架构、磁盘空间和安装权限等不可打包解决的系统前置条件；
   - “开发模式可运行”不能作为发布包验收证据，所有发布候选包都必须在干净 macOS 环境中安装验证。
+
+- [ ] FR3b：预发布效率与正式发布分层
+  - `develop` push 和手动预发布只构建 Windows x64，保证开发验证链路快速产出可下载安装包；
+  - 预发布只上传 Windows x64 Setup.exe、blockmap 和 SHA256SUMS，不生成或上传 macOS 产物；
+  - 正式 tag Release 继续并行构建 Windows x64、macOS x64 和 macOS arm64，正式发布的跨平台承诺不变；
+  - 预发布说明必须明确“仅 Windows x64，用于测试”，不能被标记为 Latest 或稳定版本；
+  - 预发布与正式 Release 使用独立 workflow，不能通过删除正式 Release 的 macOS 矩阵来换取速度。
 
 ### 2.2 内置 Python 和 Gateway
 
@@ -201,7 +209,8 @@ CPU 架构上，普通用户不需要预装 Python、Node.js、Homebrew、conda�
       ├─ assertRuntimeMatchesProcess()
       └─ resolveManifestExecutable()
 
-    packages/electron/src/backend.ts
+    packages/electron/src/backend-supervisor.ts
+    packages/electron/src/backend-readiness.ts
       ├─ UTF-8 output decoder
       ├─ Gateway spawn/retry
       └─ platform-specific process-group cleanup
@@ -225,8 +234,10 @@ Renderer、shared 和业务 Feature 不应自行判断 process.platform；
     │  ├─ start-gateway.bat
     │  └─ start-gateway.sh
     ├─ packages/
-    │  ├─ electron/src/backend.ts
-    │  ├─ electron/src/backend-runtime.ts
+    │  ├─ electron/src/
+    │  │  ├─ backend-supervisor.ts
+    │  │  ├─ backend-readiness.ts
+    │  │  └─ backend-runtime.ts
     │  ├─ electron/src/ipc/terminal.ts
     │  ├─ renderer/src/types/desktop.d.ts
     │  └─ shared/src/types.ts
@@ -335,6 +346,7 @@ Release 至少包含：
 - [ ] AC14：构建产物不包含调试密钥、临时目录、缓存、测试数据或源码仓库绝对路径。
 - [ ] AC15：x64 与 arm64 安装包均包含对应架构的可分发 Python runtime；在无系统 Python、无 Homebrew/conda、无仓库源码和无网络的干净 macOS 环境中，runtime 校验通过并能启动 Gateway。
 - [ ] AC16：在未安装 Python、Node.js、npm/pnpm、Homebrew、conda、Git 和项目源码的干净 macOS 环境中，普通用户仅通过 GitHub Release 安装包即可完成安装、首次启动、Gateway 就绪和第一条消息发送；若系统版本、架构、磁盘或权限不满足，客户端必须在安装/启动阶段给出明确诊断。
+- [ ] AC17：`develop` 预发布只生成 Windows x64 资产并跳过 macOS runner；正式 tag 发布仍生成 Windows x64、macOS x64 和 macOS arm64 资产，且两条 workflow 的职责与版本标签不混淆。
 
 ## 7. 测试计划
 
@@ -380,6 +392,13 @@ Release 至少包含：
 - dmg 挂载、安装、卸载和重新安装均可完成；
 - unsigned/signed/notarized 状态与实际证据一致。
 
+### 7.5 预发布效率验证
+
+- `develop` push 只触发 `metadata → quality → build-windows → publish`，不得创建 macOS runner；
+- 预发布页面只包含 Windows x64 安装包、blockmap 和 SHA256SUMS，并且 `prerelease=true`、`make_latest=false`；
+- 正式 tag 仍触发 `release.yml` 的 Windows x64、macOS x64、macOS arm64 矩阵，FR3/AC11 不受影响；
+- 以本次变更前后同等依赖缓存条件的流水线耗时记录为证据，预发布耗时目标为不再等待 macOS Intel 打包。
+
 ## 8. 执行边界与当前进度
 
 本阶段只修改客户端仓库；不修改 E:\ftre 后端、E:\ftre\packages\ftre-agent、E:\ftre\packages\ftre-agent-runtime 或 cordis-py
@@ -389,6 +408,17 @@ Release 至少包含：
 - Windows/macOS 双平台 Gateway launcher；
 - x64/arm64 Python runtime 下载、校验、依赖安装和源码同步；
 - electron-builder macOS dmg/zip 目标与 GitHub Actions 构建矩阵；
+
+### 8.1 预发布通道
+
+为避免 develop 代码只能等正式 tag 才能验证，新增 `.github/workflows/prerelease.yml`：
+
+- 每次 `develop` push 自动触发，先执行 `pnpm test`，再构建 Windows x64；预发布不构建 macOS，macOS x64/arm64 只在正式 `release.yml` 中构建；
+- 预发布版本遵循 SemVer：`v<base>-alpha.<run_number>.<run_attempt>`，GitHub Release 标记为
+  `prerelease=true` 且不参与 Latest；
+- `workflow_dispatch` 支持 `alpha`、`beta`、`rc` 通道和可选基线版本，便于发布候选验证；
+- 预发布与正式 Release 使用不同 workflow、artifact 名称和版本标签，不覆盖正式版本。
+- 正式 Release 的 x64 使用 `macos-15-intel` 原生 Intel runner，arm64 使用 `macos-14` arm64 runner；验证步骤必须检查目标 runtime 二进制架构。预发布不申请 macOS runner。
 - 平台契约测试、Windows bundle 验证和零前置环境验收脚本。
 
 仍必须在 GitHub macOS runner 或真实 Mac 上完成的证据：
@@ -414,9 +444,15 @@ Release 至少包含：
 
 | 日期 | 变更内容 | 理由 |
 |---|---|---|
+| 2026-08-30 | 将 `prerelease.yml` 调整为仅构建 Windows x64，正式 `release.yml` 保留 Windows/macOS 三平台矩阵；新增 FR3b、AC17 和预发布效率验收 | macOS Intel Electron 打包单步约 9 分 45 秒，导致每次 develop 测试版等待约 16 分钟；测试阶段优先快速验证 Windows，正式发布仍保持跨平台承诺 |
+| 2026-08-28 | 正式版与 develop 预发布 workflow 的 macOS x64 runner 统一为 `macos-15-intel`，同步更新平台契约测试与执行记录 | `macos-14` 是 arm64 runner，不能作为 x64 宿主架构验证 |
 | 2026-08-22 | 创建 E1 Mac 客户端打包适配计划；暂不执行代码，冻结 macOS 安装包、编码、路径、文件分隔符、内置 Gateway、CI 和 GitHub Release 目标 | 当前客户端打包链路仅支持 Windows，需要先建立完整跨平台验收契约，避免直接改代码造成平台分支和发布资产不一致 |
 | 2026-08-22 | 增加“零前置环境安装”发布承诺；要求 x64/arm64 安装包自带可离线 Python runtime，并新增 AC16 干净环境验收 | 普通用户不应因为缺少 Python、Node.js、Homebrew、conda、Git 或仓库源码而无法安装和首次启动 |
 | 2026-08-22 | 进入 E1 开发：完成 runtime manifest、跨平台 Gateway 生命周期、Python runtime 打包器、electron-builder Mac 目标、macOS CI 矩阵和平台契约测试 | 将零前置环境要求落到可执行的构建链路；Mac runner/真实设备验收保留到 CI 收口 |
 | 2026-08-22 | 下载器优先使用 curl 并增加目标 runtime 预检，CI 在打包前验证 manifest、机器架构和内置包导入 | 处理部分 Windows 代理对 Node HTTPS 流的长连接问题，并让 Mac 架构错配在打包前失败 |
+| 2026-08-28 | 增加 develop 自动预发布通道：alpha 默认、手动 beta/rc，测试通过后并行构建三平台并发布 GitHub Pre-release | 让 develop 每次上传都有可下载测试包，同时与正式 tag 发布隔离 |
+| 2026-08-28 | bundle 递归收集 workspace Package 的外部 dependencies（如 openai），避免源码复制后运行时缺少第三方模块 | v0.1.21 构建已暴露 `ftre_llm` 导入缺少 openai 的问题 |
 | 2026-08-24 | macOS Intel 改由 macOS 14 runner 交叉构建时，依赖安装强制使用目标架构 wheel | 避免 arm64 runner 为 `cryptography` 回退 Rust/OpenSSL 源码编译，确保 x64 发布流水线可重复执行 |
 | 2026-08-24 | 交叉构建验证改为检查 bundled Python 二进制架构，不再读取 runner 的宿主架构 | macOS 14 runner 为 arm64，但目标 x64 runtime 必须在产物自身上验收 |
+| 2026-08-28 | F37 将正式 Gateway 启动入口收口到 `BackendSupervisor`，Windows 运行时改用 `pythonw.exe`，并通过 ready/health 状态与日志 IPC 连接 LoadingScreen | 消除启动时控制台闪现和启动失败时 LoadingScreen 丢失诊断的问题 |
+| 2026-08-29 | 将打包 Gateway ready 等待从 30 秒提高到 90 秒；后端异常退出时保留真实错误并引导查看日志，不再误报 API Key | 大量历史 Session 首次加载可能超过 30 秒，旧超时会误判正常启动失败并覆盖真实诊断 |

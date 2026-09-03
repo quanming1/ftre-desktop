@@ -678,6 +678,7 @@ export async function triggerCompaction(
 // 这样浏览器场景也能用，并且后端能在写入时做校验/格式化。
 
 const CONFIG_API = `${API_BASE}/api/config`;
+const MODEL_CATALOG_API = `${CONFIG_API}/models`;
 
 /** 读取应用配置（providers / agents 等）。失败返回空对象。 */
 export async function fetchAppConfig(): Promise<Record<string, any>> {
@@ -871,19 +872,86 @@ export interface SkillSummary {
   /** Skill 唯一标识。Skill 以名称为主键，这里 id === name（兼容 @ 提及/chip）。 */
   id: string;
   name: string;
+  /** Portable semantic resource identity; never pass this value to fs IPC. */
+  uri: string;
   description: string;
   kind: SkillKind;
   /** 内容文件最近修改时间（epoch 秒） */
   updated_at: number;
   /** 是否被禁用（config.json 的 disabled_skills 数组） */
   disabled?: boolean;
-  /** 来源范围：global（~/.ftre/skills）或 private（~/.ftre/agents/<id>/skills） */
-  scope?: "global" | "private";
+  /** 来源范围；旧后端只返回 global/private，新后端可返回更细粒度范围。 */
+  scope?: "global" | "private" | "external" | "system" | "project" | "agent" | "workspace";
+  /** 新版后端的规范化来源分类；旧服务缺失时由客户端按 scope/path 推断。 */
+  origin?: "system" | "project" | "agent" | "external" | "unknown";
+  /** 后端已解析的稳定路由或文件路径（仅用于展示，不直接交给 fs IPC）。 */
+  route?: string;
+  /** 列表接口若提供了已验证 source，供来源预览使用。 */
+  source?: SkillSource;
+  user_invocable?: boolean;
+  model_invocable?: boolean;
+}
+
+export interface SkillDiagnostic {
+  root: string;
+  scope: string;
+  path: string;
+  reason: string;
+  line?: number;
+  column?: number;
 }
 
 /** 详情：含完整正文 */
 export interface SkillDetail extends SkillSummary {
   content: string;
+  media_type: string;
+  revision: string;
+  source: SkillSource;
+  capabilities: SkillCapabilities;
+}
+
+export interface ModelCatalogProvider {
+  name: string;
+  api_type?: string;
+  configured?: boolean;
+  models: ModelItem[];
+}
+
+export interface ModelCatalog {
+  revision: number;
+  providers: ModelCatalogProvider[];
+}
+
+/** 读取脱敏模型目录；失败返回 null，由调用方保留上一次列表。 */
+export async function fetchModelCatalog(): Promise<ModelCatalog | null> {
+  try {
+    const res = await fetch(MODEL_CATALOG_API);
+    if (!res.ok) return null;
+    const data = await res.json();
+    if (!data || !Array.isArray(data.providers)) return null;
+    return {
+      revision: Number(data.revision) || 0,
+      providers: data.providers.filter((item: any) => item && typeof item.name === "string").map((item: any) => ({
+        name: item.name,
+        api_type: typeof item.api_type === "string" ? item.api_type : undefined,
+        configured: item.configured === true,
+        models: Array.isArray(item.models) ? item.models : [],
+      })),
+    };
+  } catch (e) {
+    console.error("[api] fetchModelCatalog failed:", e);
+    return null;
+  }
+}
+
+export type SkillSource =
+  | { kind: "filesystem"; path: string }
+  | { kind: "content" };
+
+export interface SkillCapabilities {
+  read: boolean;
+  browse: boolean;
+  write: boolean;
 }
 
 /** 创建 Skill 的输入 */
@@ -900,33 +968,88 @@ export interface SkillCreateInput {
 /** 把后端返回的 skill 行补上 id（= name），便于前端按主键引用。 */
 function mapSkillRow(s: any): SkillSummary {
   const name = typeof s?.name === "string" ? s.name : "";
+  const source = s?.source?.kind === "filesystem" && typeof s.source.path === "string"
+    ? { kind: "filesystem" as const, path: s.source.path }
+    : s?.source?.kind === "content"
+      ? { kind: "content" as const }
+      : undefined;
   return {
     id: name,
     name,
+    uri: typeof s?.uri === "string" ? s.uri : `ftre://v1/skill/${name}`,
     description: typeof s?.description === "string" ? s.description : "",
     kind: s?.kind === "file" ? "file" : "dir",
     updated_at: typeof s?.updated_at === "number" ? s.updated_at : 0,
     disabled: s?.disabled === true,
-    scope: s?.scope === "private" ? "private" : "global",
+    scope: ["global", "private", "external", "system", "project", "agent", "workspace"].includes(s?.scope)
+      ? s.scope
+      : "global",
+    origin: ["system", "project", "agent", "external", "unknown"].includes(s?.origin)
+      ? s.origin
+      : ["system", "project", "agent", "external", "unknown"].includes(s?.scope_kind)
+        ? s.scope_kind
+        : undefined,
+    route: typeof s?.route === "string"
+      ? s.route
+      : source?.kind === "filesystem" ? source.path : undefined,
+    ...(source ? { source } : {}),
+    user_invocable: s?.user_invocable !== false,
+    model_invocable: s?.model_invocable !== false,
+  };
+}
+
+function mapSkillDetail(s: any): SkillDetail {
+  const summary = mapSkillRow(s);
+  const source = s?.source?.kind === "filesystem" && typeof s?.source?.path === "string"
+    ? { kind: "filesystem" as const, path: s.source.path }
+    : { kind: "content" as const };
+  return {
+    ...summary,
+    content: typeof s?.content === "string" ? s.content : "",
+    media_type: typeof s?.media_type === "string" ? s.media_type : "text/markdown",
+    revision: typeof s?.revision === "string" ? s.revision : `updated:${summary.updated_at}`,
+    source,
+    route: source.kind === "filesystem" ? source.path : summary.route,
+    capabilities: {
+      read: s?.capabilities?.read !== false,
+      browse: source.kind === "filesystem" && s?.capabilities?.browse === true,
+      write: source.kind === "filesystem" && s?.capabilities?.write === true,
+    },
   };
 }
 
 /** 获取 Skill 列表。传 agentId 时返回全局 + 该 agent 私有 skill（私有覆盖同名全局）。 */
 export async function fetchSkills(
   agentId?: string | null,
+  workspace?: string | null,
+  signal?: AbortSignal,
 ): Promise<SkillSummary[]> {
-  try {
-    const url = agentId
-      ? `${SKILLS_API}?agent_id=${encodeURIComponent(agentId)}`
-      : SKILLS_API;
-    const res = await fetch(url);
-    if (!res.ok) return [];
-    const data = await res.json();
-    return Array.isArray(data?.skills) ? data.skills.map(mapSkillRow) : [];
-  } catch (e) {
-    console.error("[api] fetchSkills failed:", e);
-    return [];
-  }
+  const params = new URLSearchParams();
+  if (agentId) params.set("agent_id", agentId);
+  if (workspace) params.set("workspace", workspace);
+  const query = params.toString();
+  const res = await fetch(query ? `${SKILLS_API}?${query}` : SKILLS_API, { signal });
+  if (!res.ok) throw new Error(await _readError(res));
+  const data = await res.json();
+  return Array.isArray(data?.skills) ? data.skills.map(mapSkillRow) : [];
+}
+
+export async function fetchSkillDiagnostics(
+  agentId?: string | null,
+  workspace?: string | null,
+  signal?: AbortSignal,
+): Promise<SkillDiagnostic[]> {
+  const params = new URLSearchParams();
+  if (agentId) params.set("agent_id", agentId);
+  if (workspace) params.set("workspace", workspace);
+  const query = params.toString();
+  const res = await fetch(
+    `${SKILLS_API}/diagnostics${query ? `?${query}` : ""}`,
+    { signal },
+  );
+  if (!res.ok) throw new Error(await _readError(res));
+  const data = await res.json();
+  return Array.isArray(data?.diagnostics) ? data.diagnostics : [];
 }
 
 // ─── Commands（斜杠指令）────────────────────────────────────────────
@@ -938,6 +1061,8 @@ export interface CommandDef {
   description: string;    // "取消当前会话执行"
   args_hint: string;      // "[preset]" 或 ""
   system: boolean;        // 系统级指令（锁外执行，ephemeral，不持久化）
+  /** 注册来源，例如 builtin / plugin 名称；仅用于 UI 说明。 */
+  source?: string;
 }
 
 /** 获取后端注册的斜杠指令列表，供输入框 / 面板渲染。 */
@@ -955,12 +1080,20 @@ export async function fetchCommands(): Promise<CommandDef[]> {
 
 export async function fetchSkill(
   name: string,
+  agentId?: string | null,
+  workspace?: string | null,
 ): Promise<{ skill: SkillDetail } | { error: string }> {
   try {
-    const res = await fetch(`${SKILLS_API}/${encodeURIComponent(name)}`);
+    const params = new URLSearchParams();
+    if (agentId) params.set("agent_id", agentId);
+    if (workspace) params.set("workspace", workspace);
+    const query = params.toString();
+    const res = await fetch(
+      `${SKILLS_API}/${encodeURIComponent(name)}${query ? `?${query}` : ""}`,
+    );
     if (!res.ok) return { error: await _readError(res) };
     const raw = await res.json();
-    return { skill: { ...mapSkillRow(raw), content: raw?.content ?? "" } };
+    return { skill: mapSkillDetail(raw) };
   } catch (e) {
     return { error: (e as Error).message || "网络错误" };
   }
@@ -977,7 +1110,7 @@ export async function createSkill(
     });
     if (!res.ok) return { error: await _readError(res) };
     const raw = await res.json();
-    return { skill: { ...mapSkillRow(raw), content: raw?.content ?? "" } };
+    return { skill: mapSkillDetail(raw) };
   } catch (e) {
     return { error: (e as Error).message || "网络错误" };
   }
@@ -995,7 +1128,7 @@ export async function updateSkill(
     });
     if (!res.ok) return { error: await _readError(res) };
     const raw = await res.json();
-    return { skill: { ...mapSkillRow(raw), content: raw?.content ?? "" } };
+    return { skill: mapSkillDetail(raw) };
   } catch (e) {
     return { error: (e as Error).message || "网络错误" };
   }
@@ -1430,7 +1563,20 @@ export async function sendRoomMessage(
 
 const MCP_API = `${API_BASE}/api/mcp`;
 
-export type McpScope = "global" | "private";
+/** 三层作用域：全局 / Agent 私有 / 项目（工作区）。与后端 F40 McpScope 对齐。 */
+export type McpScope = "global" | "agent" | "project";
+
+/** 目录项状态。与后端 McpStatus 对齐。 */
+export type McpStatus =
+  | "configured"
+  | "connecting"
+  | "connected"
+  | "failed"
+  | "disabled"
+  | "invalid";
+
+/** 目录视图：effective 只返回每个名字的生效层；sources 返回全部层。 */
+export type McpView = "effective" | "sources";
 
 export interface McpServerConfig {
   name: string;
@@ -1444,32 +1590,72 @@ export interface McpServerConfig {
   /** 通用 */
   disabled?: boolean;
   timeout?: number;
-  /** 运行时状态（仅 GET 返回） */
-  status?: "connected" | "disconnected";
   /** 作用域（GET 返回） */
   scope?: McpScope;
+  /** 目录项状态（GET 返回，取代旧 connected/disconnected） */
+  status?: McpStatus;
+  /** 该项在其作用域是否为生效层（未被更高优先级覆盖） */
+  effective?: boolean;
+  /** 若被覆盖，指出胜出的作用域 */
+  shadowed_by?: McpScope | null;
+  /** 解析/连接错误信息 */
+  error?: string | null;
+  /** 已注册工具数量 */
+  tools_count?: number;
 }
 
-export async function fetchMcpServers(
-  scope: "all" | McpScope = "all",
+export interface McpCatalog {
+  servers: McpServerConfig[];
+  /** 项目级配置文件解析错误等来源级诊断 */
+  diagnostics: string[];
+}
+
+/**
+ * 读取当前上下文的 MCP 目录。
+ *
+ * 后端按 agent_id + workspace 解析三层配置（project > agent > global），
+ * 因此浮窗/设置页必须传入当前会话的 Agent 和工作区，否则只会看到全局层。
+ */
+/** 读取 MCP 目录并保留来源级诊断信息。 */
+export async function fetchMcpCatalog(
   agentId: string = "default",
-): Promise<McpServerConfig[]> {
-  const params = new URLSearchParams();
-  if (scope !== "all") params.set("scope", scope);
-  if (scope === "private") params.set("agent_id", agentId);
-  const qs = params.toString();
-  const res = await fetch(qs ? `${MCP_API}?${qs}` : MCP_API);
+  workspace?: string | null,
+  view: McpView = "effective",
+  signal?: AbortSignal,
+): Promise<McpCatalog> {
+  const params = new URLSearchParams({ agent_id: agentId || "default", view });
+  if (workspace) params.set("workspace", workspace);
+  const res = await fetch(`${MCP_API}?${params}`, { signal });
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    throw new Error(data.detail || `加载失败 (${res.status})`);
+  }
   const data = await res.json();
-  return data.servers || [];
+  return {
+    servers: Array.isArray(data.servers) ? data.servers : [],
+    diagnostics: Array.isArray(data.diagnostics) ? data.diagnostics : [],
+  };
+}
+
+/** 写入时透传作用域上下文：agent 层需要 agent_id，project 层需要 workspace。 */
+function mcpWriteParams(
+  scope: McpScope,
+  agentId: string,
+  workspace?: string | null,
+): URLSearchParams {
+  const params = new URLSearchParams({ scope });
+  if (scope === "agent") params.set("agent_id", agentId || "default");
+  if (scope === "project" && workspace) params.set("workspace", workspace);
+  return params;
 }
 
 export async function createMcpServer(
-  config: Omit<McpServerConfig, "status" | "scope">,
+  config: Omit<McpServerConfig, "status" | "scope" | "effective" | "shadowed_by" | "error" | "tools_count">,
   scope: McpScope = "global",
   agentId: string = "default",
+  workspace?: string | null,
 ): Promise<McpServerConfig> {
-  const params = new URLSearchParams({ scope });
-  if (scope === "private") params.set("agent_id", agentId);
+  const params = mcpWriteParams(scope, agentId, workspace);
   const res = await fetch(`${MCP_API}?${params}`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -1487,9 +1673,9 @@ export async function updateMcpServer(
   patch: Partial<McpServerConfig>,
   scope: McpScope = "global",
   agentId: string = "default",
+  workspace?: string | null,
 ): Promise<McpServerConfig> {
-  const params = new URLSearchParams({ scope });
-  if (scope === "private") params.set("agent_id", agentId);
+  const params = mcpWriteParams(scope, agentId, workspace);
   const res = await fetch(`${MCP_API}/${encodeURIComponent(name)}?${params}`, {
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
@@ -1506,9 +1692,9 @@ export async function deleteMcpServer(
   name: string,
   scope: McpScope = "global",
   agentId: string = "default",
+  workspace?: string | null,
 ): Promise<{ ok: true } | { error: string }> {
-  const params = new URLSearchParams({ scope });
-  if (scope === "private") params.set("agent_id", agentId);
+  const params = mcpWriteParams(scope, agentId, workspace);
   const res = await fetch(`${MCP_API}/${encodeURIComponent(name)}?${params}`, {
     method: "DELETE",
   });

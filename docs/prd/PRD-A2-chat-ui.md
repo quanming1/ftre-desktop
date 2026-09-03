@@ -9,7 +9,7 @@
 | 状态 | 已验收 |
 | 创建日期 | 2026-08-12 |
 | 定稿日期 | 2026-08-12 |
-| 验收日期 | 2026-08-21 |
+| 验收日期 | 2026-08-30 |
 | 关联文档 | docs/TODO.yaml 阶段 A2；AGENTS.md |
 
 ## 1. 背景与目标
@@ -35,6 +35,15 @@
 - [x] FR11：同一 assistant reply 内相同 `tool_call_id` 的重复 `TOOL_CALL_START` 必须幂等处理，只保留一个工具调用 block；后续 `TOOL_CALL_DELTA`、`TOOL_CALL_END` 和工具结果仍按该 id 更新。
 - [x] FR12：消息列表保留所有已完成轮次的文件变更卡片；即使当前会话正在运行，之前轮次的变更仍可查看，当前流式轮次只在结束后展示完整变更卡片。
 - [x] FR13：连续思考与工具调用折叠组在流式执行时优先展示当前 edit/write 文件或 bash/exec/shell 命令摘要（`Edit <filename>` / `Ran <command>`）；缺少可展示参数时沿用通用动作摘要。
+- [x] FR14：MessageList 中的 HTTP/HTTPS 链接在地址或链接文本前展示目标站点图标；优先尝试 origin 下的 `favicon.ico`、常见 favicon 图片格式，再使用站点图标解析服务，全部失败时回退本地通用图标，不改变链接尺寸和现有 Ctrl/⌘ 点击打开浏览器行为。
+- [x] FR15：Skill 的 kebab-case 机器名在输入框、消息卡片和技能管理界面仅做显示层格式化（如 `refactor-cleanup-audit` → `Refactor Cleanup Audit`）；token、请求、缓存、CRUD 和后端解析始终保留 canonical id。
+- [x] FR16：Skill 预览统一展示可读名称、canonical 调用命令和稳定路由，并标明来源范围（系统、项目或 Agent 私有）；来源信息只来自 Skill 元数据/已解析文件路径，不能由客户端拼接可执行文件路径。
+- [x] FR17：Skill 扩展语法在输入框、用户消息、Assistant 消息和消息队列使用同一解析器；既支持 canonical Markdown token `![ftre:skill](ftre://v1/skill/<name>)`，也支持直接粘贴 `ftre://v1/skill/<name>`，渲染为统一 Skill UI，发送/序列化时恢复为 canonical token。
+- [x] FR18：从 `/` 面板按 Enter/Tab 选择 Skill 或带参数 Command 后，编辑器在面板卸载后自动恢复焦点；不得要求用户再次点击输入框。
+- [x] FR19：消息队列中的 Skill token 使用与消息正文相同的 Skill UI 渲染，不退化为原始 Markdown 文本；纯文本队列消息的既有布局和操作按钮不变。
+- [x] FR20：`loadSkill` 工具行使用轻量统一格式 `Load Skill <Skill UI>`，Skill UI 复用消息中的名称、路由、来源和 Tooltip 行为，不再渲染独立的复杂卡片。
+- [x] FR21：移除输入框按 Escape 取消当前 Agent 执行的快捷键；Escape 仍可关闭 `/` 候选面板及其它明确属于弹层自身的关闭行为，停止执行仅通过 Stop 按钮或显式 `/cancel` 完成。
+- [x] FR22：Agent、LLM 模型和推理强度浮层统一使用同一个 Portal 定位组件；组件必须以触发器和浮层实时尺寸计算坐标，在内容高度变化、视口变化和滚动时重新定位，自动在首选方向与反向之间切换并将浮层限制在视口安全区内，不得被输入框或父容器裁剪。
 
 ### 2.2 非功能需求
 
@@ -53,6 +62,8 @@
   - `CodeBlock.tsx`：代码块（highlight.js / shiki 高亮）
   - `InlineToolCallCard.tsx`：工具调用卡片
   - `streamingMarkdown.tsx`：流式 markdown 解析器
+- `components/HttpLink.tsx`：HTTP/HTTPS 链接与 favicon 失败回退渲染
+- `packages/ui/src/components/FloatingMenu.tsx`：聊天选择器共用的 Portal 浮层与视口边界定位
 - 依赖选型：react-markdown（或自研 streamingMarkdown）、代码高亮库
 
 ## 4. 接口定义
@@ -71,6 +82,15 @@
 - [x] AC7：重复派发相同 `reply_id` + `tool_call_id` 的 `TOOL_CALL_START` 后，工具 blocks 数量仍为一个；后续 DELTA/END 更新同一 block，不产生 duplicate key。
 - [x] AC8：存在历史轮次变更且当前会话正在运行时，历史轮次的变更卡片仍展示；当前未结束轮次不提前展示不完整卡片。
 - [x] AC9：流式 edit/write 与 bash/exec/shell 工具调用分别展示文件名和命令摘要；工具完成后的历史折叠摘要、展开交互和思考内容不回归（AssistantMessage 测试通过）。
+- [x] AC10：MessageList 中的 HTTP/HTTPS Markdown 链接和用户消息中的纯文本 URL 均在文本前显示目标站点图标；按 origin favicon、常见图片格式、站点图标解析服务顺序回退，全部失败才显示通用图标。链接仍可通过 Ctrl/⌘ 打开，消息高度不因图标失败或加载状态抖动。
+- [x] AC11：Skill 显示名格式化不改变 canonical id；常见技术缩写保持可读大写，空分隔符不会产生异常空白。
+- [x] AC12：Skill 预览 Tooltip/预览面板同时显示 Skill 可读名称、canonical `![ftre:skill](ftre://v1/skill/<skill-name>)` 调用命令、`ftre://v1/skill/<skill-name>` 路由和来源标签；项目 Skill、Agent 私有 Skill、系统 Skill 在有后端来源元数据时不会混淆，缺少来源时显示安全的未知/系统默认，不伪造文件路径。
+- [x] AC13：在输入框粘贴 canonical Markdown token 或裸 `ftre://` Skill URI 后，编辑器立即显示可点击 Skill UI；序列化结果仍为 canonical Markdown token，普通文本、多个 token、参数 query 和换行均保留。
+- [x] AC14：`/` 候选面板中用 Enter/Tab 选择 Skill 或 Command 后，`document.activeElement` 回到编辑器可编辑节点；选择动作不重复发送、不残留 `/` 文本，已有参数补全行为不变。
+- [x] AC15：队列横幅中包含 Skill token 时显示与 User/Assistant 消息一致的 Skill UI，点击可打开 Inspector 中对应 `SKILL.md`，Tooltip 可展示来源/路由；无 token 的队列项仍显示原有纯文本。
+- [x] AC16：loadSkill 完成/运行态行均显示 `Load Skill` 与 Skill UI（名称、图标、Tooltip），不再出现旧的 `Loaded Skill ?... ?` 或重复独立描述卡片；工具状态图标仍正确。
+- [x] AC17：在输入框有草稿、运行中和候选面板打开/关闭等组合状态下按 Escape 不派发 `cancelStream`；Stop 按钮和 `/cancel` 命令仍能取消，候选面板 Escape 关闭行为保留。
+- [x] AC18：Agent、LLM 模型、推理强度三个选择器均通过 `FloatingMenu` 渲染；浮层首次打开、展开更多内容、内容异步刷新、窗口尺寸变化和滚动后都按真实宽高重新定位，优先方向空间不足时自动翻转，最终坐标与可滚动高度不超出视口安全区；Portal 不受输入框/父级 `overflow` 影响，三个选择器的选中、悬停、键盘和关闭行为不回归。
 
 ## 6. 测试计划
 
@@ -152,3 +172,10 @@
 | 2026-08-24 | 新增 FR13 / AC9：流式折叠组根据最后一个仍在执行的工具显示 `Edit <filename>` 或 `Ran <command>`；无路径/命令参数时保持通用中文摘要，新增 AssistantMessage 回归测试 | 用户希望执行过程中直接看到当前正在编辑的文件或运行的命令 |
 | 2026-08-21 | 移除 ChatHeader 中已失效的“归档会话”菜单项及其触发逻辑，保留重命名和删除会话 | 用户反馈归档会话功能已不存在 |
 | 2026-08-25 | 浅色主题的输入框和用户消息统一使用 `#f6f7f9`，继续通过独立 token 控制，不改变深色主题及其他聊天表面 | 用户要求统一输入框与用户消息背景色 |
+| 2026-08-29 | 新增 FR14 / AC10：MessageList 的 HTTP/HTTPS 链接统一使用 origin `/favicon.ico` 作为前置站点图标；共享 `HttpLink` 处理 Ctrl/⌘ 外部打开、懒加载和失败回退，用户消息纯文本 URL 与 assistant Markdown 链接均接入，CSP 同步放行 HTTP(S) 图片 | 用户希望消息中的网址带站点图标，提升可读性和视觉一致性 |
+| 2026-08-29 | 新增 FR15 / AC11：Skill UI 统一将 kebab-case 名称转换为 Title Case，协议 token、API 参数、缓存 key 和 CRUD 仍使用原始 canonical id；新增通用 `formatSkillName` 和缩写映射测试 | 用户希望 `refactor-cleanup-audit` 等 Skill 名称在界面中更易读，避免显示层改动破坏协议身份 |
+| 2026-08-29 | 修复 FR14：部分站点没有 `/favicon.ico`（例如使用 `/favicon.png`），链接图标按 origin 常见格式和站点图标解析服务逐级回退，避免直接显示通用地球图标 | 用户反馈真实站点 favicon.ico 404 时图标展示失败 |
+| 2026-08-30 | 新增并验收 FR16-FR21 / AC12-AC17：统一 Skill 来源/命令/路由预览；输入框粘贴和队列复用 Skill token 解析；Slash 选择后恢复焦点；loadSkill 简化为 `Load Skill <Skill UI>`；移除输入框 Escape 取消快捷键。渲染器 567 项、平台 16 项测试通过，类型检查和构建通过 | 用户新增 Skill 预览、队列渲染、焦点和取消快捷键需求 |
+| 2026-08-30 | 修正 Skill UI：Slash 选择完成后在提交后的 layout 阶段再次恢复真实编辑器焦点（Enter/Tab、鼠标选择均覆盖）；`loadSkill` 仅渲染真实 Skill 名称并复用共享 Skill UI，不再出现占位 `<Skill>` 文案；来源标签统一放在 Tooltip、预览、候选项和管理卡片的元信息末尾 | 用户反馈焦点恢复失败、Skill 名称被占位文案替代、来源标识位置不一致 |
+| 2026-08-30 | 修复 Skill inline void 节点插入后的 Slate 选区：在 token 后创建/复用可编辑空格并显式选择其后插入点；Slash 候选鼠标选择延后到 click，避免按钮夺取焦点；补充 Enter/Tab、鼠标选择和编辑器选区回归测试 | 用户反馈按 Enter/Tab 或鼠标选择 Skill 后输入框仍未聚焦；原实现将光标留在 token 隐藏子节点内，浏览器没有可见插入点 |
+| 2026-09-01 | 新增统一 `FloatingMenu` Portal 定位组件，Agent、LLM 模型和推理强度浮层统一按触发器/真实内容尺寸定位；监听 ResizeObserver、滚动、窗口/VisualViewport 变化，空间不足自动翻转并限制安全区高度 | 修复不同屏幕、展开全量模型或靠近底部时浮层位置不刷新、下半部分被遮挡的问题 |

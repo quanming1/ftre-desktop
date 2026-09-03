@@ -1,5 +1,50 @@
 # Changelog
 
+## [0.1.23] - 2026-09-03
+
+### C2 MCP 上下文目录与三层管理 UI
+
+- MCP 浮窗和设置页按当前 Session 的 Agent/工作区读取 global/agent/project 目录，展示 effective 项、来源、
+  覆盖关系、连接状态和结构化诊断。
+- CRUD 请求携带明确 scope 与上下文，页面支持竞态取消、错误诊断和操作后刷新，不再消费旧的 private/双层
+  MCP 契约；renderer 全量测试、类型检查和构建通过。
+
+## [未发布]
+
+### A2 聊天消息渲染
+
+- HTTP/HTTPS 链接图标按站点 `favicon.ico`、常见图片格式和站点图标解析服务逐级回退；站点缺少
+  `/favicon.ico` 时不再错误地直接显示通用地球图标，链接尺寸和 Ctrl/⌘ 外部打开行为保持不变。
+- Agent、LLM 模型和推理强度选择器统一使用视口感知的 Portal 浮层定位；内容展开、窗口变化和滚动时
+  自动重新测量，空间不足时翻转并限制可滚动高度，避免浮层被输入框或窗口边缘遮挡。
+
+### C6 通用 Markdown 扩展与 Skill UI
+
+- 输入框按 `/` 通过 `/api/skills` 加载当前 Agent/工作区 Skill，支持加载失败重试和完整
+  CRUD；选择后插入 `ftre://v1` canonical token。
+- Skill token 在输入框、用户消息、AI 消息、摘要和 MarkdownPreview 中统一渲染为可展开
+  Card，未知扩展安全降级且不会触发网络资源加载。
+- Skill 详情按当前 Session 的 Agent/工作区解析；文件来源使用后端返回的真实 `SKILL.md`
+  路径打开现有 FileRenderer，内容来源保持只读快照，避免 `ftre://` 被误当成本地路径。
+- 虚拟 Skill 预览缺少内容快照时不再回退本地文件系统读取。
+- Skill UI 统一使用真实名称和共享卡片；`/` 面板选择后恢复输入焦点，来源标识置于元信息末尾，
+  不再渲染 `<Skill>` 占位文案。
+- 修复 Skill inline token 插入后光标停留在隐藏节点的问题；Enter/Tab 和鼠标选择后均回到可编辑
+  插入点，避免输入框看似聚焦但无法继续输入。
+
+### F37 内嵌 Gateway 启动生命周期
+
+- 删除旧 `backend.ts`，由 `BackendSupervisor` 统一启动、ready 探测、崩溃恢复、重启和退出；Windows
+  正式入口使用 bundled `pythonw.exe`，保留 stdout/stderr 日志 pipe。
+- LoadingScreen 通过状态/日志 IPC 获取启动进度和结构化失败诊断；构建脚本清理旧 Electron 输出，
+  避免删除的 backend Owner 残留在 `dist`。
+
+### 预发布流水线修复
+
+- macOS x64 构建改用原生 `macos-15-intel` runner，arm64 继续使用 `macos-14`，避免 arm64 主机上的 x64 架构验证失败。
+
+- `develop` 预发布改为只构建 Windows x64；macOS x64/arm64 保留在正式 Release 流程，缩短日常测试包等待时间。
+
 ## [0.1.22] - 2026-08-28
 
 ### 发布构建修复

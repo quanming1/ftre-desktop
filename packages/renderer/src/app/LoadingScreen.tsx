@@ -25,11 +25,29 @@ export function LoadingScreen() {
 
       const offExit = window.desktop.backend.onExit((code: number | null) => {
         if (code !== 0 && code !== null) {
-          setError("后端进程异常退出，请检查 ~/.ftre/config.json 中的 API Key 是否正确配置。");
+          setError((current) => current || "后端进程异常退出，请展开日志查看原因。");
           setLogsExpanded(true);
         }
       });
       cleanups.push(offExit);
+
+      const applyStatus = (status: {
+        state: string;
+        error?: { message: string; recentLogs?: string[] };
+      }) => {
+        if (status.error?.recentLogs?.length) {
+          setLogs(status.error.recentLogs.slice(-100));
+        }
+        if (status.state === "failed") {
+          setError(status.error?.message || "后端启动失败，请检查运行时和配置。");
+          setLogsExpanded(true);
+        } else if (status.state === "starting" || status.state === "ready") {
+          setError(null);
+        }
+      };
+      const offState = window.desktop.backend.onState(applyStatus);
+      cleanups.push(offState);
+      void window.desktop.backend.getStatus().then(applyStatus).catch(() => undefined);
     }
 
     return () => cleanups.forEach((fn) => fn());

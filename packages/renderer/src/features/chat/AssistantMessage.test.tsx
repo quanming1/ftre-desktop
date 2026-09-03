@@ -377,35 +377,42 @@ describe("AssistantMessage collapsed display", () => {
   });
 
   it("在消息底部显示 assistant 完成时间，并统一元数据颜色", () => {
-    render(<AssistantMessage
-      message={{
-        id: "reply-finished-at",
-        role: "assistant",
-        content: "完成",
-        timestamp: 1,
-        streaming: false,
-        finishedAt: Date.UTC(2026, 7, 25, 8, 0, 1),
-        model: "deepseek-v4-flash",
-        token: {
-          usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 },
-          last_call_usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 },
-        },
-        blocks: [{ type: "text", text: "完成", blockId: "text-finished-at" }],
-      }}
-      showActions
-      turnModel="deepseek-v4-flash"
-      turnFinishedAt={Date.UTC(2026, 7, 25, 8, 0, 1)}
-    />);
+    const finishedAt = Date.UTC(2026, 7, 25, 8, 0, 1);
+    const dateNow = vi.spyOn(Date, "now").mockReturnValue(finishedAt + 1_000);
 
-    const finished = screen.getByText(/^(刚刚|\d+[mhd])$/);
-    expect(finished).toHaveAttribute("title", expect.stringContaining("结束时间："));
-    expect(finished).toHaveClass("text-t-faint");
-    expect(finished).not.toHaveClass("font-mono");
-    expect(screen.getByLabelText("复制")).toHaveClass("text-t-faint");
-    expect(screen.getByTitle("Input tokens: 10; Output tokens: 5")).toHaveClass("text-t-faint");
-    expect(screen.getByLabelText("Input tokens: 10")).toHaveTextContent("10");
-    expect(screen.getByLabelText("Output tokens: 5")).toHaveTextContent("5");
-    expect(screen.getByText("deepseek-v4-flash")).toHaveClass("text-t-faint");
+    try {
+      render(<AssistantMessage
+        message={{
+          id: "reply-finished-at",
+          role: "assistant",
+          content: "完成",
+          timestamp: 1,
+          streaming: false,
+          finishedAt,
+          model: "deepseek-v4-flash",
+          token: {
+            usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 },
+            last_call_usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 },
+          },
+          blocks: [{ type: "text", text: "完成", blockId: "text-finished-at" }],
+        }}
+        showActions
+        turnModel="deepseek-v4-flash"
+        turnFinishedAt={finishedAt}
+      />);
+
+      const finished = screen.getByText(/^刚刚$/);
+      expect(finished).toHaveAttribute("title", expect.stringContaining("结束时间："));
+      expect(finished).toHaveClass("text-t-faint");
+      expect(finished).not.toHaveClass("font-mono");
+      expect(screen.getByLabelText("复制")).toHaveClass("text-t-faint");
+      expect(screen.getByTitle("Input tokens: 10; Output tokens: 5")).toHaveClass("text-t-faint");
+      expect(screen.getByLabelText("Input tokens: 10")).toHaveTextContent("10");
+      expect(screen.getByLabelText("Output tokens: 5")).toHaveTextContent("5");
+      expect(screen.getByText("deepseek-v4-flash")).toHaveClass("text-t-faint");
+    } finally {
+      dateNow.mockRestore();
+    }
   });
 
   it("结束超过一周时显示绝对时间", () => {
@@ -780,7 +787,7 @@ describe("AssistantMessage 本地文件链接（file://）", () => {
     expect(tab?.revealLine).toBe(88);
   });
 
-  it("http 链接不受影响（仍渲染为 <a>）", () => {
+  it("http 链接带站点 favicon 且仍渲染为 <a>", () => {
     const message: ChatMessage = {
       id: "reply-weblink",
       role: "assistant",
@@ -793,5 +800,9 @@ describe("AssistantMessage 本地文件链接（file://）", () => {
     const link = screen.getByTitle("Ctrl + 点击在浏览器打开");
     expect(link.tagName).toBe("A");
     expect(link).toHaveAttribute("href", "https://example.com/docs");
+    expect(link.querySelector("img")).toHaveAttribute(
+      "src",
+      "https://example.com/favicon.ico",
+    );
   });
 });

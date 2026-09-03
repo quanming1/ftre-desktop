@@ -83,6 +83,10 @@ Python、Node.js、Homebrew、conda、Git 或项目源码；只有 macOS 版本�
 正式 Release 的签名/notarization 由 GitHub Actions 的 Apple 凭据控制；没有凭据
 时只能生成 unsigned 测试包，Release 说明必须如实标注，不能把它当作已公证包。
 
+develop 每次 push 会自动触发预发布流水线：默认生成 `alpha` 版本，先跑客户端测试，再并行构建
+Windows、macOS Intel 和 macOS Apple Silicon，并发布为 GitHub Pre-release；手动运行该 workflow
+时可选择 `beta` 或 `rc` 通道。预发布版本仅用于验证，不会覆盖正式 Release。
+
 ## 品牌图标
 
 客户端统一使用 `packages/renderer/src/assets/ftre-logo.svg` 和由同一 PNG 派生的原生资源：

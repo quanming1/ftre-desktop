@@ -108,6 +108,7 @@ export { Tabs, TabsList, TabsTrigger, TabsContent } from "./Tabs";
 
 // Custom components (not based on Radix)
 export { FloatingWindow, type FloatingWindowProps } from "./FloatingWindow";
+export { FloatingMenu, type FloatingMenuProps } from "./FloatingMenu";
 export { ResizeHandle, type ResizeHandleProps } from "./ResizeHandle";
 export { CommandPalette, type CommandItem, type CommandPaletteProps } from "./CommandPalette";
 export {

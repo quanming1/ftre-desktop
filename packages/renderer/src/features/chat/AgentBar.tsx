@@ -4,16 +4,15 @@
  * Agent 和 LLM 分开呈现，避免把模型、推理强度和 Agent 详情塞进同一个大面板；
  * 选择动作仍复用 chat store 的现有更新路径，保证只改变输入区的交互外观。
  */
-import { useState, useEffect, useLayoutEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { Check, ChevronDown, ChevronRight } from "lucide-react";
-import { motion, AnimatePresence } from "framer-motion";
-import { createPortal } from "react-dom";
 import { useChat } from "@/stores/chat";
 import { useSession } from "@/stores/session";
-import { fetchAppConfig } from "@/services/api";
+import { fetchAppConfig, fetchModelCatalog } from "@/services/api";
 import { ModelPicker, type ProviderInfo } from "./ModelPicker";
 import { buildProviderInfos, resolveEffortOnModelSwitch } from "./providerInfo";
 import { useLayout } from "@/stores/layout";
+import { FloatingMenu } from "@ftre/ui";
 
 const EFFORT_LABELS: Record<string, string> = {
   "": "默认",
@@ -57,14 +56,11 @@ export function AgentBar() {
   const [agentOpen, setAgentOpen] = useState(false);
   const [llmOpen, setLlmOpen] = useState(false);
   const [effortOpen, setEffortOpen] = useState(false);
-  const [agentPosition, setAgentPosition] = useState<{ left: number; top: number } | null>(null);
-  const [effortPosition, setEffortPosition] = useState<{ left: number; top: number } | null>(null);
   const [providers, setProviders] = useState<ProviderInfo[]>([]);
   const rootRef = useRef<HTMLDivElement>(null);
+  const llmAnchorRef = useRef<HTMLButtonElement>(null);
   const agentAnchorRef = useRef<HTMLDivElement>(null);
-  const agentPortalRef = useRef<HTMLDivElement>(null);
   const effortAnchorRef = useRef<HTMLDivElement>(null);
-  const effortPortalRef = useRef<HTMLDivElement>(null);
   const agentHoverCloseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const effortHoverCloseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -100,6 +96,14 @@ export function AgentBar() {
   }, []);
 
   const loadProviders = useCallback(async () => {
+    const catalog = await fetchModelCatalog();
+    if (catalog) {
+      const providerMap = Object.fromEntries(
+        catalog.providers.map((item) => [item.name, item]),
+      );
+      setProviders(buildProviderInfos(providerMap));
+      return;
+    }
     const config = await fetchAppConfig();
     if (config && Object.keys(config).length > 0) {
       setProviders(buildProviderInfos(config.providers));
@@ -109,6 +113,10 @@ export function AgentBar() {
   useEffect(() => {
     loadProviders();
   }, [loadProviders]);
+
+  useEffect(() => {
+    if (llmOpen) void loadProviders();
+  }, [llmOpen, loadProviders]);
 
   // 每次打开 Agent 菜单都刷新列表，保留原有自定义 Agent 的即时发现行为。
   useEffect(() => {
@@ -136,8 +144,7 @@ export function AgentBar() {
       if (
         targetElement?.closest("[data-ftre-floating-menu]") ||
         rootRef.current?.contains(target) ||
-        agentPortalRef.current?.contains(target) ||
-        effortPortalRef.current?.contains(target)
+        llmAnchorRef.current?.contains(target)
       ) {
         return;
       }
@@ -147,7 +154,7 @@ export function AgentBar() {
     };
     document.addEventListener("mousedown", handler);
     return () => document.removeEventListener("mousedown", handler);
-  }, [agentOpen, llmOpen]);
+  }, [agentOpen, effortOpen, llmOpen]);
 
   const modelDisplayName = (() => {
     if (!model) return "选择模型";
@@ -238,38 +245,6 @@ export function AgentBar() {
     }, HOVER_CLOSE_DELAY_MS);
   }, [clearAgentHoverClose]);
 
-  const updateAgentPosition = useCallback(() => {
-    const anchor = agentAnchorRef.current;
-    if (!anchor || typeof window === "undefined") return;
-    const rect = anchor.getBoundingClientRect();
-    const submenuWidth = 260;
-    const submenuHeight = agentPortalRef.current?.offsetHeight || 280;
-    const leftCandidate = rect.right + 4;
-    const left = leftCandidate + submenuWidth <= window.innerWidth - 8
-      ? leftCandidate
-      : Math.max(8, rect.left - submenuWidth - 4);
-    const maxTop = Math.max(8, window.innerHeight - submenuHeight - 8);
-    setAgentPosition({
-      left: Math.min(Math.max(8, left), Math.max(8, window.innerWidth - submenuWidth - 8)),
-      top: Math.min(Math.max(8, rect.top), maxTop),
-    });
-  }, []);
-
-  useEffect(() => {
-    if (!agentOpen) {
-      setAgentPosition(null);
-      return;
-    }
-    updateAgentPosition();
-    const handleViewportChange = () => updateAgentPosition();
-    window.addEventListener("resize", handleViewportChange);
-    window.addEventListener("scroll", handleViewportChange, true);
-    return () => {
-      window.removeEventListener("resize", handleViewportChange);
-      window.removeEventListener("scroll", handleViewportChange, true);
-    };
-  }, [agentOpen, updateAgentPosition]);
-
   useEffect(() => () => clearAgentHoverClose(), [clearAgentHoverClose]);
 
   const clearEffortHoverClose = useCallback(() => {
@@ -303,60 +278,6 @@ export function AgentBar() {
     window.addEventListener(HOVER_MENU_EVENT, handleOtherHoverMenu);
     return () => window.removeEventListener(HOVER_MENU_EVENT, handleOtherHoverMenu);
   }, [clearAgentHoverClose, clearEffortHoverClose]);
-
-  const updateEffortPosition = useCallback(() => {
-    const anchor = effortAnchorRef.current;
-    if (!anchor || typeof window === "undefined") return;
-    const rect = anchor.getBoundingClientRect();
-    const submenuWidth = effortPortalRef.current?.offsetWidth || 180;
-    const submenuHeight = effortPortalRef.current?.offsetHeight || Math.min(260, Math.max(80, effortValues.length * 36 + 12));
-    const viewportPadding = 8;
-    const gap = 4;
-    const maxLeft = Math.max(viewportPadding, window.innerWidth - submenuWidth - viewportPadding);
-    const maxTop = Math.max(viewportPadding, window.innerHeight - submenuHeight - viewportPadding);
-    const leftCandidateWithGap = rect.right + gap;
-    const left = leftCandidateWithGap + submenuWidth <= window.innerWidth - viewportPadding
-      ? leftCandidateWithGap
-      : rect.left - submenuWidth - gap >= viewportPadding
-        ? rect.left - submenuWidth - gap
-        : Math.min(Math.max(leftCandidateWithGap, viewportPadding), maxLeft);
-    const belowCandidate = rect.top;
-    const aboveCandidate = rect.bottom - submenuHeight;
-    const top = belowCandidate + submenuHeight <= window.innerHeight - viewportPadding
-      ? belowCandidate
-      : aboveCandidate >= viewportPadding
-        ? aboveCandidate
-        : Math.min(Math.max(belowCandidate, viewportPadding), maxTop);
-    const nextPosition = {
-      left: Math.round(Math.min(Math.max(left, viewportPadding), maxLeft)),
-      top: Math.round(Math.min(Math.max(top, viewportPadding), maxTop)),
-    };
-    setEffortPosition((current) => (
-      current && current.left === nextPosition.left && current.top === nextPosition.top
-        ? current
-        : nextPosition
-    ));
-  }, [effortValues.length]);
-
-  // Portal 首次挂载后用真实高度重算，避免底部空间不足时仍按首帧估算位置而被视口裁掉。
-  useLayoutEffect(() => {
-    if (effortOpen) updateEffortPosition();
-  }, [effortOpen, effortPosition, updateEffortPosition]);
-
-  useEffect(() => {
-    if (!effortOpen) {
-      setEffortPosition(null);
-      return;
-    }
-    updateEffortPosition();
-    const handleViewportChange = () => updateEffortPosition();
-    window.addEventListener("resize", handleViewportChange);
-    window.addEventListener("scroll", handleViewportChange, true);
-    return () => {
-      window.removeEventListener("resize", handleViewportChange);
-      window.removeEventListener("scroll", handleViewportChange, true);
-    };
-  }, [effortOpen, updateEffortPosition]);
 
   useEffect(() => () => clearEffortHoverClose(), [clearEffortHoverClose]);
 
@@ -401,18 +322,19 @@ export function AgentBar() {
   return (
     <div
       ref={rootRef}
-      className={`relative ml-auto flex min-w-0 items-center justify-end gap-1 ${llmOpen ? "w-[248px]" : "w-fit max-w-full"}`}
+      className="relative ml-auto flex w-fit min-w-0 max-w-full items-center justify-end gap-1"
     >
       {/* LLM 紧凑切换入口 */}
       <button
         type="button"
+        ref={llmAnchorRef}
         aria-label={`切换模型和推理强度：${modelDisplayName}，${currentEffortLabel}`}
         aria-expanded={llmOpen}
         aria-haspopup="menu"
         onClick={toggleLlm}
         className={`flex h-8 min-w-0 flex-none items-center justify-center gap-1.5 rounded-full px-2 font-sans text-[12px] leading-none tracking-[-0.01em] transition-[background-color,color,box-shadow] duration-150 hover:bg-hover hover:text-t-primary ${
           llmOpen
-            ? "w-full bg-hover/70 text-t-secondary shadow-[0_1px_2px_rgba(15,23,42,0.06)]"
+            ? "w-fit max-w-[220px] bg-hover/70 text-t-secondary shadow-[0_1px_2px_rgba(15,23,42,0.06)]"
             : "w-fit max-w-[220px] text-t-muted"
         }`}
         title={`${modelDisplayName} / ${currentEffortLabel}`}
@@ -425,123 +347,122 @@ export function AgentBar() {
         />
       </button>
 
-      <AnimatePresence>
-        {llmOpen && (
-          <motion.div
-            initial={{ opacity: 0, y: 4, scale: 0.98 }}
-            animate={{ opacity: 1, y: 0, scale: 1 }}
-            exit={{ opacity: 0, y: 4, scale: 0.98 }}
-            transition={{ duration: 0.16, ease: "easeOut" }}
-            role="menu"
-            aria-label="模型和推理强度"
-            className="absolute bottom-full right-0 z-[110] mb-2 w-[248px] rounded-[14px] border border-border-subtle bg-surface p-1.5 shadow-[0_12px_30px_rgba(15,23,42,0.14)]"
-          >
-            <div
-              ref={agentAnchorRef}
-              className="relative"
-              onMouseEnter={() => {
-                window.dispatchEvent(new CustomEvent(HOVER_MENU_EVENT, { detail: "agent" }));
-                clearAgentHoverClose();
-                setAgentOpen(true);
-              }}
-              onMouseLeave={scheduleAgentHoverClose}
-            >
-              <button
-                type="button"
-                role="menuitem"
-                aria-label={`Agent：${current?.name || agentId}`}
-                aria-haspopup="menu"
-                aria-expanded={agentOpen}
-                className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-[12.5px] text-t-secondary transition-colors hover:bg-hover hover:text-t-primary"
-              >
-                <span className="shrink-0 text-t-muted">Agent</span>
-                <span className="min-w-0 flex-1 truncate text-right text-t-primary">{current?.name || agentId}</span>
-                <ChevronRight size={14} className={`shrink-0 text-t-ghost transition-transform ${agentOpen ? "rotate-90" : ""}`} />
-              </button>
-            </div>
-
-            <ModelPicker
-              providers={providers}
-              selected={model && provider ? { provider, modelId: model } : null}
-              onSelect={handleSelectModel}
-              onOpenSettings={() => {
-                setLlmOpen(false);
-                useLayout.getState().setActiveLeftPanel("settings");
-              }}
-              placement="right"
-              openOnHover
-              hoverMenuKey="model"
-              pinnedOnlyByDefault
-              panelWidthClass="w-[300px]"
-              renderTrigger={({ open }) => (
-                <button
-                  type="button"
-                  role="menuitem"
-                  aria-haspopup="menu"
-                  aria-expanded={open}
-                  onClick={(event) => event.stopPropagation()}
-                  className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-[12.5px] text-t-secondary transition-colors hover:bg-hover hover:text-t-primary"
-                >
-                  <span className="shrink-0 text-t-muted">模型</span>
-                  <span className="min-w-0 flex-1 truncate text-right text-t-primary">{modelDisplayName}</span>
-                  <ChevronRight size={14} className={`shrink-0 text-t-ghost transition-transform ${open ? "rotate-90" : ""}`} />
-                </button>
-              )}
-            />
-
-            <div
-              ref={effortAnchorRef}
-              className="relative"
-              onMouseEnter={() => {
-                if (effortValues.length > 0) {
-                  window.dispatchEvent(new CustomEvent(HOVER_MENU_EVENT, { detail: "effort" }));
-                  clearEffortHoverClose();
-                  setEffortOpen(true);
-                }
-              }}
-              onMouseLeave={scheduleEffortHoverClose}
-            >
-              <button
-                type="button"
-                role="menuitem"
-                aria-haspopup={effortValues.length > 0 ? "menu" : undefined}
-                aria-expanded={effortOpen}
-                disabled={effortValues.length === 0}
-                className={`flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-[12.5px] transition-colors ${
-                  effortValues.length > 0
-                    ? "text-t-secondary hover:bg-hover hover:text-t-primary"
-                    : "cursor-default text-t-ghost/70"
-                }`}
-              >
-                <span
-                  className={`shrink-0 ${effortValues.length > 0 ? "text-t-muted" : "text-t-ghost/70"}`}
-                >
-                  推理强度
-                </span>
-                <span
-                  className={`min-w-0 flex-1 truncate text-right ${
-                    effortValues.length > 0 ? "text-t-primary" : "text-t-ghost/70"
-                  }`}
-                >
-                  {currentEffortLabel}
-                </span>
-                <ChevronRight size={14} className={`shrink-0 text-t-ghost transition-transform ${effortOpen ? "rotate-90" : ""}`} />
-              </button>
-
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
-
-      {typeof document !== "undefined" && agentOpen && agentPosition && createPortal(
+      <FloatingMenu
+        open={llmOpen}
+        anchorRef={llmAnchorRef}
+        placement="top"
+        align="end"
+        gap={8}
+        viewportPadding={8}
+        menuId="llm-menu"
+        role="menu"
+        aria-label="模型和推理强度"
+        className="z-[110] w-[248px] rounded-[14px] border border-border-subtle bg-surface p-1.5 shadow-[0_12px_30px_rgba(15,23,42,0.14)]"
+      >
         <div
-          ref={agentPortalRef}
+          ref={agentAnchorRef}
+          className="relative"
+          onMouseEnter={() => {
+            window.dispatchEvent(new CustomEvent(HOVER_MENU_EVENT, { detail: "agent" }));
+            clearAgentHoverClose();
+            setAgentOpen(true);
+          }}
+          onMouseLeave={scheduleAgentHoverClose}
+        >
+          <button
+            type="button"
+            role="menuitem"
+            aria-label={`Agent：${current?.name || agentId}`}
+            aria-haspopup="menu"
+            aria-expanded={agentOpen}
+            className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-[12.5px] text-t-secondary transition-colors hover:bg-hover hover:text-t-primary"
+          >
+            <span className="shrink-0 text-t-muted">Agent</span>
+            <span className="min-w-0 flex-1 truncate text-right text-t-primary">{current?.name || agentId}</span>
+            <ChevronRight size={14} className={`shrink-0 text-t-ghost transition-transform ${agentOpen ? "rotate-90" : ""}`} />
+          </button>
+        </div>
+
+        <ModelPicker
+          providers={providers}
+          selected={model && provider ? { provider, modelId: model } : null}
+          onSelect={handleSelectModel}
+          onOpenSettings={() => {
+            setLlmOpen(false);
+            useLayout.getState().setActiveLeftPanel("settings");
+          }}
+          placement="right"
+          openOnHover
+          hoverMenuKey="model"
+          pinnedOnlyByDefault
+          panelWidthClass="w-[300px]"
+          renderTrigger={({ open }) => (
+            <button
+              type="button"
+              role="menuitem"
+              aria-haspopup="menu"
+              aria-expanded={open}
+              onClick={(event) => event.stopPropagation()}
+              className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-[12.5px] text-t-secondary transition-colors hover:bg-hover hover:text-t-primary"
+            >
+              <span className="shrink-0 text-t-muted">模型</span>
+              <span className="min-w-0 flex-1 truncate text-right text-t-primary">{modelDisplayName}</span>
+              <ChevronRight size={14} className={`shrink-0 text-t-ghost transition-transform ${open ? "rotate-90" : ""}`} />
+            </button>
+          )}
+        />
+
+        <div
+          ref={effortAnchorRef}
+          className="relative"
+          onMouseEnter={() => {
+            if (effortValues.length > 0) {
+              window.dispatchEvent(new CustomEvent(HOVER_MENU_EVENT, { detail: "effort" }));
+              clearEffortHoverClose();
+              setEffortOpen(true);
+            }
+          }}
+          onMouseLeave={scheduleEffortHoverClose}
+        >
+          <button
+            type="button"
+            role="menuitem"
+            aria-haspopup={effortValues.length > 0 ? "menu" : undefined}
+            aria-expanded={effortOpen}
+            disabled={effortValues.length === 0}
+            className={`flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-[12.5px] transition-colors ${
+              effortValues.length > 0
+                ? "text-t-secondary hover:bg-hover hover:text-t-primary"
+                : "cursor-default text-t-ghost/70"
+            }`}
+          >
+            <span
+              className={`shrink-0 ${effortValues.length > 0 ? "text-t-muted" : "text-t-ghost/70"}`}
+            >
+              推理强度
+            </span>
+            <span
+              className={`min-w-0 flex-1 truncate text-right ${
+                effortValues.length > 0 ? "text-t-primary" : "text-t-ghost/70"
+              }`}
+            >
+              {currentEffortLabel}
+            </span>
+            <ChevronRight size={14} className={`shrink-0 text-t-ghost transition-transform ${effortOpen ? "rotate-90" : ""}`} />
+          </button>
+        </div>
+        <FloatingMenu
+          open={agentOpen}
+          anchorRef={agentAnchorRef}
+          placement="right"
+          align="start"
+          gap={4}
+          viewportPadding={8}
+          menuId="agent-picker"
           role="menu"
           aria-label="Agent"
-          data-ftre-floating-menu="agent-picker"
-          style={{ position: "fixed", left: agentPosition.left, top: agentPosition.top }}
           onMouseEnter={clearAgentHoverClose}
-          className="fixed z-[9999] w-[260px] rounded-[14px] border border-border-subtle bg-surface p-1.5 shadow-[0_12px_30px_rgba(15,23,42,0.14)]"
+          className="w-[260px] rounded-[14px] border border-border-subtle bg-surface p-1.5 shadow-[0_12px_30px_rgba(15,23,42,0.14)]"
         >
           <div className="max-h-[240px] overflow-y-auto">
             {builtinAgents.map(renderAgent)}
@@ -555,19 +476,20 @@ export function AgentBar() {
               </>
             )}
           </div>
-        </div>,
-        document.body,
-      )}
+        </FloatingMenu>
 
-      {typeof document !== "undefined" && effortOpen && effortPosition && createPortal(
-        <div
-          ref={effortPortalRef}
+        <FloatingMenu
+          open={effortOpen}
+          anchorRef={effortAnchorRef}
+          placement="right"
+          align="start"
+          gap={4}
+          viewportPadding={8}
+          menuId="reasoning-effort"
           role="menu"
           aria-label="推理强度选项"
-          data-ftre-floating-menu="reasoning-effort"
-          style={{ position: "fixed", left: effortPosition.left, top: effortPosition.top }}
           onMouseEnter={clearEffortHoverClose}
-          className="fixed z-[9999] max-h-[calc(100vh-16px)] w-[180px] overflow-y-auto rounded-[14px] border border-border-subtle bg-surface p-1.5 shadow-[0_12px_30px_rgba(15,23,42,0.14)]"
+          className="w-[180px] rounded-[14px] border border-border-subtle bg-surface p-1.5 shadow-[0_12px_30px_rgba(15,23,42,0.14)]"
         >
           {effortValues.map((effort) => {
             const isActive = effort === currentEffort;
@@ -589,9 +511,8 @@ export function AgentBar() {
               </button>
             );
           })}
-        </div>,
-        document.body,
-      )}
+        </FloatingMenu>
+      </FloatingMenu>
     </div>
   );
 }
