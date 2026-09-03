@@ -272,10 +272,11 @@ stages:
 
       - id: C2
         title: MCP 上下文目录与三层管理 UI
-        status: in_progress
+        status: done
         date: 2026-09-02
+        completion_date: 2026-09-03
         prd: docs/prd/PRD-C2-mcp-contextual-catalog.md
-        prd_status: approved
+        prd_status: 已验收
         paired_stage: E:\\ftre F40
         implementation_boundary: 只修改 renderer MCP API、浮窗、设置页、上下文 selector 和测试；不修改 Electron、WebSocket、聊天消息或 MCP 文件系统协议。
         modules:
@@ -288,16 +289,16 @@ stages:
         tasks:
           - id: C2.1
             title: Catalog API 类型与上下文请求
-            status: todo
+            status: done
           - id: C2.2
             title: MCP 浮窗 effective 视图
-            status: todo
+            status: done
           - id: C2.3
             title: 设置页三层来源与 CRUD
-            status: todo
+            status: done
           - id: C2.4
             title: Renderer 回归与跨仓验收
-            status: todo
+            status: done
 
   - id: D
     name: 会话体验

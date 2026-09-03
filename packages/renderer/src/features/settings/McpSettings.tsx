@@ -20,7 +20,7 @@ import {
   FolderGit2,
 } from "lucide-react";
 import {
-  fetchMcpServers,
+  fetchMcpCatalog,
   createMcpServer,
   updateMcpServer,
   deleteMcpServer,
@@ -68,6 +68,7 @@ const EMPTY_REMOTE: ServerFormState = {
 
 export function McpSettings() {
   const [servers, setServers] = useState<McpServerConfig[]>([]);
+  const [diagnostics, setDiagnostics] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [editing, setEditing] = useState<ServerFormState | null>(null);
   const [expanded, setExpanded] = useState<string | null>(null);
@@ -94,9 +95,10 @@ export function McpSettings() {
       setLoading(true);
       try {
         // sources 视图返回全部层（含被覆盖项），设置页据此按 scope 分组展示。
-        const list = await fetchMcpServers(mcpAgentId, currentWorkspace, "sources", signal);
+        const catalog = await fetchMcpCatalog(mcpAgentId, currentWorkspace, "sources", signal);
         if (signal?.aborted) return;
-        setServers(list);
+        setServers(catalog.servers);
+        setDiagnostics(catalog.diagnostics);
         setError(null);
       } catch (e: any) {
         if (e?.name === "AbortError" || signal?.aborted) return;
@@ -218,6 +220,13 @@ export function McpSettings() {
           连接外部工具服务器，扩展 Agent 可用工具集
         </p>
       </div>
+
+      {diagnostics.length > 0 && (
+        <div className="flex items-start gap-2 rounded-lg bg-red-50 px-3 py-2.5 text-[12px] leading-5 text-red-600">
+          <AlertTriangle size={14} className="mt-0.5 shrink-0" />
+          <div>{diagnostics.map((diagnostic) => <div key={diagnostic}>{diagnostic}</div>)}</div>
+        </div>
+      )}
 
       {error && (
         <div className="flex items-center gap-2 px-4 py-2.5 text-[12px] rounded-lg bg-black/[0.02] border border-black/[0.06] text-black/60">
@@ -484,6 +493,7 @@ function McpServerCard({
             <DetailRow label="URL" value={server.url || "—"} mono />
           )}
           <DetailRow label="超时" value={`${server.timeout || 30000}ms`} />
+          {server.error && <DetailRow label="错误" value={server.error} />}
           <div className="flex gap-2 pt-1">
             <button
               onClick={onEdit}
