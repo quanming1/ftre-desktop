@@ -1616,17 +1616,7 @@ export interface McpCatalog {
  * 后端按 agent_id + workspace 解析三层配置（project > agent > global），
  * 因此浮窗/设置页必须传入当前会话的 Agent 和工作区，否则只会看到全局层。
  */
-export async function fetchMcpServers(
-  agentId: string = "default",
-  workspace?: string | null,
-  view: McpView = "effective",
-  signal?: AbortSignal,
-): Promise<McpServerConfig[]> {
-  const catalog = await fetchMcpCatalog(agentId, workspace, view, signal);
-  return catalog.servers;
-}
-
-/** 与 fetchMcpServers 相同的查询，但同时返回来源级诊断信息。 */
+/** 读取 MCP 目录并保留来源级诊断信息。 */
 export async function fetchMcpCatalog(
   agentId: string = "default",
   workspace?: string | null,

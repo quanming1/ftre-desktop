@@ -17,7 +17,7 @@ import {
   RefreshCw,
 } from "lucide-react";
 import {
-  fetchMcpServers,
+  fetchMcpCatalog,
   updateMcpServer,
   type McpScope,
   type McpServerConfig,
@@ -37,6 +37,7 @@ const SCOPE_LABEL: Record<McpScope, string> = {
 
 export function McpPopover() {
   const [servers, setServers] = useState<McpServerConfig[]>([]);
+  const [diagnostics, setDiagnostics] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [toggling, setToggling] = useState<string | null>(null);
@@ -61,9 +62,10 @@ export function McpPopover() {
     async (signal?: AbortSignal) => {
       setLoading(true);
       try {
-        const list = await fetchMcpServers(mcpAgentId, currentWorkspace, "effective", signal);
+        const catalog = await fetchMcpCatalog(mcpAgentId, currentWorkspace, "effective", signal);
         if (signal?.aborted) return;
-        setServers(list);
+        setServers(catalog.servers);
+        setDiagnostics(catalog.diagnostics);
         setError(null);
       } catch (e: any) {
         if (e?.name === "AbortError" || signal?.aborted) return;
@@ -147,6 +149,11 @@ export function McpPopover() {
 
       {/* ── 服务器列表 ── */}
       <div className="max-h-[280px] overflow-y-auto">
+        {diagnostics.length > 0 && (
+          <div className="mx-3.5 mt-2 rounded-md bg-red-50 px-2.5 py-2 text-[11px] leading-4 text-red-600">
+            {diagnostics.map((diagnostic) => <div key={diagnostic}>{diagnostic}</div>)}
+          </div>
+        )}
         {loading && servers.length === 0 ? (
           <div className="flex items-center justify-center py-8 text-t-ghost text-[12px]">
             <RefreshCw size={12} className="animate-spin mr-2" />

@@ -8,10 +8,10 @@
 |---|---|
 | 阶段 | C2 |
 | 名称 | MCP 上下文目录与三层管理 UI |
-| 状态 | approved |
+| 状态 | 已验收 |
 | 创建日期 | 2026-09-02 |
 | 定稿日期 | 2026-09-02 |
-| 验收日期 | — |
+| 验收日期 | 2026-09-03 |
 | 关联文档 | `docs/TODO.yaml` C2；配对后端 F40 |
 
 ## 1. 背景与目标
@@ -75,7 +75,7 @@ deleteMcpServer({ name, scope, agentId?, workspace? })
 - [x] AC2：设置页同时显示 global/agent/project 三层，并正确标记同名覆盖。（代码实现达成；真机 GUI 由用户最终确认）
 - [x] AC3：切换 Session/Agent/工作区不会闪回前一会话的 MCP 列表。（AbortController 竞态取消已实现）
 - [x] AC4：四种 CRUD 操作请求带正确 scope 与上下文，操作后页面刷新且错误可读。
-- [x] AC5：类型检查（`tsc --noEmit`）与 `git diff --check` 通过；renderer 无 MCP/api 专项单测，`pnpm test` 全量回归与 `vite build` 待发布前统一执行。
+- [x] AC5：类型检查（`tsc --noEmit`）、`git diff --check`、`pnpm test` 全量回归与 `vite build` 均通过（renderer 576 tests、platform 16 tests）。
 
 ## 6. 测试计划
 
@@ -89,3 +89,4 @@ deleteMcpServer({ name, scope, agentId?, workspace? })
 |---|---|---|
 | 2026-09-02 | 初始定稿 | 旧 C1 MCP UI 与后端 F40 的三层 Catalog 契约同步重建。 |
 | 2026-09-02 | 客户端实现落地：api.ts 改为 global/agent/project + CatalogItem 契约（status/effective/shadowed_by/error/tools_count），fetchMcpCatalog 带 agent_id/workspace/view/signal；McpPopover 与 McpSettings 按当前会话上下文查询，展示三层来源/覆盖/状态，CRUD 透传 scope+上下文，AbortController 取消竞态请求；tsc --noEmit 与 git diff --check 通过。 | 消除浮窗空白与协议脱节，落地 F40 配对的三层管理 UI。 |
+| 2026-09-03 | 收尾审计：renderer 全量测试 63 个文件/576 项、平台测试 16 项、生产构建与 Windows 免安装目录构建通过；确认浮窗和设置页只消费当前上下文 Catalog，未发现旧 MCP API/协议残留。FR1–FR6、AC1–AC5 全部复核通过。 | 完成配对客户端阶段验收。 |

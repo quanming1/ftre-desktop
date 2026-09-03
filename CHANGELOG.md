@@ -2,6 +2,13 @@
 
 ## [未发布]
 
+### C2 MCP 上下文目录与三层管理 UI
+
+- MCP 浮窗和设置页按当前 Session 的 Agent/工作区读取 global/agent/project 目录，展示 effective 项、来源、
+  覆盖关系和连接状态。
+- CRUD 请求携带明确 scope 与上下文，页面支持竞态取消、错误诊断和操作后刷新，不再消费旧的 private/双层 MCP
+  契约。
+
 ### A2 聊天消息渲染
 
 - HTTP/HTTPS 链接图标按站点 `favicon.ico`、常见图片格式和站点图标解析服务逐级回退；站点缺少
