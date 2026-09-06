@@ -1,62 +1,31 @@
 /**
- * WebSocket Client — 连接 ftre gateway
+ * WebSocket Client — 连接 ftre gateway（v4 事件日志 wire 协议）。
  *
- * F12 wire contract：
- *   上行：session.prompt/session.cancel/session.updateQueue，payload 携带业务数据，
- *   request_id 是唯一传输相关性标识；attach/detach 也使用 payload。
- *   下行：业务帧使用 {type, payload, metadata}；Inbox 操作成功直接返回
- *   session/queue 快照，错误使用统一 RPC envelope。
+ * 上行帧不变（F12 冻结）：attach / detach / session.prompt / session.cancel /
+ * session.updateQueue，payload 携带业务数据，request_id 是唯一传输相关性标识。
  *
- * Agent events follow ftre-agent's flat AgentStreamEvent protocol; Host
- * pipeline/maintenance events use the session_event topic:
- *   REPLY_*, MODEL_CALL_*, TEXT_BLOCK_*, THINKING_BLOCK_*,
- *   TOOL_CALL_*, TOOL_RESULT_*, HINT_BLOCK, retry.
+ * 下行帧信封（PRD-F41 §4.4）：{v: 1, session_id, type, payload}，6 种：
+ *   session/event        事件透传（payload.event 为完整事件信封，含 seq）
+ *   session/subscribed   attach 基线 {last_seq, status}
+ *   session/queue        Inbox 权威队列快照（last-wins，含 revision）
+ *   session/projection   派生状态快照 {key, value, seq}
+ *   session/maintenance  非日志文本反馈 {name, value}
+ *   rpc                  上行结算 {request_id, ok, value?, error?}
+ *
+ * 本文件只负责连接生命周期、outbox 重试与 rpc 结算；事件的 fold 与状态机
+ * 在 stores/chatProjection.ts（经由 stores/chat.ts 路由）。
  */
 
 // ─── Types ──────────────────────────────────────────────────────────
 
-/** 后端 F12 下行消息格式；队列操作成功帧也保留 type/payload。 */
 import { wsLogCollector } from "./ws-log-collector";
+import type {
+  DownstreamFrameType,
+  RpcPayload,
+  WireFrame,
+} from "@/types/wire.gen";
 
-export interface ServerMessage<TPayload = unknown> {
-  type?: string;
-  payload?: TPayload;
-  metadata?: Record<string, unknown>;
-  request_id?: string;
-  ok?: boolean;
-  value?: unknown;
-  error?: Record<string, unknown>;
-}
-
-/** Gateway 在 attach/重连时返回的 SessionProjection 快照。 */
-export const CompactEventName = {
-  START: "context_compact_start",
-  DONE: "context_compact_done",
-  FAILED: "context_compact_failed",
-} as const;
-
-export const UserMessageEventType = "USER_MESSAGE" as const;
-
-export type CompactEventName =
-  (typeof CompactEventName)[keyof typeof CompactEventName];
-
-export interface ReplySnapshotItem {
-  reply_id: string;
-  /** 当前 AssistantMsg 的稳定 id；同一 reply 可有多个。 */
-  message_id: string;
-  revision: number;
-  /** 后端持久化的原始 Msg，由渲染层转换为 ChatMessage。 */
-  message: Record<string, unknown>;
-}
-
-export interface ReplySnapshotPayload {
-  session_id: string;
-  replies: ReplySnapshotItem[];
-  /** 仅客户端使用的 WebSocket 连接世代，用于建立新的 revision 比较区间。 */
-  client_connection_epoch?: number;
-  /** Projection 中仅驻内存的 Agent 与 Host typed event。 */
-  events?: Array<AgentStreamEvent | SessionHostEvent>;
-}
+export type { RpcPayload, WireFrame, DownstreamFrameType };
 
 export interface QueueItemView {
   request_id: string;
@@ -100,39 +69,6 @@ export interface RpcErrorPayload {
   retryable?: boolean;
 }
 
-export function getRpcErrorPayload(message: ServerMessage): RpcErrorPayload | null {
-  if (message.ok !== false) return null;
-  const error = asRecord(message.error);
-  if (!error || typeof error.code !== "string" || typeof error.message !== "string") {
-    return null;
-  }
-  return {
-    request_id: message.request_id,
-    code: error.code,
-    message: error.message,
-    session_id: typeof error.session_id === "string" ? error.session_id : undefined,
-    retryable: typeof error.retryable === "boolean" ? error.retryable : undefined,
-  };
-}
-
-export type ReplySnapshotMessage = ServerMessage<ReplySnapshotPayload> & {
-  type: "reply_snapshot";
-};
-
-export function isReplySnapshotMessage(
-  message: ServerMessage<any>,
-): message is ReplySnapshotMessage {
-  return message.type === "reply_snapshot"
-    && typeof (message.payload as ReplySnapshotPayload)?.session_id === "string"
-    && Array.isArray((message.payload as ReplySnapshotPayload)?.replies)
-    && (message.payload as ReplySnapshotPayload).replies.every((reply) => (
-      typeof reply?.reply_id === "string"
-      && typeof reply?.message_id === "string"
-      && Number.isFinite(reply?.revision)
-      && !!reply?.message
-    ));
-}
-
 export type SessionActivity =
   | "idle"
   | "dispatching"
@@ -143,56 +79,29 @@ export type SessionActivity =
   | "blocked"
   | "closing";
 
-/** 后端 session/status 的状态通知。 */
-export interface SessionStatusPayload {
-  type?: "session_status";
-  session_id: string;
-  status: "idle" | "running" | "compacting" | "blocked";
-  revision?: number;
-}
+export type WsConnectionStatus =
+  | "disconnected"
+  | "connecting"
+  | "connected"
+  | "reconnecting";
 
-/** 后端 command_message 仅用于向客户端展示命令处理结果。 */
-export interface SessionCommandPayload {
-  type?: "command_message";
-  session_id?: string;
-  content: string;
-  level?: "info" | "warning" | "error";
-}
-
-export interface SessionContextWarningPayload {
-  type?: "context_warning";
-  session_id: string;
-  code: string;
-  message: string;
-}
-
-export type SessionEventPayload =
-  | QueueSnapshotPayload;
+// ─── 帧解析与校验 ───────────────────────────────────────────────────
 
 function asRecord(value: unknown): Record<string, unknown> | null {
   return value && typeof value === "object" ? value as Record<string, unknown> : null;
 }
 
-function routeSessionId(message: ServerMessage<any>): string | null {
-  const sessionId = message.metadata?.session_id;
-  return typeof sessionId === "string" && sessionId && sessionId !== "*"
-    ? sessionId
-    : null;
-}
-
-function sessionRouteMatches(
-  message: ServerMessage<any>,
-  payloadSessionId: string,
-): boolean {
-  const routedSessionId = routeSessionId(message);
-  return !routedSessionId || routedSessionId === payloadSessionId;
-}
-
-function isSessionStatus(value: unknown): value is SessionStatusPayload["status"] {
-  return value === "idle"
-    || value === "running"
-    || value === "compacting"
-    || value === "blocked";
+/**
+ * 解析下行帧信封：{v:1, session_id, type, payload}。
+ * 信封非法返回 null（未知 type 由消费端按 FR6 忽略）。
+ */
+export function parseDownstreamFrame(raw: unknown): WireFrame | null {
+  const frame = asRecord(raw);
+  if (!frame) return null;
+  if (frame.v !== 1) return null;
+  if (typeof frame.session_id !== "string" || !frame.session_id) return null;
+  if (typeof frame.type !== "string" || !frame.type) return null;
+  return frame as unknown as WireFrame;
 }
 
 export function isQueueSnapshotPayload(
@@ -214,96 +123,54 @@ export function isQueueSnapshotPayload(
     });
 }
 
-export function getSessionEventPayload(
-  message: ServerMessage<any>,
-): SessionEventPayload | null {
-  const raw = message.payload;
-  if (!raw) return null;
+/** session/queue 帧 → Inbox 权威快照（非法形状返回 null）。 */
+export function getQueueSnapshotFrame(frame: WireFrame): QueueSnapshotPayload | null {
+  if (frame.type !== "session/queue") return null;
+  return isQueueSnapshotPayload(frame.payload) ? frame.payload : null;
+}
 
-  // 新协议：session/queue 的 payload 是 Inbox 权威快照。
-  if (message.type === "session/queue") {
-    return isQueueSnapshotPayload(raw)
-      && sessionRouteMatches(message, raw.session_id)
-      ? raw
-      : null;
+/** rpc 帧 → 结算 payload；非 rpc 或形状非法返回 null。 */
+export function getRpcPayload(frame: WireFrame): RpcPayload | null {
+  if (frame.type !== "rpc") return null;
+  const payload = asRecord(frame.payload);
+  if (!payload
+    || typeof payload.request_id !== "string"
+    || typeof payload.ok !== "boolean") {
+    return null;
   }
-
-  return null;
+  return payload as unknown as RpcPayload;
 }
 
-export function getSessionStatusPayload(
-  message: ServerMessage<any>,
-): SessionStatusPayload | null {
-  const raw = asRecord(message.payload);
-  if (!raw) return null;
-  return message.type === "session/status"
-    && typeof raw.session_id === "string"
-    && isSessionStatus(raw.status)
-    && sessionRouteMatches(message, raw.session_id)
-    ? raw as unknown as SessionStatusPayload
-    : null;
+export function getRpcErrorPayload(frame: WireFrame): RpcErrorPayload | null {
+  const payload = getRpcPayload(frame);
+  if (!payload || payload.ok !== false) return null;
+  const error = asRecord(payload.error);
+  if (!error || typeof error.code !== "string" || typeof error.message !== "string") {
+    return null;
+  }
+  return {
+    request_id: payload.request_id || undefined,
+    code: error.code,
+    message: error.message,
+    session_id: frame.session_id !== "*" ? frame.session_id : undefined,
+    retryable: typeof error.retryable === "boolean" ? error.retryable : undefined,
+  };
 }
 
-export function getSessionCommandPayload(
-  message: ServerMessage<any>,
-): SessionCommandPayload | null {
-  const raw = asRecord(message.payload);
-  if (!raw) return null;
-  return message.type === "session_event:command_message"
-    && typeof raw.content === "string"
-    && (!raw.session_id
-      || (typeof raw.session_id === "string" && sessionRouteMatches(message, raw.session_id)))
-    ? raw as unknown as SessionCommandPayload
-    : null;
+// ─── Constants ──────────────────────────────────────────────────────
+
+export const DEFAULT_WS_URL = (import.meta.env.VITE_WS_URL as string) || "ws://127.0.0.1:48650/";
+const RECONNECT_DELAYS = [1000, 2000, 4000, 8000, 15000, 30000];
+const MAX_PENDING_SENDS = 100;
+
+export function normalizeGatewayUrl(url: string): string {
+  const trimmed = url.trim();
+  return trimmed.endsWith("/") ? trimmed : `${trimmed}/`;
 }
 
-export function getSessionContextWarningPayload(
-  message: ServerMessage<any>,
-): SessionContextWarningPayload | null {
-  const raw = asRecord(message.payload);
-  if (!raw) return null;
-  return message.type === "session_event:context_warning"
-    && typeof raw.session_id === "string"
-    && typeof raw.message === "string"
-    && sessionRouteMatches(message, raw.session_id)
-    ? raw as unknown as SessionContextWarningPayload
-    : null;
-}
+// ─── WebSocket Client ───────────────────────────────────────────────
 
-/** Agent 事件（嵌套在 ServerMessage.payload 中） */
-export interface AgentStreamEvent {
-  type: string;
-  id?: string;
-  created_at?: string;
-  reply_id?: string;
-  /** MessageList 中具体 Assistant 气泡的稳定坐标。 */
-  message_id?: string;
-  metadata?: Record<string, unknown>;
-  data?: Record<string, unknown>;
-  [key: string]: unknown;
-}
-
-/** SessionEventService 产生的 Host 维护事件；不属于 Agent 回复流。 */
-export interface SessionHostEvent {
-  type: "PIPELINE_EVENT" | "SESSION_MAINTENANCE";
-  id?: string;
-  created_at?: string;
-  session_id?: string;
-  reply_id?: string;
-  name?: string;
-  phase?: string;
-  value?: Record<string, unknown>;
-  metadata?: Record<string, unknown>;
-  [key: string]: unknown;
-}
-
-export type WsConnectionStatus =
-  | "disconnected"
-  | "connecting"
-  | "connected"
-  | "reconnecting";
-
-type MessageHandler = (msg: ServerMessage) => void;
+type MessageHandler = (frame: WireFrame) => void;
 type ConnectionHandler = () => void;
 type StatusHandler = (status: WsConnectionStatus) => void;
 
@@ -325,24 +192,10 @@ export type ChatTransportSendResult = TransportSendResult & {
   requestId: string;
 };
 
-// ─── Constants ──────────────────────────────────────────────────────
-
-export const DEFAULT_WS_URL = (import.meta.env.VITE_WS_URL as string) || "ws://127.0.0.1:48650/";
-const RECONNECT_DELAYS = [1000, 2000, 4000, 8000, 15000, 30000];
-const MAX_PENDING_SENDS = 100;
-
-export function normalizeGatewayUrl(url: string): string {
-  const trimmed = url.trim();
-  return trimmed.endsWith("/") ? trimmed : `${trimmed}/`;
-}
-
-// ─── WebSocket Client ───────────────────────────────────────────────
-
 class WebSocketClient {
   private ws: WebSocket | null = null;
   private _url: string;
   private reconnectAttempt = 0;
-  private connectionEpoch = 0;
   /** 每次底层连接的审计标识，避免重连前后的帧混在一起。 */
   private connectionId = "";
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
@@ -352,7 +205,7 @@ class WebSocketClient {
   private unackedChats = new Map<string, Record<string, unknown>>();
   /** 取消帧使用相同幂等键重试，直到服务端确认取消动作已经应用。 */
   private unackedControls = new Map<string, Record<string, unknown>>();
-  /** 需要等待 session/queue 响应的队列控制操作（remove/edit/steer）。 */
+  /** 需要等待 rpc(queue 快照) 响应的队列控制操作（remove/edit/steer）。 */
   private controlWaiters = new Map<string, PendingControlWaiter>();
   /** stableTimer: delay-reset reconnectAttempt to avoid fast reconnect loop */
   private stableTimer: ReturnType<typeof setTimeout> | null = null;
@@ -404,7 +257,6 @@ class WebSocketClient {
           JSON.stringify({ url: this._url }),
           { connectionId: this.connectionId },
         );
-        this.connectionEpoch += 1;
         this.connected = true;
         this.setStatus("connected");
         if (this.stableTimer) clearTimeout(this.stableTimer);
@@ -412,7 +264,8 @@ class WebSocketClient {
           this.reconnectAttempt = 0;
           this.stableTimer = null;
         }, WebSocketClient.STABLE_THRESHOLD);
-        // 重连后重新 attach 所有之前关注的 session
+        // 重连后重新 attach 所有之前关注的 session；
+        // Gateway 会在输出锁内先回 session/subscribed 基线再推直播帧。
         for (const sid of this.attachedSessions) {
           this.sendWire({
             type: "attach",
@@ -429,17 +282,10 @@ class WebSocketClient {
         const raw = typeof event.data === "string" ? event.data : String(event.data);
         wsLogCollector.record("in", raw, { connectionId: this.connectionId });
         try {
-          const msg = JSON.parse(raw) as ServerMessage;
-          if (
-            msg.type === "reply_snapshot"
-            && msg.payload
-            && typeof msg.payload === "object"
-          ) {
-            (msg.payload as Record<string, unknown>).client_connection_epoch =
-              this.connectionEpoch;
-          }
-          this.consumeQueueOperationResponse(msg);
-          this.messageHandlers.forEach((h) => h(msg));
+          const frame = parseDownstreamFrame(JSON.parse(raw));
+          if (!frame) return;
+          if (frame.type === "rpc") this.consumeRpcFrame(frame);
+          this.messageHandlers.forEach((h) => h(frame));
         } catch (e) {
           wsLogCollector.recordSystem("parse_error", raw, { connectionId: this.connectionId });
           console.error("[WS] Failed to parse message:", e);
@@ -576,7 +422,7 @@ class WebSocketClient {
     try {
       this.sendWire(frame, "initial");
       // WebSocket.send 只表示本地写入成功，不等于服务端已经接纳。必须等
-      // session/queue 操作响应或明确错误确认 Inbox 已处理后才移除 outbox。
+      // rpc(ok+queue 快照) 或明确错误确认 Inbox 已处理后才移除 outbox。
       return { ok: true, queued: false, requestId: id };
     } catch (error) {
       console.error("[WS] Chat send failed; retained until queue response", error);
@@ -632,7 +478,7 @@ class WebSocketClient {
     }
   }
 
-  /** 通过 F12 WebSocket 控制面更新 Inbox 队列，并返回最新权威快照。 */
+  /** 通过 WebSocket 控制面更新 Inbox 队列，并返回最新权威快照。 */
   updateQueue(
     sessionId: string,
     itemId: string,
@@ -810,48 +656,48 @@ class WebSocketClient {
     });
   }
 
-  private consumeQueueOperationResponse(message: ServerMessage): void {
-    if (message.type === "session/queue" && message.ok === true
-      && typeof message.request_id === "string"
-      && getSessionEventPayload(message)) {
-      // 同一个 queue response 同时结算聊天 outbox、队列控制 waiter 和队列投影；
-      // 不再维护一套独立的 Message ACK 协议。
-      this.unackedChats.delete(message.request_id);
-      this.unackedControls.delete(message.request_id);
-      this.settleControlWaiter(message);
+  /**
+   * rpc 帧结算：prompt/updateQueue 的 ok 响应 value 是 Inbox 快照，
+   * 同时结算聊天 outbox、队列控制 waiter；cancel 的 value 是 {accepted}。
+   */
+  private consumeRpcFrame(frame: WireFrame): void {
+    const payload = getRpcPayload(frame);
+    if (!payload) return;
+    if (payload.ok) {
+      if (isQueueSnapshotPayload(payload.value)) {
+        this.unackedChats.delete(payload.request_id);
+        this.unackedControls.delete(payload.request_id);
+        this.settleControlWaiter(payload.request_id, payload.value);
+        return;
+      }
+      // session.cancel 等非队列结算：控制面 ACK。
+      this.unackedControls.delete(payload.request_id);
       return;
     }
-    // session.cancel 仍使用控制面 ACK；它不改变 Inbox items，所以不需要
-    // 伪造一个 queue snapshot。
-    if (message.ok === true && typeof message.request_id === "string") {
-      this.unackedControls.delete(message.request_id);
-    }
-    const error = getRpcErrorPayload(message);
+    const error = getRpcErrorPayload(frame);
     if (error?.request_id) {
       this.unackedChats.delete(error.request_id);
       this.unackedControls.delete(error.request_id);
-      this.settleControlWaiter(message);
+      this.settleControlWaiter(error.request_id, undefined, error);
     }
   }
 
-  private settleControlWaiter(message: ServerMessage): void {
-    if (typeof message.request_id !== "string") return;
-    const waiter = this.controlWaiters.get(message.request_id);
+  private settleControlWaiter(
+    requestId: string,
+    snapshot?: QueueSnapshotPayload,
+    error?: RpcErrorPayload,
+  ): void {
+    const waiter = this.controlWaiters.get(requestId);
     if (!waiter) return;
 
     clearTimeout(waiter.timer);
-    this.controlWaiters.delete(message.request_id);
-    const error = getRpcErrorPayload(message);
-    if (error?.request_id) {
-      this.unackedControls.delete(error.request_id);
-    }
+    this.controlWaiters.delete(requestId);
     if (error) {
       waiter.reject(new Error(error.message));
       return;
     }
-    const payload = getSessionEventPayload(message);
-    if (message.type === "session/queue" && message.ok === true && payload) {
-      waiter.resolve(payload);
+    if (snapshot) {
+      waiter.resolve(snapshot);
       return;
     }
     waiter.reject(new Error("队列操作返回了无效快照"));

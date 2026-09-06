@@ -2,7 +2,7 @@ import { memo, useCallback, useState, useRef, useLayoutEffect, useMemo } from "r
 import type { MessagePart } from "@/types/chat";
 import type { ChatMessage as WsChatMessage } from "@/stores/chat";
 
-/** Extended message type for UserMessage — supports both WS messages and legacy rich messages */
+/** User message view model with optional structured parts and diff metadata. */
 interface ChatMessage extends WsChatMessage {
   parts?: MessagePart[];
   diffMeta?: { base_hash: string; final_hash: string; workspace: string };
@@ -319,7 +319,7 @@ export const UserMessage = memo(
             editorState.rejectDiff(diff.filePath);
           }
 
-          // 刷新消息列表 (TODO: implement via WS)
+          // 回滚后重新读取服务端派生消息列表。
           await fetchSessionMessages(sessionId);
 
           // 通过全局事件回填输入框

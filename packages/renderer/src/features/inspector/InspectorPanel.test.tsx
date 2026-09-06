@@ -22,9 +22,9 @@ describe("InspectorPanel fixed state tab", () => {
     });
   });
 
-  it("通过固定面板下拉菜单切换 state.json、Traces 与 WS Logs", () => {
+  it("通过固定面板下拉菜单切换 Session、Traces 与 WS Logs", () => {
     renderInspectorPanel();
-    const stateTab = screen.getByRole("button", { name: "state.json" });
+    const stateTab = screen.getByRole("button", { name: "Session" });
     expect(stateTab).toBeInTheDocument();
     expect(screen.queryByTitle("关闭")).not.toBeInTheDocument();
 

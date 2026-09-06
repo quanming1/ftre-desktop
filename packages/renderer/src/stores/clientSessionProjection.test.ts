@@ -1,6 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
-import { ClientSessionProjection, type ProjectionEvent } from "./clientSessionProjection";
+import { ClientSessionProjection } from "./clientSessionProjection";
+import { applyFrame } from "./chatProjection";
 import type { ChatMessage } from "./chat";
+import type { SessionEvent, WireFrame, WireMsg } from "@/types/wire.gen";
+import { wireMsgFromSessionMessage } from "./sessionEventClient";
+import type { SessionMessage } from "@/services/api";
 
 function assistant(
   id: string,
@@ -19,19 +23,69 @@ function assistant(
   };
 }
 
+function wireOf(
+  id: string,
+  role: "user" | "assistant",
+  content: string,
+  timestamp: number,
+  streaming = false,
+): WireMsg {
+  return {
+    id,
+    name: "default",
+    role,
+    content: [
+      { type: "text", id: `${id}-text`, text: content },
+    ],
+    metadata: {},
+    created_at: new Date(timestamp).toISOString(),
+    finished_at: streaming ? null : new Date(timestamp + 1).toISOString(),
+    finished_reason: streaming ? null : "completed",
+  };
+}
+
+function chunkFrame(sid: string, messageId: string, blockId: string, delta: string): WireFrame {
+  return {
+    v: 1,
+    session_id: sid,
+    type: "session/event",
+    payload: {
+      event: {
+        type: "assistant/chunk",
+        seq: 0,
+        time: 1_000,
+        message_id: messageId,
+        data: { kind: "text", block_id: blockId, delta },
+      } as SessionEvent,
+    },
+  };
+}
+
+const NOOP_FETCH = async () => ({ events: [], has_more: false, last_seq: -1 });
+
+function freshProjection(sid: string): ClientSessionProjection {
+  return new ClientSessionProjection(
+    { applyFrame },
+    { sessionId: sid, fetchPage: NOOP_FETCH },
+  );
+}
+
 describe("ClientSessionProjection", () => {
-  it("routes realtime events through the projection reducer", () => {
-    const applyEvent = vi.fn((projection, event: ProjectionEvent) => {
-      projection.messages = [assistant("reply-1", String(event.data.delta), true)];
+  it("routes realtime event frames through the projection reducer", () => {
+    const applyFrameMock = vi.fn((projection, frame: WireFrame) => {
+      const event = (frame.payload as { event?: SessionEvent }).event;
+      if (frame.type === "session/event" && event?.type === "assistant/chunk") {
+        projection.messages = [assistant("reply-1", String(event.data.delta), true)];
+      }
     });
-    const projection = new ClientSessionProjection({
-      applyEvent,
-      applyReplySnapshot: vi.fn(),
-    });
+    const projection = new ClientSessionProjection(
+      { applyFrame: applyFrameMock },
+      { sessionId: "s-live", fetchPage: NOOP_FETCH },
+    );
 
-    projection.apply({ type: "TEXT_BLOCK_DELTA", data: { delta: "hello" } });
+    projection.apply(chunkFrame("s-live", "reply-1", "b", "hello"));
 
-    expect(applyEvent).toHaveBeenCalledOnce();
+    expect(applyFrameMock).toHaveBeenCalledOnce();
     expect(projection.messages[0]).toMatchObject({
       id: "reply-1",
       content: "hello",
@@ -39,33 +93,90 @@ describe("ClientSessionProjection", () => {
     });
   });
 
-  it("keeps a newer active Reply when HTTP history arrives after WS attach", () => {
-    const projection = new ClientSessionProjection({
-      applyEvent: vi.fn(),
-      applyReplySnapshot: vi.fn(),
-    });
-    projection.messages = [assistant("reply-1", "new streamed text", true)];
+  it("keeps an in-flight streaming reply when HTTP history does not contain it", () => {
+    const projection = freshProjection("s-inflight");
+    projection.apply(chunkFrame("s-inflight", "reply-live", "b", "still streaming"));
 
     projection.hydrate({
-      messages: [assistant("reply-1", "stale checkpoint", false)],
+      messages: [{ id: "user-1", role: "user", content: "ask", timestamp: 900 }],
+      wire: [wireOf("user-1", "user", "ask", 900, true)],
+      lastSeq: 3,
       hasMoreHistory: false,
       status: "running",
     });
 
-    expect(projection.messages).toHaveLength(1);
-    expect(projection.messages[0]).toMatchObject({
-      id: "reply-1",
-      content: "new streamed text",
+    expect(projection.messages.map((message) => message.id)).toEqual([
+      "user-1",
+      "reply-live",
+    ]);
+    expect(projection.messages[1]).toMatchObject({
+      id: "reply-live",
+      content: "still streaming",
       streaming: true,
     });
     expect(projection.sessionStatus).toBe("running");
+    expect(projection.events.lastSeq).toBe(3);
+  });
+
+  it("seeds the assembler so tail events pair with history tool calls", () => {
+    const projection = freshProjection("s-seed-pairing");
+    const historyMessage: SessionMessage = {
+      id: "m-history",
+      session_id: "s-seed-pairing",
+      name: "default",
+      role: "assistant",
+      content: [
+        { type: "tool_call", id: "tc-hist", name: "read", arguments: { path: "a" } },
+      ],
+      metadata: {},
+      created_at: "2026-09-01T00:00:00Z",
+      token: null,
+      finished_at: null,
+      finished_reason: null,
+      structured_output: null,
+      error: null,
+      timestamp: 1_000,
+    };
+
+    projection.hydrate({
+      messages: [],
+      wire: [wireMsgFromSessionMessage(historyMessage)],
+      lastSeq: 5,
+      hasMoreHistory: false,
+      status: "running",
+    });
+
+    // 基线之后的事件可以与历史中的 tool_call 配对。
+    projection.apply({
+      v: 1,
+      session_id: "s-seed-pairing",
+      type: "session/event",
+      payload: {
+        event: {
+          type: "tool/result",
+          seq: 6,
+          time: 1_100,
+          message_id: "m-history",
+          data: {
+            tool_call_id: "tc-hist",
+            name: "read",
+            output: [{ type: "text", text: "contents" }],
+            state: "success",
+            metadata: {},
+          },
+        } as SessionEvent,
+      },
+    });
+
+    const message = projection.messages.find((item) => item.id === "m-history");
+    expect(message?.toolResults?.["tc-hist"]).toMatchObject({
+      status: "completed",
+      result: "contents",
+    });
   });
 
   it("deduplicates prepended history by Msg id", () => {
-    const projection = new ClientSessionProjection({
-      applyEvent: vi.fn(),
-      applyReplySnapshot: vi.fn(),
-    });
+    const projection = freshProjection("s-prepend");
     projection.messages = [
       { id: "user-2", role: "user", content: "new", timestamp: 2_000 },
     ];
@@ -82,10 +193,7 @@ describe("ClientSessionProjection", () => {
   });
 
   it("prepends an earlier page while the current reply is streaming", () => {
-    const projection = new ClientSessionProjection({
-      applyEvent: vi.fn(),
-      applyReplySnapshot: vi.fn(),
-    });
+    const projection = freshProjection("s-prepend-stream");
     projection.messages = [
       { id: "user-current", role: "user", content: "current", timestamp: 2_000 },
       assistant("reply-current", "still streaming", true, 2_500),
@@ -112,25 +220,39 @@ describe("ClientSessionProjection", () => {
     expect(projection.hasMoreHistory).toBe(true);
   });
 
-  it("preserves realtime dedup state and authoritative running status during hydrate", () => {
-    const projection = new ClientSessionProjection({
-      applyEvent: vi.fn(),
-      applyReplySnapshot: vi.fn(),
+  it("preserves the cursor and skips replayed events after hydrate", () => {
+    const projection = freshProjection("s-replay");
+    const userEvent = (seq: number): WireFrame => ({
+      v: 1,
+      session_id: "s-replay",
+      type: "session/event",
+      payload: {
+        event: {
+          type: "user/message",
+          seq,
+          time: 1_000,
+          message_id: "user-1",
+          data: { content: [{ type: "text", text: "hello" }], metadata: {}, request_id: "r-1" },
+        } as SessionEvent,
+      },
     });
-    projection.seenEventIds.add("event-live-1");
+
+    projection.apply(userEvent(0));
 
     projection.hydrate({
-      messages: [
-        { id: "user-1", role: "user", content: "hello", timestamp: 1_000 },
-      ],
+      messages: [{ id: "user-1", role: "user", content: "hello", timestamp: 1_000 }],
+      wire: [wireOf("user-1", "user", "hello", 1_000)],
+      lastSeq: 1,
       hasMoreHistory: false,
       status: "running",
     });
 
-    expect(projection.seenEventIds.has("event-live-1")).toBe(true);
+    expect(projection.events.lastSeq).toBe(1);
     expect(projection.sessionStatus).toBe("running");
-    expect(projection.sessionStatus).toBe("running");
+
+    // 重放同 seq 事件被幂等跳过，不产生重复气泡。
+    projection.apply(userEvent(0));
+    projection.apply(userEvent(1));
+    expect(projection.messages).toHaveLength(1);
   });
-
-
 });

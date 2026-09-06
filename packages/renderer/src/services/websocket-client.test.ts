@@ -33,7 +33,14 @@ async function loadClient() {
   return import("./websocket-client");
 }
 
-describe("websocket-client F12 protocol handling", () => {
+const rpcFrame = (sessionId: string, payload: Record<string, unknown>) => JSON.stringify({
+  v: 1,
+  session_id: sessionId,
+  type: "rpc",
+  payload,
+});
+
+describe("websocket-client v4 wire protocol handling", () => {
   beforeEach(() => {
     vi.useRealTimers();
   });
@@ -75,7 +82,7 @@ describe("websocket-client F12 protocol handling", () => {
     });
   });
 
-  it("keeps the same request_id until the queue response", async () => {
+  it("keeps the same request_id until the rpc queue settlement", async () => {
     const { wsClient } = await loadClient();
     wsClient.connect();
     const ws = FakeWebSocket.instances[0];
@@ -86,28 +93,29 @@ describe("websocket-client F12 protocol handling", () => {
     expect(JSON.parse(ws.sent[1]).request_id).toBe("client-ack");
 
     ws.onmessage?.({
-      data: JSON.stringify({
-        type: "session/queue",
+      data: rpcFrame("ws_a", {
         request_id: "client-ack",
         ok: true,
-        payload: { session_id: "ws_a", revision: 1, items: [] },
+        value: { session_id: "ws_a", revision: 1, items: [] },
       }),
     });
     ws.onopen?.();
     expect(ws.sent).toHaveLength(2);
   });
 
-  it("parses the Inbox queue, session status, command and RPC error envelopes", async () => {
+  it("parses the frame envelope, queue snapshots and rpc errors", async () => {
     const {
-      getSessionEventPayload,
-      getSessionStatusPayload,
-      getSessionCommandPayload,
+      parseDownstreamFrame,
+      getQueueSnapshotFrame,
       getRpcErrorPayload,
+      getRpcPayload,
+      isQueueSnapshotPayload,
     } = await loadClient();
 
-    expect(getSessionEventPayload({
+    const queueFrame = parseDownstreamFrame({
+      v: 1,
+      session_id: "ws_a",
       type: "session/queue",
-      metadata: {},
       payload: {
         session_id: "ws_a",
         revision: 1,
@@ -117,53 +125,113 @@ describe("websocket-client F12 protocol handling", () => {
           message: { content: [{ type: "text", text: "queued" }] },
         }],
       },
-    })).toMatchObject({
+    });
+    expect(queueFrame).not.toBeNull();
+    expect(getQueueSnapshotFrame(queueFrame!)).toMatchObject({
       session_id: "ws_a",
       items: [{ id: "queued-1", placement: "queued" }],
     });
-    expect(getSessionStatusPayload({
-      type: "session/status",
-      metadata: {},
-      payload: { session_id: "ws_a", status: "running" },
-    })).toMatchObject({ session_id: "ws_a", status: "running" });
-    expect(getSessionCommandPayload({
-      type: "session_event:command_message",
-      metadata: { session_id: "ws_a" },
-      payload: { content: "命令执行失败", level: "error" },
-    })).toMatchObject({ content: "命令执行失败", level: "error" });
-    expect(getRpcErrorPayload({
+
+    const errorFrame = parseDownstreamFrame({
+      v: 1,
+      session_id: "ws_a",
+      type: "rpc",
+      payload: {
+        request_id: "r1",
+        ok: false,
+        error: { code: "queue-full", message: "Inbox 已满" },
+      },
+    });
+    expect(getRpcPayload(errorFrame!)).toMatchObject({ request_id: "r1", ok: false });
+    expect(getRpcErrorPayload(errorFrame!)).toMatchObject({
       request_id: "r1",
-      ok: false,
-      error: { code: "queue-full", message: "Inbox 已满", session_id: "ws_a" },
-    })).toMatchObject({ request_id: "r1", code: "queue-full", session_id: "ws_a" });
+      code: "queue-full",
+      session_id: "ws_a",
+    });
+
+    const promptSettlement = parseDownstreamFrame({
+      v: 1,
+      session_id: "ws_a",
+      type: "rpc",
+      payload: {
+        request_id: "r2",
+        ok: true,
+        value: { session_id: "ws_a", revision: 2, items: [] },
+      },
+    });
+    expect(isQueueSnapshotPayload(getRpcPayload(promptSettlement!)!.value)).toBe(true);
   });
 
-  it("rejects malformed queue payloads and cross-session routes", async () => {
-    const { getSessionEventPayload, getSessionStatusPayload } = await loadClient();
+  it("rejects malformed envelopes and queue payloads", async () => {
+    const { parseDownstreamFrame, getQueueSnapshotFrame, getRpcPayload } = await loadClient();
 
-    expect(getSessionEventPayload({
+    expect(parseDownstreamFrame({ v: 2, session_id: "ws_a", type: "session/queue" })).toBeNull();
+    expect(parseDownstreamFrame({ v: 1, type: "session/queue" })).toBeNull();
+    expect(parseDownstreamFrame({ v: 1, session_id: "ws_a" })).toBeNull();
+    expect(parseDownstreamFrame("junk")).toBeNull();
+
+    expect(getQueueSnapshotFrame({
+      v: 1,
+      session_id: "ws_a",
       type: "session/queue",
-      metadata: {},
       payload: { session_id: "ws_a", items: [] },
     })).toBeNull();
-    expect(getSessionEventPayload({
+    expect(getQueueSnapshotFrame({
+      v: 1,
+      session_id: "ws_a",
       type: "session/queue",
-      metadata: { session_id: "ws_b" },
-      payload: { session_id: "ws_a", revision: 1, items: [] },
+      payload: {
+        session_id: "ws_a",
+        revision: 1,
+        items: [{ id: "bad", placement: "unknown", message: {} }],
+      },
     })).toBeNull();
-    expect(getSessionEventPayload({
-      type: "session/queue",
-      metadata: {},
-      payload: { session_id: "ws_a", revision: 1, items: [{ id: "bad", placement: "unknown", message: {} }] },
-    })).toBeNull();
-    expect(getSessionStatusPayload({
-      type: "session/status",
-      metadata: {},
-      payload: { session_id: "ws_a", status: "unknown" },
+    expect(getRpcPayload({
+      v: 1,
+      session_id: "ws_a",
+      type: "rpc",
+      payload: { request_id: "r1" },
     })).toBeNull();
   });
 
-  it("sends cancellation through session.cancel and retries until its RPC ACK", async () => {
+  it("delivers parsed v4 frames to message handlers and skips invalid ones", async () => {
+    const error = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const { wsClient } = await loadClient();
+    const seen: Array<{ type: string; sessionId: string }> = [];
+    wsClient.onMessage((frame) => seen.push({ type: frame.type, sessionId: frame.session_id }));
+
+    wsClient.connect();
+    const ws = FakeWebSocket.instances[0];
+    ws.onopen?.();
+    ws.onmessage?.({
+      data: JSON.stringify({
+        v: 1,
+        session_id: "ws_a",
+        type: "session/subscribed",
+        payload: { last_seq: 3, status: "idle" },
+      }),
+    });
+    ws.onmessage?.({ data: "not json" });
+    ws.onmessage?.({ data: JSON.stringify({ type: "unknown_without_envelope" }) });
+    ws.onmessage?.({
+      data: JSON.stringify({
+        v: 1,
+        session_id: "ws_a",
+        type: "session/event",
+        payload: {
+          event: { type: "turn/end", seq: 3, time: 1, message_id: null, data: {} },
+        },
+      }),
+    });
+
+    expect(seen).toEqual([
+      { type: "session/subscribed", sessionId: "ws_a" },
+      { type: "session/event", sessionId: "ws_a" },
+    ]);
+    error.mockRestore();
+  });
+
+  it("sends cancellation through session.cancel and retries until its rpc ACK", async () => {
     const { wsClient } = await loadClient();
     wsClient.connect();
     const ws = FakeWebSocket.instances[0];
@@ -179,7 +247,7 @@ describe("websocket-client F12 protocol handling", () => {
     expect(JSON.parse(ws.sent[1]).request_id).toBe(frame.request_id);
 
     ws.onmessage?.({
-      data: JSON.stringify({
+      data: rpcFrame("ws_a", {
         request_id: frame.request_id,
         ok: true,
         value: { accepted: true, session_id: "ws_a" },
@@ -189,7 +257,7 @@ describe("websocket-client F12 protocol handling", () => {
     expect(ws.sent).toHaveLength(2);
   });
 
-  it("updates the Inbox queue through session.updateQueue and resolves with its snapshot", async () => {
+  it("updates the Inbox queue through session.updateQueue and resolves with its rpc value", async () => {
     const { wsClient } = await loadClient();
     wsClient.connect();
     const ws = FakeWebSocket.instances[0];
@@ -207,11 +275,10 @@ describe("websocket-client F12 protocol handling", () => {
     });
 
     ws.onmessage?.({
-      data: JSON.stringify({
-        type: "session/queue",
+      data: rpcFrame("ws_a", {
         request_id: frame.request_id,
         ok: true,
-        payload: { session_id: "ws_a", revision: 2, items: [] },
+        value: { session_id: "ws_a", revision: 2, items: [] },
       }),
     });
 
@@ -234,50 +301,14 @@ describe("websocket-client F12 protocol handling", () => {
     const frame = JSON.parse(ws.sent[0]);
     expect(frame.payload.action).toEqual({ kind: "steer" });
     ws.onmessage?.({
-      data: JSON.stringify({
-        type: "session/queue",
+      data: rpcFrame("ws_a", {
         request_id: frame.request_id,
         ok: true,
-        payload: { session_id: "ws_a", revision: 3, items: [] },
+        value: { session_id: "ws_a", revision: 3, items: [] },
       }),
     });
     await expect(pending).resolves.toMatchObject({ session_id: "ws_a", revision: 3, items: [] });
   });
-
-  it("stamps reply snapshots with the current client connection epoch", async () => {
-    const { wsClient } = await loadClient();
-    const epochs: number[] = [];
-    wsClient.onMessage((message) => {
-      if (message.type === "reply_snapshot") {
-        epochs.push((message.payload as any).client_connection_epoch);
-      }
-    });
-    wsClient.connect();
-    let ws = FakeWebSocket.instances[0];
-    ws.onopen?.();
-    ws.onmessage?.({
-      data: JSON.stringify({
-        type: "reply_snapshot",
-        payload: { session_id: "ws_a", replies: [] },
-        metadata: {},
-      }),
-    });
-
-    wsClient.disconnect();
-    wsClient.connect();
-    ws = FakeWebSocket.instances[1];
-    ws.onopen?.();
-    ws.onmessage?.({
-      data: JSON.stringify({
-        type: "reply_snapshot",
-        payload: { session_id: "ws_a", replies: [] },
-        metadata: {},
-      }),
-    });
-
-    expect(epochs).toEqual([1, 2]);
-  });
-
 
   it("rejects a full disconnected outbox without dropping its oldest frame", async () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);

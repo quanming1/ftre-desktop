@@ -1,11 +1,12 @@
 /**
  * Session store — tracks known chat sessions (local state).
  *
- * History 加载：后端返回持久化 Msg 快照，直接转成 ChatMessage。
- * WebSocket 的 AgentStreamEvent 只用于实时流式更新。
+ * History 加载：后端 /messages 返回 derive fold 后的 Msg 快照（v4 含 last_seq），
+ * 直接转成 ChatMessage 并作为事件游标基线；WebSocket 的 session/event 只用于
+ * 实时流式更新与 tail-page 增量恢复。
  */
 import { create } from "zustand";
-import { useChat, type ChatMessage, type ContentBlock, type MessageAttachment, type PlanData, type ToolResult } from "./chat";
+import { useChat, type ChatMessage, type PlanData } from "./chat";
 import type { SessionMessage, SessionSummary } from "@/services/api";
 import {
   fetchSessionPage,
@@ -16,186 +17,12 @@ import {
 import { useWorkspace } from "./workspace";
 import { workspaceHash } from "@ftre/editor/utils";
 import { wsClient } from "@/services/websocket-client";
+import { msgToChatMessage, wireMsgFromSessionMessage } from "./sessionEventClient";
+import type { WireMsg } from "@/types/wire.gen";
 
 export type { SessionSummary };
 
-// ─── Persisted Msg → ChatMessage ────────────────────────────────────
-
-function dataUrl(source: SessionMessage["content"][number]["source"]): string | null {
-  if (!source) return null;
-  if (source.type === "base64") {
-    return `data:${source.media_type};base64,${source.data ?? ""}`;
-  }
-  return source.url ?? null;
-}
-
-function toolOutputText(output: unknown): string {
-  if (typeof output === "string") return output;
-  if (Array.isArray(output) && output.every((part) => part?.type === "text")) {
-    return output.map((part) => String(part.text ?? "")).join("");
-  }
-  return JSON.stringify(output ?? "", null, 2);
-}
-
-function persistedMessageToChat(record: SessionMessage): ChatMessage | null {
-  // compact 摘要 Msg：role=user, name=compact → 映射为 CompactBubble
-  // 用 record.id 作为气泡 id，与实时 context_compact_done 事件 id 一致，刷新不产生双气泡
-  if (record.role === "user" && record.name === "compact") {
-    const compactMeta = record.metadata?.context_compact ?? {};
-    const summaryText = record.content
-      .filter((block) => block.type === "text")
-      .map((block) => String(block.text ?? ""))
-      .join("\n");
-    return {
-      id: record.id,
-      role: "system",
-      content: null,
-      timestamp: record.timestamp ? record.timestamp * 1000 : Date.parse(record.created_at),
-      compact: {
-        status: "done",
-        mode: "summary",
-        tokensBefore: typeof compactMeta.tokens_before === "number" ? compactMeta.tokens_before : undefined,
-        tokensAfter: typeof compactMeta.tokens_after === "number" ? compactMeta.tokens_after : undefined,
-        summaryPreview: summaryText || undefined,
-      },
-    };
-  }
-  // 快速压缩气泡 Msg：role=assistant, name=compact_fast → CompactBubble（fast 文案）
-  if (record.name === "compact_fast") {
-    const compactMeta = record.metadata?.context_compact ?? {};
-    return {
-      id: record.id,
-      role: "system",
-      content: null,
-      timestamp: record.timestamp ? record.timestamp * 1000 : Date.parse(record.created_at),
-      compact: {
-        status: "done",
-        mode: "fast",
-        tokensBefore: typeof compactMeta.tokens_before === "number" ? compactMeta.tokens_before : undefined,
-        tokensAfter: typeof compactMeta.tokens_after === "number" ? compactMeta.tokens_after : undefined,
-        toolResults: typeof compactMeta.tool_results === "number" ? compactMeta.tool_results : undefined,
-      },
-    };
-  }
-  if (record.role === "system" || record.metadata?.hide === true) return null;
-  const timestamp = record.timestamp ? record.timestamp * 1000 : Date.parse(record.created_at);
-  const text = record.content
-    .filter((block) => block.type === "text")
-    .map((block) => String(block.text ?? ""))
-    .join("\n");
-
-  if (record.role === "user") {
-    const attachments: MessageAttachment[] = record.content
-      .filter((block) => block.type === "data")
-      .flatMap((block) => {
-        const url = dataUrl(block.source);
-        return url
-          ? [{
-              type: "image" as const,
-              url,
-              mime: block.source?.media_type,
-              name: block.name,
-            }]
-          : [];
-      });
-    return {
-      id: record.id,
-      role: "user",
-      content: text,
-      timestamp,
-      metadata: record.metadata,
-      ...(attachments.length > 0 ? { attachments } : {}),
-    };
-  }
-
-  const blocks: ContentBlock[] = [];
-  const toolResults: Record<string, ToolResult> = {};
-  for (const block of record.content) {
-    if (block.type === "text") {
-      blocks.push({ type: "text", text: String(block.text ?? ""), blockId: block.id });
-    } else if (block.type === "thinking") {
-      blocks.push({ type: "thinking", thinking: String(block.thinking ?? ""), blockId: block.id });
-    } else if (block.type === "data" && block.source) {
-      blocks.push({
-        type: "data",
-        data: block.source.data ?? "",
-        url: block.source.type === "url" ? block.source.url : undefined,
-        mediaType: block.source.media_type ?? "application/octet-stream",
-        blockId: block.id,
-      });
-    } else if (block.type === "tool_call") {
-      blocks.push({
-        type: "toolCall",
-        id: block.id,
-        name: block.name ?? "",
-        arguments: block.arguments ?? {},
-      });
-      // 待确认工具调用（state==="asking"）无配对 tool_result，合成 asking
-      // ToolResult，让确认卡片在历史加载后仍可渲染。reason 未持久化，用通用文案。
-      if (block.state === "asking" && block.id) {
-        toolResults[block.id] = {
-          id: block.id,
-          name: block.name ?? "",
-          result: null,
-          error: null,
-          status: "asking",
-          confirm: {},
-        };
-      } else if (block.state === "finished" && block.id) {
-        // 批量确认尚未全部完成时，已拒绝调用还没有配对结果。
-        toolResults[block.id] = {
-          id: block.id,
-          name: block.name ?? "",
-          result: null,
-          error: null,
-          status: "denied",
-        };
-      }
-    } else if (block.type === "tool_result") {
-      const failed = ["error", "interrupted"].includes(block.state ?? "");
-      const denied = block.state === "denied";
-      toolResults[block.id] = {
-        id: block.id,
-        name: block.name ?? "",
-        result: failed || denied ? null : toolOutputText(block.output),
-        error: failed ? toolOutputText(block.output) : null,
-        status: denied
-          ? "denied"
-          : block.state === "interrupted"
-          ? "cancelled"
-          : failed ? "error" : "completed",
-        metadata: block.metadata,
-      };
-    }
-  }
-  const external = record.metadata?.external === true;
-  const fromChannel = String(record.metadata?.from_channel ?? "");
-  const fromSession = String(record.metadata?.from_session ?? "");
-  return {
-    id: record.id,
-    role: "assistant",
-    content: text || null,
-    timestamp,
-    blocks,
-    toolResults,
-    streaming: record.finished_at == null,
-    metadata: record.metadata,
-    model: typeof record.metadata?.model === "string" ? record.metadata.model : undefined,
-    token: record.token ?? undefined,
-    finishedAt: parseTimestamp(record.finished_at) ?? undefined,
-    isError: record.finished_reason === "error" || !!record.error,
-    error: record.error && typeof record.error.message === "string"
-      ? {
-          code: typeof record.error.code === "string" ? record.error.code : undefined,
-          message: record.error.message,
-        }
-      : undefined,
-    external,
-    externalFrom: external && (fromChannel || fromSession)
-      ? `${fromChannel}/${fromSession}`
-      : undefined,
-  };
-}
+// ─── Shared Msg → ChatMessage projection ───────────────────────────
 
 function parseTimestamp(value: string | null | undefined): number | null {
   if (!value) return null;
@@ -229,17 +56,26 @@ function persistedAssistantDurationSec(record: SessionMessage): number | undefin
   return Math.max(0, Math.round((finishedAt - startedAt) / 1000));
 }
 
-export function historyToMessages(records: SessionMessage[]): { messages: ChatMessage[]; turnStartTs: number | null; commandName: string | null } {
+export interface HistoryProjection {
+  messages: ChatMessage[];
+  /** 同页 WireMsg 种子（v4：重建 assembler fold 基线）。 */
+  wire: WireMsg[];
+  turnStartTs: number | null;
+  commandName: string | null;
+}
+
+export function historyToMessages(records: SessionMessage[]): HistoryProjection {
   return {
     messages: records
       .map((record) => {
-        const message = persistedMessageToChat(record);
+        const message = msgToChatMessage(wireMsgFromSessionMessage(record));
         if (message?.role === "assistant") {
           message.durationSec = persistedAssistantDurationSec(record);
         }
         return message;
       })
       .filter((message): message is ChatMessage => message !== null),
+    wire: records.map(wireMsgFromSessionMessage),
     turnStartTs: null,
     commandName: null,
   };
@@ -612,20 +448,22 @@ export const useSession = create<SessionState>((set, get) => ({
       .then((page) => {
         if (generation !== _switchGeneration) return;
         if (!page) return;
-        const { messages, turnStartTs, commandName } = historyToMessages(page.messages);
+        const { messages, wire, turnStartTs, commandName } = historyToMessages(page.messages);
         const plan = (page.metadata?.plan as PlanData) || null;
-        useChat.getState().loadSessionMessages(
-          sessionId,
+        useChat.getState().loadSessionMessages(sessionId, {
           messages,
-          page.hasMore,
-          page.status,
+          wire,
+          lastSeq: page.last_seq,
+          hasMoreHistory: page.hasMore,
+          status: page.status,
           turnStartTs,
           plan,
           commandName,
-          page.queue,
-        );
+          queue: page.queue,
+        });
         useChat.getState().setSessionStatus(sessionId, page.status);
-        // HTTP 完成后再 WS attach：之后的流式 Event 只负责实时更新。
+        // HTTP 完成后再 WS attach：之后的 session/event 只负责实时更新；
+        // attach 基线（subscribed{last_seq}）若发现本地落后会触发 tail-page 补齐。
         wsClient.subscribeOnly(sessionId);
       })
       .catch((err) => {
@@ -640,9 +478,9 @@ export const useSession = create<SessionState>((set, get) => ({
   },
 
   reconnectSession: async (sessionId) => {
-    // WS 重连后重新拉取 DB 历史，重建消息列表和去重窗口。
-    // 不走 subscribeOnly（WS client onopen 已重发 attach），
-    // 不走 clearSessionCache（保留 bucket 状态，避免 UI 闪烁）。
+    // v4 重载路径：仅在服务端日志落后本地（Gateway 重建/回退）或历史加载
+    // 失败时调用。重建 assembler 基线 + 游标；重连常规恢复走
+    // session/subscribed 基线 + tail-page 精确补齐，不做 HTTP 全量拉取。
     const generation = _switchGeneration;
     try {
       const page = await fetchSessionMessagesPage(sessionId, { limitTurns: FIRST_PAGE_TURNS });
@@ -651,18 +489,19 @@ export const useSession = create<SessionState>((set, get) => ({
         || useChat.getState().sessionId !== sessionId
       ) return;
       if (!page) return;
-      const { messages, turnStartTs, commandName } = historyToMessages(page.messages);
+      const { messages, wire, turnStartTs, commandName } = historyToMessages(page.messages);
       const plan = (page.metadata?.plan as PlanData) || null;
-      useChat.getState().loadSessionMessages(
-        sessionId,
+      useChat.getState().loadSessionMessages(sessionId, {
         messages,
-        page.hasMore,
-        page.status,
+        wire,
+        lastSeq: page.last_seq,
+        hasMoreHistory: page.hasMore,
+        status: page.status,
         turnStartTs,
         plan,
         commandName,
-        page.queue,
-      );
+        queue: page.queue,
+      });
     } catch (err) {
       console.error("[Session] reconnectSession fetch error:", err);
     }
