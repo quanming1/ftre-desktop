@@ -2,7 +2,7 @@
  * ConversationAssembler —— 事件日志 → Msg 列表的幂等 fold 引擎（PRD-F42 FR1）。
  *
  * 表面事件的折叠规则与后端 `ftre_agent/session/derive.py::_apply_event` 完全一致
- * （跨语言 golden 对拍）；客户端额外折叠流式事件（chunk / result-start /
+ * （跨语言 golden 对拍）；客户端额外折叠直播中的流式事件（chunk / result-start /
  * approval/asked），使直播期间也能渲染进行中的消息。whole-value
  * `assistant/message` 到达后整条替换，先前 chunk 聚合仅作历史（F41 I3）。
  *
@@ -461,8 +461,10 @@ export class ConversationAssembler {
     const data = (event.data ?? {}) as AssistantChunkData;
     if (data.kind === "tool_input") return; // 参数不流式上 wire（F41 附录 A-7）
     if (data.kind === "text" || data.kind === "thinking") {
-      const blockId = typeof data.block_id === "string" ? data.block_id : "";
-      if (!event.message_id || !blockId) return;
+      if (!event.message_id) return;
+      const blockId = typeof data.block_id === "string" && data.block_id
+        ? data.block_id
+        : `assistant_${data.kind}_${event.message_id}`;
       const message = this.ensureAssistant(event.message_id, event.time || 0);
       const block = message.content.find(
         (item) => item.type === data.kind && item.id === blockId,

@@ -55,4 +55,34 @@ describe("ConversationAssembler × derive_messages 跨语言 golden 对拍", () 
     expect(normalize(first.messages())).toEqual(normalize(second.messages()));
     expect(first.lastSeq).toBe(golden.events.length - 1);
   });
+
+  it("缺少 block_id 的流式片段仍聚合为可恢复的消息", () => {
+    const assembler = new ConversationAssembler();
+    const events: SessionEvent[] = [
+      {
+        type: "assistant/chunk",
+        seq: 0,
+        time: 1,
+        message_id: "m-inflight",
+        data: { kind: "text", delta: "正在" },
+      },
+      {
+        type: "assistant/chunk",
+        seq: 1,
+        time: 2,
+        message_id: "m-inflight",
+        data: { kind: "text", delta: "生成" },
+      },
+    ];
+    events.forEach((event) => assembler.append(event));
+
+    expect(assembler.messageById("m-inflight")?.content).toEqual([
+      {
+        type: "text",
+        id: "assistant_text_m-inflight",
+        text: "正在生成",
+        created_at: new Date(1).toISOString(),
+      },
+    ]);
+  });
 });

@@ -498,7 +498,7 @@ export interface SessionMessagesPage {
   metadata: Record<string, any>;
   /** 后端 Inbox 随历史消息一并返回的唯一权威 queue 快照。 */
   queue: QueueSnapshotPayload | null;
-  /** v4：响应生成时的事件日志长度；作为客户端事件游标（lastSeq）基准。 */
+  /** 响应消息快照完整覆盖到的事件序号；作为客户端事件游标（lastSeq）基准。 */
   last_seq: number;
 }
 

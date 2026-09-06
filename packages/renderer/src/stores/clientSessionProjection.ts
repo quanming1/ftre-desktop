@@ -143,8 +143,8 @@ export class ClientSessionProjection implements SessionProjectionState {
   /**
    * 用 HTTP /messages 的 fold 结果初始化/刷新投影。
    *
-   * wire 种子重建 assembler 基线（游标 = 响应 last_seq）；in-flight 流式
-   * 消息（服务端 fold 不含 chunk 态）保留继续聚合；paused 确认卡合成。
+   * wire 种子重建 assembler 基线（游标 = 响应 last_seq）；服务端快照已包含
+   * 截至该游标的 in-flight 流式消息；paused 确认卡仍由客户端合成。
    */
   hydrate(history: ProjectionHistory): void {
     this.events.seedHistory(history.wire, history.lastSeq ?? -1);

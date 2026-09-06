@@ -387,7 +387,8 @@ export class SessionEventClient {
    * 用 HTTP /messages 的 fold 结果重建基线：
    * - seeds 成为 assembler 状态（tool_call 配对索引随种子建立）；
    * - 游标设为响应 last_seq（绝对值）；
-   * - 保留尚未封口的 in-flight assistant（服务端 fold 不含 chunk 态）；
+   * - 服务端快照已包含截至 lastSeq 的 in-flight chunk；仅在本地仍有而快照
+   *   尚未覆盖的消息时保留它们；
    * - paused 会话合成确认卡。
    */
   seedHistory(seeds: WireMsg[], lastSeq: number): void {
