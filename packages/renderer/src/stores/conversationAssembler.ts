@@ -502,12 +502,22 @@ export class ConversationAssembler {
         message.content.push(result);
       }
       if (!Array.isArray(result.output)) result.output = [];
-      const parts = result.output as Array<{ type?: string; text?: string }>;
+      const parts = result.output as Array<{
+        type?: string;
+        text?: string;
+        id?: string;
+        created_at?: string;
+      }>;
       const last = parts[parts.length - 1];
       if (last && last.type === "text") {
         last.text = String(last.text ?? "") + (data.delta ?? "");
       } else {
-        parts.push({ type: "text", text: data.delta ?? "" });
+        parts.push({
+          type: "text",
+          id: `tool_result_${toolCallId}_text`,
+          text: data.delta ?? "",
+          created_at: isoFromMs(event.time || 0),
+        });
       }
       this.dirty.add(message.id);
     }
