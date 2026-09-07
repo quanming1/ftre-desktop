@@ -2,6 +2,13 @@
 
 ## [未发布]
 
+### F44 会话 Snapshot 恢复协议
+
+- 客户端先用 HTTP Msg 快照建立消息基线，再通过 `session/subscribed` 接收基线之后的
+  Event[]；同一套 `seq` 游标用于刷新、断线和跨 Gateway 重连。
+- 删除 `session/snapshot`、`reset_required` 和独立事件 tail-page 请求，避免重复投影和旧游标
+  跳过流式 Assistant 内容；attach 无法追平时重新 hydrate HTTP 基线。
+
 ### C2 MCP 上下文目录与三层管理 UI
 
 - MCP 浮窗和设置页按当前 Session 的 Agent/工作区读取 global/agent/project 目录，展示 effective 项、来源、

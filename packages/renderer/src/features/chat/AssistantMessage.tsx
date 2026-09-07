@@ -575,6 +575,8 @@ export const AssistantMessage = memo(
     turnDurationSec,
     turnModel,
     turnFinishedAt,
+    hideProcessHeader = false,
+    processExpandedOverride,
     isActiveMatch = false,
   }: {
     message: ChatMessage;
@@ -584,6 +586,10 @@ export const AssistantMessage = memo(
     turnDurationSec?: number;
     turnModel?: string;
     turnFinishedAt?: number;
+    /** 由连续 Assistant 消息的外层 Turn 统一展示过程栏时隐藏本地栏。 */
+    hideProcessHeader?: boolean;
+    /** 外层 Turn 共享的过程展开状态；不传时维持本消息原有状态。 */
+    processExpandedOverride?: boolean;
     /** Ctrl+F 当前定位的匹配消息（容器高亮提示） */
     isActiveMatch?: boolean;
   }) {
@@ -606,7 +612,8 @@ export const AssistantMessage = memo(
     const allBlocks = message.blocks ?? [];
     const collapsedBlocks = collapsedAssistantBlocks(allBlocks, message.toolResults);
     const hasProcess = allBlocks.length > collapsedBlocks.length;
-    const displayBlocks = processExpanded ? allBlocks : collapsedBlocks;
+    const processIsExpanded = processExpandedOverride ?? processExpanded;
+    const displayBlocks = processIsExpanded ? allBlocks : collapsedBlocks;
     // 复制当前 AI 消息的全部 Text block，而不是只复制折叠视图里的最后一段。
     // content 是历史/旧消息的兼容聚合字段，blocks 优先避免遗漏分段文本。
     const copyText = allBlocks
@@ -639,10 +646,10 @@ export const AssistantMessage = memo(
         <div className="w-full">
           <StreamingContext.Provider value={isStreaming}>
             <div className="text-[var(--text-md)] leading-relaxed text-t-primary font-sans break-words">
-              {hasProcess && (
+              {hasProcess && !hideProcessHeader && (
                 <button
                   type="button"
-                  aria-expanded={processExpanded}
+                  aria-expanded={processIsExpanded}
                   onClick={() => setProcessExpanded((expanded) => !expanded)}
                   className="group mb-2 block w-full py-1.5 text-left text-[14px] text-t-dim transition-colors hover:text-t-secondary"
                 >
@@ -683,7 +690,7 @@ export const AssistantMessage = memo(
                     toolResults={message.toolResults || {}}
                     streaming={isStreaming}
                     mdRef={mdRef}
-                    collapseNonText={processExpanded}
+                    collapseNonText={processIsExpanded}
                     showSource={showSource}
                   />
                 </div>

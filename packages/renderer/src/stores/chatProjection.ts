@@ -1,12 +1,12 @@
 /**
- * Session Chat projection reducer（v4 事件日志消费端，PRD-F42 §3）。
+ * Session Chat projection reducer（统一 seq 事件消费端，PRD-F42 §3）。
  *
  * applyFrame 把 6 种下行帧分发到：
  * - session/event → SessionEventClient（seq 游标 + assembler fold）+ 会话状态机；
  * - session/queue → applyQueueSnapshot（Inbox 权威快照，last-wins）；
  * - session/maintenance → 压缩瞬态气泡；
  * - session/projection → plan 等派生状态（token_usage 在 chat.ts 顶层处理）；
- * - rpc / session/subscribed 由 chat.ts 处理（异步与顶层 store 副作用）。
+ * - rpc / session/subscribed 由 chat.ts 处理（attach Event[] 与顶层副作用）。
  *
  * 状态机（F42 §3.1）：turn/start→executing、turn/end(outcome)→idle/paused、
  * session/status 仅处理 blocked、turn/retry→重试横幅——一态一源。
@@ -116,9 +116,12 @@ export function applyFrame(b: SessionProjectionState, frame: WireFrame): void {
       const payload = frame.payload as { event?: SessionEvent } | undefined;
       const event = payload?.event;
       if (!event || typeof event.type !== "string") return;
-      b.events.ingest(event);
+      const accepted: SessionEvent[] = [];
+      b.events.ingest(event, (acceptedEvent) => accepted.push(acceptedEvent));
       b.projectEvents();
-      applyLifecycleEvent(b, event);
+      // 跳号事件会暂存在 SessionEventClient；只有实际按 seq 接受时才推进
+      // 状态机，避免一个迟到的 turn/end 提前把会话标成 idle。
+      for (const acceptedEvent of accepted) applyLifecycleEvent(b, acceptedEvent);
       return;
     }
     case "session/queue": {
@@ -144,7 +147,7 @@ export function applyFrame(b: SessionProjectionState, frame: WireFrame): void {
 // ─── 会话状态机（F42 §3.1；驱动源 = 生命周期事件）───────────────────
 
 /** 生命周期事件驱动的状态迁移 + user/message 的队列横幅结算（P3）。 */
-function applyLifecycleEvent(b: SessionProjectionState, event: SessionEvent): void {
+export function applyLifecycleEvent(b: SessionProjectionState, event: SessionEvent): void {
   const data = (event.data ?? {}) as Record<string, any>;
   const ts = event.time || Date.now();
 

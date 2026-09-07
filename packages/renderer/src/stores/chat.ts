@@ -9,7 +9,7 @@
  * - session/projection → token_usage 写顶层、plan 写 bucket；
  * - session/maintenance → command_message 通知 / 压缩气泡；
  * - rpc → durable admission 结算（P1）+ 错误处理；
- * - session/subscribed → seq 基线比对（落后 → tail-page 追平）。
+ * - session/subscribed → attach 返回 Event[]，统一 fold 成 Msg。
  *
  * 用户消息五阶段（PRD-F42 §3.2/§3.3）：
  * P0 optimistic（pendingMessages 预览）→ P1 admitted（rpc ok+queue 快照）→
@@ -23,6 +23,7 @@ import {
   getQueueSnapshotFrame,
   getRpcErrorPayload,
   getRpcPayload,
+  getSessionSubscribedPayload,
   isQueueSnapshotPayload,
   type QueueItemView,
   type QueueSnapshotPayload,
@@ -76,6 +77,17 @@ const emptyBucket = (sid: string): ClientSessionProjection =>
     {
       sessionId: sid,
       onEventsSettled: () => mirror(sid),
+      onReset: () => {
+        import("./session")
+          .then(({ useSession }) => useSession.getState().reconnectSession(sid))
+          .catch(() => void 0);
+      },
+      onGap: () => {
+        const projection = sessionProjections.get(sid);
+        if (!projection) return;
+        syncAttachCursor(sid, projection);
+        wsClient.attach(sid);
+      },
     },
   );
 
@@ -91,6 +103,7 @@ function mirror(sid: string): void {
   if (useChat.getState().sessionId !== sid) return;
   const b = sessionProjections.get(sid);
   if (!b) return;
+  syncAttachCursor(sid, b);
   useChat.setState({
     messages: b.messages,
     sessionStatus: b.sessionStatus,
@@ -109,6 +122,13 @@ function mirror(sid: string): void {
     turnStartTs: b.turnStartTs,
     commandName: b.commandName,
     plan: b.plan,
+  });
+}
+
+/** Keep reconnect attach cursors at the same boundary as the local projection. */
+function syncAttachCursor(sid: string, b: ClientSessionProjection): void {
+  wsClient.setAttachCursor?.(sid, {
+    seq: b.events.lastSeq,
   });
 }
 
@@ -225,7 +245,15 @@ if (!(globalThis as any)[__wsBoundFlag]) {
     for (const frame of frames) {
       b.apply(frame);
     }
+    syncAttachCursor(sid, b);
     mirror(sid);
+  }
+
+  /** Snapshot 重置前丢弃旧 Gateway 的待合帧 chunk，避免它们在快照后迟到。 */
+  function _discardWsBatch(sid: string) {
+    const timer = _wsFlushTimers.get(sid);
+    if (timer) { clearTimeout(timer); _wsFlushTimers.delete(sid); }
+    _wsBatches.delete(sid);
   }
 
   function _enqueueWsFrame(sid: string, b: ClientSessionProjection, frame: WireFrame) {
@@ -241,6 +269,7 @@ if (!(globalThis as any)[__wsBoundFlag]) {
     }
     _flushWsBatch(sid);
     b.apply(frame);
+    syncAttachCursor(sid, b);
     mirror(sid);
   }
 
@@ -293,22 +322,17 @@ if (!(globalThis as any)[__wsBoundFlag]) {
     }
   }
 
-  /** session/subscribed 基线：本地落后 → tail-page 追平；服务端落后 → 重载。 */
+  /** session/subscribed attach 响应：先 fold 返回的 Event[]，再继续直播。 */
   function _handleSubscribed(frame: WireFrame, sid: string) {
-    const payload = frame.payload as { last_seq?: number; status?: string } | undefined;
-    const serverLastSeq = typeof payload?.last_seq === "number" ? payload.last_seq : -1;
+    const payload = getSessionSubscribedPayload(frame);
+    if (!payload) return;
     const b = bucket(sid);
-    const outcome = b.events.onSubscribed(serverLastSeq);
-    if (outcome === "ahead") {
-      // Gateway 重建/日志回退导致服务端基线落后本地：全量重载历史。
-      import("../stores/session")
-        .then(({ useSession }) => useSession.getState().reconnectSession(sid))
-        .catch(() => void 0);
-      return;
-    }
-    // behind：SessionEventClient 自行分页补齐，追平后 onSettled 回调
-    // projectEvents + mirror；这里只兜底没有协调器事实时的运行态。
-    if (!b.hasCoordinatorState && typeof payload?.status === "string") {
+    b.events.applyAttach(payload.events, payload.seq, payload.resync_required);
+    if (payload.resync_required) return;
+
+    // 这里只兜底没有协调器事实时的运行态；真实状态仍由 lifecycle Event
+    // 和 SessionService 的 status 快照共同驱动。
+    if (!b.hasCoordinatorState) {
       const status = payload.status;
       if (status === "idle" || status === "running" || status === "compacting" || status === "blocked") {
         b.hasCoordinatorState = true;
@@ -321,6 +345,7 @@ if (!(globalThis as any)[__wsBoundFlag]) {
         mirror(sid);
       }
     }
+    syncAttachCursor(sid, b);
   }
 
   wsClient.onMessage((frame: WireFrame) => {
@@ -334,6 +359,7 @@ if (!(globalThis as any)[__wsBoundFlag]) {
         const b = bucket(sid);
         if (pageHidden) {
           b.apply(frame);
+          syncAttachCursor(sid, b);
         } else {
           _enqueueWsFrame(sid, b, frame);
         }
@@ -422,14 +448,13 @@ if (!(globalThis as any)[__wsBoundFlag]) {
 
   wsClient.onConnect(() => {
     useChat.setState({ connected: true, wsStatus: "connected" });
-    // v4 重连恢复：wsClient onopen 已重发 attach；Gateway 会先回
-    // session/subscribed{last_seq} 基线，SessionEventClient 检测到本地
-    // 落后即通过 tail-page 精确补齐（含流式 chunk），无需 HTTP 全量拉取。
+    // 重连恢复：wsClient onopen 已重发 attach；服务端在
+    // session/subscribed 中直接返回基线之后的 Event[]。
   });
   wsClient.onStatusChange((s) => useChat.setState({ wsStatus: s, connected: s === "connected" }));
   wsClient.onDisconnect(() => {
     // 断线：关掉所有 bucket 的 streaming 状态，保留消息；
-    // 重连后由 subscribed 基线 + tail-page 精确恢复。
+    // 重连后由 subscribed Event[] 精确恢复。
     for (const [sid, b] of sessionProjections) {
       if (!b.hasCoordinatorState) {
         b.sessionStatus = "idle";
@@ -454,8 +479,8 @@ interface HistoryPage {
   messages: ChatMessage[];
   /** 同页 WireMsg 种子（assembler 基线重建）。 */
   wire: WireMsg[];
-  /** /messages 响应 last_seq（事件游标基准）。 */
-  lastSeq: number;
+  /** /messages 响应的统一 Session seq。 */
+  seq: number;
   hasMoreHistory: boolean;
   status: SessionStatus;
   turnStartTs?: number | null;
@@ -791,6 +816,7 @@ export const useChat = create<ChatState>((set, get) => ({
     const b = bucket(sessionId);
     if (b.hasCoordinatorState) return;
     b.sessionStatus = status;
+    if (status !== "blocked") b.blockedReason = null;
     b.sessionActivity = status === "idle"
       ? "idle"
       : status === "compacting"
@@ -812,7 +838,7 @@ export const useChat = create<ChatState>((set, get) => ({
     b.hydrate({
       messages: page.messages,
       wire: page.wire,
-      lastSeq: page.lastSeq,
+      seq: page.seq,
       hasMoreHistory: page.hasMoreHistory,
       status: page.status,
       turnStartTs: page.turnStartTs,

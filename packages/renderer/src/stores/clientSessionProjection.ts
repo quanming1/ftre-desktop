@@ -7,14 +7,15 @@ import type {
   SessionStatus,
 } from "./chat";
 import { SessionEventClient, msgToChatMessage } from "./sessionEventClient";
+import { applyLifecycleEvent } from "./chatProjection";
 
 export interface ProjectionHistory {
   /** HTTP /messages 的 derive 结果（统一 Msg → ChatMessage 投影）。 */
   messages: ChatMessage[];
   /** 同一页的 WireMsg 种子（重建 assembler 基线，保证 tail 事件可正确配对）。 */
   wire: WireMsg[];
-  /** 响应携带的 last_seq；作为本地事件游标基准。 */
-  lastSeq?: number;
+  /** HTTP Msg 快照覆盖到的 Session seq。 */
+  seq?: number;
   hasMoreHistory: boolean;
   status: SessionStatus;
   turnStartTs?: number | null;
@@ -90,13 +91,38 @@ export class ClientSessionProjection implements SessionProjectionState {
     options: {
       sessionId?: string;
       onEventsSettled?: () => void;
-      /** 注入事件分页 fetch（测试用）；缺省走 HTTP tail-page。 */
-      fetchPage?: import("./sessionEventClient").SessionEventsFetcher;
+      onReset?: () => void;
+      onGap?: () => void;
     } = {},
   ) {
     this.events = new SessionEventClient({
       sessionId: options.sessionId ?? "",
-      fetchPage: options.fetchPage,
+      onAttachEvent: (event) => {
+        // attach 事件同 live 事件走同一状态机；先把 Msg fold 投影出来，
+        // 再应用 turn/end 的耗时、状态和错误等派生字段。
+        this.projectEvents();
+        applyLifecycleEvent(this, event);
+      },
+      onResyncRequired: () => {
+        // attach 无法提供客户端所需的旧事件时，先清理运行态，再由上层
+        // 重新请求 HTTP Msg 快照建立基线。
+        this.hasCoordinatorState = false;
+        this.sessionStatus = "idle";
+        this.sessionActivity = "idle";
+        this.clientCanSend = true;
+        this.canCancel = false;
+        this.blockedReason = null;
+        this.error = null;
+        this.retryState = null;
+        this.turnStartTs = null;
+        this.commandName = null;
+        this.pendingMessages = [];
+        this.queueDepth = 0;
+        options.onReset?.();
+      },
+      onGap: () => {
+        options.onGap?.();
+      },
       onSettled: () => {
         this.projectEvents();
         options.onEventsSettled?.();
@@ -143,11 +169,11 @@ export class ClientSessionProjection implements SessionProjectionState {
   /**
    * 用 HTTP /messages 的 fold 结果初始化/刷新投影。
    *
-   * wire 种子重建 assembler 基线（游标 = 响应 last_seq）；服务端快照已包含
-   * 截至该游标的 in-flight 流式消息；paused 确认卡仍由客户端合成。
+   * wire 种子重建 assembler 基线（seq = HTTP 响应 seq）；服务端 Msg 快照已
+   * 包含截至该 seq 的 in-flight 流式消息；paused 确认卡仍由客户端合成。
    */
   hydrate(history: ProjectionHistory): void {
-    this.events.seedHistory(history.wire, history.lastSeq ?? -1);
+    this.events.seedHistory(history.wire, history.seq ?? -1);
     this.messages = history.messages;
     this.projectEvents();
 

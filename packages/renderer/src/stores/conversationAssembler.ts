@@ -107,8 +107,9 @@ export class ConversationAssembler {
 
   // ─── 历史种子（HTTP /messages → 本地 fold 基线）────────────────────
 
-  /** 用持久化 Msg 重建 fold 状态（游标由调用方 setCursor 设定）。 */
+  /** 用持久化 Msg 重建 fold 状态；调用方随后写入 HTTP 返回的 Session seq。 */
   reset(seeds: WireMsg[]): void {
+    this.lastSeq = -1;
     this.messagesById.clear();
     this.order = [];
     this.toolCallOwner.clear();
@@ -119,14 +120,9 @@ export class ConversationAssembler {
     }
   }
 
-  setCursor(lastSeq: number): void {
-    if (Number.isFinite(lastSeq) && lastSeq > this.lastSeq) {
-      this.lastSeq = lastSeq;
-    }
-  }
-
   /** 追加一条已有消息（hydrate 保留 in-flight / 外部注入）；标记 dirty。 */
   insert(message: WireMsg): void {
+    if (!Number.isFinite(message.seq)) message.seq = -1;
     if (message.id && !this.messagesById.has(message.id)) {
       this.order.push(message.id);
     }
@@ -218,7 +214,7 @@ export class ConversationAssembler {
   private foldUserMessage(event: SessionEvent): void {
     const data = (event.data ?? {}) as { content?: unknown[]; metadata?: Record<string, unknown>; request_id?: string };
     const timeMs = event.time || 0;
-    this.sealPreviousAssistant(timeMs);
+    this.sealPreviousAssistant(timeMs, event.seq);
     const metadata = { ...(data.metadata ?? {}) };
     if (data.request_id && metadata.request_id === undefined) {
       metadata.request_id = data.request_id;
@@ -232,6 +228,7 @@ export class ConversationAssembler {
         : []) as WireMsg["content"],
       metadata,
       created_at: isoFromMs(timeMs),
+      seq: event.seq,
       finished_at: null,
       finished_reason: null,
     };
@@ -247,13 +244,14 @@ export class ConversationAssembler {
     if (event.message_id && message.id !== event.message_id) {
       message.id = event.message_id;
     }
+    message.seq = Math.max(message.seq ?? -1, event.seq);
     this.insert(message);
   }
 
   private foldHintMessage(event: SessionEvent): void {
     if (!event.message_id) return;
     const data = (event.data ?? {}) as { hint?: string | unknown[]; source?: string | null };
-    const message = this.ensureAssistant(event.message_id, event.time || 0);
+    const message = this.ensureAssistant(event.message_id, event.time || 0, event.seq);
     const timeIso = isoFromMs(event.time || 0);
     message.content.push({
       // 块 id 派生自事件 seq（与服务端 derive 同规则，golden 对拍确定性要求）
@@ -265,12 +263,13 @@ export class ConversationAssembler {
       finished_at: timeIso,
     });
     this.dirty.add(message.id);
+    message.seq = Math.max(message.seq ?? -1, event.seq);
   }
 
   private foldCompactMessage(event: SessionEvent): void {
     const data = (event.data ?? {}) as CompactData;
     const timeMs = event.time || 0;
-    this.sealPreviousAssistant(timeMs);
+    this.sealPreviousAssistant(timeMs, event.seq);
     const id = event.message_id || genId("compact");
     // 摘要块 id 派生自 message_id（与服务端 derive 同规则，golden 对拍确定性要求）
     const compactBlockId = `compact_${id}`;
@@ -279,6 +278,9 @@ export class ConversationAssembler {
       const tokensBefore = Number(data.tokens_before ?? 0);
       const tokensAfter = Number(data.tokens_after ?? 0);
       const saved = Math.max(0, tokensBefore - tokensAfter);
+      const toolResultIds = Array.isArray(data.tool_result_ids)
+        ? data.tool_result_ids.filter((id): id is string => typeof id === "string" && id.length > 0)
+        : [];
       const text =
         `已快速压缩：${toolResults} 个较早的工具输出已被裁剪，`
         + `其原始内容不再可见（约节省 ${saved} tokens）。后续如需相关信息请重新获取。`;
@@ -293,9 +295,11 @@ export class ConversationAssembler {
             tool_results: toolResults,
             tokens_before: tokensBefore,
             tokens_after: tokensAfter,
+            ...(toolResultIds.length > 0 ? { tool_result_ids: toolResultIds } : {}),
           },
         },
         created_at: isoFromMs(timeMs),
+        seq: event.seq,
         finished_at: isoFromMs(timeMs),
         finished_reason: "completed",
       };
@@ -317,6 +321,7 @@ export class ConversationAssembler {
         },
       },
       created_at: isoFromMs(timeMs),
+      seq: event.seq,
       finished_at: null,
       finished_reason: null,
     };
@@ -328,7 +333,7 @@ export class ConversationAssembler {
     const data = (event.data ?? {}) as { tool_call_id?: string; name?: string; arguments?: Record<string, unknown> };
     const toolCallId = String(data.tool_call_id ?? "");
     if (!toolCallId) return;
-    const message = this.ensureAssistant(event.message_id, event.time || 0);
+    const message = this.ensureAssistant(event.message_id, event.time || 0, event.seq);
     if (findBlock<WireToolCallBlock>(message, "tool_call", toolCallId)) return;
     message.content.push({
       type: "tool_call",
@@ -340,6 +345,7 @@ export class ConversationAssembler {
     });
     this.toolCallOwner.set(toolCallId, message.id);
     this.dirty.add(message.id);
+    message.seq = Math.max(message.seq ?? -1, event.seq);
   }
 
   private foldToolResult(event: SessionEvent): void {
@@ -377,6 +383,7 @@ export class ConversationAssembler {
     }
     this.askContext.delete(toolCallId);
     this.dirty.add(message.id);
+    message.seq = Math.max(message.seq ?? -1, event.seq);
   }
 
   private foldTurnEnd(event: SessionEvent): void {
@@ -392,9 +399,15 @@ export class ConversationAssembler {
     if (message.finished_at == null) {
       message.finished_at = isoFromMs(event.time || 0);
     }
-    message.finished_reason = String(
-      data.reason || data.outcome || "completed",
-    );
+    const rawReason = String(data.reason || data.outcome || "completed");
+    // Keep live folding identical to the server derive() contract. paused and
+    // cancelled are turn outcomes, not Msg.finished_reason values; a crashed
+    // Gateway is represented as interrupted in the durable Msg snapshot.
+    message.finished_reason = rawReason === "crashed"
+      ? "interrupted"
+      : rawReason === "cancelled" || rawReason === "paused"
+        ? "completed"
+        : rawReason;
     if (data.error && typeof data.error === "object") {
       message.error = { ...data.error };
     }
@@ -412,6 +425,7 @@ export class ConversationAssembler {
       };
     }
     this.dirty.add(message.id);
+    message.seq = Math.max(message.seq ?? -1, event.seq);
   }
 
   // ─── 流式事件（客户端直播折叠；whole-value 覆盖后仅作历史）──────────
@@ -434,6 +448,7 @@ export class ConversationAssembler {
       created_at: isoFromMs(event.time || 0),
     });
     this.dirty.add(message.id);
+    message.seq = Math.max(message.seq ?? -1, event.seq);
   }
 
   private foldApprovalAsked(event: SessionEvent): void {
@@ -455,6 +470,7 @@ export class ConversationAssembler {
       ruleId: typeof data.rule_id === "string" ? data.rule_id : undefined,
     });
     this.dirty.add(message.id);
+    message.seq = Math.max(message.seq ?? -1, event.seq);
   }
 
   private foldChunk(event: SessionEvent): void {
@@ -465,7 +481,7 @@ export class ConversationAssembler {
       const blockId = typeof data.block_id === "string" && data.block_id
         ? data.block_id
         : `assistant_${data.kind}_${event.message_id}`;
-      const message = this.ensureAssistant(event.message_id, event.time || 0);
+      const message = this.ensureAssistant(event.message_id, event.time || 0, event.seq);
       const block = message.content.find(
         (item) => item.type === data.kind && item.id === blockId,
       ) as { type: "text" | "thinking"; id: string; text?: string; thinking?: string } | undefined;
@@ -480,6 +496,7 @@ export class ConversationAssembler {
         );
       }
       this.dirty.add(message.id);
+      message.seq = Math.max(message.seq ?? -1, event.seq);
       return;
     }
     if (data.kind === "tool_result_text") {
@@ -520,19 +537,21 @@ export class ConversationAssembler {
         });
       }
       this.dirty.add(message.id);
+      message.seq = Math.max(message.seq ?? -1, event.seq);
     }
   }
 
   // ─── 内部 ──────────────────────────────────────────────────────────
 
   /** 真实用户消息到达时封口上一条未完成 assistant（steering/新轮边界，同 derive）。 */
-  private sealPreviousAssistant(timeMs: number): void {
+  private sealPreviousAssistant(timeMs: number, eventSeq = -1): void {
     for (let i = this.order.length - 1; i >= 0; i--) {
       const message = this.messagesById.get(this.order[i])!;
       if (message.role === "assistant") {
         if (message.finished_at == null) {
           message.finished_at = isoFromMs(timeMs);
           message.finished_reason = "completed";
+          message.seq = Math.max(message.seq ?? -1, eventSeq);
           this.dirty.add(message.id);
         }
         return;
@@ -541,9 +560,12 @@ export class ConversationAssembler {
     }
   }
 
-  private ensureAssistant(messageId: string, createdMs: number): WireMsg {
+  private ensureAssistant(messageId: string, createdMs: number, eventSeq = -1): WireMsg {
     const existing = this.messagesById.get(messageId);
-    if (existing) return existing;
+    if (existing) {
+      existing.seq = Math.max(existing.seq ?? -1, eventSeq);
+      return existing;
+    }
     const message: WireMsg = {
       id: messageId,
       name: "default",
@@ -551,6 +573,7 @@ export class ConversationAssembler {
       content: [],
       metadata: {},
       created_at: isoFromMs(createdMs),
+      seq: eventSeq,
       finished_at: null,
       finished_reason: null,
     };

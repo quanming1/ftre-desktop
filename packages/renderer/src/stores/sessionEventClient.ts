@@ -1,65 +1,22 @@
 /**
- * SessionEventClient —— per-session 事件消费客户端（PRD-F42 FR2）。
+ * SessionEventClient —— per-session 事件消费客户端（PRD-F42/F44）。
  *
  * 职责：
- * - 持有 ConversationAssembler + lastSeq 游标；
- * - 直播事件按 seq 顺序消费；检测跳号时缓冲直播帧，并通过
- *   `GET /api/sessions/:id/events?after_seq=` 分页补齐（断线精确恢复）；
- * - `session/subscribed{last_seq}` 基线比对：落后 → tail-page 追平；
- *   服务端日志落后本地（重建/回退）→ 通知调用方全量重载；
- * - seedHistory：HTTP /messages 的 fold 结果作为基线种子（含 in-flight
+ * - 持有 ConversationAssembler + seq 水位；
+ * - attach 响应直接携带基线之后的 Event[]，按 seq fold 成 Msg；
+ * - 直播事件按 seq 顺序消费；检测跳号时请求调用方重新 attach；
+ * - seedHistory：HTTP /messages 的 Msg 结果作为基线种子（含 in-flight
  *   流式消息保留与 paused 确认卡合成）；
  * - msgToChatMessage：WireMsg → ChatMessage 的唯一投影（直播流与
  *   seedHistory 历史路径共用规则）。
  */
-import { API_BASE, type SessionMessage } from "@/services/api";
+import type { SessionMessage } from "@/services/api";
 import type { ChatMessage, ContentBlock, MessageAttachment, ToolResult } from "./chatTypes";
 import {
   ConversationAssembler,
   type AskContext,
 } from "./conversationAssembler";
 import type { SessionEvent, WireMsg, WireToolCallBlock, WireToolResultBlock } from "@/types/wire.gen";
-
-const TAIL_PAGE_LIMIT = 500;
-const CATCH_UP_MAX_ATTEMPTS = 5;
-const CATCH_UP_MAX_ROUNDS = 200;
-
-// ─── HTTP tail-page ──────────────────────────────────────────────────
-
-export interface SessionEventsPage {
-  events: SessionEvent[];
-  has_more: boolean;
-  last_seq: number;
-}
-
-export type SessionEventsFetcher = (
-  sessionId: string,
-  afterSeq: number,
-  limit: number,
-) => Promise<SessionEventsPage | null>;
-
-/** GET /api/sessions/:id/events?after_seq=&limit= —— seq > after_seq 的分页事件。 */
-export const fetchSessionEventsPage: SessionEventsFetcher = async (
-  sessionId,
-  afterSeq,
-  limit,
-) => {
-  try {
-    const res = await fetch(
-      `${API_BASE}/api/sessions/${encodeURIComponent(sessionId)}`
-        + `/events?after_seq=${afterSeq}&limit=${limit}`,
-    );
-    if (!res.ok) return null;
-    const data = await res.json();
-    return {
-      events: Array.isArray(data?.events) ? data.events : [],
-      has_more: data?.has_more === true,
-      last_seq: typeof data?.last_seq === "number" ? data.last_seq : -1,
-    };
-  } catch {
-    return null;
-  }
-};
 
 // ─── WireMsg ← HTTP 持久化记录 ───────────────────────────────────────
 
@@ -76,6 +33,7 @@ export function wireMsgFromSessionMessage(record: SessionMessage): WireMsg {
     created_at: record.created_at,
     token: record.token ?? null,
     finished_at: record.finished_at ?? null,
+    seq: Number.isFinite(record.seq) ? record.seq : -1,
     finished_reason: record.finished_reason ?? null,
     structured_output: record.structured_output ?? null,
     error: record.error ?? null,
@@ -323,14 +281,18 @@ export function msgToChatMessage(
 
 export interface SessionEventClientOptions {
   sessionId: string;
-  /** 异步 tail-page 追平（或放弃）后回调；供 bucket 投影 + store mirror。 */
+  /** attach 事件处理完成后回调；供 bucket 投影 + store mirror。 */
   onSettled?: () => void;
-  /** 注入 fetch 便于单测；缺省走 HTTP。 */
-  fetchPage?: SessionEventsFetcher;
+  /** attach 期间每个按 seq 接受的事件；用于恢复会话状态机。 */
+  onAttachEvent?: (event: SessionEvent) => void;
+  /** attach 无法补齐旧事件时，重新走 HTTP /messages。 */
+  onResyncRequired?: () => void;
+  /** 直播出现跳号时，调用方重新发送 attach。 */
+  onGap?: () => void;
 }
 
 /**
- * 一个 session 的事件消费客户端：seq 游标 + 跳号缓冲 + tail-page 补齐。
+ * 一个 session 的事件消费客户端：seq 水位 + 跳号缓冲 + attach 补齐。
  *
  * 顺序保证：事件总是按 seq 严格递增地进入 assembler；跳号时直播帧入缓冲，
  * 补齐后按序合并消费（F42 FR2），保证 fold 等价于服务端 derive。
@@ -338,13 +300,11 @@ export interface SessionEventClientOptions {
 export class SessionEventClient {
   public readonly assembler = new ConversationAssembler();
   private buffer: SessionEvent[] = [];
-  private catchingUp = false;
+  private attachRequested = false;
   private readonly options: SessionEventClientOptions;
-  private readonly fetchPage: SessionEventsFetcher;
 
   constructor(options: SessionEventClientOptions) {
     this.options = options;
-    this.fetchPage = options.fetchPage ?? fetchSessionEventsPage;
   }
 
   get lastSeq(): number {
@@ -352,70 +312,92 @@ export class SessionEventClient {
   }
 
   /** 消费一个直播/补齐事件（幂等：seq ≤ lastSeq 跳过；跳号入缓冲）。 */
-  ingest(event: SessionEvent): void {
+  ingest(event: SessionEvent, onAccepted?: (event: SessionEvent) => void): void {
     if (!event || typeof event.type !== "string") return;
     const seq = typeof event.seq === "number" ? event.seq : -1;
     if (seq >= 0 && seq <= this.assembler.lastSeq) return;
     if (seq >= 0 && seq > this.assembler.lastSeq + 1) {
       this.buffer.push(event);
       this.buffer.sort((left, right) => (left.seq ?? 0) - (right.seq ?? 0));
-      this.scheduleCatchUp();
+      this.requestAttach();
       return;
     }
-    this.assembler.append(event);
-    this.drainBuffer();
+    this.appendAccepted(event, onAccepted);
+    this.drainBuffer(onAccepted);
   }
 
-  /**
-   * attach 基线比对。
-   * - "behind"：本地落后 → 已启动 tail-page 追平；
-   * - "ahead"：服务端日志落后本地（Gateway 重建/回退）→ 调用方应全量重载；
-   * - "current"：已同步。
-   */
-  onSubscribed(serverLastSeq: number): "current" | "behind" | "ahead" {
-    if (typeof serverLastSeq !== "number" || serverLastSeq < 0) return "current";
-    const local = this.assembler.lastSeq;
-    if (serverLastSeq > local) {
-      this.scheduleCatchUp();
-      return "behind";
+  /** 消费 attach 返回的原始 Event[]，然后继续等待直播事件。 */
+  applyAttach(events: SessionEvent[], serverSeq: number, resyncRequired = false): void {
+    this.attachRequested = false;
+    if (resyncRequired) {
+      this.options.onResyncRequired?.();
+      return;
     }
-    if (serverLastSeq < local) return "ahead";
-    return "current";
+    for (const event of events) this.ingest(event, this.options.onAttachEvent);
+    this.drainBuffer(this.options.onAttachEvent);
+    if (Number.isFinite(serverSeq) && this.assembler.lastSeq < serverSeq) {
+      this.requestAttach();
+    }
+    this.options.onSettled?.();
   }
 
   /**
    * 用 HTTP /messages 的 fold 结果重建基线：
    * - seeds 成为 assembler 状态（tool_call 配对索引随种子建立）；
-   * - 游标设为响应 last_seq（绝对值）；
-   * - 服务端快照已包含截至 lastSeq 的 in-flight chunk；仅在本地仍有而快照
+   * - seq 设为响应 seq（绝对值）；
+   * - 服务端 Msg 快照已包含截至该 seq 的 in-flight chunk；仅在本地仍有而快照
    *   尚未覆盖的消息时保留它们；
    * - paused 会话合成确认卡。
    */
-  seedHistory(seeds: WireMsg[], lastSeq: number): void {
+  seedHistory(seeds: WireMsg[], seq: number): void {
     const previousCursor = this.assembler.lastSeq;
-    const inFlight = previousCursor >= 0 && lastSeq >= previousCursor
+    const cursorRolledBack = previousCursor >= 0
+      && (!Number.isFinite(seq) || seq < previousCursor);
+    const inFlight = previousCursor >= 0 && seq >= previousCursor
       ? this.assembler.takeInflightAssistants()
       : [];
     this.assembler.reset(seeds);
-    this.assembler.lastSeq = Number.isFinite(lastSeq) ? lastSeq : -1;
+    // reset() marks all seed messages dirty because it is also used for live
+    // inserts. HTTP/Snapshot callers already supplied the projected messages;
+    // replaying those seed rows would replace UI-only fields (for example
+    // persisted durationSec) and create needless renders.
+    this.assembler.takeDirty();
+    this.assembler.lastSeq = Number.isFinite(seq) ? seq : -1;
     const seedIds = new Set(seeds.map((message) => message.id));
     for (const message of inFlight) {
       if (!seedIds.has(message.id)) this.assembler.insert(message);
     }
     this.assembler.synthesizePausedAsking();
     // 基线之前的缓冲作废；之后的直播事件保留待 drain。
-    this.buffer = this.buffer.filter((event) =>
-      typeof event.seq === "number" && event.seq > this.assembler.lastSeq);
+    // A cursor rollback means a new Gateway lifecycle. Buffered events belong
+    // to the old lifecycle and must never be folded after the new Snapshot.
+    this.buffer = cursorRolledBack
+      ? []
+      : this.buffer.filter((event) =>
+        typeof event.seq === "number" && event.seq > this.assembler.lastSeq);
+    if (this.buffer.length > 0) {
+      this.drainBuffer();
+      if (this.hasBufferedGap()) this.requestAttach();
+    }
   }
 
-  private drainBuffer(): void {
+  private appendAccepted(
+    event: SessionEvent,
+    onAccepted?: (event: SessionEvent) => void,
+  ): void {
+    const previous = this.assembler.lastSeq;
+    this.assembler.append(event);
+    if (this.assembler.lastSeq > previous) onAccepted?.(event);
+  }
+
+  private drainBuffer(onAccepted?: (event: SessionEvent) => void): void {
     while (this.buffer.length > 0) {
       const head = this.buffer[0];
       const seq = typeof head.seq === "number" ? head.seq : -1;
       if (seq >= 0 && seq > this.assembler.lastSeq + 1) return;
       this.buffer.shift();
       if (seq >= 0 && seq <= this.assembler.lastSeq) continue;
-      this.assembler.append(head);
+      this.appendAccepted(head, onAccepted);
     }
   }
 
@@ -426,38 +408,9 @@ export class SessionEventClient {
     return seq >= 0 && seq > this.assembler.lastSeq + 1;
   }
 
-  private scheduleCatchUp(): void {
-    if (this.catchingUp) return;
-    this.catchingUp = true;
-    void this.runCatchUp()
-      .catch(() => undefined)
-      .finally(() => {
-        this.catchingUp = false;
-        this.options.onSettled?.();
-      });
-  }
-
-  /** tail-page 分页循环：从本地 lastSeq 起补齐到服务端末尾（含缓冲合并）。 */
-  private async runCatchUp(): Promise<void> {
-    let failures = 0;
-    for (let round = 0; round < CATCH_UP_MAX_ROUNDS; round++) {
-      const page = await this.fetchPage(
-        this.options.sessionId,
-        this.assembler.lastSeq,
-        TAIL_PAGE_LIMIT,
-      );
-      if (!page) {
-        failures += 1;
-        if (failures >= CATCH_UP_MAX_ATTEMPTS) return;
-        await new Promise((resolve) => setTimeout(resolve, 800 * failures));
-        continue;
-      }
-      failures = 0;
-      for (const event of page.events) {
-        this.ingest(event);
-      }
-      this.drainBuffer();
-      if (!page.has_more && !this.hasBufferedGap()) return;
-    }
+  private requestAttach(): void {
+    if (this.attachRequested) return;
+    this.attachRequested = true;
+    this.options.onGap?.();
   }
 }

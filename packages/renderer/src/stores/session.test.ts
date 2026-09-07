@@ -101,6 +101,7 @@ describe("session store — basic operations", () => {
         ],
         metadata: {},
         created_at: "2026-07-27T10:00:00",
+        seq: 3,
         token: {
           usage: { prompt_tokens: 10, completion_tokens: 2, total_tokens: 12 },
           last_call_usage: { prompt_tokens: 10, completion_tokens: 2, total_tokens: 12 },

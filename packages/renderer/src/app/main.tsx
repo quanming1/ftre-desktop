@@ -19,17 +19,19 @@ import "katex/dist/katex.min.css";
 import "@jiang_quan_ming/react-code-diff/style.css";
 
 void (async () => {
-  if (window.desktop?.store) {
-    const { value } = await window.desktop.store.get("gatewayUrl");
-    if (typeof value === "string" && value) {
-      const normalized = normalizeGatewayUrl(value);
-      if (normalized !== value) {
-        await window.desktop.store.set("gatewayUrl", normalized);
-      }
-      wsClient.setUrl(normalized);
-    }
-  }
   initConnection();
+  if (!window.desktop?.store) return;
+  try {
+    const { value } = await window.desktop.store.get("gatewayUrl");
+    if (typeof value !== "string" || !value) return;
+    const normalized = normalizeGatewayUrl(value);
+    if (normalized !== value) {
+      await window.desktop.store.set("gatewayUrl", normalized);
+    }
+    wsClient.setUrl(normalized);
+  } catch (error) {
+    console.warn("[connection] 读取 Gateway 地址失败，继续使用默认地址", error);
+  }
 })();
 
 void (async () => {

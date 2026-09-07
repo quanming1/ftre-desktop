@@ -1,12 +1,12 @@
 /**
- * GENERATED FILE —— 禁止手写（PRD-F41 FR9/AC7）。
+ * GENERATED FILE —— 禁止手写（PRD-F41/F44）。
  * 由 ftre 仓 `scripts/gen_wire_types.py` 从 Pydantic 契约生成：
  *   - packages/ftre-agent/src/ftre_agent/session/events.py   事件表（13 种）
  *   - packages/ftre-agent/src/ftre_agent/message/{_msg,_block}.py  Msg/Block
  *   - src/ftre/services/messaging/wire.py                    帧表（6 种）
  * 重新生成：`py scripts/gen_wire_types.py`；产物 diff 必须为空。
  *
- * 帧信封：{v: 1, session_id, type, payload}，共 6 种帧（F41 §4.4）。
+ * 帧信封：{v: 1, session_id, type, payload}，共 6 种帧（F41/F44）。
  * 事件信封：{type, seq, time, message_id?, data}，共 13 种事件（F41 §4.2）。
  */
 
@@ -22,11 +22,12 @@ export type DownstreamFrameType =
   | "rpc"
 ;
 
-/** 下行帧公共信封；无帧级 seq（事件帧内 seq 为权威）。 */
+/** 下行帧公共信封；Session 事件和 Msg 共用 seq。 */
 export interface WireFrame<TPayload = unknown> {
   v: 1;
   session_id: string;
-  type: DownstreamFrameType;
+  // Unknown future frame types are accepted and ignored by consumers.
+  type: DownstreamFrameType | (string & {});
   payload?: TPayload;
 }
 
@@ -37,10 +38,13 @@ export interface SessionEventFramePayload {
   event: SessionEvent;
 }
 
-/** attach 基线锚点：客户端比对本地 lastSeq 决定是否 tail-page 补拉。 */
+/** attach 响应：返回基线 seq 之后尚未折叠为 Msg 的 Event。 */
 export interface SessionSubscribedPayload {
-  last_seq: number;
+  seq: number;
+  events: SessionEvent[];
   status: string;
+  has_more: boolean;
+  resync_required: boolean;
 }
 
 /** 派生状态快照（last-wins）：todo/plan/title/token 等。 */
@@ -56,7 +60,7 @@ export interface SessionMaintenancePayload {
   value: Record<string, any>;
 }
 
-/** 上行操作结算（prompt/updateQueue → queue 快照或 error；cancel → accepted）。 */
+/** 上行操作结算（prompt/updateQueue/resume → queue 快照或 error；cancel → accepted）。 */
 export interface RpcPayload {
   request_id: string;
   ok: boolean;
@@ -93,7 +97,7 @@ export type SessionEventType =
 
 export interface SessionEvent<TData = any> {
   type: SessionEventType | (string & {});
-  /** 会话内从 0 严格连续的事件序号。 */
+  /** Session 持久单调事件序号；跨 Gateway 重启继续递增。 */
   seq: number;
   /** epoch 毫秒。 */
   time: number;
@@ -256,6 +260,16 @@ export interface WireDataBlock {
   finished_at?: string | null;
 }
 
+/** 未来或插件内容块（保留原始 JSON）。 */
+export interface WireExtensionBlock {
+  type: "extension";
+  original_type: string;
+  data?: Record<string, any>;
+  id?: string;
+  created_at?: string;
+  finished_at?: string | null;
+}
+
 /** 提示块（默认隐藏渲染，注入上下文）。 */
 export interface WireHintBlock {
   type: "hint";
@@ -297,6 +311,7 @@ export interface WireMsg {
   id: string;
   metadata: Record<string, any>;
   created_at: string;
+  seq: number;
   token?: WireMsgToken | null;
   finished_at?: string | null;
   finished_reason?: string | null;
@@ -318,6 +333,7 @@ export type WireBlock =
   | WireTextBlock
   | WireThinkingBlock
   | WireDataBlock
+  | WireExtensionBlock
   | WireHintBlock
   | WireToolCallBlock
   | WireToolResultBlock;

@@ -1,12 +1,12 @@
 /**
- * WebSocket Client — 连接 ftre gateway（v4 事件日志 wire 协议）。
+ * WebSocket Client — 连接 ftre gateway（统一 seq attach wire 协议）。
  *
  * 上行帧不变（F12 冻结）：attach / detach / session.prompt / session.cancel /
  * session.updateQueue，payload 携带业务数据，request_id 是唯一传输相关性标识。
  *
- * 下行帧信封（PRD-F41 §4.4）：{v: 1, session_id, type, payload}，6 种：
+ * 下行帧信封（F41/F44）：{v: 1, session_id, type, payload}，6 种：
  *   session/event        事件透传（payload.event 为完整事件信封，含 seq）
- *   session/subscribed   attach 基线 {last_seq, status}
+ *   session/subscribed   attach 响应 {seq, events, status}
  *   session/queue        Inbox 权威队列快照（last-wins，含 revision）
  *   session/projection   派生状态快照 {key, value, seq}
  *   session/maintenance  非日志文本反馈 {name, value}
@@ -22,7 +22,9 @@ import { wsLogCollector } from "./ws-log-collector";
 import type {
   DownstreamFrameType,
   RpcPayload,
+  SessionSubscribedPayload,
   WireFrame,
+  WireMsg,
 } from "@/types/wire.gen";
 
 export type { RpcPayload, WireFrame, DownstreamFrameType };
@@ -104,6 +106,37 @@ export function parseDownstreamFrame(raw: unknown): WireFrame | null {
   return frame as unknown as WireFrame;
 }
 
+function isSessionEvent(value: unknown): value is import("@/types/wire.gen").SessionEvent {
+  const event = asRecord(value);
+  return !!event
+    && typeof event.type === "string"
+    && typeof event.seq === "number"
+    && Number.isFinite(event.seq)
+    && typeof event.time === "number"
+    && Number.isFinite(event.time)
+    && typeof event.data === "object"
+    && event.data !== null;
+}
+
+/** 读取 attach 响应；事件数组由客户端统一 fold 成 Msg。 */
+export function getSessionSubscribedPayload(
+  frame: WireFrame,
+): SessionSubscribedPayload | null {
+  if (frame.type !== "session/subscribed") return null;
+  const payload = asRecord(frame.payload);
+  if (!payload) return null;
+  if (!Array.isArray(payload.events) || !payload.events.every(isSessionEvent)) return null;
+  return {
+    seq: typeof payload.seq === "number" && Number.isFinite(payload.seq)
+      ? payload.seq
+      : -1,
+    events: payload.events,
+    status: typeof payload.status === "string" ? payload.status : "idle",
+    has_more: payload.has_more === true,
+    resync_required: payload.resync_required === true,
+  };
+}
+
 export function isQueueSnapshotPayload(
   value: unknown,
 ): value is QueueSnapshotPayload {
@@ -114,12 +147,21 @@ export function isQueueSnapshotPayload(
     && Array.isArray(raw.items)
     && raw.items.every((item) => {
       const record = asRecord(item);
+      const message = record && asRecord(record.message);
+      const content = message && message.content;
       return !!record
         && typeof record.id === "string"
         && (record.placement === "queued"
           || record.placement === "steering"
           || record.placement === "context")
-        && !!asRecord(record.message);
+        && !!message
+        && Array.isArray(content)
+        && content.every((part) => {
+          const value = asRecord(part);
+          return !!value
+            && value.type === "text"
+            && typeof value.text === "string";
+        });
     });
 }
 
@@ -216,6 +258,8 @@ class WebSocketClient {
 
   /** 当前已 attach 的 session 集合（重连后自动重发 attach） */
   private attachedSessions = new Set<string>();
+  /** 每个 attach 的 Session seq；重连时作为事件补齐基线。 */
+  private attachCursors = new Map<string, { seq: number }>();
 
   private messageHandlers: MessageHandler[] = [];
   private connectHandlers: ConnectionHandler[] = [];
@@ -234,7 +278,7 @@ class WebSocketClient {
     const nextUrl = normalizeGatewayUrl(url);
     const changed = this._url !== nextUrl;
     this._url = nextUrl;
-    if (changed && this.connected) {
+    if (changed && this.ws && this.ws.readyState !== WebSocket.CLOSED) {
       this.disconnect();
       this.connect();
     }
@@ -267,9 +311,13 @@ class WebSocketClient {
         // 重连后重新 attach 所有之前关注的 session；
         // Gateway 会在输出锁内先回 session/subscribed 基线再推直播帧。
         for (const sid of this.attachedSessions) {
+          const cursor = this.attachCursors.get(sid);
           this.sendWire({
             type: "attach",
-            payload: { session_id: sid },
+            payload: {
+              session_id: sid,
+              ...(cursor ?? {}),
+            },
           }, "reconnect_replay");
         }
         this.flushPendingSends();
@@ -502,6 +550,13 @@ class WebSocketClient {
       },
     };
 
+    return this.waitForQueueSnapshot(requestId, frame);
+  }
+
+  private waitForQueueSnapshot(
+    requestId: string,
+    frame: Record<string, unknown>,
+  ): Promise<QueueSnapshotPayload> {
     return new Promise<QueueSnapshotPayload>((resolve, reject) => {
       const timer = setTimeout(() => {
         this.controlWaiters.delete(requestId);
@@ -529,18 +584,32 @@ class WebSocketClient {
   }
 
   /** Attach：告诉后端这条 ws 关注指定 session，后续该 session 的 outbound 会推送过来。 */
+  setAttachCursor(
+    sessionId: string,
+    cursor: { seq?: number },
+  ): void {
+    if (!sessionId) return;
+    this.attachCursors.set(sessionId, {
+      seq: Number.isFinite(cursor.seq) ? Number(cursor.seq) : -1,
+    });
+  }
+
   attach(sessionId: string): void {
     if (!sessionId) return;
     this.attachedSessions.add(sessionId);
     this.send({
       type: "attach",
-      payload: { session_id: sessionId },
+      payload: {
+        session_id: sessionId,
+        ...(this.attachCursors.get(sessionId) ?? {}),
+      },
     });
   }
 
   detach(sessionId: string): void {
     if (!sessionId) return;
     this.attachedSessions.delete(sessionId);
+    this.attachCursors.delete(sessionId);
     this.send({
       type: "detach",
       payload: { session_id: sessionId },

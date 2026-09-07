@@ -107,6 +107,7 @@ describe("websocket-client v4 wire protocol handling", () => {
     const {
       parseDownstreamFrame,
       getQueueSnapshotFrame,
+      getSessionSubscribedPayload,
       getRpcErrorPayload,
       getRpcPayload,
       isQueueSnapshotPayload,
@@ -160,6 +161,20 @@ describe("websocket-client v4 wire protocol handling", () => {
       },
     });
     expect(isQueueSnapshotPayload(getRpcPayload(promptSettlement!)!.value)).toBe(true);
+
+    const subscribed = parseDownstreamFrame({
+      v: 1,
+      session_id: "ws_a",
+      type: "session/subscribed",
+      payload: { seq: 4, events: [], status: "idle", has_more: false, resync_required: false },
+    });
+    expect(getSessionSubscribedPayload(subscribed!)).toEqual({
+      seq: 4,
+      events: [],
+      status: "idle",
+      has_more: false,
+      resync_required: false,
+    });
   });
 
   it("rejects malformed envelopes and queue payloads", async () => {
@@ -186,6 +201,16 @@ describe("websocket-client v4 wire protocol handling", () => {
         items: [{ id: "bad", placement: "unknown", message: {} }],
       },
     })).toBeNull();
+    expect(getQueueSnapshotFrame({
+      v: 1,
+      session_id: "ws_a",
+      type: "session/queue",
+      payload: {
+        session_id: "ws_a",
+        revision: 1,
+        items: [{ id: "bad", placement: "queued", message: {} }],
+      },
+    })).toBeNull();
     expect(getRpcPayload({
       v: 1,
       session_id: "ws_a",
@@ -194,7 +219,7 @@ describe("websocket-client v4 wire protocol handling", () => {
     })).toBeNull();
   });
 
-  it("delivers parsed v4 frames to message handlers and skips invalid ones", async () => {
+  it("delivers parsed frames to message handlers and skips invalid ones", async () => {
     const error = vi.spyOn(console, "error").mockImplementation(() => undefined);
     const { wsClient } = await loadClient();
     const seen: Array<{ type: string; sessionId: string }> = [];
@@ -208,7 +233,7 @@ describe("websocket-client v4 wire protocol handling", () => {
         v: 1,
         session_id: "ws_a",
         type: "session/subscribed",
-        payload: { last_seq: 3, status: "idle" },
+        payload: { seq: 3, events: [], status: "idle", has_more: false, resync_required: false },
       }),
     });
     ws.onmessage?.({ data: "not json" });

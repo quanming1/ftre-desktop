@@ -319,7 +319,7 @@ function encodeSessionKey(sessionIdOrKey: string): string {
 }
 
 export interface SessionContentBlock {
-  type: "text" | "thinking" | "data" | "hint" | "tool_call" | "tool_result";
+  type: "text" | "thinking" | "data" | "hint" | "tool_call" | "tool_result" | "extension";
   id: string;
   /** Block 生命周期时间；历史消息用它恢复 Assistant 的实际处理时长。 */
   created_at?: string;
@@ -338,6 +338,8 @@ export interface SessionContentBlock {
   state?: string;
   metadata?: Record<string, any>;
   hint?: unknown;
+  original_type?: string;
+  data?: unknown;
 }
 
 /** 单次或累计的 OpenAI-compatible token 用量 */
@@ -364,6 +366,7 @@ export interface SessionMessage {
   content: SessionContentBlock[];
   metadata: Record<string, any>;
   created_at: string;
+  seq: number;
   token: MessageToken | null;
   finished_at: string | null;
   finished_reason: string | null;
@@ -380,6 +383,7 @@ export interface SessionStateMessage {
   content: SessionContentBlock[];
   metadata: Record<string, any>;
   created_at: string;
+  seq: number;
   token?: MessageToken | null;
   finished_at?: string | null;
   finished_reason?: string | null;
@@ -498,8 +502,8 @@ export interface SessionMessagesPage {
   metadata: Record<string, any>;
   /** 后端 Inbox 随历史消息一并返回的唯一权威 queue 快照。 */
   queue: QueueSnapshotPayload | null;
-  /** 响应消息快照完整覆盖到的事件序号；作为客户端事件游标（lastSeq）基准。 */
-  last_seq: number;
+  /** 本次 Msg 快照覆盖到的 Session 事件序号。 */
+  seq: number;
 }
 
 /**
@@ -527,7 +531,7 @@ export async function fetchSessionMessagesPage(
     const res = await fetch(url);
     if (!res.ok) return {
       messages: [], hasMore: false, total: 0, status: "idle", metadata: {},
-      queue: null, last_seq: -1,
+      queue: null, seq: -1,
     };
     const data = await res.json();
     const queue = isQueueSnapshotPayload(data.queue)
@@ -545,13 +549,13 @@ export async function fetchSessionMessagesPage(
       status,
       metadata: data.metadata || {},
       queue,
-      last_seq: typeof data.last_seq === "number" ? data.last_seq : -1,
+      seq: typeof data.seq === "number" ? data.seq : -1,
     };
   } catch (e) {
     console.error("[API] fetchSessionMessagesPage error:", e);
     return {
       messages: [], hasMore: false, total: 0, status: "idle", metadata: {},
-      queue: null, last_seq: -1,
+      queue: null, seq: -1,
     };
   }
 }

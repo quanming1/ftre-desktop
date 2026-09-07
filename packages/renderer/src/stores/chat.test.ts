@@ -7,7 +7,7 @@ import {
 } from "./chat";
 import type { ContentBlock } from "./chat";
 import { ClientSessionProjection } from "./clientSessionProjection";
-import { SessionEventClient, type SessionEventsPage } from "./sessionEventClient";
+import { SessionEventClient } from "./sessionEventClient";
 import type { SessionEvent, WireFrame } from "@/types/wire.gen";
 
 const wsMessageHandler = vi.hoisted(() => ({
@@ -35,6 +35,7 @@ vi.mock("@/services/websocket-client", async (importOriginal) => {
         requestId: frameId,
       })),
       sendCancel: vi.fn(),
+      attach: vi.fn(),
       subscribeOnly: vi.fn(),
       connect: vi.fn(),
       disconnect: vi.fn(),
@@ -86,16 +87,10 @@ function wireFrame(sid: string, type: WireFrame["type"], payload: unknown): Wire
   return { v: 1, session_id: sid, type, payload };
 }
 
-const NOOP_FETCH = async (): Promise<SessionEventsPage | null> => ({
-  events: [],
-  has_more: false,
-  last_seq: -1,
-});
-
 function freshProjection(sid: string): ClientSessionProjection {
   return new ClientSessionProjection(
     { applyFrame },
-    { sessionId: sid, fetchPage: NOOP_FETCH },
+    { sessionId: sid },
   );
 }
 
@@ -581,6 +576,35 @@ describe("chat store", () => {
     });
   });
 
+  it("normalizes cancelled and crashed turn outcomes like the server derive", () => {
+    const projection = freshProjection("s-finished-reason");
+    projection.apply(eventFrame("s-finished-reason", {
+      type: "assistant/chunk",
+      message_id: "m-cancelled",
+      data: { kind: "text", block_id: "b", delta: "partial" },
+    }));
+    projection.apply(eventFrame("s-finished-reason", {
+      type: "turn/end",
+      message_id: "m-cancelled",
+      data: { outcome: "cancelled", reason: "cancelled" },
+    }));
+    expect(projection.events.assembler.messageById("m-cancelled")?.finished_reason)
+      .toBe("completed");
+
+    projection.apply(eventFrame("s-finished-reason", {
+      type: "assistant/chunk",
+      message_id: "m-crashed",
+      data: { kind: "text", block_id: "b2", delta: "partial" },
+    }));
+    projection.apply(eventFrame("s-finished-reason", {
+      type: "turn/end",
+      message_id: "m-crashed",
+      data: { outcome: "error", reason: "crashed" },
+    }));
+    expect(projection.events.assembler.messageById("m-crashed")?.finished_reason)
+      .toBe("interrupted");
+  });
+
   it("only session/status blocked transitions flip the blocked state", () => {
     const projection = freshProjection("s-blocked");
 
@@ -651,6 +675,47 @@ describe("chat store", () => {
     expect(projection.messages).toHaveLength(1);
     expect(projection.events.assembler.unknownEventCount).toBe(1);
     expect(projection.events.lastSeq).toBe(1);
+  });
+
+  it("folds attach events after the HTTP Msg baseline", async () => {
+    const sid = "s-wire-attach";
+    useChat.getState().clearSessionCache(sid);
+    useChat.setState({ sessionId: sid });
+
+    wsMessageHandler.current?.(wireFrame(sid, "session/subscribed", {
+      seq: 1,
+      events: [
+        {
+          type: "assistant/chunk",
+          seq: 0,
+          time: 2_000,
+          message_id: "a-new",
+          data: { kind: "text", block_id: "b-new", delta: "新" },
+        },
+        {
+          type: "assistant/chunk",
+          seq: 1,
+          time: 2_001,
+          message_id: "a-new",
+          data: { kind: "text", block_id: "b-new", delta: "回复" },
+        },
+      ],
+      status: "idle",
+      has_more: false,
+      resync_required: false,
+    }));
+    seqCounters.set(sid, 1);
+    wsMessageHandler.current?.(eventFrame(sid, {
+      type: "assistant/chunk",
+      message_id: "a-new",
+      data: { kind: "text", block_id: "b-new", delta: "!" },
+    }));
+    await new Promise((resolve) => setTimeout(resolve, 20));
+
+    expect(useChat.getState().messages.map((message) => message.id)).toEqual([
+      "a-new",
+    ]);
+    expect(useChat.getState().messages.at(-1)?.content).toBe("新回复!");
   });
 
   it("newChat resets the active conversation", async () => {
@@ -1027,7 +1092,7 @@ describe("chat store", () => {
   });
 });
 
-// ─── SessionEventClient：seq 游标 + tail-page 恢复 ───────────────────
+// ─── SessionEventClient：seq attach 恢复 ─────────────────────────────
 
 describe("SessionEventClient recovery", () => {
   const ev = (seq: number, type: string, data: Record<string, unknown> = {}, messageId: string | null = null): SessionEvent => ({
@@ -1038,58 +1103,38 @@ describe("SessionEventClient recovery", () => {
     data,
   });
 
-  it("buffers live events on seq gaps and merges them in order after tail-page", async () => {
-    const fetched: SessionEvent[][] = [];
+  it("buffers live events on seq gaps until attach returns the missing events", () => {
+    const attach = vi.fn();
     const client = new SessionEventClient({
       sessionId: "s-gap",
-      fetchPage: async () => {
-        const events = fetched.shift() ?? [];
-        return { events, has_more: false, last_seq: -1 };
-      },
+      onGap: attach,
     });
 
     client.ingest(ev(0, "user/message", { content: [], metadata: {}, request_id: "r0" }, "u0"));
-    // 跳号 1、2：直播帧 3 先到 → 入缓冲并触发补拉。
+    // 跳号 1、2：直播帧 3 先到 → 入缓冲并要求重新 attach。
     client.ingest(ev(3, "assistant/chunk", { kind: "text", block_id: "b", delta: "tail" }, "m1"));
     expect(client.assembler.lastSeq).toBe(0);
+    expect(attach).toHaveBeenCalledOnce();
 
-    fetched.push([
+    client.applyAttach([
       ev(1, "assistant/chunk", { kind: "text", block_id: "b", delta: "head " }, "m1"),
       ev(2, "assistant/chunk", { kind: "text", block_id: "b", delta: "mid " }, "m1"),
-    ]);
+    ], 3);
 
-    await vi.waitFor(() => expect(client.assembler.lastSeq).toBe(3));
+    expect(client.assembler.lastSeq).toBe(3);
     const message = client.assembler.messageById("m1");
     const text = (message?.content ?? []).find((block) => block.type === "text") as { text?: string };
     expect(text?.text).toBe("head mid tail");
   });
 
-  it("catches up to the subscribed baseline with pagination", async () => {
-    const pages: SessionEventsPage[] = [
-      { events: [ev(1, "turn/start", { turn_id: "t" })], has_more: true, last_seq: 5 },
-      { events: [ev(2, "user/message", { content: [], metadata: {}, request_id: "r2" }, "u2")], has_more: true, last_seq: 5 },
-      { events: [ev(3, "turn/end", { turn_id: "t", outcome: "completed" })], has_more: false, last_seq: 3 },
-    ];
-    let call = 0;
-    const client = new SessionEventClient({
-      sessionId: "s-subscribed",
-      fetchPage: async () => pages[call++] ?? { events: [], has_more: false, last_seq: -1 },
-    });
-    client.ingest(ev(0, "user/message", { content: [], metadata: {}, request_id: "r0" }, "u0"));
-
-    expect(client.onSubscribed(3)).toBe("behind");
-    await vi.waitFor(() => expect(client.assembler.lastSeq).toBe(3));
-    expect(client.onSubscribed(3)).toBe("current");
-  });
-
-  it("reports ahead when the server log is behind the local cursor", () => {
+  it("requests HTTP resync when attach cannot provide the old events", () => {
+    const resync = vi.fn();
     const client = new SessionEventClient({
       sessionId: "s-ahead",
-      fetchPage: async () => ({ events: [], has_more: false, last_seq: -1 }),
+      onResyncRequired: resync,
     });
-    // 本地已消费到 seq 7（例如 Gateway 重建/日志回退前）。
     client.seedHistory([], 7);
-    expect(client.onSubscribed(4)).toBe("ahead");
-    expect(client.onSubscribed(7)).toBe("current");
+    client.applyAttach([], 7, true);
+    expect(resync).toHaveBeenCalledOnce();
   });
 });

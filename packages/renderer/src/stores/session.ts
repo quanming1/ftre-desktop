@@ -1,7 +1,7 @@
 /**
  * Session store — tracks known chat sessions (local state).
  *
- * History 加载：后端 /messages 返回 derive fold 后的 Msg 快照（v4 含 last_seq），
+ * History 加载：后端 /messages 返回 derive fold 后的 Msg 快照（含统一 seq），
  * 直接转成 ChatMessage 并作为事件游标基线；WebSocket 的 session/event 只用于
  * 实时流式更新与 tail-page 增量恢复。
  */
@@ -453,7 +453,7 @@ export const useSession = create<SessionState>((set, get) => ({
         useChat.getState().loadSessionMessages(sessionId, {
           messages,
           wire,
-          lastSeq: page.last_seq,
+          seq: page.seq,
           hasMoreHistory: page.hasMore,
           status: page.status,
           turnStartTs,
@@ -462,8 +462,11 @@ export const useSession = create<SessionState>((set, get) => ({
           queue: page.queue,
         });
         useChat.getState().setSessionStatus(sessionId, page.status);
-        // HTTP 完成后再 WS attach：之后的 session/event 只负责实时更新；
-        // attach 基线（subscribed{last_seq}）若发现本地落后会触发 tail-page 补齐。
+        // HTTP 完成后再 WS attach：attach 会直接返回基线之后的 Event[]，
+        // 后续 session/event 只负责实时更新。
+        wsClient.setAttachCursor?.(sessionId, {
+          seq: page.seq,
+        });
         wsClient.subscribeOnly(sessionId);
       })
       .catch((err) => {
@@ -478,9 +481,7 @@ export const useSession = create<SessionState>((set, get) => ({
   },
 
   reconnectSession: async (sessionId) => {
-    // v4 重载路径：仅在服务端日志落后本地（Gateway 重建/回退）或历史加载
-    // 失败时调用。重建 assembler 基线 + 游标；重连常规恢复走
-    // session/subscribed 基线 + tail-page 精确补齐，不做 HTTP 全量拉取。
+    // attach 无法补齐时的兜底路径：重新拉取 HTTP Msg 快照并更新 attach seq。
     const generation = _switchGeneration;
     try {
       const page = await fetchSessionMessagesPage(sessionId, { limitTurns: FIRST_PAGE_TURNS });
@@ -494,7 +495,7 @@ export const useSession = create<SessionState>((set, get) => ({
       useChat.getState().loadSessionMessages(sessionId, {
         messages,
         wire,
-        lastSeq: page.last_seq,
+        seq: page.seq,
         hasMoreHistory: page.hasMore,
         status: page.status,
         turnStartTs,
@@ -502,6 +503,12 @@ export const useSession = create<SessionState>((set, get) => ({
         commandName,
         queue: page.queue,
       });
+      wsClient.setAttachCursor?.(sessionId, {
+        seq: page.seq,
+      });
+      // HTTP 基线建立后必须重新 attach：HTTP 请求期间产生的事件不在 Msg
+      // 快照里，attach 负责把它们按 seq 补回客户端。
+      wsClient.attach(sessionId);
     } catch (err) {
       console.error("[Session] reconnectSession fetch error:", err);
     }

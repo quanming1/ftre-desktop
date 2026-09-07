@@ -29,6 +29,7 @@ function wireOf(
   content: string,
   timestamp: number,
   streaming = false,
+  seq = -1,
 ): WireMsg {
   return {
     id,
@@ -39,6 +40,7 @@ function wireOf(
     ],
     metadata: {},
     created_at: new Date(timestamp).toISOString(),
+    seq,
     finished_at: streaming ? null : new Date(timestamp + 1).toISOString(),
     finished_reason: streaming ? null : "completed",
   };
@@ -61,12 +63,10 @@ function chunkFrame(sid: string, messageId: string, blockId: string, delta: stri
   };
 }
 
-const NOOP_FETCH = async () => ({ events: [], has_more: false, last_seq: -1 });
-
 function freshProjection(sid: string): ClientSessionProjection {
   return new ClientSessionProjection(
     { applyFrame },
-    { sessionId: sid, fetchPage: NOOP_FETCH },
+    { sessionId: sid },
   );
 }
 
@@ -80,7 +80,7 @@ describe("ClientSessionProjection", () => {
     });
     const projection = new ClientSessionProjection(
       { applyFrame: applyFrameMock },
-      { sessionId: "s-live", fetchPage: NOOP_FETCH },
+      { sessionId: "s-live" },
     );
 
     projection.apply(chunkFrame("s-live", "reply-1", "b", "hello"));
@@ -100,7 +100,7 @@ describe("ClientSessionProjection", () => {
     projection.hydrate({
       messages: [{ id: "user-1", role: "user", content: "ask", timestamp: 900 }],
       wire: [wireOf("user-1", "user", "ask", 900, true)],
-      lastSeq: 3,
+      seq: 3,
       hasMoreHistory: false,
       status: "running",
     });
@@ -116,6 +116,74 @@ describe("ClientSessionProjection", () => {
     });
     expect(projection.sessionStatus).toBe("running");
     expect(projection.events.lastSeq).toBe(3);
+  });
+
+  it("folds attach events into the HTTP Msg baseline", () => {
+    const projection = freshProjection("s-attach");
+    projection.hydrate({
+      messages: [{ id: "user-1", role: "user", content: "hello", timestamp: 1_000 }],
+      wire: [wireOf("user-1", "user", "hello", 1_000, false, 4)],
+      seq: 4,
+      hasMoreHistory: false,
+      status: "running",
+    });
+    projection.events.applyAttach([
+      {
+        type: "assistant/chunk",
+        seq: 5,
+        time: 2_000,
+        message_id: "assistant-1",
+        data: { kind: "text", block_id: "text-1", delta: "继续" },
+      } as SessionEvent,
+    ], 5);
+    projection.projectEvents();
+
+    expect(projection.events.lastSeq).toBe(5);
+    expect(projection.messages.at(-1)).toMatchObject({
+      id: "assistant-1",
+      content: "继续",
+      streaming: true,
+    });
+  });
+
+  it("applies lifecycle state for events received through attach", () => {
+    const projection = freshProjection("s-attach-lifecycle");
+    projection.hydrate({
+      messages: [
+        { id: "user-1", role: "user", content: "hello", timestamp: 1_000 },
+        assistant("assistant-1", "done", true, 1_100),
+      ],
+      wire: [
+        wireOf("user-1", "user", "hello", 1_000, false, 4),
+        wireOf("assistant-1", "assistant", "done", 1_100, true, 4),
+      ],
+      seq: 4,
+      hasMoreHistory: false,
+      status: "running",
+    });
+
+    projection.events.applyAttach([
+      {
+        type: "turn/end",
+        seq: 5,
+        time: 2_000,
+        message_id: "assistant-1",
+        data: {
+          turn_id: "turn-1",
+          request_id: "request-1",
+          outcome: "completed",
+          reason: "completed",
+          iterations: 1,
+        },
+      } as SessionEvent,
+    ], 5);
+
+    expect(projection.sessionStatus).toBe("idle");
+    expect(projection.sessionActivity).toBe("idle");
+    expect(projection.messages.at(-1)).toMatchObject({
+      id: "assistant-1",
+      streaming: false,
+    });
   });
 
   it("seeds the assembler so tail events pair with history tool calls", () => {
@@ -136,12 +204,13 @@ describe("ClientSessionProjection", () => {
       structured_output: null,
       error: null,
       timestamp: 1_000,
+      seq: 5,
     };
 
     projection.hydrate({
       messages: [],
       wire: [wireMsgFromSessionMessage(historyMessage)],
-      lastSeq: 5,
+      seq: 5,
       hasMoreHistory: false,
       status: "running",
     });
@@ -242,7 +311,7 @@ describe("ClientSessionProjection", () => {
     projection.hydrate({
       messages: [{ id: "user-1", role: "user", content: "hello", timestamp: 1_000 }],
       wire: [wireOf("user-1", "user", "hello", 1_000)],
-      lastSeq: 1,
+      seq: 1,
       hasMoreHistory: false,
       status: "running",
     });
