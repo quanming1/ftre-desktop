@@ -86,7 +86,7 @@ export interface ChatMessage {
   durationSec?: number;
   /** assistant 完成时间（毫秒时间戳），来自 Msg.finished_at 或 TURN_END。 */
   finishedAt?: number;
-  /** 产生该消息的模型 ID（从 MODEL_CALL_START.model_name 提取） */
+  /** 产生该消息的模型 ID（来自 assistant Msg 的 metadata.model） */
   model?: string;
   /** 本地发送或重连恢复的用户消息所对应的可靠队列生命周期。 */
 }

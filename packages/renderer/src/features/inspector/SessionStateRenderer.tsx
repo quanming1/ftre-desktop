@@ -11,32 +11,31 @@ import {
   RefreshCw,
 } from "lucide-react";
 import {
-  fetchAgentStateMessage,
-  fetchAgentStatePage,
-  type AgentStateMessage,
-  type AgentStatePage,
+  fetchSessionStateMessage,
+  fetchSessionStatePage,
+  type SessionStateMessage,
+  type SessionStatePage,
 } from "@/services/api";
-import { wsClient, type ServerMessage } from "@/services/websocket-client";
+import { wsClient, type WireFrame } from "@/services/websocket-client";
 import { useChat } from "@/stores/chat";
 import { useLayout } from "@/stores/layout";
 
 const PAGE_SIZE = 50;
+/** v4 事件表：状态视图在这些"表面定稿"事件后刷新（PRD-F41 §4.2）。 */
 const STATE_CHECKPOINT_EVENTS = new Set([
-  "USER_MESSAGE", "REPLY_START", "TEXT_BLOCK_END", "THINKING_BLOCK_END",
-  "TOOL_CALL_START", "TOOL_CALL_END", "TOOL_RESULT_END",
-  "MODEL_CALL_END", "REQUIRE_USER_CONFIRM", "USER_CONFIRM_RESULT", "REPLY_END",
-  "SESSION_MAINTENANCE",
+  "user/message", "assistant/message", "tool/result", "tool/call-start",
+  "hint/message", "compact/message", "turn/end", "session/status",
 ]);
 
 export function SessionStateRenderer({ active }: { active: boolean }) {
   const sessionId = useChat((state) => state.sessionId);
   const inspectorVisible = useLayout((state) => state.panelVisible.inspector);
-  const [page, setPage] = useState<AgentStatePage | null>(null);
+  const [page, setPage] = useState<SessionStatePage | null>(null);
   const [loading, setLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
-  const [fullMessages, setFullMessages] = useState<Map<string, AgentStateMessage>>(new Map());
+  const [fullMessages, setFullMessages] = useState<Map<string, SessionStateMessage>>(new Map());
   const [loadingFull, setLoadingFull] = useState<Set<string>>(new Set());
   const [hasNewerState, setHasNewerState] = useState(false);
   const requestRef = useRef<AbortController | null>(null);
@@ -53,7 +52,7 @@ export function SessionStateRenderer({ active }: { active: boolean }) {
     quiet ? setRefreshing(true) : setLoading(true);
     setError(null);
     try {
-      const next = await fetchAgentStatePage(sessionId, {
+      const next = await fetchSessionStatePage(sessionId, {
         offset,
         limit: PAGE_SIZE,
         signal: controller.signal,
@@ -87,13 +86,11 @@ export function SessionStateRenderer({ active }: { active: boolean }) {
 
   useEffect(() => {
     if (!active || !inspectorVisible || !sessionId) return;
-    return wsClient.onMessage((message: ServerMessage) => {
-      const eventType = (message.payload as any)?.type;
-      if (
-        message.type !== "agent_event" && message.type !== "session_event"
-        || message.metadata?.session_id !== sessionId
-        || !STATE_CHECKPOINT_EVENTS.has(eventType)
-      ) return;
+    return wsClient.onMessage((frame: WireFrame) => {
+      if (frame.type !== "session/event" || frame.session_id !== sessionId) return;
+      const eventType = (frame.payload as { event?: { type?: string } } | undefined)
+        ?.event?.type;
+      if (!eventType || !STATE_CHECKPOINT_EVENTS.has(eventType)) return;
       const viewingTail = !page
         || page.page.offset + page.messages.length >= page.page.total;
       if (!viewingTail) {
@@ -120,7 +117,7 @@ export function SessionStateRenderer({ active }: { active: boolean }) {
     fullRequestRefs.current.set(messageId, controller);
     setLoadingFull((current) => new Set(current).add(messageId));
     try {
-      const message = await fetchAgentStateMessage(sessionId, messageId, controller.signal);
+      const message = await fetchSessionStateMessage(sessionId, messageId, controller.signal);
       setFullMessages((current) => new Map(current).set(messageId, message));
     } catch (reason) {
       if ((reason as Error).name !== "AbortError") {
@@ -139,12 +136,12 @@ export function SessionStateRenderer({ active }: { active: boolean }) {
   }, [loadingFull, sessionId]);
 
   const copyMessage = useCallback(async (
-    message: AgentStateMessage,
+    message: SessionStateMessage,
     truncated: boolean,
   ) => {
     let source = fullMessages.get(message.id) ?? message;
     if (truncated && !fullMessages.has(message.id) && sessionId) {
-      source = await fetchAgentStateMessage(sessionId, message.id);
+      source = await fetchSessionStateMessage(sessionId, message.id);
       setFullMessages((current) => new Map(current).set(message.id, source));
     }
     await navigator.clipboard.writeText(JSON.stringify(source, null, 2));
@@ -173,7 +170,7 @@ export function SessionStateRenderer({ active }: { active: boolean }) {
         </span>
         <button
           type="button"
-          title="在资源管理器中打开 state.json"
+          title="在资源管理器中打开会话事件日志"
           className="inline-flex shrink-0 items-center gap-1 rounded-md px-1.5 py-1 text-t-muted transition-colors hover:bg-hover hover:text-t-primary"
           onClick={() => {
             const reveal = window.desktop?.fs?.revealInExplorer;
@@ -182,7 +179,7 @@ export function SessionStateRenderer({ active }: { active: boolean }) {
               return;
             }
             void reveal(page.file_path).catch((reason) => {
-              console.error("[state-viewer] reveal state.json failed:", reason);
+              console.error("[state-viewer] reveal session file failed:", reason);
             });
           }}
         >
@@ -273,7 +270,7 @@ export function SessionStateRenderer({ active }: { active: boolean }) {
   );
 }
 
-function Overview({ page }: { page: AgentStatePage }) {
+function Overview({ page }: { page: SessionStatePage }) {
   const stats = page.stats;
   return (
     <section className="grid grid-cols-2 gap-x-12 gap-y-4 px-5 pt-5">
@@ -302,10 +299,10 @@ function OverviewItem({ label, value, mono = false }: { label: string; value: st
   );
 }
 
-function Composition({ stats }: { stats: AgentStatePage["stats"] }) {
+function Composition({ stats }: { stats: SessionStatePage["stats"] }) {
   const parts = [
     { label: "用户", value: stats.user_messages, color: "#16a34a" },
-    { label: "助手", value: stats.text_blocks, color: "#d66a2c" },
+    { label: "助手", value: stats.assistant_messages, color: "#d66a2c" },
     { label: "工具", value: stats.tool_calls + stats.tool_results, color: "#8a6413" },
     { label: "其他", value: stats.thinking_blocks + stats.data_blocks + stats.system_messages, color: "#666b73" },
   ];
@@ -339,7 +336,7 @@ function MessageRow({
   onToggle,
   onLoadFull,
 }: {
-  message: AgentStateMessage;
+  message: SessionStateMessage;
   expanded: boolean;
   truncated: boolean;
   loadingFull: boolean;
@@ -406,7 +403,7 @@ function MessageRow({
   );
 }
 
-function JsonPreview({ value, fileName = "state.json" }: { value: unknown; fileName?: string }) {
+function JsonPreview({ value, fileName = "session.json" }: { value: unknown; fileName?: string }) {
   const text = useMemo(() => JSON.stringify(value, null, 2), [value]);
   const lines = useMemo(() => text.split("\n"), [text]);
   const height = Math.min(560, Math.max(160, lines.length * 22 + 18));
@@ -439,7 +436,7 @@ function JsonDisclosure({ label, value }: { label: string; value: unknown }) {
   );
 }
 
-function roleDot(role: AgentStateMessage["role"]): string {
+function roleDot(role: SessionStateMessage["role"]): string {
   if (role === "user") return "bg-emerald-600";
   if (role === "assistant") return "bg-orange-600";
   return "bg-zinc-500";

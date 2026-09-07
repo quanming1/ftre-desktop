@@ -8,6 +8,10 @@ export interface AssistantMessageComparableProps {
   turnDurationSec?: number;
   turnModel?: string;
   turnFinishedAt?: number;
+  /** 由外层 Assistant turn 统一渲染过程折叠栏时隐藏本消息的局部栏。 */
+  hideProcessHeader?: boolean;
+  /** 外层 turn 共享的过程展开状态；未提供时由消息自身管理。 */
+  processExpandedOverride?: boolean;
   /** Ctrl+F 当前定位的匹配消息（容器高亮提示） */
   isActiveMatch?: boolean;
 }
@@ -83,6 +87,8 @@ export function assistantMessagePropsEqual(
   if (prev.turnDurationSec !== next.turnDurationSec) return false;
   if (prev.turnModel !== next.turnModel) return false;
   if (prev.turnFinishedAt !== next.turnFinishedAt) return false;
+  if (prev.hideProcessHeader !== next.hideProcessHeader) return false;
+  if (prev.processExpandedOverride !== next.processExpandedOverride) return false;
   if (prev.isActiveMatch !== next.isActiveMatch) return false;
   return (
     contentBlocksEqual(prev.message.blocks, next.message.blocks)

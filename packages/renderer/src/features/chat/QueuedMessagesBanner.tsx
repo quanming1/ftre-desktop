@@ -24,7 +24,6 @@ export const QueuedMessagesBanner = memo(function QueuedMessagesBanner({
   const [removing, setRemoving] = useState<Set<string>>(() => new Set());
   const [steering, setSteering] = useState<Set<string>>(() => new Set());
   const [openMenu, setOpenMenu] = useState<string | null>(null);
-
   const removeFromQueue = useCallback(async (requestId: string): Promise<boolean> => {
     if (!sessionId || removing.has(requestId)) return false;
     setRemoving((current) => new Set(current).add(requestId));

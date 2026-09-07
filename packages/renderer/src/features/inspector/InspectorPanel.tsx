@@ -441,7 +441,7 @@ function InspectorTabBar({
   const closeContextMenu = useCallback(() => setContextMenu(null), []);
 
   const fixedTabs = [
-    { id: INSPECTOR_SESSION_STATE_TAB_ID, label: "state.json", Icon: Braces },
+    { id: INSPECTOR_SESSION_STATE_TAB_ID, label: "Session", Icon: Braces },
     { id: INSPECTOR_TRACE_TAB_ID, label: "Traces", Icon: Activity },
     { id: INSPECTOR_WS_LOG_TAB_ID, label: "WS Logs", Icon: ScrollText },
   ] as const;
