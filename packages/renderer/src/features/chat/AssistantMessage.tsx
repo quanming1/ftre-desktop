@@ -499,10 +499,8 @@ function ThinkAwareContent({
   live: boolean;
   anchor?: React.RefObject<HTMLDivElement | null>;
 }) {
-  // 流式增量切块缓存：按 think 段序号各持一个 splitter。流式文本 append-only，
-  // splitter 只重切「尾块 + 新增 delta」，闭合块对象与字符串复用（引用稳定，
-  // 配合 MarkdownBlock 的 content memo 完全跳过重渲染）。非 append-only 输入
-  // 由 splitter 内部自动退回全量切分。
+  // 按 think 段序号复用 splitter。splitter 每次基于完整文本确定性切块，
+  // 同时复用内容未变化的块对象，让 MarkdownBlock 的 memo 跳过已完成块的重渲染。
   const splitterMapRef = useRef<Map<number, BlockSplitter> | null>(null);
   if (!splitterMapRef.current) splitterMapRef.current = new Map();
   const getSplitter = (si: number): BlockSplitter => {

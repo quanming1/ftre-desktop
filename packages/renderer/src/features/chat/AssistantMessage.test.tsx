@@ -73,6 +73,52 @@ describe("AssistantMessage tool result rendering", () => {
     }
   });
 
+  it("updates streaming Markdown when a paragraph boundary spans chunks", async () => {
+    const { container, rerender } = render(
+      <AssistantMessage
+        message={{
+          id: "reply-streaming-markdown",
+          role: "assistant",
+          content: "标题",
+          timestamp: 1,
+          streaming: true,
+          blocks: [{ type: "text", text: "标题", blockId: "text-1" }],
+          toolResults: {},
+        }}
+      />,
+    );
+
+    rerender(
+      <AssistantMessage
+        message={{
+          id: "reply-streaming-markdown",
+          role: "assistant",
+          content: "标题\n\n",
+          timestamp: 1,
+          streaming: true,
+          blocks: [{ type: "text", text: "标题\n\n", blockId: "text-1" }],
+          toolResults: {},
+        }}
+      />,
+    );
+    rerender(
+      <AssistantMessage
+        message={{
+          id: "reply-streaming-markdown",
+          role: "assistant",
+          content: "标题\n\n- 第二段",
+          timestamp: 1,
+          streaming: true,
+          blocks: [{ type: "text", text: "标题\n\n- 第二段", blockId: "text-1" }],
+          toolResults: {},
+        }}
+      />,
+    );
+
+    await waitFor(() => expect(container.querySelector("ul")).toBeInTheDocument());
+    expect(container.textContent).toContain("第二段");
+  });
+
   it("re-renders a running edit tool immediately when TOOL_RESULT_END completes it", () => {
     const blocks: ContentBlock[] = [{
       type: "toolCall",

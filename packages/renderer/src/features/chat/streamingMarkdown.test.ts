@@ -73,7 +73,7 @@ describe("splitBlocks", () => {
     });
 });
 
-describe("createBlockSplitter（增量切块）", () => {
+describe("createBlockSplitter（流式安全切块）", () => {
     /** 模拟流式：逐段追加，校验每一步与全量 splitBlocks 的结果一致 */
     function streamSteps(chunks: string[]): Array<{ text: string; splitter: ReturnType<typeof createBlockSplitter> }> {
         const splitter = createBlockSplitter();
@@ -90,6 +90,18 @@ describe("createBlockSplitter（增量切块）", () => {
         for (const { text, splitter } of streamSteps(chunks)) {
             expect(splitter.split(text)).toEqual(splitBlocks(text));
         }
+    });
+
+    it("换行分隔符与正文分开到达时仍保持 Markdown 块边界", () => {
+        const splitter = createBlockSplitter();
+        let text = "第一段";
+        expect(splitter.split(text)).toEqual(splitBlocks(text));
+
+        text += "\n\n";
+        expect(splitter.split(text)).toEqual(splitBlocks(text));
+
+        text += "- 第二段";
+        expect(splitter.split(text)).toEqual(splitBlocks(text));
     });
 
     it("append-only 追加与全量切分结果一致（围栏代码块闭合）", () => {

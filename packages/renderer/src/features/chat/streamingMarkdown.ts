@@ -17,23 +17,45 @@ export interface MarkdownBlock {
     content: string;
 }
 
-export function splitBlocks(text: string): MarkdownBlock[] {
-    if (!text) return [];
+interface BlockRecord extends MarkdownBlock {
+    start: number;
+    end: number;
+}
+
+interface ParsedBlocks {
+    blocks: BlockRecord[];
+    inCode: boolean;
+}
+
+function parseBlockRecords(text: string): ParsedBlocks {
+    if (!text) return { blocks: [], inCode: false };
 
     const lines = text.split("\n");
-    const blocks: MarkdownBlock[] = [];
+    const blocks: BlockRecord[] = [];
     let buf: string[] = [];
     let inCode = false;
     let codeFence = "";
+    let offset = 0;
+    let blockStart = -1;
+    let blockEnd = -1;
 
     const flush = () => {
         if (buf.length === 0) return;
-        blocks.push({ content: buf.join("\n") });
+        blocks.push({
+            content: buf.join("\n"),
+            start: blockStart,
+            end: blockEnd,
+        });
         buf = [];
+        blockStart = -1;
+        blockEnd = -1;
     };
 
     for (let i = 0; i < lines.length; i++) {
         const line = lines[i];
+        const lineStart = offset;
+        const lineEnd = lineStart + line.length;
+        offset = lineEnd + 1;
 
         if (!inCode) {
             // fenced code block 起点
@@ -42,6 +64,8 @@ export function splitBlocks(text: string): MarkdownBlock[] {
                 flush();
                 inCode = true;
                 codeFence = m[1];
+                blockStart = lineStart;
+                blockEnd = lineEnd;
                 buf.push(line);
                 continue;
             }
@@ -52,9 +76,13 @@ export function splitBlocks(text: string): MarkdownBlock[] {
                 continue;
             }
 
+            if (buf.length === 0) blockStart = lineStart;
             buf.push(line);
+            blockEnd = lineEnd;
         } else {
+            if (buf.length === 0) blockStart = lineStart;
             buf.push(line);
+            blockEnd = lineEnd;
             const trimmed = line.trim();
             // 闭合 fence：必须是同字符的同长度（或更长）行，且后面只能是空白
             // 这里用宽松匹配：以同样 fence 字符开头、整行只剩反引号/波浪号 + 空白
@@ -71,63 +99,78 @@ export function splitBlocks(text: string): MarkdownBlock[] {
 
     // 流末尾的剩余内容（可能是未闭合的尾部）
     flush();
-    return blocks;
+    return { blocks, inCode };
+}
+
+export function splitBlocks(text: string): MarkdownBlock[] {
+    return parseBlockRecords(text).blocks.map(({ content }) => ({ content }));
 }
 
 /**
- * createBlockSplitter — splitBlocks 的增量缓存版本（供流式渲染使用）。
+ * createBlockSplitter — 带引用复用的安全切块器（供流式渲染使用）。
  *
- * 流式文本只会追加（assistant/chunk(kind=text) 单调拼接，throttle 展示值是全文前缀），
- * 而「追加永远不会改变已闭合的块」——块边界只由空行/围栏闭合决定，
- * 都位于追加点之前。因此只需重切「上一块内容 + 新增后缀」，
- * 复杂度从 O(全文) 降到 O(尾块 + delta)。
+ * 旧的尾块增量算法会丢弃尾部换行：当换行和下一段正文跨两个 chunk 到达时，
+ * 下一次扫描拿不到真实的空行边界，导致实时 Markdown 与刷新后的全量解析不一致。
+ * 这里保留未完成尾块的原始文本（包括尾部换行），每次只重切尾块和新增内容；
+ * 已完成块对象继续复用。这样不会丢失跨 chunk 的空行边界，也不会让长回复退回
+ * 到每次从头扫描全文。
  *
- * 输入不满足 append-only 时（换消息、回退）自动退回全量切分并重置缓存。
- * 返回的已闭合块对象复用同一实例（引用稳定），内容字符串也不重新分配。
+ * 输入回退、替换或流式追加都走同一条确定性路径，返回结果始终与 splitBlocks 一致。
  */
 export interface BlockSplitter {
     split(text: string): MarkdownBlock[];
 }
 
 export function createBlockSplitter(): BlockSplitter {
-    let hasState = false;
     let input = "";
-    /** 已闭合块（不含进行中的尾块） */
     let closed: MarkdownBlock[] = [];
-    /** 进行中的尾块内容 */
-    let tail = "";
+    let output: MarkdownBlock[] = [];
+    let tailRaw = "";
+    let initialized = false;
+
+    const apply = (
+        source: string,
+        parsed: ParsedBlocks,
+        prefix: MarkdownBlock[],
+        previous: MarkdownBlock[],
+    ): MarkdownBlock[] => {
+        const records = parsed.blocks;
+        const last = records[records.length - 1];
+        // splitBlocks 会把结尾的换行当作空行分隔符；只有代码块仍未闭合时，
+        // 这些换行才属于当前尾块，不能提前提交。
+        const hasTrailingSeparator = !parsed.inCode
+            && (last === undefined
+                || (source.length > last.end && source.slice(last.end).trim() === ""));
+        const stableCount = hasTrailingSeparator ? records.length : Math.max(records.length - 1, 0);
+        const candidates = records.map((record, index) => {
+            const prior = previous[prefix.length + index];
+            return prior?.content === record.content ? prior : { content: record.content };
+        });
+
+        closed = prefix.concat(candidates.slice(0, stableCount));
+        const tail = candidates.slice(stableCount);
+        output = closed.concat(tail);
+        tailRaw = tail.length > 0 && last ? source.slice(last.start) : "";
+        return output;
+    };
 
     return {
         split(text: string): MarkdownBlock[] {
-            if (!text) {
-                hasState = true;
-                input = "";
-                closed = [];
-                tail = "";
-                return [];
-            }
+            const appendOnly = initialized
+                && text.length >= input.length
+                && text.startsWith(input);
 
-            if (hasState && input.length > 0 && text.length >= input.length && text.startsWith(input)) {
-                // append-only 快路径：重切 尾块 + 新增部分。
-                // merged 的非尾块并入 closed；返回值 = closed + merged 的尾块。
-                const merged = splitBlocks(tail + text.slice(input.length));
-                for (let i = 0; i < merged.length - 1; i++) {
-                    closed.push(merged[i]);
-                }
-                tail = merged.length > 0 ? merged[merged.length - 1].content : "";
+            if (appendOnly) {
+                const delta = text.slice(input.length);
+                const next = apply(tailRaw + delta, parseBlockRecords(tailRaw + delta), closed, output);
                 input = text;
-                return merged.length > 0
-                    ? closed.concat(merged[merged.length - 1])
-                    : [...closed];
+                return next;
             }
 
-            // 慢路径：全量切分并重置
-            const blocks = splitBlocks(text);
-            hasState = true;
+            const next = apply(text, parseBlockRecords(text), [], []);
             input = text;
-            closed = blocks.length > 0 ? blocks.slice(0, -1) : [];
-            tail = blocks.length > 0 ? blocks[blocks.length - 1].content : "";
-            return blocks;
+            initialized = true;
+            return next;
         },
     };
 }
