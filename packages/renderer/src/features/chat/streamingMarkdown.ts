@@ -77,7 +77,7 @@ export function splitBlocks(text: string): MarkdownBlock[] {
 /**
  * createBlockSplitter — splitBlocks 的增量缓存版本（供流式渲染使用）。
  *
- * 流式文本只会追加（TEXT_BLOCK_DELTA 单调拼接，throttle 展示值是全文前缀），
+ * 流式文本只会追加（assistant/chunk(kind=text) 单调拼接，throttle 展示值是全文前缀），
  * 而「追加永远不会改变已闭合的块」——块边界只由空行/围栏闭合决定，
  * 都位于追加点之前。因此只需重切「上一块内容 + 新增后缀」，
  * 复杂度从 O(全文) 降到 O(尾块 + delta)。

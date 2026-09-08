@@ -98,7 +98,9 @@ function currentSkillContext(): { agentId: string; workspace: string | null } {
     (session) => session.session_id === chat.sessionId,
   );
   return {
-    agentId: current?.agent_id || chat.agentId || "default",
+    // 预览详情必须和发送请求使用同一个 Agent；Session 中的 agent_id
+    // 只为旧客户端或尚未选择 Agent 的会话提供回退。
+    agentId: chat.agentId || current?.agent_id || "default",
     workspace: current ? current.workspace || null : chat.pendingWorkspace || null,
   };
 }

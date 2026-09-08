@@ -47,7 +47,7 @@ function metaText(entry: WsLogEntry): string {
 
 /**
  * WebSocket 审计日志面板：只保留当前页在 React 内存中，历史记录按 cursor 从主进程分页读取。
- * 设计语言与 SessionStateRenderer（state.json 预览）统一：h-10 行 + 圆点 + mono 类型 + CodeDiff 预览。
+ * 设计语言与 SessionStateRenderer（会话状态预览）统一：h-10 行 + 圆点 + mono 类型 + CodeDiff 预览。
  */
 export function WsLogInspectorPanel({ active }: { active: boolean }) {
   const [entries, setEntries] = useState<WsLogEntry[]>([]);

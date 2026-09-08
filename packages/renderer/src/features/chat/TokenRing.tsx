@@ -88,7 +88,7 @@ export function TokenRing() {
     );
   }
 
-  const total = usage.total;
+  const total = usage.context_tokens ?? usage.total;
   const realPart = usage.last_call_usage?.total_tokens ?? 0;
   const estPart = usage.pending_estimated;
   const hasLastCallUsage = !!usage.last_call_usage;

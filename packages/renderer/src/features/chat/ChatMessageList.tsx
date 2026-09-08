@@ -23,6 +23,7 @@ import {
   shouldShowThinkingPlaceholder,
   type TurnFileChange,
 } from "./turnFileChangeUtils";
+import { collapsedAssistantBlocks } from "./assistantMessageDisplay";
 import { ContextMenu, type ContextMenuItem } from "@ftre/ui";
 import { remarkPlugins, rehypePlugins, urlTransform } from "@/lib/markdown-plugins";
 import { FtreExtensionImage } from "@/lib/ftre-extensions";
@@ -204,38 +205,11 @@ export const ChatMessageList = memo(function ChatMessageList({
           <div className="text-center text-t-dim text-sm py-12">
             No messages
           </div>
-        )}        {safeMessages.map((msg, i) => {
-          const next = safeMessages[i + 1];
-          const isTurnEnd =
-            msg.role === "assistant" &&
-            !msg.streaming &&
-            (!next || next.role !== "assistant");
-          const showTurnActions = shouldShowTurnActions(safeMessages, i, hasActiveTurn);
-
-          // 本轮 edit/write 文件变更列表（isTurnEnd 时传入）。
-          // 用 WeakMap 按 turn-end 消息对象缓存：同一消息对象对应的 turn 区间
-          // 不可变（历史消息不会被原地修改），缓存命中即返回稳定引用——
-          // 避免每次渲染重建数组、破坏 AssistantMessage 的 memo。
-          let turnFileChanges: TurnFileChange[] | undefined;
-          if (isTurnEnd) {
-            const changes = getTurnFileChanges(msg, safeMessages, i);
-            turnFileChanges = changes.length > 0 ? changes : undefined;
-          }
-
-          return (
-            <MessageItem
-              key={msg.id}
-              message={msg}
-              showActions={showTurnActions}
-              turnFileChanges={turnFileChanges}
-              turnId={msg.id}
-              turnDurationSec={msg.durationSec}
-              turnModel={msg.model}
-              turnFinishedAt={msg.finishedAt}
-              searchQuery={searchQuery}
-              isActiveMatch={activeMatchMsgId === msg.id}
-            />
-          );
+        )}
+        {renderMessageItems(safeMessages, {
+          hasActiveTurn,
+          searchQuery,
+          activeMatchMsgId,
         })}
 
         {!isCompacting && shouldShowThinkingPlaceholder(safeMessages, hasActiveTurn, pendingMessagesCount) && (
@@ -295,6 +269,166 @@ function getTurnFileChanges(
   return changes;
 }
 
+function hasAssistantProcess(message: ChatMessage): boolean {
+  if (message.role !== "assistant") return false;
+  const blocks = message.blocks ?? [];
+  return blocks.length > collapsedAssistantBlocks(blocks, message.toolResults).length;
+}
+
+interface MessageRenderOptions {
+  hasActiveTurn: boolean;
+  searchQuery: string;
+  activeMatchMsgId?: string;
+}
+
+function renderMessageItems(
+  messages: ChatMessage[],
+  options: MessageRenderOptions,
+): ReactNode[] {
+  const rendered: ReactNode[] = [];
+  let index = 0;
+
+  while (index < messages.length) {
+    const message = messages[index];
+    if (message.role !== "assistant") {
+      rendered.push(renderMessageItem(message, index, messages, options));
+      index += 1;
+      continue;
+    }
+
+    const startIndex = index;
+    while (index < messages.length && messages[index].role === "assistant") {
+      index += 1;
+    }
+    rendered.push(
+      <AssistantTurnGroup
+        key={`assistant-turn-${messages[startIndex].id}`}
+        messages={messages.slice(startIndex, index)}
+        startIndex={startIndex}
+        allMessages={messages}
+        {...options}
+      />,
+    );
+  }
+
+  return rendered;
+}
+
+function renderMessageItem(
+  message: ChatMessage,
+  index: number,
+  messages: ChatMessage[],
+  options: MessageRenderOptions,
+  processExpandedOverride?: boolean,
+  hideProcessHeader = false,
+): ReactNode {
+  const next = messages[index + 1];
+  const isTurnEnd =
+    message.role === "assistant" &&
+    !message.streaming &&
+    (!next || next.role !== "assistant");
+  const showTurnActions = shouldShowTurnActions(messages, index, options.hasActiveTurn);
+
+  // 本轮 edit/write 文件变更列表（isTurnEnd 时传入）。
+  // 用 WeakMap 按 turn-end 消息对象缓存：同一消息对象对应的 turn 区间
+  // 不可变（历史消息不会被原地修改），缓存命中即返回稳定引用——
+  // 避免每次渲染重建数组、破坏 AssistantMessage 的 memo。
+  let turnFileChanges: TurnFileChange[] | undefined;
+  if (isTurnEnd) {
+    const changes = getTurnFileChanges(message, messages, index);
+    turnFileChanges = changes.length > 0 ? changes : undefined;
+  }
+
+  return (
+    <MessageItem
+      key={message.id}
+      message={message}
+      showActions={showTurnActions}
+      turnFileChanges={turnFileChanges}
+      turnId={message.id}
+      turnDurationSec={message.durationSec}
+      turnModel={message.model}
+      turnFinishedAt={message.finishedAt}
+      hideProcessHeader={hideProcessHeader}
+      processExpandedOverride={processExpandedOverride}
+      searchQuery={options.searchQuery}
+      isActiveMatch={options.activeMatchMsgId === message.id}
+    />
+  );
+}
+
+function AssistantTurnGroup({
+  messages,
+  startIndex,
+  allMessages,
+  hasActiveTurn,
+  searchQuery,
+  activeMatchMsgId,
+}: {
+  messages: ChatMessage[];
+  startIndex: number;
+  allMessages: ChatMessage[];
+} & MessageRenderOptions) {
+  const hasProcess = messages.some(hasAssistantProcess);
+  const isStreaming = messages.some((message) => message.streaming);
+  const durationSec = [...messages]
+    .reverse()
+    .find((message) => typeof message.durationSec === "number")
+    ?.durationSec;
+  const [processExpanded, setProcessExpanded] = useState(isStreaming);
+
+  useEffect(() => {
+    setProcessExpanded(isStreaming);
+  }, [isStreaming]);
+
+  const renderChild = (message: ChatMessage, offset: number): ReactNode =>
+    renderMessageItem(
+      message,
+      startIndex + offset,
+      allMessages,
+      { hasActiveTurn, searchQuery, activeMatchMsgId },
+      hasProcess ? processExpanded : undefined,
+      hasProcess,
+    );
+
+  if (!hasProcess) {
+    return <>{messages.map(renderChild)}</>;
+  }
+
+  return (
+    <>
+      <button
+        type="button"
+        data-assistant-process-header="true"
+        aria-expanded={processExpanded}
+        onClick={() => setProcessExpanded((expanded) => !expanded)}
+        className="group mb-2 block w-full py-1.5 text-left text-[14px] text-t-dim transition-colors hover:text-t-secondary"
+      >
+        <span className="flex items-center gap-1.5">
+          <span className="shrink-0">
+            {isStreaming
+              ? "处理中"
+              : `已处理${typeof durationSec === "number" ? ` ${formatTurnDuration(durationSec)}` : ""}`}
+          </span>
+          <ChevronRight
+            size={12}
+            className={`shrink-0 transition-transform duration-200 ${processExpanded ? "rotate-90" : ""}`}
+          />
+        </span>
+        <span className="mt-1.5 block h-px w-full bg-border/60" />
+      </button>
+      {messages.map(renderChild)}
+    </>
+  );
+}
+
+function formatTurnDuration(sec: number): string {
+  if (sec < 60) return `${sec}秒`;
+  const minutes = Math.floor(sec / 60);
+  const seconds = sec % 60;
+  return seconds > 0 ? `${minutes}分${seconds}秒` : `${minutes}分钟`;
+}
+
 const MessageItem = memo(function MessageItem({
   message,
   showActions = false,
@@ -303,6 +437,8 @@ const MessageItem = memo(function MessageItem({
   turnDurationSec,
   turnModel,
   turnFinishedAt,
+  hideProcessHeader = false,
+  processExpandedOverride,
   searchQuery = "",
   isActiveMatch = false,
 }: {
@@ -317,6 +453,10 @@ const MessageItem = memo(function MessageItem({
   /** 本轮使用的模型 ID */
   turnModel?: string;
   turnFinishedAt?: number;
+  /** 连续 Assistant 消息由外层 Turn 统一展示过程栏时隐藏本地栏。 */
+  hideProcessHeader?: boolean;
+  /** 外层 Turn 共享的过程展开状态。 */
+  processExpandedOverride?: boolean;
   /** Ctrl+F 搜索关键词（用于文本高亮） */
   searchQuery?: string;
   /** 当前定位的匹配消息（容器高亮提示） */
@@ -341,6 +481,8 @@ const MessageItem = memo(function MessageItem({
         turnDurationSec={turnDurationSec}
         turnModel={turnModel}
         turnFinishedAt={turnFinishedAt}
+        hideProcessHeader={hideProcessHeader}
+        processExpandedOverride={processExpandedOverride}
         isActiveMatch={isActiveMatch}
       />
     );

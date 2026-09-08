@@ -24,7 +24,6 @@ export const QueuedMessagesBanner = memo(function QueuedMessagesBanner({
   const [removing, setRemoving] = useState<Set<string>>(() => new Set());
   const [steering, setSteering] = useState<Set<string>>(() => new Set());
   const [openMenu, setOpenMenu] = useState<string | null>(null);
-
   const removeFromQueue = useCallback(async (requestId: string): Promise<boolean> => {
     if (!sessionId || removing.has(requestId)) return false;
     setRemoving((current) => new Set(current).add(requestId));
@@ -79,14 +78,15 @@ export const QueuedMessagesBanner = memo(function QueuedMessagesBanner({
   if (items.length === 0) return null;
   return (
     <section
-      className="mt-0 mb-0"
+      className="mt-0 mb-0 overflow-visible rounded-t-2xl border border-b-0 border-black/10 bg-input"
       aria-label="消息队列"
       data-queued-messages=""
       data-activity-section="queue"
+      data-queue-surface=""
       role="region"
     >
-      <div className="flex flex-col gap-1.5" role="list">
-        {items.map((item) => {
+      <div className="flex flex-col" role="list">
+        {items.map((item, index) => {
           const isRemoving = removing.has(item.request_id);
           const isOptimistic = item.optimistic === true;
           const isSteering = item.placement === "steering";
@@ -95,10 +95,10 @@ export const QueuedMessagesBanner = memo(function QueuedMessagesBanner({
           const label = itemLabel(item);
           const imageCount = item.attachments?.length ?? 0;
           return (
-              <article
+              <div
                 key={item.request_id}
                 role="listitem"
-                className="relative overflow-visible rounded-t-2xl border border-b-0 border-black/10 bg-composer shadow-none"
+                className={`relative overflow-visible ${index > 0 ? "border-t border-black/[0.045]" : ""}`}
               >
                 <div className="flex min-w-0 items-center gap-2 bg-transparent px-3 py-1.5">
                   <ListOrdered size={14} className="shrink-0 text-t-muted" strokeWidth={1.7} />
@@ -170,7 +170,7 @@ export const QueuedMessagesBanner = memo(function QueuedMessagesBanner({
                     ><PencilLine size={13} />编辑消息</button>
                   </div>
                 )}
-          </article>
+              </div>
           );
         })}
       </div>

@@ -10,8 +10,8 @@
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useState, useRef } from "react";
 import { Slate, Editable } from "slate-react";
 import { Range } from "slate";
-import { ArrowUp, Box, ChevronRight, Paperclip, Plus, Terminal, X } from "lucide-react";
-import { useChat, type MessageAttachment } from "@/stores/chat";
+import { ArrowUp, Box, ChevronRight, Loader2, Paperclip, Plus, Terminal, X } from "lucide-react";
+import { useChat, waitForSendAdmission, type MessageAttachment } from "@/stores/chat";
 import { hasActiveTurn } from "@/stores/runtimeState";
 import { useLayout } from "@/stores/layout";
 import { useInspector } from "@/stores/inspector";
@@ -374,8 +374,9 @@ export const ChatInput = memo(function ChatInput() {
     return current || null;
   }, [allSessions, sessionId, sessions]);
   const currentWorkspace = currentSession?.workspace || null;
-  // Skill 目录属于当前 Session 的 Agent；新会话尚未落盘时才回退到全局选择。
-  const skillAgentId = currentSession?.agent_id || agentId || "default";
+  // Skill 目录必须和 sendMessage 写入的 agent_id 一致；Session 的 agent_id
+  // 只作为旧消息/缺少客户端选择时的回退，不能覆盖当前 Agent 选择。
+  const skillAgentId = agentId || currentSession?.agent_id || "default";
   const autoFollow = useLayout((s) => s.autoFollowFiles);
   const toggleAutoFollow = useLayout((s) => s.toggleAutoFollowFiles);
   /** 输入框是否有文字（Slate 非受控，需在 onChange 中显式同步，见 handleSlateChange） */
@@ -432,6 +433,7 @@ export const ChatInput = memo(function ChatInput() {
   const [skillSearch, setSkillSearch] = useState<{
     search: string;
     range: Range;
+    atInputStart: boolean;
   } | null>(null);
   const [skillIndex, setSkillIndex] = useState(0);
   const [commandList, setCommandList] = useState<CommandDef[]>([]);
@@ -516,7 +518,7 @@ export const ChatInput = memo(function ChatInput() {
 
   // 过滤候选指令（/ 面板顶部；Skill 候选来自独立的 HTTP 目录）
   const commandCandidates = useMemo(() => {
-    if (!skillSearch) return [];
+    if (!skillSearch || !skillSearch.atInputStart) return [];
     const q = skillSearch.search.toLowerCase();
     return commandList.filter(
       (c) => {
@@ -573,14 +575,22 @@ export const ChatInput = memo(function ChatInput() {
     [inputEditor],
   );
 
-  // ── 发送 ──
+  // ── 发送（PRD-F42 §3.2 按钮状态机）──
+  // P0 点击 → sendPhase=loading：禁双击、草稿不清空；
+  // P1 rpc ok（durable admission）→ 清空草稿回 idle；
+  //    rpc error → 保留草稿 + toast；超时按已接纳处理（ws outbox 保证幂等重发）。
+  // executing 且有草稿仍可发（排队语义）；compacting/blocked 禁用。
+  const [sendPhase, setSendPhase] = useState<"idle" | "loading">("idle");
+  const sendingRef = useRef(false);
+
   const handleSend = useCallback(() => {
     const state = useChat.getState();
-    // 压缩期间后端会丢弃新输入；前端同步阻止发送，避免产生乐观消息残影。
-    if (state.sessionStatus === "compacting") return;
+    // 压缩/阻塞期间后端会丢弃新输入；前端同步阻止发送，避免产生乐观消息残影。
+    if (state.sessionStatus === "compacting" || state.sessionStatus === "blocked") return;
+    if (sendingRef.current) return; // 禁双击：等待本次 admission 结算
     const { text } = inputEditor.serialize();
     const firstText = text.trim();
-    // 系统级指令（如 /cancel）允许在 running 时发送，其他指令/消息需要等 idle
+    // 系统级指令（如 /cancel）允许在 running 时发送，其他指令/消息走排队语义
     const isSystemCommand = commandList.some((c) => c.system && firstText === c.command);
     const hasAttachments = attachments.length > 0;
     const hasContent = firstText.length > 0;
@@ -603,13 +613,27 @@ export const ChatInput = memo(function ChatInput() {
       return;
     }
 
-    inputEditor.clear();
-    setSkillSearch(null);
-    setAttachmentsSynced([]);
-
-    // 发送后清除当前 session 的草稿（内容已被消费）
-    const sid = state.sessionId;
-    if (sid) removeDraft(sid);
+    sendingRef.current = true;
+    setSendPhase("loading");
+    void waitForSendAdmission(result.requestId).then((admission) => {
+      sendingRef.current = false;
+      setSendPhase("idle");
+      if (!admission.ok) {
+        useNotification.getState().addNotification({
+          level: "error",
+          message: admission.reason
+            ? `消息发送失败：${admission.reason}（草稿已保留）`
+            : "消息发送失败，草稿已保留，请稍后重试。",
+        });
+        return;
+      }
+      // admission ok：草稿已被 Inbox 持久化接纳，可以安全清除。
+      inputEditor.clear();
+      setSkillSearch(null);
+      setAttachmentsSynced([]);
+      const sid = useChat.getState().sessionId;
+      if (sid) removeDraft(sid);
+    });
 
     // Inbound 协议只承载纯文本：直接发送编辑器文本，不包装 parts 数组
   }, [inputEditor, attachments, commandList]);
@@ -917,6 +941,7 @@ export const ChatInput = memo(function ChatInput() {
 
   const hasDraft = hasText || attachments.length > 0;
   const activeTurn = hasActiveTurn(sessionStatus, sessionActivity);
+  const sending = sendPhase === "loading";
   const turnFileChanges = useMemo(
     // pending 只有在新 user 尚未回显时才代表“新一轮”；USER_MESSAGE 到达后，
     // 即使队列快照短暂滞后，也必须继续展示当前轮已经完成的文件修改。
@@ -951,10 +976,14 @@ export const ChatInput = memo(function ChatInput() {
       useLayout.getState().togglePanelVisible("inspector");
     }
   }, [turnFileChanges, turnId, turnWorkspace]);
+  // 发送按钮可用性：压缩/阻塞禁用；running 有草稿仍可发（排队语义）；
+  // admission 结算期间（loading）禁用防双击。
   const canSend =
     sessionStatus !== "compacting"
+    && sessionStatus !== "blocked"
     && (!hasCoordinatorState || clientCanSend)
-    && hasDraft;
+    && hasDraft
+    && !sending;
   const showCancel = hasCoordinatorState ? canCancel : activeTurn;
   // 运行中没有待发送内容时显示停止；用户开始输入后，原位置切换为发送。
   const showStopButton = showCancel && !hasDraft;
@@ -1095,7 +1124,7 @@ export const ChatInput = memo(function ChatInput() {
                   disabled={!canSend}
                   title={sessionStatus === "compacting" ? "Context is being compacted" : "Send message"}
                     className={`relative flex h-8 w-8 shrink-0 items-center justify-center overflow-hidden rounded-full transition-all ${
-                    canSend
+                    canSend || sending
                       ? "bg-neon text-base hover:bg-neon/80 shadow-[0_0_9px_rgba(var(--neon-rgb,56,189,248),0.23)]"
                       : "bg-surface text-t-ghost cursor-not-allowed"
                   }`}
@@ -1110,7 +1139,9 @@ export const ChatInput = memo(function ChatInput() {
                       }
                     />
                   ))}
-                  <ArrowUp size={17} className="relative" />
+                  {sending
+                    ? <Loader2 size={16} className="relative animate-spin" />
+                    : <ArrowUp size={17} className="relative" />}
                 </button>
               )}
             </div>

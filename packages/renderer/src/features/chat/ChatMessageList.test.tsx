@@ -10,8 +10,16 @@ vi.mock("./UserMessage", () => ({
 }));
 
 vi.mock("./AssistantMessage", () => ({
-  AssistantMessage: ({ message }: { message: ChatMessage }) => (
-    <div>{message.content}</div>
+  AssistantMessage: ({
+    message,
+    hideProcessHeader,
+  }: {
+    message: ChatMessage;
+    hideProcessHeader?: boolean;
+  }) => (
+    <div data-testid="assistant-message-mock" data-process-header-hidden={hideProcessHeader ? "true" : "false"}>
+      {message.content}
+    </div>
   ),
 }));
 
@@ -167,5 +175,36 @@ describe("ChatMessageList", () => {
     );
 
     expect(screen.queryByTestId("thinking-placeholder")).not.toBeInTheDocument();
+  });
+
+  it("renders one process header for consecutive assistant messages", () => {
+    render(
+      <ChatMessageList
+        messages={[
+          {
+            id: "assistant-process",
+            role: "assistant",
+            content: null,
+            timestamp: 1,
+            streaming: false,
+            blocks: [{ type: "thinking", thinking: "执行过程", blockId: "thinking-1" }],
+          },
+          {
+            id: "assistant-answer",
+            role: "assistant",
+            content: "最终回答",
+            timestamp: 2,
+            streaming: false,
+            blocks: [{ type: "text", text: "最终回答", blockId: "text-1" }],
+          },
+        ]}
+      />,
+    );
+
+    expect(screen.getAllByRole("button", { name: "已处理" })).toHaveLength(1);
+    expect(screen.getAllByTestId("assistant-message-mock")).toHaveLength(2);
+    expect(screen.getAllByTestId("assistant-message-mock").every(
+      (node) => node.getAttribute("data-process-header-hidden") === "true",
+    )).toBe(true);
   });
 });

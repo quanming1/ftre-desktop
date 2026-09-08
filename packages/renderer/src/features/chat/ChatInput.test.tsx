@@ -18,6 +18,7 @@ import type { Descendant } from "slate";
 let capturedOnChange: ((value: Descendant[]) => void) | null = null;
 let capturedOnKeyDown: ((event: React.KeyboardEvent) => void) | null = null;
 const fetchSkillsMock = vi.hoisted(() => vi.fn().mockResolvedValue([]));
+const fetchCommandsMock = vi.hoisted(() => vi.fn().mockResolvedValue([]));
 const cancelStreamMock = vi.hoisted(() => vi.fn());
 
 vi.mock("slate-react", async (importOriginal) => {
@@ -60,7 +61,7 @@ vi.mock("./AgentBar", () => ({ AgentBar: () => <div data-testid="agent-bar" /> }
 vi.mock("./TokenRing", () => ({ TokenRing: () => <div data-testid="token-ring" /> }));
 vi.mock("./WorkspaceBadge", () => ({ WorkspaceBadge: () => <div data-testid="workspace-badge" /> }));
 vi.mock("@/services/api", () => ({
-  fetchCommands: vi.fn().mockResolvedValue([]),
+  fetchCommands: fetchCommandsMock,
   fetchSkills: fetchSkillsMock,
 }));
 
@@ -79,6 +80,8 @@ describe("ChatInput 发送按钮", () => {
     capturedOnChange = null;
     capturedOnKeyDown = null;
     fetchSkillsMock.mockClear();
+    fetchCommandsMock.mockClear();
+    fetchCommandsMock.mockResolvedValue([]);
     useChat.setState({
       sessionId: null,
       messages: [],
@@ -115,8 +118,8 @@ describe("ChatInput 发送按钮", () => {
     expect(fetchSkillsMock.mock.calls[0][0]).toBeDefined();
   });
 
-  it("切换 Session 后按 Session 的 agent_id 和 workspace 加载技能", async () => {
-    useChat.setState({ sessionId: "session-1", agentId: "default" });
+  it("按当前 outbound Agent 和 Session workspace 加载技能", async () => {
+    useChat.setState({ sessionId: "session-1", agentId: "selected-agent" });
     useSession.setState({
       sessions: [{
         session_id: "session-1",
@@ -129,7 +132,7 @@ describe("ChatInput 发送按钮", () => {
 
     render(<ChatInput />);
     await waitFor(() => expect(fetchSkillsMock).toHaveBeenCalledWith(
-      "coder",
+      "selected-agent",
       "E:/workspace",
       expect.any(AbortSignal),
     ));
@@ -172,6 +175,7 @@ describe("ChatInput 发送按钮", () => {
         anchor: { path: [0, 0], offset: 0 },
         focus: { path: [0, 0], offset: 0 },
       },
+      atInputStart: true,
     });
     const replaceRangeWithSkill = vi
       .spyOn(ChatInputEditor.prototype, "replaceRangeWithSkill")
@@ -209,6 +213,7 @@ describe("ChatInput 发送按钮", () => {
         anchor: { path: [0, 0], offset: 0 },
         focus: { path: [0, 0], offset: 0 },
       },
+      atInputStart: true,
     });
     const replaceRangeWithSkill = vi
       .spyOn(ChatInputEditor.prototype, "replaceRangeWithSkill")
@@ -236,6 +241,45 @@ describe("ChatInput 发送按钮", () => {
     } finally {
       getSkillSearch.mockRestore();
       replaceRangeWithSkill.mockRestore();
+      fetchSkillsMock.mockResolvedValue([]);
+    }
+  });
+
+  it("正文中的 slash 只展示 Skill，不展示指令", async () => {
+    const getSkillSearch = vi.spyOn(ChatInputEditor.prototype, "getSkillSearch").mockReturnValue({
+      search: "",
+      range: {
+        anchor: { path: [0, 0], offset: 3 },
+        focus: { path: [0, 0], offset: 3 },
+      },
+      atInputStart: false,
+    });
+    try {
+      fetchCommandsMock.mockResolvedValue([{
+        command: "/help",
+        description: "显示帮助",
+        args_hint: "",
+        system: false,
+        source: "builtin",
+      }]);
+      fetchSkillsMock.mockResolvedValue([{
+        id: "review-code",
+        name: "review-code",
+        uri: "ftre://v1/skill/review-code",
+        description: "Review code",
+        kind: "dir",
+        scope: "global",
+        updated_at: 0,
+      }]);
+      render(<ChatInput />);
+      await waitFor(() => expect(fetchCommandsMock).toHaveBeenCalled());
+      act(() => capturedOnChange!([{ type: "paragraph", children: [{ text: "正文 /" }] }]));
+
+      expect(await screen.findByRole("button", { name: /Review Code/ })).toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: /\/help/ })).not.toBeInTheDocument();
+    } finally {
+      getSkillSearch.mockRestore();
+      fetchCommandsMock.mockResolvedValue([]);
       fetchSkillsMock.mockResolvedValue([]);
     }
   });

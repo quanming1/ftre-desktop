@@ -1,4 +1,4 @@
-﻿/**
+/**
  * API service — all communication goes through WebSocket.
  * This file provides a simple interface for components.
  * Functions that previously called HTTP endpoints are stubbed as no-ops or return defaults.
@@ -319,7 +319,7 @@ function encodeSessionKey(sessionIdOrKey: string): string {
 }
 
 export interface SessionContentBlock {
-  type: "text" | "thinking" | "data" | "hint" | "tool_call" | "tool_result";
+  type: "text" | "thinking" | "data" | "hint" | "tool_call" | "tool_result" | "extension";
   id: string;
   /** Block 生命周期时间；历史消息用它恢复 Assistant 的实际处理时长。 */
   created_at?: string;
@@ -338,6 +338,8 @@ export interface SessionContentBlock {
   state?: string;
   metadata?: Record<string, any>;
   hint?: unknown;
+  original_type?: string;
+  data?: unknown;
 }
 
 /** 单次或累计的 OpenAI-compatible token 用量 */
@@ -364,6 +366,7 @@ export interface SessionMessage {
   content: SessionContentBlock[];
   metadata: Record<string, any>;
   created_at: string;
+  seq: number;
   token: MessageToken | null;
   finished_at: string | null;
   finished_reason: string | null;
@@ -372,14 +375,15 @@ export interface SessionMessage {
   timestamp: number;
 }
 
-/** state.json 中的原始 Msg；不同于聊天展示 DTO，不含 session_id/timestamp。 */
-export interface AgentStateMessage {
+/** 会话派生的原始 Msg；不同于聊天展示 DTO，不含 session_id/timestamp。 */
+export interface SessionStateMessage {
   id: string;
   name: string;
   role: "user" | "assistant" | "system";
   content: SessionContentBlock[];
   metadata: Record<string, any>;
   created_at: string;
+  seq: number;
   token?: MessageToken | null;
   finished_at?: string | null;
   finished_reason?: string | null;
@@ -387,7 +391,7 @@ export interface AgentStateMessage {
   error?: Record<string, any> | null;
 }
 
-export interface AgentStatePage {
+export interface SessionStatePage {
   schema_version: number;
   file_path: string;
   session: {
@@ -396,10 +400,11 @@ export interface AgentStatePage {
     channel_id: string;
     title: string;
     workspace: string;
+    last_user_text?: string;
     created_at: string;
     updated_at: string;
   };
-  messages: AgentStateMessage[];
+  messages: SessionStateMessage[];
   metadata: Record<string, any>;
   truncated_message_ids: string[];
   stats: {
@@ -426,11 +431,11 @@ export interface AgentStatePage {
   };
 }
 
-/** 分页读取 state.json；offset 省略时后端返回最近一页。 */
-export async function fetchAgentStatePage(
+/** 分页读取会话派生状态；offset 省略时后端返回最近一页。 */
+export async function fetchSessionStatePage(
   sessionId: string,
   opts: { offset?: number; limit?: number; signal?: AbortSignal } = {},
-): Promise<AgentStatePage> {
+): Promise<SessionStatePage> {
   const params = new URLSearchParams();
   if (opts.offset !== undefined) params.set("offset", String(opts.offset));
   params.set("limit", String(opts.limit ?? 50));
@@ -438,23 +443,23 @@ export async function fetchAgentStatePage(
     `${API_BASE}/api/sessions/${encodeURIComponent(sessionId)}/state?${params}`,
     { signal: opts.signal },
   );
-  if (!response.ok) throw new Error(`state.json HTTP ${response.status}`);
-  return response.json() as Promise<AgentStatePage>;
+  if (!response.ok) throw new Error(`session state HTTP ${response.status}`);
+  return response.json() as Promise<SessionStatePage>;
 }
 
 /** 超长字段被分页接口截断时，按需读取一条完整 Msg。 */
-export async function fetchAgentStateMessage(
+export async function fetchSessionStateMessage(
   sessionId: string,
   messageId: string,
   signal?: AbortSignal,
-): Promise<AgentStateMessage> {
+): Promise<SessionStateMessage> {
   const response = await fetch(
     `${API_BASE}/api/sessions/${encodeURIComponent(sessionId)}`
       + `/state/messages/${encodeURIComponent(messageId)}`,
     { signal },
   );
   if (!response.ok) throw new Error(`state message HTTP ${response.status}`);
-  return response.json() as Promise<AgentStateMessage>;
+  return response.json() as Promise<SessionStateMessage>;
 }
 
 /**
@@ -497,6 +502,8 @@ export interface SessionMessagesPage {
   metadata: Record<string, any>;
   /** 后端 Inbox 随历史消息一并返回的唯一权威 queue 快照。 */
   queue: QueueSnapshotPayload | null;
+  /** 本次 Msg 快照覆盖到的 Session 事件序号。 */
+  seq: number;
 }
 
 /**
@@ -524,7 +531,7 @@ export async function fetchSessionMessagesPage(
     const res = await fetch(url);
     if (!res.ok) return {
       messages: [], hasMore: false, total: 0, status: "idle", metadata: {},
-      queue: null,
+      queue: null, seq: -1,
     };
     const data = await res.json();
     const queue = isQueueSnapshotPayload(data.queue)
@@ -542,12 +549,13 @@ export async function fetchSessionMessagesPage(
       status,
       metadata: data.metadata || {},
       queue,
+      seq: typeof data.seq === "number" ? data.seq : -1,
     };
   } catch (e) {
     console.error("[API] fetchSessionMessagesPage error:", e);
     return {
       messages: [], hasMore: false, total: 0, status: "idle", metadata: {},
-      queue: null,
+      queue: null, seq: -1,
     };
   }
 }
@@ -558,6 +566,8 @@ export interface ContextTokenUsage {
   last_call_usage: TokenUsage | null;
   /** 锚点之后会进下次 prompt 但尚未实算的事件估算 */
   pending_estimated: number;
+  /** 下一次请求实际会携带的上下文水位（不把本轮 completion 重复计入）。 */
+  context_tokens?: number;
   /** last_call_usage.total_tokens + pending_estimated；无锚点时退化为全量估算 */
   total: number;
 }
@@ -574,6 +584,9 @@ export async function fetchTokenUsage(sessionId: string): Promise<ContextTokenUs
   return {
     last_call_usage: data?.last_call_usage ?? null,
     pending_estimated: Number(data?.pending_estimated) || 0,
+    context_tokens: Number.isFinite(Number(data?.context_tokens))
+      ? Number(data.context_tokens)
+      : undefined,
     total: Number(data?.total) || 0,
   };
 }
@@ -620,13 +633,36 @@ export async function updateSession(
   }
 }
 
+export interface ForkSessionResult {
+  fork_session_id: string;
+  parent_session_id?: string;
+  through_message_id?: string | null;
+  seq?: number;
+  title: string;
+  workspace: string;
+}
+
 export async function forkSessionRemote(
   sessionId: string,
-): Promise<{ fork_session_id: string; title: string; workspace: string } | null> {
+  throughMessageId?: string,
+): Promise<ForkSessionResult | null> {
   try {
+    const body = throughMessageId
+      ? JSON.stringify({
+          through_message_id: throughMessageId,
+        })
+      : null;
     const res = await fetch(
       `${API_BASE}/api/sessions/${encodeURIComponent(sessionId)}/fork`,
-      { method: "POST" },
+      {
+        method: "POST",
+        ...(body
+          ? {
+              headers: { "Content-Type": "application/json" },
+              body,
+            }
+          : {}),
+      },
     );
     if (!res.ok) {
       console.error("[api] forkSession failed:", await res.text());
@@ -635,6 +671,40 @@ export async function forkSessionRemote(
     return res.json();
   } catch (e) {
     console.error("[api] forkSession error:", e);
+    return null;
+  }
+}
+
+export interface RollbackSessionResult {
+  session_id: string;
+  through_message_id: string;
+  seq: number;
+  removed_message_ids: string[];
+  prefill_content: Array<{ type: string; text?: string; data?: unknown }>;
+  title: string;
+  workspace: string;
+}
+
+export async function rollbackSessionRemote(
+  sessionId: string,
+  throughMessageId: string,
+): Promise<RollbackSessionResult | null> {
+  try {
+    const res = await fetch(
+      `${API_BASE}/api/sessions/${encodeURIComponent(sessionId)}/rollback`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ through_message_id: throughMessageId }),
+      },
+    );
+    if (!res.ok) {
+      console.error("[api] rollbackSession failed:", await res.text());
+      return null;
+    }
+    return (await res.json()) as RollbackSessionResult;
+  } catch (error) {
+    console.error("[api] rollbackSession request failed:", error);
     return null;
   }
 }
@@ -968,6 +1038,9 @@ export interface SkillCreateInput {
 /** 把后端返回的 skill 行补上 id（= name），便于前端按主键引用。 */
 function mapSkillRow(s: any): SkillSummary {
   const name = typeof s?.name === "string" ? s.name : "";
+  const knownScopes = ["global", "private", "external", "system", "project", "agent", "workspace"];
+  const rawScope = typeof s?.scope === "string" ? s.scope : undefined;
+  const scope = rawScope && knownScopes.includes(rawScope) ? rawScope as SkillSummary["scope"] : undefined;
   const source = s?.source?.kind === "filesystem" && typeof s.source.path === "string"
     ? { kind: "filesystem" as const, path: s.source.path }
     : s?.source?.kind === "content"
@@ -981,9 +1054,7 @@ function mapSkillRow(s: any): SkillSummary {
     kind: s?.kind === "file" ? "file" : "dir",
     updated_at: typeof s?.updated_at === "number" ? s.updated_at : 0,
     disabled: s?.disabled === true,
-    scope: ["global", "private", "external", "system", "project", "agent", "workspace"].includes(s?.scope)
-      ? s.scope
-      : "global",
+    scope,
     origin: ["system", "project", "agent", "external", "unknown"].includes(s?.origin)
       ? s.origin
       : ["system", "project", "agent", "external", "unknown"].includes(s?.scope_kind)
@@ -1347,21 +1418,6 @@ export async function revertDiff(
 ): Promise<{ status: string } | null> {
   console.warn("[api] revertDiff not implemented");
   return null;
-}
-
-export async function previewRollback(
-  _sessionId: string,
-  _messageId: string,
-): Promise<any> {
-  return { error: "not_available", message: "回滚功能需要连接 AI 后端" };
-}
-
-export async function executeRollback(
-  _sessionId: string,
-  _messageId: string,
-  _skipCodeRestore?: boolean,
-): Promise<any> {
-  return { error: "not_available", message: "回滚功能需要连接 AI 后端" };
 }
 
 // ─── Archives ───────────────────────────────────────────────────────

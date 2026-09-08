@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, shell } from "electron";
+import { app, BrowserWindow, ipcMain, session, shell } from "electron";
 import { isDev, setMainWindow, getMainWindow } from "./app-state";
 import { createWindow } from "./window";
 import { backendSupervisor } from "./backend-supervisor";
@@ -63,7 +63,14 @@ ipcMain.handle("backend:status", () => backendSupervisor.status());
 
 let shutdownStarted = false;
 
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
+  try {
+    await session.defaultSession.setProxy({
+      mode: "direct",
+    });
+  } catch (error) {
+    console.warn("[desktop] 本地 Gateway 代理旁路配置失败", error);
+  }
   applyDockIcon();
   createTray();
 

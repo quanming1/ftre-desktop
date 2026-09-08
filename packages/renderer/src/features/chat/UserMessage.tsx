@@ -2,7 +2,7 @@ import { memo, useCallback, useState, useRef, useLayoutEffect, useMemo } from "r
 import type { MessagePart } from "@/types/chat";
 import type { ChatMessage as WsChatMessage } from "@/stores/chat";
 
-/** Extended message type for UserMessage — supports both WS messages and legacy rich messages */
+/** User message view model with optional structured parts and diff metadata. */
 interface ChatMessage extends WsChatMessage {
   parts?: MessagePart[];
   diffMeta?: { base_hash: string; final_hash: string; workspace: string };
@@ -17,11 +17,9 @@ import {
   ChevronUp,
 } from "lucide-react";
 import { useChat } from "@/stores/chat";
-import { useEditor } from "@/stores/editor";
+import { useSession } from "@/stores/session";
 import { useNotification } from "@/stores/notification";
-import { previewRollback, executeRollback } from "@/services/api";
-import { fetchSessionMessages } from "@/services/api";
-import { RollbackConfirmDialog } from "./RollbackConfirmDialog";
+import { rollbackSessionRemote } from "@/services/api";
 import { ContextMenu, type ContextMenuItem, Tooltip, TooltipProvider, ImageViewer } from "@ftre/ui";
 import { formatAbsoluteMessageTime, formatMessageTime } from "./messageTime";
 import { renderFtreInlineText } from "@/lib/ftre-extensions";
@@ -122,13 +120,6 @@ function AttachmentStrip({
   );
 }
 
-interface RollbackPreviewData {
-  rolledBackCount: number;
-  hasCodeChanges: boolean;
-  filesAffected: Array<{ file: string; additions: number; deletions: number }>;
-  refillMessage: { parts: Array<{ type: string; text?: string; data?: unknown }> };
-}
-
 /** Ctrl+F 关键字分段高亮：大小写不敏感，命中片段以 mark 呈现。memo 避免流式重渲染重复分段。 */
 const HighlightText = memo(function HighlightText({
   text,
@@ -191,13 +182,10 @@ export const UserMessage = memo(
     const sessionStatus = useChat((s) => s.sessionStatus);
     const queueDepth = useChat((s) => s.queueDepth);
     const pendingMessages = useChat((s) => s.pendingMessages);
+    const reconnectSession = useSession((s) => s.reconnectSession);
+    const loadAllSessions = useSession((s) => s.loadAllSessions);
 
-    const [isLoadingPreview, setIsLoadingPreview] = useState(false);
-    const [showConfirmDialog, setShowConfirmDialog] = useState(false);
-    const [isExecuting, setIsExecuting] = useState(false);
-    const [previewData, setPreviewData] = useState<RollbackPreviewData | null>(
-      null,
-    );
+    const [isRollingBack, setIsRollingBack] = useState(false);
     const [copied, setCopied] = useState(false);
     const [contextMenu, setContextMenu] = useState<{
       x: number;
@@ -254,105 +242,40 @@ export const UserMessage = memo(
       }
     }, [message]);
 
-    // 处理点击回滚按钮
-    const handleRollbackClick = useCallback(async () => {
-      if (!sessionId || !message.id) return;
-
-      setIsLoadingPreview(true);
+    const handleRollback = useCallback(async () => {
+      if (!sessionId || !message.id || !canRollback || isRollingBack) return;
+      setIsRollingBack(true);
       try {
-        const result = await previewRollback(sessionId, message.id);
-
-        if ("error" in result) {
+        const result = await rollbackSessionRemote(sessionId, message.id);
+        if (!result) {
           useNotification.getState().addNotification({
             level: "error",
-            message: `回滚预览失败: ${result.error}`,
+            message: "回滚失败，请稍后重试",
           });
           return;
         }
-
-        setPreviewData({
-          rolledBackCount: result.rolled_back_count,
-          hasCodeChanges: result.has_code_changes,
-          filesAffected: result.files_affected,
-          refillMessage: result.refill_message,
+        await reconnectSession(sessionId);
+        void loadAllSessions();
+        if (result.prefill_content?.length) {
+          window.dispatchEvent(
+            new CustomEvent("ftre:rollback-refill", {
+              detail: { parts: result.prefill_content },
+            }),
+          );
+        }
+        useNotification.getState().addNotification({
+          level: "info",
+          message: "已回滚，消息已放回输入框",
         });
-        setShowConfirmDialog(true);
-      } catch (err) {
+      } catch {
         useNotification.getState().addNotification({
           level: "error",
-          message: "回滚预览请求失败",
+          message: "回滚失败，请稍后重试",
         });
       } finally {
-        setIsLoadingPreview(false);
+        setIsRollingBack(false);
       }
-    }, [sessionId, message.id]);
-
-    // 处理确认回滚
-    const handleConfirmRollback = useCallback(
-      async (skipCodeRestore: boolean) => {
-        if (!sessionId || !message.id || !previewData) return;
-
-        setIsExecuting(true);
-        try {
-          const result = await executeRollback(
-            sessionId,
-            message.id,
-            skipCodeRestore,
-          );
-
-          if ("error" in result) {
-            useNotification.getState().addNotification({
-              level: "error",
-              message: `回滚失败: ${result.error}`,
-            });
-            return;
-          }
-
-          // 关闭弹窗
-          setShowConfirmDialog(false);
-          setPreviewData(null);
-
-          // 清理所有 pendingDiffs（关闭 diff 标签页，防止 Monaco DiffEditor 报错）
-          const editorState = useEditor.getState();
-          const diffsToReject = [...editorState.pendingDiffs];
-          for (const diff of diffsToReject) {
-            editorState.rejectDiff(diff.filePath);
-          }
-
-          // 刷新消息列表 (TODO: implement via WS)
-          await fetchSessionMessages(sessionId);
-
-          // 通过全局事件回填输入框
-          if (result.refill_message?.parts) {
-            window.dispatchEvent(
-              new CustomEvent("ftre:rollback-refill", {
-                detail: { parts: result.refill_message.parts },
-              }),
-            );
-          }
-
-          // Toast 提示
-          useNotification.getState().addNotification({
-            level: "info",
-            message: `已回滚 ${result.rolled_back_count} 轮对话`,
-          });
-        } catch (err) {
-          useNotification.getState().addNotification({
-            level: "error",
-            message: "回滚执行失败",
-          });
-        } finally {
-          setIsExecuting(false);
-        }
-      },
-      [sessionId, message.id, previewData],
-    );
-
-    // 处理取消
-    const handleCancelRollback = useCallback(() => {
-      setShowConfirmDialog(false);
-      setPreviewData(null);
-    }, []);
+    }, [canRollback, isRollingBack, loadAllSessions, message.id, reconnectSession, sessionId]);
 
 
     // 右键菜单
@@ -471,6 +394,19 @@ export const UserMessage = memo(
                   {copied ? <Check size={14} className="text-green-500" /> : <Copy size={14} />}
                 </button>
               </Tooltip>
+              {canRollback && (
+                <Tooltip content="回滚并编辑" side="top">
+                  <button
+                    type="button"
+                    aria-label="回滚并编辑"
+                    disabled={isRollingBack}
+                    onClick={handleRollback}
+                    className="inline-flex h-7 w-7 items-center justify-center rounded-md text-t-faint transition-colors hover:bg-hover hover:text-t-primary disabled:cursor-wait disabled:opacity-50"
+                  >
+                    <RotateCcw size={14} className={isRollingBack ? "animate-spin" : ""} />
+                  </button>
+                </Tooltip>
+              )}
             </div>
           )}
         </TooltipProvider>

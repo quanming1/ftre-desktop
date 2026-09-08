@@ -1,28 +1,21 @@
-import type {
-  QueueItemView,
-  ReplySnapshotPayload,
-  SessionActivity,
-} from "@/services/websocket-client";
+import type { QueueItemView, SessionActivity } from "@/services/websocket-client";
+import type { WireFrame, WireMsg } from "@/types/wire.gen";
 import type {
   ChatMessage,
   PlanData,
   RetryState,
   SessionStatus,
 } from "./chat";
-
-/** ClientSessionProjection 可以消费的统一事件信封。 */
-export interface ProjectionEvent {
-  type: string;
-  data?: any;
-  ts?: number;
-  eventId?: string;
-  /** WebSocket 下行事件的 request_id，用作 Event 缺少 id 时的去重键。 */
-  frameId?: string;
-  metadata?: Record<string, any>;
-}
+import { SessionEventClient, msgToChatMessage } from "./sessionEventClient";
+import { applyLifecycleEvent } from "./chatProjection";
 
 export interface ProjectionHistory {
+  /** HTTP /messages 的 derive 结果（统一 Msg → ChatMessage 投影）。 */
   messages: ChatMessage[];
+  /** 同一页的 WireMsg 种子（重建 assembler 基线，保证 tail 事件可正确配对）。 */
+  wire: WireMsg[];
+  /** HTTP Msg 快照覆盖到的 Session seq。 */
+  seq?: number;
   hasMoreHistory: boolean;
   status: SessionStatus;
   turnStartTs?: number | null;
@@ -31,26 +24,24 @@ export interface ProjectionHistory {
 }
 
 interface ProjectionReducers {
-  applyEvent: (
+  applyFrame: (
     projection: SessionProjectionState,
-    event: ProjectionEvent,
-  ) => void;
-  applyReplySnapshot: (
-    projection: SessionProjectionState,
-    snapshot: ReplySnapshotPayload,
+    frame: WireFrame,
   ) => void;
 }
 
 export interface SessionProjectionState {
   messages: ChatMessage[];
-  seenEventIds: Set<string>;
+  /** v4 事件消费客户端（seq 游标 + assembler fold + tail-page 恢复）。 */
+  events: SessionEventClient;
+  /** 把 assembler 脏消息投影合并进 messages（引用稳定）。 */
+  projectEvents(): void;
   earliestTs: number | null;
   hasMoreHistory: boolean;
   lastUserInputTs: number | null;
   sessionStatus: SessionStatus;
   sessionActivity?: SessionActivity;
   sessionRevision?: number;
-  snapshotConnectionEpoch?: number;
   hasCoordinatorState?: boolean;
   queueDepth?: number;
   queueCapacity?: number | null;
@@ -64,25 +55,24 @@ export interface SessionProjectionState {
   turnStartTs: number | null;
   commandName: string | null;
   plan: PlanData | null;
-  replyRevisions?: Map<string, number>;
 }
 
 /**
  * 客户端某一个 session 的投影。
  *
- * 后端 Msg 快照、进行中的 Reply Snapshot 和实时 Event 都必须先进入这里，
- * React/Zustand 只读取投影结果，不再各自维护另一套消息合并规则。
+ * v4：消息事实源是事件日志——SessionEventClient（assembler fold）产出 Msg，
+ * 经 msgToChatMessage 投影合并进 messages（引用稳定：只替换脏消息）；
+ * HTTP 历史仅作基线种子。React/Zustand 只读取投影结果。
  */
 export class ClientSessionProjection implements SessionProjectionState {
   messages: ChatMessage[] = [];
-  seenEventIds = new Set<string>();
+  events: SessionEventClient;
   earliestTs: number | null = null;
   hasMoreHistory = false;
   lastUserInputTs: number | null = null;
   sessionStatus: SessionStatus = "idle";
   sessionActivity: SessionActivity = "idle";
   sessionRevision = -1;
-  snapshotConnectionEpoch = -1;
   hasCoordinatorState = false;
   queueDepth = 0;
   queueCapacity: number | null = null;
@@ -95,41 +85,98 @@ export class ClientSessionProjection implements SessionProjectionState {
   turnStartTs: number | null = null;
   commandName: string | null = null;
   plan: PlanData | null = null;
-  /** Reply Snapshot 的单调版本，防止旧快照覆盖较新的流式状态。 */
-  replyRevisions = new Map<string, number>();
 
-  constructor(private readonly reducers: ProjectionReducers) {}
-
-  apply(event: ProjectionEvent): void {
-    this.reducers.applyEvent(this, event);
+  constructor(
+    private readonly reducers: ProjectionReducers,
+    options: {
+      sessionId?: string;
+      onEventsSettled?: () => void;
+      onReset?: () => void;
+      onGap?: () => void;
+    } = {},
+  ) {
+    this.events = new SessionEventClient({
+      sessionId: options.sessionId ?? "",
+      onAttachEvent: (event) => {
+        // attach 事件同 live 事件走同一状态机；先把 Msg fold 投影出来，
+        // 再应用 turn/end 的耗时、状态和错误等派生字段。
+        this.projectEvents();
+        applyLifecycleEvent(this, event);
+      },
+      onResyncRequired: () => {
+        // attach 无法提供客户端所需的旧事件时，先清理运行态，再由上层
+        // 重新请求 HTTP Msg 快照建立基线。
+        this.hasCoordinatorState = false;
+        this.sessionStatus = "idle";
+        this.sessionActivity = "idle";
+        this.clientCanSend = true;
+        this.canCancel = false;
+        this.blockedReason = null;
+        this.error = null;
+        this.retryState = null;
+        this.turnStartTs = null;
+        this.commandName = null;
+        this.pendingMessages = [];
+        this.queueDepth = 0;
+        options.onReset?.();
+      },
+      onGap: () => {
+        options.onGap?.();
+      },
+      onSettled: () => {
+        this.projectEvents();
+        options.onEventsSettled?.();
+      },
+    });
   }
 
-  applySnapshot(snapshot: ReplySnapshotPayload): void {
-    this.reducers.applyReplySnapshot(this, snapshot);
+  apply(frame: WireFrame): void {
+    this.reducers.applyFrame(this, frame);
   }
 
   /**
-   * 用持久化 Msg 初始化/刷新投影，同时保留 WS 已经恢复的瞬态 Reply。
-   * HTTP 历史和 WS attach 是并行返回的，不能让较晚到达的 HTTP 覆盖进行中状态。
+   * 把 assembler 自上次以来的脏消息投影合并进 messages。
+   * 未触碰的消息保持引用稳定（memo 契约）；新消息按事件序追加。
+   */
+  projectEvents(): void {
+    const dirty = this.events.assembler.takeDirty();
+    if (dirty.size === 0) return;
+    let next: ChatMessage[] | null = null;
+    const current = () => next ?? this.messages;
+    for (const id of dirty) {
+      const msg = this.events.assembler.messageById(id);
+      if (!msg) continue;
+      const chat = msgToChatMessage(msg, this.events.assembler.askContext);
+      const index = current().findIndex((message) => message.id === id);
+      if (chat == null) {
+        if (index >= 0) {
+          next ??= [...this.messages];
+          next.splice(index, 1);
+        }
+        continue;
+      }
+      if (index >= 0) {
+        next ??= [...this.messages];
+        next[index] = chat;
+      } else {
+        next ??= [...this.messages];
+        next.push(chat);
+      }
+    }
+    if (next) this.messages = next;
+  }
+
+  /**
+   * 用 HTTP /messages 的 fold 结果初始化/刷新投影。
+   *
+   * wire 种子重建 assembler 基线（seq = HTTP 响应 seq）；服务端 Msg 快照已
+   * 包含截至该 seq 的 in-flight 流式消息；paused 确认卡仍由客户端合成。
    */
   hydrate(history: ProjectionHistory): void {
-    const effectiveStatus = this.hasCoordinatorState
-      ? this.sessionStatus
-      : history.status;
-    // HTTP 历史与 WS attach 并行返回。队列请求不合成为聊天气泡，
-    // 只保留正在流式输出的 Assistant 回复。
-    const activeTransient = this.messages.filter((message) =>
-      (effectiveStatus === "running" && message.streaming === true)
-      || (
-        effectiveStatus === "compacting"
-        && message.compact?.status === "running"
-      ),
-    );
-    const transientIds = new Set(activeTransient.map((message) => message.id));
-    this.messages = [
-      ...history.messages.filter((message) => !transientIds.has(message.id)),
-      ...activeTransient,
-    ].sort((left, right) => left.timestamp - right.timestamp);
+    this.events.seedHistory(history.wire, history.seq ?? -1);
+    this.messages = history.messages;
+    this.projectEvents();
+
     const firstUser = history.messages.find((message) => message.role === "user");
     this.earliestTs = firstUser ? firstUser.timestamp / 1000 : null;
     this.hasMoreHistory = history.hasMoreHistory;
@@ -148,14 +195,12 @@ export class ClientSessionProjection implements SessionProjectionState {
     }
     this.error = null;
     this.retryState = null;
-    const activeReply = activeTransient.find((message) => message.streaming);
     this.turnStartTs = history.turnStartTs
       ?? this.turnStartTs
-      ?? activeReply?.timestamp
+      ?? this.messages.find((message) => message.streaming)?.timestamp
       ?? null;
     this.plan = history.plan ?? null;
     this.commandName = history.commandName ?? null;
-
   }
 
   prependHistory(messages: ChatMessage[], hasMoreHistory: boolean): void {

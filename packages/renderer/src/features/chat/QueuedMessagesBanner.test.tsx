@@ -3,10 +3,14 @@ import { describe, expect, it, vi } from "vitest";
 import type { QueueItemView } from "@/services/websocket-client";
 import { QueuedMessagesBanner } from "./QueuedMessagesBanner";
 
-const { cancelQueuedMessage, promoteQueueItemToSteer, addNotification } = vi.hoisted(() => ({
+const { cancelQueuedMessage, promoteQueueItemToSteer, addNotification, chatState } = vi.hoisted(() => ({
   cancelQueuedMessage: vi.fn(),
   promoteQueueItemToSteer: vi.fn(),
   addNotification: vi.fn(),
+  chatState: {
+    sessionId: "ws_sess_queue",
+    sessionStatus: "idle" as "idle" | "blocked",
+  },
 }));
 
 vi.mock("@/services/api", () => ({
@@ -18,8 +22,9 @@ vi.mock("@/services/websocket-client", () => ({
 vi.mock("@/stores/chat", () => ({
   useChat: (selector: (state: {
     sessionId: string;
+    sessionStatus: "idle" | "blocked";
   }) => unknown) => selector({
-    sessionId: "ws_sess_queue",
+    ...chatState,
   }),
 }));
 vi.mock("@/stores/notification", () => ({
@@ -36,7 +41,9 @@ const item = (requestId: string, content: string): QueueItemView => ({
 describe("QueuedMessagesBanner", () => {
   it("directly renders pending items from the Inbox queue snapshot", () => {
     render(<QueuedMessagesBanner items={[item("one", "first"), item("two", "second")]} />);
-    expect(screen.getByRole("region", { name: "消息队列" })).toBeInTheDocument();
+    const queue = screen.getByRole("region", { name: "消息队列" });
+    expect(queue).toHaveAttribute("data-queue-surface", "");
+    expect(queue.querySelectorAll("article")).toHaveLength(0);
     expect(screen.getAllByRole("listitem")).toHaveLength(2);
     expect(screen.getByText("first")).toBeInTheDocument();
   });

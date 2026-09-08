@@ -15,9 +15,13 @@ import {
   Check,
   BookOpen,
   Code2,
+  GitFork,
 } from "lucide-react";
 import { Tooltip, TooltipProvider } from "@ftre/ui";
 import { useNotification } from "@/stores/notification";
+import { useChat } from "@/stores/chat";
+import { useSession } from "@/stores/session";
+import { forkSessionRemote } from "@/services/api";
 import { remarkPlugins, rehypePlugins, urlTransform } from "@/lib/markdown-plugins";
 import { FtreExtensionImage } from "@/lib/ftre-extensions";
 import { useAutoScrollToBottom } from "@/hooks/auto-scroll";
@@ -575,6 +579,8 @@ export const AssistantMessage = memo(
     turnDurationSec,
     turnModel,
     turnFinishedAt,
+    hideProcessHeader = false,
+    processExpandedOverride,
     isActiveMatch = false,
   }: {
     message: ChatMessage;
@@ -584,6 +590,10 @@ export const AssistantMessage = memo(
     turnDurationSec?: number;
     turnModel?: string;
     turnFinishedAt?: number;
+    /** 由连续 Assistant 消息的外层 Turn 统一展示过程栏时隐藏本地栏。 */
+    hideProcessHeader?: boolean;
+    /** 外层 Turn 共享的过程展开状态；不传时维持本消息原有状态。 */
+    processExpandedOverride?: boolean;
     /** Ctrl+F 当前定位的匹配消息（容器高亮提示） */
     isActiveMatch?: boolean;
   }) {
@@ -606,7 +616,8 @@ export const AssistantMessage = memo(
     const allBlocks = message.blocks ?? [];
     const collapsedBlocks = collapsedAssistantBlocks(allBlocks, message.toolResults);
     const hasProcess = allBlocks.length > collapsedBlocks.length;
-    const displayBlocks = processExpanded ? allBlocks : collapsedBlocks;
+    const processIsExpanded = processExpandedOverride ?? processExpanded;
+    const displayBlocks = processIsExpanded ? allBlocks : collapsedBlocks;
     // 复制当前 AI 消息的全部 Text block，而不是只复制折叠视图里的最后一段。
     // content 是历史/旧消息的兼容聚合字段，blocks 优先避免遗漏分段文本。
     const copyText = allBlocks
@@ -617,6 +628,10 @@ export const AssistantMessage = memo(
     const hasTurnDuration = !hasProcess && typeof turnDurationSec === "number" && turnDurationSec >= 0;
     const hasTurnModel = Boolean(turnModel);
     const hasFinishedAt = !isStreaming && typeof turnFinishedAt === "number";
+    const sessionId = useChat((state) => state.sessionId);
+    const switchSession = useSession((state) => state.switchSession);
+    const loadAllSessions = useSession((state) => state.loadAllSessions);
+    const [isForking, setIsForking] = useState(false);
 
     // 复制
     const [copied, setCopied] = useState(false);
@@ -631,6 +646,34 @@ export const AssistantMessage = memo(
       }
     }, [copyText, message.content]);
 
+    const handleFork = useCallback(async () => {
+      if (!sessionId || !message.id || isStreaming || isForking) return;
+      setIsForking(true);
+      try {
+        const result = await forkSessionRemote(sessionId, message.id);
+        if (!result) {
+          useNotification.getState().addNotification({
+            level: "error",
+            message: "Fork 失败，请稍后重试",
+          });
+          return;
+        }
+        await switchSession(result.fork_session_id);
+        void loadAllSessions();
+        useNotification.getState().addNotification({
+          level: "info",
+          message: "已从这条消息创建新会话",
+        });
+      } catch {
+        useNotification.getState().addNotification({
+          level: "error",
+          message: "Fork 失败，请稍后重试",
+        });
+      } finally {
+        setIsForking(false);
+      }
+    }, [isForking, isStreaming, loadAllSessions, message.id, sessionId, switchSession]);
+
     return (
       <div
       data-assistant-message="true"
@@ -639,10 +682,10 @@ export const AssistantMessage = memo(
         <div className="w-full">
           <StreamingContext.Provider value={isStreaming}>
             <div className="text-[var(--text-md)] leading-relaxed text-t-primary font-sans break-words">
-              {hasProcess && (
+              {hasProcess && !hideProcessHeader && (
                 <button
                   type="button"
-                  aria-expanded={processExpanded}
+                  aria-expanded={processIsExpanded}
                   onClick={() => setProcessExpanded((expanded) => !expanded)}
                   className="group mb-2 block w-full py-1.5 text-left text-[14px] text-t-dim transition-colors hover:text-t-secondary"
                 >
@@ -683,7 +726,7 @@ export const AssistantMessage = memo(
                     toolResults={message.toolResults || {}}
                     streaming={isStreaming}
                     mdRef={mdRef}
-                    collapseNonText={processExpanded}
+                    collapseNonText={processIsExpanded}
                     showSource={showSource}
                   />
                 </div>
@@ -723,6 +766,19 @@ export const AssistantMessage = memo(
                           {copied ? <Check size={14} className="text-green-500" /> : <Copy size={14} />}
                         </button>
                       </Tooltip>
+                      {sessionId && (
+                        <Tooltip content="Fork 到此消息" side="top">
+                          <button
+                            type="button"
+                            aria-label="Fork 到此消息"
+                            disabled={isForking}
+                            onClick={handleFork}
+                            className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-t-faint transition-colors hover:bg-hover hover:text-t-primary disabled:cursor-wait disabled:opacity-50"
+                          >
+                            <GitFork size={14} className={isForking ? "animate-pulse" : ""} />
+                          </button>
+                        </Tooltip>
+                      )}
 
                       {(hasTokenUsage || hasTurnModel || hasFinishedAt) && (
                         <div className="inline-flex min-w-0 max-w-full items-center gap-2.5 text-t-faint">
