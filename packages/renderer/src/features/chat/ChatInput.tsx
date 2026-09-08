@@ -374,8 +374,9 @@ export const ChatInput = memo(function ChatInput() {
     return current || null;
   }, [allSessions, sessionId, sessions]);
   const currentWorkspace = currentSession?.workspace || null;
-  // Skill 目录属于当前 Session 的 Agent；新会话尚未落盘时才回退到全局选择。
-  const skillAgentId = currentSession?.agent_id || agentId || "default";
+  // Skill 目录必须和 sendMessage 写入的 agent_id 一致；Session 的 agent_id
+  // 只作为旧消息/缺少客户端选择时的回退，不能覆盖当前 Agent 选择。
+  const skillAgentId = agentId || currentSession?.agent_id || "default";
   const autoFollow = useLayout((s) => s.autoFollowFiles);
   const toggleAutoFollow = useLayout((s) => s.toggleAutoFollowFiles);
   /** 输入框是否有文字（Slate 非受控，需在 onChange 中显式同步，见 handleSlateChange） */
@@ -432,6 +433,7 @@ export const ChatInput = memo(function ChatInput() {
   const [skillSearch, setSkillSearch] = useState<{
     search: string;
     range: Range;
+    atInputStart: boolean;
   } | null>(null);
   const [skillIndex, setSkillIndex] = useState(0);
   const [commandList, setCommandList] = useState<CommandDef[]>([]);
@@ -516,7 +518,7 @@ export const ChatInput = memo(function ChatInput() {
 
   // 过滤候选指令（/ 面板顶部；Skill 候选来自独立的 HTTP 目录）
   const commandCandidates = useMemo(() => {
-    if (!skillSearch) return [];
+    if (!skillSearch || !skillSearch.atInputStart) return [];
     const q = skillSearch.search.toLowerCase();
     return commandList.filter(
       (c) => {

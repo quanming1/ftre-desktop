@@ -179,3 +179,4 @@
 | 2026-08-30 | 修正 Skill UI：Slash 选择完成后在提交后的 layout 阶段再次恢复真实编辑器焦点（Enter/Tab、鼠标选择均覆盖）；`loadSkill` 仅渲染真实 Skill 名称并复用共享 Skill UI，不再出现占位 `<Skill>` 文案；来源标签统一放在 Tooltip、预览、候选项和管理卡片的元信息末尾 | 用户反馈焦点恢复失败、Skill 名称被占位文案替代、来源标识位置不一致 |
 | 2026-08-30 | 修复 Skill inline void 节点插入后的 Slate 选区：在 token 后创建/复用可编辑空格并显式选择其后插入点；Slash 候选鼠标选择延后到 click，避免按钮夺取焦点；补充 Enter/Tab、鼠标选择和编辑器选区回归测试 | 用户反馈按 Enter/Tab 或鼠标选择 Skill 后输入框仍未聚焦；原实现将光标留在 token 隐藏子节点内，浏览器没有可见插入点 |
 | 2026-09-01 | 新增统一 `FloatingMenu` Portal 定位组件，Agent、LLM 模型和推理强度浮层统一按触发器/真实内容尺寸定位；监听 ResizeObserver、滚动、窗口/VisualViewport 变化，空间不足自动翻转并限制安全区高度 | 修复不同屏幕、展开全量模型或靠近底部时浮层位置不刷新、下半部分被遮挡的问题 |
+| 2026-09-08 | 收尾审计补齐 Skill 作用域与 Slash 边界：Skill 预览使用 outbound Agent，文本任意位置的 slash 只展示 Skill；输入开头指令不受已插入 Skill token 误判影响；旧后端缺少 scope 时不再误标全局；新增 605 项 renderer 回归通过 | 闭合客户端目录、预览、指令候选和外部 Skill 来源的一致性与安全降级 |

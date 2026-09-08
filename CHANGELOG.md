@@ -36,6 +36,8 @@
   不再渲染 `<Skill>` 占位文案。
 - 修复 Skill inline token 插入后光标停留在隐藏节点的问题；Enter/Tab 和鼠标选择后均回到可编辑
   插入点，避免输入框看似聚焦但无法继续输入。
+- 收尾审计让 Skill 预览跟随 outbound Agent，旧响应缺少来源时安全降级为未知；正文任意位置的 slash
+  只展示 Skill，已插入 Skill token 后不再误显示开头指令。
 
 ### F37 内嵌 Gateway 启动生命周期
 

@@ -41,7 +41,9 @@ const item = (requestId: string, content: string): QueueItemView => ({
 describe("QueuedMessagesBanner", () => {
   it("directly renders pending items from the Inbox queue snapshot", () => {
     render(<QueuedMessagesBanner items={[item("one", "first"), item("two", "second")]} />);
-    expect(screen.getByRole("region", { name: "消息队列" })).toBeInTheDocument();
+    const queue = screen.getByRole("region", { name: "消息队列" });
+    expect(queue).toHaveAttribute("data-queue-surface", "");
+    expect(queue.querySelectorAll("article")).toHaveLength(0);
     expect(screen.getAllByRole("listitem")).toHaveLength(2);
     expect(screen.getByText("first")).toBeInTheDocument();
   });

@@ -62,19 +62,20 @@ export class ChatInputEditor {
     return EMPTY_VALUE;
   }
 
-  getSkillSearch(): { search: string; range: Range } | null {
+  getSkillSearch(): { search: string; range: Range; atInputStart: boolean } | null {
     const { selection } = this.editor;
     if (!selection || !Range.isCollapsed(selection)) return null;
 
     const [start] = Range.edges(selection);
-    const lineStart = Editor.before(this.editor, start, { unit: "line" });
-    if (!lineStart) return null;
+    // Slate returns no previous point for the first line; the document start is
+    // the correct fallback so a leading slash opens the menu as well.
+    const lineStart = Editor.before(this.editor, start, { unit: "line" })
+      ?? Editor.start(this.editor, []);
 
     const beforeRange: Range = { anchor: lineStart, focus: start };
     const beforeText = Editor.string(this.editor, beforeRange);
     const slashIndex = beforeText.lastIndexOf("/");
     if (slashIndex === -1) return null;
-    if (slashIndex > 0 && !/\s/.test(beforeText[slashIndex - 1])) return null;
 
     const search = beforeText.slice(slashIndex + 1);
     if (/\s/.test(search)) return null;
@@ -85,7 +86,24 @@ export class ChatInputEditor {
     });
     if (!slashPoint) return null;
 
-    return { search, range: { anchor: slashPoint, focus: start } };
+    const documentStart = Editor.start(this.editor, []);
+    const inputPrefix = Editor.string(this.editor, {
+      anchor: documentStart,
+      focus: slashPoint,
+    });
+    const hasInlineExtension = Array.from(
+      Editor.nodes(this.editor, {
+        at: { anchor: documentStart, focus: slashPoint },
+        match: (node) => SlateElement.isElement(node) && node.type === "skill-token",
+      }),
+    ).length > 0;
+    return {
+      search,
+      range: { anchor: slashPoint, focus: start },
+      // Commands are only valid when the slash is the first non-whitespace
+      // input; Skill references may be inserted at any text position.
+      atInputStart: inputPrefix.trim().length === 0 && !hasInlineExtension,
+    };
   }
 
   replaceRange(targetRange: Range, text: string): void {

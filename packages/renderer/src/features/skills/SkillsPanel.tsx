@@ -253,7 +253,9 @@ export function SkillsPanel() {
     () => [...sessions, ...allSessions].find((item) => item.session_id === sessionId) || null,
     [allSessions, sessionId, sessions],
   );
-  const skillAgentId = currentSession?.agent_id || agentId || "default";
+  // 必须和 ChatInput/sendMessage 的 outbound agent_id 一致；Session 的
+  // agent_id 只作为旧客户端没有选择时的回退，不能覆盖当前 Agent。
+  const skillAgentId = agentId || currentSession?.agent_id || "default";
   const currentWorkspace = currentSession?.workspace || null;
   const reloadRequestRef = useRef<AbortController | null>(null);
 

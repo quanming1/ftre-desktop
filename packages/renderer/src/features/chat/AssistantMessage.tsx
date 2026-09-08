@@ -15,9 +15,13 @@ import {
   Check,
   BookOpen,
   Code2,
+  GitFork,
 } from "lucide-react";
 import { Tooltip, TooltipProvider } from "@ftre/ui";
 import { useNotification } from "@/stores/notification";
+import { useChat } from "@/stores/chat";
+import { useSession } from "@/stores/session";
+import { forkSessionRemote } from "@/services/api";
 import { remarkPlugins, rehypePlugins, urlTransform } from "@/lib/markdown-plugins";
 import { FtreExtensionImage } from "@/lib/ftre-extensions";
 import { useAutoScrollToBottom } from "@/hooks/auto-scroll";
@@ -624,6 +628,10 @@ export const AssistantMessage = memo(
     const hasTurnDuration = !hasProcess && typeof turnDurationSec === "number" && turnDurationSec >= 0;
     const hasTurnModel = Boolean(turnModel);
     const hasFinishedAt = !isStreaming && typeof turnFinishedAt === "number";
+    const sessionId = useChat((state) => state.sessionId);
+    const switchSession = useSession((state) => state.switchSession);
+    const loadAllSessions = useSession((state) => state.loadAllSessions);
+    const [isForking, setIsForking] = useState(false);
 
     // 复制
     const [copied, setCopied] = useState(false);
@@ -637,6 +645,34 @@ export const AssistantMessage = memo(
         useNotification.getState().addNotification({ level: "error", message: "复制失败" });
       }
     }, [copyText, message.content]);
+
+    const handleFork = useCallback(async () => {
+      if (!sessionId || !message.id || isStreaming || isForking) return;
+      setIsForking(true);
+      try {
+        const result = await forkSessionRemote(sessionId, message.id);
+        if (!result) {
+          useNotification.getState().addNotification({
+            level: "error",
+            message: "Fork 失败，请稍后重试",
+          });
+          return;
+        }
+        await switchSession(result.fork_session_id);
+        void loadAllSessions();
+        useNotification.getState().addNotification({
+          level: "info",
+          message: "已从这条消息创建新会话",
+        });
+      } catch {
+        useNotification.getState().addNotification({
+          level: "error",
+          message: "Fork 失败，请稍后重试",
+        });
+      } finally {
+        setIsForking(false);
+      }
+    }, [isForking, isStreaming, loadAllSessions, message.id, sessionId, switchSession]);
 
     return (
       <div
@@ -730,6 +766,19 @@ export const AssistantMessage = memo(
                           {copied ? <Check size={14} className="text-green-500" /> : <Copy size={14} />}
                         </button>
                       </Tooltip>
+                      {sessionId && (
+                        <Tooltip content="Fork 到此消息" side="top">
+                          <button
+                            type="button"
+                            aria-label="Fork 到此消息"
+                            disabled={isForking}
+                            onClick={handleFork}
+                            className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-t-faint transition-colors hover:bg-hover hover:text-t-primary disabled:cursor-wait disabled:opacity-50"
+                          >
+                            <GitFork size={14} className={isForking ? "animate-pulse" : ""} />
+                          </button>
+                        </Tooltip>
+                      )}
 
                       {(hasTokenUsage || hasTurnModel || hasFinishedAt) && (
                         <div className="inline-flex min-w-0 max-w-full items-center gap-2.5 text-t-faint">
