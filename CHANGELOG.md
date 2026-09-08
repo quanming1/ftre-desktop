@@ -8,14 +8,6 @@
   Event[]；同一套 `seq` 游标用于刷新、断线和跨 Gateway 重连。
 - 删除 `session/snapshot`、`reset_required` 和独立事件 tail-page 请求，避免重复投影和旧游标
   跳过流式 Assistant 内容；attach 无法追平时重新 hydrate HTTP 基线。
-
-### C2 MCP 上下文目录与三层管理 UI
-
-- MCP 浮窗和设置页按当前 Session 的 Agent/工作区读取 global/agent/project 目录，展示 effective 项、来源、
-  覆盖关系和连接状态。
-- CRUD 请求携带明确 scope 与上下文，页面支持竞态取消、错误诊断和操作后刷新，不再消费旧的 private/双层 MCP
-  契约。
-
 ### A2 聊天消息渲染
 
 - HTTP/HTTPS 链接图标按站点 `favicon.ico`、常见图片格式和站点图标解析服务逐级回退；站点缺少
@@ -51,6 +43,15 @@
 - macOS x64 构建改用原生 `macos-15-intel` runner，arm64 继续使用 `macos-14`，避免 arm64 主机上的 x64 架构验证失败。
 
 - `develop` 预发布改为只构建 Windows x64；macOS x64/arm64 保留在正式 Release 流程，缩短日常测试包等待时间。
+
+## [0.1.23] - 2026-09-03
+
+### C2 MCP 上下文目录与三层管理 UI
+
+- MCP 浮窗和设置页按当前 Session 的 Agent/工作区读取 global/agent/project 目录，展示 effective 项、来源、
+  覆盖关系、连接状态和结构化诊断。
+- CRUD 请求携带明确 scope 与上下文，页面支持竞态取消、错误诊断和操作后刷新，不再消费旧的 private/双层
+  MCP 契约；renderer 全量测试、类型检查和构建通过。
 
 ## [0.1.22] - 2026-08-28
 
