@@ -180,3 +180,4 @@
 | 2026-08-30 | 修复 Skill inline void 节点插入后的 Slate 选区：在 token 后创建/复用可编辑空格并显式选择其后插入点；Slash 候选鼠标选择延后到 click，避免按钮夺取焦点；补充 Enter/Tab、鼠标选择和编辑器选区回归测试 | 用户反馈按 Enter/Tab 或鼠标选择 Skill 后输入框仍未聚焦；原实现将光标留在 token 隐藏子节点内，浏览器没有可见插入点 |
 | 2026-09-01 | 新增统一 `FloatingMenu` Portal 定位组件，Agent、LLM 模型和推理强度浮层统一按触发器/真实内容尺寸定位；监听 ResizeObserver、滚动、窗口/VisualViewport 变化，空间不足自动翻转并限制安全区高度 | 修复不同屏幕、展开全量模型或靠近底部时浮层位置不刷新、下半部分被遮挡的问题 |
 | 2026-09-08 | 收尾审计补齐 Skill 作用域与 Slash 边界：Skill 预览使用 outbound Agent，文本任意位置的 slash 只展示 Skill；输入开头指令不受已插入 Skill token 误判影响；旧后端缺少 scope 时不再误标全局；新增 605 项 renderer 回归通过 | 闭合客户端目录、预览、指令候选和外部 Skill 来源的一致性与安全降级 |
+| 2026-09-08 | 修复流式 Markdown 增量切块丢失跨 chunk 空行的问题；改为全量确定性切块并复用未变化块引用，新增段落边界与 Assistant 实际渲染回归测试，重核 FR8/AC2 通过 | 流式输出期间 Markdown 与刷新后的解析结果不一致 |
