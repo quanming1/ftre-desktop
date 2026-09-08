@@ -633,13 +633,36 @@ export async function updateSession(
   }
 }
 
+export interface ForkSessionResult {
+  fork_session_id: string;
+  parent_session_id?: string;
+  through_message_id?: string | null;
+  seq?: number;
+  title: string;
+  workspace: string;
+}
+
 export async function forkSessionRemote(
   sessionId: string,
-): Promise<{ fork_session_id: string; title: string; workspace: string } | null> {
+  throughMessageId?: string,
+): Promise<ForkSessionResult | null> {
   try {
+    const body = throughMessageId
+      ? JSON.stringify({
+          through_message_id: throughMessageId,
+        })
+      : null;
     const res = await fetch(
       `${API_BASE}/api/sessions/${encodeURIComponent(sessionId)}/fork`,
-      { method: "POST" },
+      {
+        method: "POST",
+        ...(body
+          ? {
+              headers: { "Content-Type": "application/json" },
+              body,
+            }
+          : {}),
+      },
     );
     if (!res.ok) {
       console.error("[api] forkSession failed:", await res.text());
@@ -648,6 +671,40 @@ export async function forkSessionRemote(
     return res.json();
   } catch (e) {
     console.error("[api] forkSession error:", e);
+    return null;
+  }
+}
+
+export interface RollbackSessionResult {
+  session_id: string;
+  through_message_id: string;
+  seq: number;
+  removed_message_ids: string[];
+  prefill_content: Array<{ type: string; text?: string; data?: unknown }>;
+  title: string;
+  workspace: string;
+}
+
+export async function rollbackSessionRemote(
+  sessionId: string,
+  throughMessageId: string,
+): Promise<RollbackSessionResult | null> {
+  try {
+    const res = await fetch(
+      `${API_BASE}/api/sessions/${encodeURIComponent(sessionId)}/rollback`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ through_message_id: throughMessageId }),
+      },
+    );
+    if (!res.ok) {
+      console.error("[api] rollbackSession failed:", await res.text());
+      return null;
+    }
+    return (await res.json()) as RollbackSessionResult;
+  } catch (error) {
+    console.error("[api] rollbackSession request failed:", error);
     return null;
   }
 }
@@ -981,6 +1038,9 @@ export interface SkillCreateInput {
 /** 把后端返回的 skill 行补上 id（= name），便于前端按主键引用。 */
 function mapSkillRow(s: any): SkillSummary {
   const name = typeof s?.name === "string" ? s.name : "";
+  const knownScopes = ["global", "private", "external", "system", "project", "agent", "workspace"];
+  const rawScope = typeof s?.scope === "string" ? s.scope : undefined;
+  const scope = rawScope && knownScopes.includes(rawScope) ? rawScope as SkillSummary["scope"] : undefined;
   const source = s?.source?.kind === "filesystem" && typeof s.source.path === "string"
     ? { kind: "filesystem" as const, path: s.source.path }
     : s?.source?.kind === "content"
@@ -994,9 +1054,7 @@ function mapSkillRow(s: any): SkillSummary {
     kind: s?.kind === "file" ? "file" : "dir",
     updated_at: typeof s?.updated_at === "number" ? s.updated_at : 0,
     disabled: s?.disabled === true,
-    scope: ["global", "private", "external", "system", "project", "agent", "workspace"].includes(s?.scope)
-      ? s.scope
-      : "global",
+    scope,
     origin: ["system", "project", "agent", "external", "unknown"].includes(s?.origin)
       ? s.origin
       : ["system", "project", "agent", "external", "unknown"].includes(s?.scope_kind)
@@ -1360,21 +1418,6 @@ export async function revertDiff(
 ): Promise<{ status: string } | null> {
   console.warn("[api] revertDiff not implemented");
   return null;
-}
-
-export async function previewRollback(
-  _sessionId: string,
-  _messageId: string,
-): Promise<any> {
-  return { error: "not_available", message: "回滚功能需要连接 AI 后端" };
-}
-
-export async function executeRollback(
-  _sessionId: string,
-  _messageId: string,
-  _skipCodeRestore?: boolean,
-): Promise<any> {
-  return { error: "not_available", message: "回滚功能需要连接 AI 后端" };
 }
 
 // ─── Archives ───────────────────────────────────────────────────────

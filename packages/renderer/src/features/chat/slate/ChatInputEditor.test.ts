@@ -3,6 +3,60 @@ import { describe, expect, it } from "vitest";
 import { ChatInputEditor } from "./ChatInputEditor";
 
 describe("ChatInputEditor Skill token", () => {
+  const inputWithCaret = (text: string, offset = text.length) => {
+    const input = new ChatInputEditor();
+    input.editor.children = [{ type: "paragraph", children: [{ text }] }];
+    Transforms.select(input.editor, {
+      anchor: { path: [0, 0], offset },
+      focus: { path: [0, 0], offset },
+    });
+    return input;
+  };
+
+  it("opens the Skill menu for a leading slash", () => {
+    const result = inputWithCaret("/review").getSkillSearch();
+
+    expect(result?.search).toBe("review");
+    expect(result?.atInputStart).toBe(true);
+  });
+
+  it("accepts a slash at any text position but marks commands as ineligible", () => {
+    const result = inputWithCaret("请检查/review").getSkillSearch();
+
+    expect(result?.search).toBe("review");
+    expect(result?.atInputStart).toBe(false);
+  });
+
+  it("does not treat a slash after a selected Skill as an input-start command", () => {
+    const input = new ChatInputEditor();
+    input.editor.children = [{
+      type: "paragraph",
+      children: [
+        {
+          type: "skill-token",
+          ref: {
+            version: "v1",
+            type: "skill",
+            name: "review-code",
+            args: {},
+            raw: "![ftre:skill](ftre://v1/skill/review-code)",
+          },
+          children: [{ text: "" }],
+        },
+        { text: " /help" },
+      ],
+    }];
+    Transforms.select(input.editor, {
+      anchor: { path: [0, 1], offset: 6 },
+      focus: { path: [0, 1], offset: 6 },
+    });
+
+    const result = input.getSkillSearch();
+
+    expect(result?.search).toBe("help");
+    expect(result?.atInputStart).toBe(false);
+  });
+
   it("leaves the caret after the inserted Skill token", () => {
     const input = new ChatInputEditor();
     input.editor.children = [{

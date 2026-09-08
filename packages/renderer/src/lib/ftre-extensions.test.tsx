@@ -2,6 +2,8 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { parseFtreTokens, parseFtreUri, serializeFtreRef, SkillReferenceCard } from "./ftre-extensions";
 import { useInspector } from "@/stores/inspector";
+import { useChat } from "@/stores/chat";
+import { useSession } from "@/stores/session";
 
 const fetchSkillMock = vi.hoisted(() => vi.fn());
 
@@ -110,6 +112,48 @@ describe("ftre inline extensions", () => {
       type: "file",
       filePath: "E:/project/.ftre/skills/workspace-skill/SKILL.md",
     });
+  });
+
+  it("loads preview details with the outbound Agent scope", async () => {
+    useInspector.setState({ tabs: [], activeTabId: null });
+    useChat.setState({ sessionId: "session-1", agentId: "selected-agent" });
+    useSession.setState({
+      sessions: [{
+        session_id: "session-1",
+        agent_id: "session-agent",
+        workspace: "E:/workspace",
+        channel: "ws",
+      }],
+      allSessions: [],
+    });
+    fetchSkillMock.mockResolvedValueOnce({
+      skill: {
+        id: "review-code",
+        name: "review-code",
+        description: "Review",
+        kind: "file",
+        updated_at: 0,
+        content: "# Review",
+      },
+    });
+
+    try {
+      render(
+        <SkillReferenceCard
+          ref={{ version: "v1", type: "skill", name: "review-code", args: {}, raw: "" }}
+        />,
+      );
+      fireEvent.click(screen.getByRole("button", { name: "打开 Skill：Review Code" }));
+
+      await waitFor(() => expect(fetchSkillMock).toHaveBeenCalledWith(
+        "review-code",
+        "selected-agent",
+        "E:/workspace",
+      ));
+    } finally {
+      useChat.setState({ sessionId: null, agentId: "default" });
+      useSession.setState({ sessions: [], allSessions: [] });
+    }
   });
 
   it("shows Skill origin, command and route in the preview tooltip", async () => {
